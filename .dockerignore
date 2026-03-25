@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+
+# Node modules (will be installed in Docker)
+node_modules
+
+# Build output
+dist
+
+# Tests
+tests
+*.test.ts
+test-*.ts
+
+# Documentation
+*.md
+!README.md
+CLAUDE.md
+EVIDENCE.md
+IMPLEMENTATION_COMPLETE.md
+
+# OpenSpec
+openspec
+
+# Scripts
+*.sh
+
+# IDE
+.vscode
+.idea
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

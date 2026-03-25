@@ -1,0 +1,55 @@
+{
+  "name": "@metabob/metabob-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing Metabob analysis capabilities to AI agents",
+  "type": "module",
+  "bin": {
+    "metabob-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build src/cli.ts --target node --outdir dist && chmod +x dist/cli.js",
+    "prepublishOnly": "bun run typecheck && bun run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "metabob",
+    "code-analysis",
+    "ai-agent",
+    "claude",
+    "cursor",
+    "code-property-graph",
+    "cpg"
+  ],
+  "author": "Metabob Inc.",
+  "license": "PROPRIETARY",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/metabob/metabob-devbob",
+    "directory": "repos/metabob-mcp"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  }
+}
