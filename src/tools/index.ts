@@ -9,6 +9,7 @@ import * as SuggestRelatedChanges from './suggest-related-changes.js';
 import * as AnalyzeChangeImpact from './analyze-change-impact.js';
 import * as MarkProblemComplete from './mark-problem-complete.js';
 import * as GenerateImplementationSpec from './generate-implementation-spec.js';
+import * as InitWorkspace from './init-workspace.js';
 import * as Activity from './activity.js';
 
 export interface Tool {
@@ -55,6 +56,13 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...GenerateImplementationSpec.GenerateImplementationSpecTool,
     handler: GenerateImplementationSpec.handle,
     validateInput: (input: any) => GenerateImplementationSpec.InputSchema.parse(input),
+  },
+
+  // Workspace initialization
+  init_workspace: {
+    ...InitWorkspace.InitWorkspaceTool,
+    handler: InitWorkspace.handle,
+    validateInput: (input: any) => InitWorkspace.InputSchema.parse(input),
   },
 
   // Activity tools (connection slots & resolution)
