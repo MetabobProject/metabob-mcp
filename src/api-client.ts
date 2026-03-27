@@ -53,6 +53,13 @@ export interface MCPError {
   suggestion?: string;
 }
 
+/** Prediction record for feedback tracking */
+interface PredictionRecord {
+  tool: string;
+  predicted_files: string[];
+  timestamp: Date;
+}
+
 export class AnalysisAPIClient {
   private baseURL: string;
   private activityApiUrl?: string;
@@ -67,6 +74,8 @@ export class AnalysisAPIClient {
   private connectionManager?: ConnectionManager;
   private useConnectionSlots: boolean;
   private onConnectionStateChange?: (state: ConnectionState) => void;
+  /** Recent predictions per session for feedback tracking */
+  private predictions: Map<string, PredictionRecord[]> = new Map();
 
   constructor(config: APIClientConfig) {
     this.baseURL = config.baseURL || 'http://localhost:8081';
@@ -432,6 +441,149 @@ export class AnalysisAPIClient {
     }
 
     return response.json() as Promise<{ status: string }>;
+  }
+
+  // ===== Learning Loop Methods (Non-blocking) =====
+
+  /**
+   * Report co-change event to learning backend (non-blocking)
+   * Called after suggest_related_changes tool is used
+   */
+  reportCochange(
+    sessionId: string,
+    changedFiles: string[],
+    suggestedFiles: string[]
+  ): void {
+    // Fire and forget - don't block the tool response
+    this.post('/v2/analysis/learning/cochange', {
+      changed_files: changedFiles,
+      suggested_files: suggestedFiles,
+      timestamp: new Date().toISOString(),
+    }, sessionId).catch(error => {
+      // Log but don't throw - learning is non-critical
+      console.error('[metabob-mcp] Failed to report co-change:', error);
+    });
+  }
+
+  /**
+   * Report tool usage to learning backend (non-blocking)
+   * Called after any tool is used for pattern learning
+   */
+  reportToolUsage(
+    sessionId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+    outputSummary: { success: boolean; resultCount?: number; durationMs: number }
+  ): void {
+    // Fire and forget
+    this.post('/v2/analysis/learning/tool-usage', {
+      tool: toolName,
+      input_summary: {
+        // Don't send full input, just structure
+        param_keys: Object.keys(input),
+        file_count: Array.isArray(input.changed_files) ? input.changed_files.length : undefined,
+      },
+      output: outputSummary,
+      timestamp: new Date().toISOString(),
+    }, sessionId).catch(error => {
+      console.error('[metabob-mcp] Failed to report tool usage:', error);
+    });
+  }
+
+  /**
+   * Submit prediction feedback to learning backend (non-blocking)
+   * Called when actual changes are recorded vs predictions
+   */
+  submitFeedback(
+    sessionId: string,
+    feedback: {
+      tool: string;
+      predicted_files: string[];
+      actual_files: string[];
+      accuracy: number;
+      timestamp: string;
+    }
+  ): void {
+    // Fire and forget
+    this.post('/v2/analysis/learning/feedback', feedback, sessionId).catch(error => {
+      console.error('[metabob-mcp] Failed to submit feedback:', error);
+    });
+  }
+
+  /**
+   * Track a prediction for later feedback comparison
+   * Called when a tool makes file predictions (e.g., suggest_related_changes)
+   */
+  trackPrediction(
+    sessionId: string,
+    tool: string,
+    predictedFiles: string[]
+  ): void {
+    let sessionPredictions = this.predictions.get(sessionId);
+    if (!sessionPredictions) {
+      sessionPredictions = [];
+      this.predictions.set(sessionId, sessionPredictions);
+    }
+
+    // Keep only last 10 predictions per session
+    if (sessionPredictions.length >= 10) {
+      sessionPredictions.shift();
+    }
+
+    sessionPredictions.push({
+      tool,
+      predicted_files: predictedFiles,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Record actual file changes and submit feedback for recent predictions
+   * Called when a problem is marked complete or changes are committed
+   */
+  recordActualChangesAndSubmitFeedback(
+    sessionId: string,
+    actualFiles: string[]
+  ): void {
+    const sessionPredictions = this.predictions.get(sessionId);
+    if (!sessionPredictions || sessionPredictions.length === 0) {
+      return;
+    }
+
+    // Compare with recent predictions (last 30 minutes)
+    const now = Date.now();
+    const recentPredictions = sessionPredictions.filter(p => {
+      const ageMs = now - p.timestamp.getTime();
+      return ageMs < 30 * 60 * 1000;
+    });
+
+    for (const prediction of recentPredictions) {
+      // Calculate accuracy
+      const predictedSet = new Set(prediction.predicted_files);
+      const actualSet = new Set(actualFiles);
+
+      let matches = 0;
+      for (const file of actualFiles) {
+        if (predictedSet.has(file)) {
+          matches++;
+        }
+      }
+
+      const total = Math.max(predictedSet.size, actualSet.size);
+      const accuracy = total > 0 ? matches / total : 0;
+
+      // Submit feedback (non-blocking)
+      this.submitFeedback(sessionId, {
+        tool: prediction.tool,
+        predicted_files: prediction.predicted_files,
+        actual_files: actualFiles,
+        accuracy,
+        timestamp: prediction.timestamp.toISOString(),
+      });
+    }
+
+    // Clear processed predictions
+    this.predictions.set(sessionId, []);
   }
 
   /**

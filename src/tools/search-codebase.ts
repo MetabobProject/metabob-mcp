@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
+import { formatQualitySignals, extractQualitySignals } from '../quality-signals.js';
 
 export const SearchCodebaseTool = {
   name: 'search_codebase',
@@ -77,6 +78,9 @@ export interface SearchCodebaseOutput {
     match_reason: string;
   }>;
   query_time_ms: number;
+  // Quality signals
+  cpg_status?: 'empty' | 'indexing' | 'ready';
+  components_searched?: number;
 }
 
 export async function handle(
@@ -107,7 +111,13 @@ function formatAsText(query: string, result: SearchCodebaseOutput, durationMs: n
   const { results } = result;
 
   if (results.length === 0) {
-    return `No results found for query: "${query}"`;
+    let text = `No results found for query: "${query}"`;
+
+    // Add quality signals even for empty results
+    const qualitySignals = extractQualitySignals(result as unknown as Record<string, unknown>);
+    text += formatQualitySignals(qualitySignals);
+
+    return text;
   }
 
   let text = `Search results for: "${query}"\n`;
@@ -129,6 +139,10 @@ function formatAsText(query: string, result: SearchCodebaseOutput, durationMs: n
   }
 
   text += `\nSearch completed in ${durationMs}ms`;
+
+  // Add quality signals
+  const qualitySignals = extractQualitySignals(result as unknown as Record<string, unknown>);
+  text += formatQualitySignals(qualitySignals);
 
   return text;
 }

@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
+import { formatQualitySignals, extractQualitySignals } from '../quality-signals.js';
 
 export const SuggestRelatedChangesTool = {
   name: 'suggest_related_changes',
@@ -73,6 +74,10 @@ export interface SuggestRelatedChangesOutput {
   }>;
   model_version: string;
   query_time_ms: number;
+  // Quality signals
+  cpg_status?: 'empty' | 'indexing' | 'ready';
+  components_found?: number;
+  historical_patterns_found?: number;
 }
 
 export async function handle(
@@ -95,6 +100,20 @@ export async function handle(
   );
 
   const duration = Date.now() - startTime;
+
+  // Report to learning backend (non-blocking)
+  const suggestedFiles = result.suggestions.map(s => s.file_path);
+  apiClient.reportCochange(sessionId, input.changed_files, suggestedFiles);
+  apiClient.reportToolUsage(sessionId, 'suggest_related_changes', input as Record<string, unknown>, {
+    success: true,
+    resultCount: result.suggestions.length,
+    durationMs: duration,
+  });
+
+  // Track prediction for feedback comparison
+  if (suggestedFiles.length > 0) {
+    apiClient.trackPrediction(sessionId, 'suggest_related_changes', suggestedFiles);
+  }
 
   // Format as human-readable text
   return formatAsText(input.changed_files, result, duration);
@@ -150,6 +169,10 @@ function formatAsText(
 
   text += `\nModel: ${model_version}\n`;
   text += `Analysis completed in ${durationMs}ms`;
+
+  // Add quality signals
+  const qualitySignals = extractQualitySignals(result as unknown as Record<string, unknown>);
+  text += formatQualitySignals(qualitySignals);
 
   return text;
 }

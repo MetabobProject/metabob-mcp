@@ -79,6 +79,30 @@ export async function handle(
 
   const duration = Date.now() - startTime;
 
+  // Extract actual changed files from the resolution
+  // The component_id typically contains the file path
+  const actualFiles: string[] = [];
+  if (result.annotation?.component_id) {
+    // Extract file path from component_id (format: file/path::type::name::line)
+    const filePath = result.annotation.component_id.split('::')[0];
+    if (filePath) {
+      actualFiles.push(filePath);
+    }
+  }
+
+  // If we have a commit reference, the actual files should include that context
+  // For now, just use the component as the changed file
+  if (actualFiles.length > 0) {
+    // Record actual changes and submit feedback for recent predictions (non-blocking)
+    apiClient.recordActualChangesAndSubmitFeedback(sessionId, actualFiles);
+  }
+
+  // Report tool usage (non-blocking)
+  apiClient.reportToolUsage(sessionId, 'mark_problem_complete', input as Record<string, unknown>, {
+    success: true,
+    durationMs: duration,
+  });
+
   // Format as human-readable text
   return formatAsText(result, duration);
 }

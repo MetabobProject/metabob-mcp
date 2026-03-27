@@ -1,6 +1,21 @@
 /**
- * Manages MCP session context and usage tracking
+ * Manages MCP session context, usage tracking, and prediction feedback
  */
+
+export interface PredictionRecord {
+  tool: string;
+  predicted_files: string[];
+  timestamp: Date;
+  input_files?: string[];
+}
+
+export interface FeedbackResult {
+  tool: string;
+  predicted_files: string[];
+  actual_files: string[];
+  accuracy: number;
+  timestamp: string;
+}
 
 export interface SessionContext {
   sessionId: string;
@@ -13,6 +28,8 @@ export interface SessionContext {
     totalLatency: number;
     errors: number;
   };
+  /** Recent predictions for feedback tracking */
+  predictions: PredictionRecord[];
 }
 
 export interface SessionManagerConfig {
@@ -59,6 +76,7 @@ export class SessionManager {
           totalLatency: 0,
           errors: 0,
         },
+        predictions: [],
       };
       this.sessions.set(sessionId, session);
     } else {
@@ -67,6 +85,75 @@ export class SessionManager {
     }
 
     return session;
+  }
+
+  /**
+   * Track a prediction for later feedback comparison
+   * Called when a tool makes file predictions (e.g., suggest_related_changes)
+   */
+  trackPrediction(
+    sessionId: string,
+    prediction: { tool: string; predicted_files: string[]; input_files?: string[] }
+  ): void {
+    const session = this.getSession(sessionId);
+
+    // Keep only last 10 predictions to avoid memory bloat
+    if (session.predictions.length >= 10) {
+      session.predictions.shift();
+    }
+
+    session.predictions.push({
+      ...prediction,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Record actual file changes and compute feedback
+   * Called when a problem is marked complete or changes are committed
+   * Returns feedback result that can be sent to learning backend
+   */
+  recordActualChanges(
+    sessionId: string,
+    actualFiles: string[]
+  ): FeedbackResult[] {
+    const session = this.getSession(sessionId);
+    const results: FeedbackResult[] = [];
+
+    // Compare with recent predictions
+    for (const prediction of session.predictions) {
+      // Only consider predictions from last 30 minutes
+      const ageMs = Date.now() - prediction.timestamp.getTime();
+      if (ageMs > 30 * 60 * 1000) continue;
+
+      // Calculate accuracy: how many predicted files were actually changed
+      const predictedSet = new Set(prediction.predicted_files);
+      const actualSet = new Set(actualFiles);
+
+      let matches = 0;
+      for (const file of actualFiles) {
+        if (predictedSet.has(file)) {
+          matches++;
+        }
+      }
+
+      // Accuracy = matches / max(predicted, actual) to penalize both under and over prediction
+      const total = Math.max(predictedSet.size, actualSet.size);
+      const accuracy = total > 0 ? matches / total : 0;
+
+      results.push({
+        tool: prediction.tool,
+        predicted_files: prediction.predicted_files,
+        actual_files: actualFiles,
+        accuracy,
+        timestamp: prediction.timestamp.toISOString(),
+      });
+    }
+
+    // Clear processed predictions
+    session.predictions = [];
+
+    return results;
   }
 
   /**
