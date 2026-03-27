@@ -9,6 +9,7 @@ import * as SuggestRelatedChanges from './suggest-related-changes.js';
 import * as AnalyzeChangeImpact from './analyze-change-impact.js';
 import * as MarkProblemComplete from './mark-problem-complete.js';
 import * as GenerateImplementationSpec from './generate-implementation-spec.js';
+import * as Activity from './activity.js';
 
 export interface Tool {
   name: string;
@@ -19,6 +20,7 @@ export interface Tool {
 }
 
 export const TOOL_REGISTRY: Record<string, Tool> = {
+  // Analysis tools
   get_priority_issues: {
     ...GetPriorityIssues.GetPriorityIssuesTool,
     handler: GetPriorityIssues.handle,
@@ -53,6 +55,28 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...GenerateImplementationSpec.GenerateImplementationSpecTool,
     handler: GenerateImplementationSpec.handle,
     validateInput: (input: any) => GenerateImplementationSpec.InputSchema.parse(input),
+  },
+
+  // Activity tools (connection slots & resolution)
+  resolve_impulse: {
+    ...Activity.ResolveImpulseTool,
+    handler: Activity.handleResolveImpulse,
+    validateInput: (input: any) => Activity.ResolveImpulseInputSchema.parse(input),
+  },
+  run_goal: {
+    ...Activity.RunGoalTool,
+    handler: Activity.handleRunGoal,
+    validateInput: (input: any) => Activity.RunGoalInputSchema.parse(input),
+  },
+  get_recommendations: {
+    ...Activity.GetRecommendationsTool,
+    handler: Activity.handleGetRecommendations,
+    validateInput: (input: any) => Activity.GetRecommendationsInputSchema.parse(input),
+  },
+  submit_trace: {
+    ...Activity.SubmitTraceTool,
+    handler: Activity.handleSubmitTrace,
+    validateInput: (input: any) => Activity.SubmitTraceInputSchema.parse(input),
   },
 };
 

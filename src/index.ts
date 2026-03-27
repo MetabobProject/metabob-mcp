@@ -23,21 +23,28 @@ import { ZodError } from 'zod';
 
 // Configuration from environment variables
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'http://localhost:8081';
+const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'http://localhost:8080';
 const SESSION_ID = process.env.SESSION_ID || 'default-session';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 const JWT_TOKEN = process.env.JWT_TOKEN;
+const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 
 // Initialize clients
 const apiClient = new AnalysisAPIClient({
   baseURL: ANALYSIS_API_URL,
+  activityApiUrl: ACTIVITY_API_URL,
   timeout: 30000,
   retryAttempts: 3,
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
   jwtToken: JWT_TOKEN,
+  useConnectionSlots: USE_CONNECTION_SLOTS,
+  onConnectionStateChange: (state) => {
+    log('info', `Connection state changed: ${state}`);
+  },
 });
 
 const sessionManager = new SessionManager({
@@ -233,9 +240,11 @@ async function main() {
 
   log('info', 'Starting metabob-mcp server', {
     analysisAPIURL: ANALYSIS_API_URL,
+    activityAPIURL: ACTIVITY_API_URL,
     sessionId: SESSION_ID,
     logLevel: LOG_LEVEL,
     auth: authMethod,
+    connectionSlots: USE_CONNECTION_SLOTS,
   });
 
   // Start health check server
@@ -277,6 +286,27 @@ async function main() {
     log('warn', 'Analysis API health check failed (continuing anyway)', { error });
   }
 
+  // Acquire connection slot if enabled
+  if (USE_CONNECTION_SLOTS) {
+    try {
+      log('info', 'Acquiring connection slot...');
+      const connectionInfo = await apiClient.connectWithSlot();
+      if (connectionInfo) {
+        log('info', 'Connection slot acquired', {
+          connectionId: connectionInfo.connectionId,
+          slotNumber: connectionInfo.slotNumber,
+          maxSlots: connectionInfo.maxSlots,
+          gracePeriodMs: connectionInfo.gracePeriodMs,
+        });
+      }
+    } catch (error) {
+      const err = error as Error;
+      log('error', 'Failed to acquire connection slot', { error: err.message });
+      // Continue without connection slot - tools will still work but may be rate limited
+      log('warn', 'Continuing without connection slot. Some features may be limited.');
+    }
+  }
+
   // Create transport and connect
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -286,7 +316,7 @@ async function main() {
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
     log('info', 'Shutting down...');
-    apiClient.stopAutoRefresh();
+    await apiClient.shutdown();
     await healthServer.stop();
     sessionManager.stop();
     await server.close();
@@ -295,7 +325,7 @@ async function main() {
 
   process.on('SIGTERM', async () => {
     log('info', 'Shutting down...');
-    apiClient.stopAutoRefresh();
+    await apiClient.shutdown();
     await healthServer.stop();
     sessionManager.stop();
     await server.close();

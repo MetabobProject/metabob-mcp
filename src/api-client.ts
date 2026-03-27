@@ -1,10 +1,20 @@
 /**
- * HTTP client for metabob-analysis-api
- * Handles retries, timeouts, and error transformation
+ * HTTP client for metabob-analysis-api and metabob-activity-api
+ * Handles retries, timeouts, error transformation, and connection slots
  */
+
+import {
+  ConnectionManager,
+  ConnectionSlotError,
+  GracePeriodExpiredError,
+  type ConnectionState,
+  type ConnectionInfo,
+} from './connection-manager.js';
 
 export interface APIClientConfig {
   baseURL: string;
+  /** Activity API URL (for connection slots and resolution) */
+  activityApiUrl?: string;
   timeout?: number;
   retryAttempts?: number;
   retryDelayMs?: number;
@@ -12,7 +22,20 @@ export interface APIClientConfig {
   jwtToken?: string;
   /** API key for authentication (will be exchanged for JWT) */
   apiKey?: string;
+  /** Enable connection slot management */
+  useConnectionSlots?: boolean;
+  /** Callback when connection state changes */
+  onConnectionStateChange?: (state: ConnectionState) => void;
 }
+
+// Re-export connection types
+export {
+  ConnectionManager,
+  ConnectionSlotError,
+  GracePeriodExpiredError,
+  type ConnectionState,
+  type ConnectionInfo,
+};
 
 export interface AuthResponse {
   token: string;
@@ -32,6 +55,7 @@ export interface MCPError {
 
 export class AnalysisAPIClient {
   private baseURL: string;
+  private activityApiUrl?: string;
   private timeout: number;
   private retryAttempts: number;
   private retryDelayMs: number;
@@ -40,14 +64,93 @@ export class AnalysisAPIClient {
   private tokenExpiresAt?: Date;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private authInfo?: { org_id: string; user_id: string; scopes: string[] };
+  private connectionManager?: ConnectionManager;
+  private useConnectionSlots: boolean;
+  private onConnectionStateChange?: (state: ConnectionState) => void;
 
   constructor(config: APIClientConfig) {
     this.baseURL = config.baseURL || 'http://localhost:8081';
+    this.activityApiUrl = config.activityApiUrl;
     this.timeout = config.timeout || 30000;
     this.retryAttempts = config.retryAttempts || 3;
     this.retryDelayMs = config.retryDelayMs || 100;
     this.jwtToken = config.jwtToken;
     this.apiKey = config.apiKey;
+    this.useConnectionSlots = config.useConnectionSlots || false;
+    this.onConnectionStateChange = config.onConnectionStateChange;
+
+    // Initialize connection manager if activity API is configured
+    if (this.activityApiUrl && this.useConnectionSlots) {
+      this.connectionManager = new ConnectionManager({
+        activityApiUrl: this.activityApiUrl,
+        jwtToken: this.jwtToken,
+        apiKey: this.apiKey,
+        onStateChange: (state) => {
+          console.error(`[metabob-mcp] Connection state: ${state}`);
+          if (this.onConnectionStateChange) {
+            this.onConnectionStateChange(state);
+          }
+        },
+        onConnectionLost: (gracePeriodMs) => {
+          console.error(`[metabob-mcp] Connection lost, grace period: ${gracePeriodMs}ms`);
+        },
+      });
+    }
+  }
+
+  /**
+   * Get connection manager (if enabled)
+   */
+  getConnectionManager(): ConnectionManager | undefined {
+    return this.connectionManager;
+  }
+
+  /**
+   * Get current connection ID (if connected)
+   */
+  getConnectionId(): string | undefined {
+    return this.connectionManager?.getConnectionId();
+  }
+
+  /**
+   * Connect and acquire a slot (if connection slots enabled)
+   */
+  async connectWithSlot(): Promise<ConnectionInfo | undefined> {
+    if (!this.connectionManager) {
+      return undefined;
+    }
+
+    const info = await this.connectionManager.connect();
+
+    // Update JWT token from connection
+    if (info.jwtToken) {
+      this.jwtToken = info.jwtToken;
+    }
+
+    return info;
+  }
+
+  /**
+   * Disconnect and release slot
+   */
+  async disconnectSlot(): Promise<void> {
+    if (this.connectionManager) {
+      await this.connectionManager.disconnect();
+    }
+  }
+
+  /**
+   * Start execution tracking for heartbeat
+   */
+  startExecution(executionId: string, phase: string = 'running'): void {
+    this.connectionManager?.startExecution(executionId, phase);
+  }
+
+  /**
+   * End execution tracking
+   */
+  endExecution(): void {
+    this.connectionManager?.endExecution();
   }
 
   /**
@@ -179,16 +282,30 @@ export class AnalysisAPIClient {
   }
 
   /**
-   * Build headers for requests, including JWT if available
+   * Stop all background activities and disconnect
    */
-  private buildHeaders(sessionId: string): HeadersInit {
-    const headers: HeadersInit = {
+  async shutdown(): Promise<void> {
+    this.stopAutoRefresh();
+    await this.disconnectSlot();
+  }
+
+  /**
+   * Build headers for requests, including JWT and Connection-ID if available
+   */
+  private buildHeaders(sessionId: string): Record<string, string> {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Session-ID': sessionId,
     };
 
     if (this.jwtToken) {
       headers['Authorization'] = `Bearer ${this.jwtToken}`;
+    }
+
+    // Add connection ID if using connection slots
+    const connectionId = this.connectionManager?.getConnectionId();
+    if (connectionId) {
+      headers['X-Connection-ID'] = connectionId;
     }
 
     return headers;
@@ -370,12 +487,24 @@ export class AnalysisAPIClient {
     };
 
     // Add helpful suggestions
-    if (response.status === 404) {
+    if (response.status === 402) {
+      mcpError.code = 'BUDGET_EXCEEDED';
+      mcpError.suggestion = 'Monthly LLM token budget exhausted. Pattern matches still work. Budget resets at the date shown.';
+    } else if (response.status === 404) {
       mcpError.suggestion = 'Try using search_codebase to find the correct component ID';
     } else if (response.status === 429) {
-      mcpError.suggestion = 'Wait a moment before retrying. Rate limit will reset soon.';
+      // Check if this is a slot limit error
+      if (errorData.slots_used !== undefined) {
+        mcpError.code = 'SLOT_LIMIT_REACHED';
+        mcpError.suggestion = `Connection slot limit reached (${errorData.slots_used}/${errorData.max_slots}). Close other connections or upgrade your plan.`;
+      } else {
+        mcpError.suggestion = 'Wait a moment before retrying. Rate limit will reset soon.';
+      }
     } else if (response.status === 401) {
       mcpError.suggestion = 'Check that X-Session-ID header is set correctly';
+    } else if (response.status === 410) {
+      mcpError.code = 'GRACE_PERIOD_EXPIRED';
+      mcpError.suggestion = 'Connection grace period expired. Reconnect to acquire a new slot.';
     } else if (response.status >= 500) {
       mcpError.suggestion = 'The analysis API is experiencing issues. Try again in a moment.';
     }
