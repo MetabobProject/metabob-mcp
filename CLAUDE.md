@@ -1,6 +1,10 @@
-# metabob-mcp - Usage Instructions for AI Agents
+# metabob-mcp Development Guidelines
 
-This MCP server exposes Metabob code analysis capabilities to AI agents. Use these tools to analyze code, find issues, and generate implementation specifications.
+## Overview
+
+MCP (Model Context Protocol) server that exposes Metabob code analysis capabilities to AI agents. Enables IDE integrations to access analysis, search, and annotation features.
+
+> **Canonical reference**: `docs/architecture/IMPULSE_ACTIVITY_FOUNDATION.md`
 
 ## Available Tools
 
@@ -101,22 +105,17 @@ Generate detailed implementation specification from high-level goal.
 3. Implement the feature
 4. `suggest_related_changes` - Verify all updates made
 
-## Error Handling
-
-The server includes:
-- **Rate limiting:** 60 requests/minute per session
-- **Circuit breaker:** Opens after 5 consecutive API failures
-- **Graceful degradation:** Helpful error messages with suggestions
-
 ## Environment Variables
 
-- `METABOB_API_KEY`: API key for authentication (recommended)
-- `ANALYSIS_API_URL`: Backend API URL (default: http://localhost:8081)
-- `SESSION_ID`: Session identifier (default: default-session)
-- `LOG_LEVEL`: Logging level (info, debug, error)
-- `MAX_REQUESTS_PER_MINUTE`: Rate limit (default: 60)
-- `JWT_TOKEN`: JWT token for multi-tenant authentication (advanced, use API key instead)
-- `HEALTH_PORT`: HTTP port for health checks (default: 8080)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `METABOB_API_KEY` | API key for authentication | (recommended) |
+| `ANALYSIS_API_URL` | Backend API URL | `http://localhost:8081` |
+| `SESSION_ID` | Session identifier | `default-session` |
+| `LOG_LEVEL` | Logging level | `info` |
+| `MAX_REQUESTS_PER_MINUTE` | Rate limit | `60` |
+| `JWT_TOKEN` | JWT token (advanced) | - |
+| `HEALTH_PORT` | HTTP port for health checks | `8080` |
 
 ## Authentication
 
@@ -151,112 +150,57 @@ For advanced use cases, you can provide a JWT token directly via `JWT_TOKEN` or 
 npx @metabob/metabob-mcp --jwt-token=eyJhbGciOiJIUzI1NiIs...
 ```
 
----
+## Error Handling
 
-## Bun-Specific Instructions
+The server includes:
+- **Rate limiting:** 60 requests/minute per session
+- **Circuit breaker:** Opens after 5 consecutive API failures
+- **Graceful degradation:** Helpful error messages with suggestions
 
-Default to using Bun instead of Node.js.
+## Development
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+```bash
+# Install dependencies
+bun install
 
-## APIs
+# Run in development
+bun run dev
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+# Run tests
+bun test
 
-## Testing
+# Build for distribution
+bun run build
 
-Use `bun test` to run tests.
-
-```ts#index.test.ts
-import { test, expect } from "bun:test";
-
-test("hello world", () => {
-  expect(1).toBe(1);
-});
+# Type checking
+bun run typecheck
 ```
 
-## Frontend
+## CI/CD Integration
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+### Before Push
 
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
+```bash
+bun test        # Tests must pass
+bun run lint    # Linting must pass
 ```
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
+### Publishing
 
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
+This package is published to npm as `@metabob/metabob-mcp`. Version bumps and publishing are handled via CI.
+
+## Bun Development
+
+Default to Bun for all operations:
+
+```bash
+bun <file>              # Run TypeScript directly
+bun test                # Run tests
+bun run dev             # Development mode
+bun install             # Install dependencies
 ```
 
-With the following `frontend.tsx`:
+## Related Documentation
 
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+- [IMPULSE_ACTIVITY_FOUNDATION.md](../../docs/architecture/IMPULSE_ACTIVITY_FOUNDATION.md)
+- [Root CLAUDE.md](../../CLAUDE.md)
