@@ -18,9 +18,10 @@ export interface APIClientConfig {
   timeout?: number;
   retryAttempts?: number;
   retryDelayMs?: number;
-  /** JWT token for authentication (passed to analysis-api) */
-  jwtToken?: string;
-  /** API key for authentication (will be exchanged for JWT) */
+  /** Session token for authentication (obtained by exchanging an API key at POST /v2/auth/apikey).
+   *  ide.metabob.com does NOT accept JWT signed tokens — only opaque session tokens. */
+  sessionToken?: string;
+  /** API key for authentication (will be exchanged for a session token) */
   apiKey?: string;
   /** Enable connection slot management */
   useConnectionSlots?: boolean;
@@ -37,13 +38,43 @@ export {
   type ConnectionInfo,
 };
 
-export interface AuthResponse {
-  token: string;
-  expires_at: string;
-  expires_in: number;
-  org_id: string;
-  user_id: string;
-  scopes: string[];
+/** Returned by POST /session — the session field is the Bearer token for all subsequent calls. */
+export interface SessionResponse {
+  session: string;
+}
+
+export interface AnalysisResult {
+  path: string;
+  category: string;
+  startLine: number;
+  endLine: number;
+  id: string;
+  summary: string;
+  description: string;
+  severity: string;
+  discarded: boolean;
+  endorsed: boolean;
+}
+
+export interface AnalysisResponse {
+  jobId?: string | null;
+  status: 'complete' | 'pending' | 'running' | 'failed';
+  results?: AnalysisResult[] | null;
+}
+
+export interface JobStatus {
+  jobId: string;
+  sessionId: string;
+  jobType: string;
+  state: string;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  errorMessage?: string;
+  currentFile?: string;
+  progressPercentage?: number;
+  currentStep?: number;
+  totalSteps?: number;
 }
 
 export interface MCPError {
@@ -66,11 +97,12 @@ export class AnalysisAPIClient {
   private timeout: number;
   private retryAttempts: number;
   private retryDelayMs: number;
-  private jwtToken?: string;
-  private apiKey?: string;
-  private tokenExpiresAt?: Date;
+  /** Opaque session token from POST /v2/auth/apikey. NOT a JWT. */
+  private sessionToken?: string;
+  private sessionExpiresAt?: Date;
   private refreshTimer?: ReturnType<typeof setTimeout>;
-  private authInfo?: { org_id: string; user_id: string; scopes: string[] };
+  private apiKey?: string;
+  private authInfo?: { org_id?: string; user_id?: string };
   private connectionManager?: ConnectionManager;
   private useConnectionSlots: boolean;
   private onConnectionStateChange?: (state: ConnectionState) => void;
@@ -83,7 +115,7 @@ export class AnalysisAPIClient {
     this.timeout = config.timeout || 30000;
     this.retryAttempts = config.retryAttempts || 3;
     this.retryDelayMs = config.retryDelayMs || 100;
-    this.jwtToken = config.jwtToken;
+    this.sessionToken = config.sessionToken;
     this.apiKey = config.apiKey;
     this.useConnectionSlots = config.useConnectionSlots || false;
     this.onConnectionStateChange = config.onConnectionStateChange;
@@ -92,7 +124,6 @@ export class AnalysisAPIClient {
     if (this.activityApiUrl && this.useConnectionSlots) {
       this.connectionManager = new ConnectionManager({
         activityApiUrl: this.activityApiUrl,
-        jwtToken: this.jwtToken,
         apiKey: this.apiKey,
         onStateChange: (state) => {
           console.error(`[metabob-mcp] Connection state: ${state}`);
@@ -129,14 +160,7 @@ export class AnalysisAPIClient {
       return undefined;
     }
 
-    const info = await this.connectionManager.connect();
-
-    // Update JWT token from connection
-    if (info.jwtToken) {
-      this.jwtToken = info.jwtToken;
-    }
-
-    return info;
+    return this.connectionManager.connect();
   }
 
   /**
@@ -163,10 +187,11 @@ export class AnalysisAPIClient {
   }
 
   /**
-   * Set or update JWT token for authentication
+   * Set or update session token for authentication.
+   * Pass the token returned by POST /v2/auth/apikey, not a JWT.
    */
-  setJwtToken(token: string | undefined): void {
-    this.jwtToken = token;
+  setSessionToken(token: string | undefined): void {
+    this.sessionToken = token;
   }
 
   /**
@@ -179,7 +204,7 @@ export class AnalysisAPIClient {
   /**
    * Get current auth info (populated after successful authentication)
    */
-  getAuthInfo(): { org_id: string; user_id: string; scopes: string[] } | undefined {
+  getAuthInfo(): { org_id?: string; user_id?: string } | undefined {
     return this.authInfo;
   }
 
@@ -187,102 +212,40 @@ export class AnalysisAPIClient {
    * Check if client is authenticated
    */
   isAuthenticated(): boolean {
-    return !!this.jwtToken && (!this.tokenExpiresAt || this.tokenExpiresAt > new Date());
+    return !!(this.apiKey || this.sessionToken);
   }
 
   /**
-   * Authenticate using API key
-   * Exchanges API key for JWT token and sets up auto-refresh
+   * Authenticate using an API key.
+   * Calls POST /session with { apiKey } and stores the returned session token.
+   * ide.metabob.com issues opaque session tokens — NOT JWTs.
    */
-  async authenticateWithApiKey(): Promise<AuthResponse> {
+  async authenticateWithApiKey(): Promise<SessionResponse> {
     if (!this.apiKey) {
       throw new Error('No API key configured');
     }
 
-    const response = await fetch(`${this.baseURL}/v2/auth/apikey`, {
+    const response = await fetch(`${this.baseURL}/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_key: this.apiKey }),
+      body: JSON.stringify({ apiKey: this.apiKey, project: 'default' }),
       signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const error = errorData as { error?: string; message?: string };
-
+      const error = errorData as { error?: string; message?: string; detail?: unknown };
       if (response.status === 401) {
-        throw new Error(`API key authentication failed: ${error.message || 'Invalid or expired API key'}`);
+        throw new Error(`Authentication failed: ${error.message || 'Invalid or expired API key'}`);
       }
-
-      throw new Error(`API key authentication failed: ${error.message || response.statusText}`);
+      throw new Error(`Authentication failed (${response.status}): ${error.message || response.statusText}`);
     }
 
-    const authResponse = await response.json() as AuthResponse;
-
-    // Store token and auth info
-    this.jwtToken = authResponse.token;
-    this.tokenExpiresAt = new Date(authResponse.expires_at);
-    this.authInfo = {
-      org_id: authResponse.org_id,
-      user_id: authResponse.user_id,
-      scopes: authResponse.scopes,
-    };
-
-    // Schedule auto-refresh at 80% of token lifetime
-    this.scheduleTokenRefresh(authResponse.expires_in);
-
-    return authResponse;
+    const data = await response.json() as SessionResponse;
+    this.sessionToken = data.session;
+    return data;
   }
 
-  /**
-   * Schedule token refresh at 80% of token lifetime
-   */
-  private scheduleTokenRefresh(expiresInSeconds: number): void {
-    // Clear any existing timer
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-    }
-
-    // Refresh at 80% of lifetime (e.g., 12 min for 15 min token)
-    const refreshInMs = expiresInSeconds * 1000 * 0.8;
-
-    this.refreshTimer = setTimeout(async () => {
-      try {
-        await this.authenticateWithApiKey();
-        console.error('[metabob-mcp] Token refreshed successfully');
-      } catch (error) {
-        console.error('[metabob-mcp] Token refresh failed:', error);
-        // Retry with exponential backoff
-        this.retryTokenRefresh(1);
-      }
-    }, refreshInMs);
-  }
-
-  /**
-   * Retry token refresh with exponential backoff
-   */
-  private retryTokenRefresh(attempt: number): void {
-    if (attempt > 3) {
-      console.error('[metabob-mcp] Token refresh failed after 3 attempts, giving up');
-      return;
-    }
-
-    const delayMs = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-
-    this.refreshTimer = setTimeout(async () => {
-      try {
-        await this.authenticateWithApiKey();
-        console.error('[metabob-mcp] Token refreshed successfully on retry');
-      } catch (error) {
-        console.error(`[metabob-mcp] Token refresh retry ${attempt} failed:`, error);
-        this.retryTokenRefresh(attempt + 1);
-      }
-    }, delayMs);
-  }
-
-  /**
-   * Stop auto-refresh timer (call on shutdown)
-   */
   stopAutoRefresh(): void {
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
@@ -307,8 +270,8 @@ export class AnalysisAPIClient {
       'X-Session-ID': sessionId,
     };
 
-    if (this.jwtToken) {
-      headers['Authorization'] = `Bearer ${this.jwtToken}`;
+    if (this.sessionToken) {
+      headers['Authorization'] = `Bearer ${this.sessionToken}`;
     }
 
     // Add connection ID if using connection slots
@@ -425,6 +388,76 @@ export class AnalysisAPIClient {
         throw this.handleError(error);
       }
     });
+  }
+
+  /**
+   * Submit files for analysis via POST /v2/submit (multipart/form-data).
+   * Returns the analysis response — check status; if pending/running poll pollJob().
+   */
+  async submitFiles(
+    files: Array<{ path: string; content: string }>,
+    sessionId: string,
+  ): Promise<AnalysisResponse> {
+    const form = new FormData();
+    for (const f of files) {
+      const filename = f.path.split('/').pop() ?? 'file.txt';
+      form.append('files', new Blob([f.content], { type: 'text/plain' }), filename);
+    }
+
+    const headers = this.buildHeaders(sessionId);
+    delete (headers as Record<string, string>)['Content-Type']; // let fetch set multipart boundary
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    try {
+      const response = await fetch(`${this.baseURL}/v2/submit`, {
+        method: 'POST',
+        headers,
+        body: form,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) throw await this.transformAPIError(response);
+      return response.json() as Promise<AnalysisResponse>;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw this.handleError(error);
+    }
+  }
+
+  /** GET /analysis — returns current analysis results for this session. */
+  async getAnalysis(sessionId: string): Promise<AnalysisResponse> {
+    return this.get<AnalysisResponse>('/analysis', {}, sessionId);
+  }
+
+  /** GET /jobs/{jobId}/status — poll until complete/failed or timeout. */
+  async pollJob(
+    jobId: string,
+    sessionId: string,
+    opts: { timeoutMs?: number; intervalMs?: number } = {},
+  ): Promise<JobStatus> {
+    const deadline = Date.now() + (opts.timeoutMs ?? 120_000);
+    const interval = opts.intervalMs ?? 2_000;
+
+    while (Date.now() < deadline) {
+      const status = await this.get<JobStatus>(`/jobs/${jobId}/status`, {}, sessionId);
+      if (status.state === 'complete' || status.state === 'failed') return status;
+      await new Promise(r => setTimeout(r, interval));
+    }
+    throw new Error(`Job ${jobId} did not complete within ${opts.timeoutMs ?? 120_000}ms`);
+  }
+
+  /** POST /feedback/detection — endorse or discard a problem detection. */
+  async postFeedback(
+    problemId: string,
+    sessionId: string,
+    opts: { endorsed?: boolean; discarded?: boolean } = {},
+  ): Promise<void> {
+    await this.post<unknown>('/feedback/detection', {
+      problemId,
+      endorsed: opts.endorsed,
+      discarded: opts.discarded,
+    }, sessionId);
   }
 
   /**

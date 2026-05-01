@@ -1,0 +1,87 @@
+{
+  "id": "metabob-mcp",
+  "name": "Metabob MCP",
+  "version": "0.1.0",
+  "description": "MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities to AI agents via MCP (stdio) and to the activity system via HTTP resolver. Complements metabob-analysis-api: the analysis-api owns persistent problem storage and server-side CPG; this vessel owns the agent interface and local in-process CPG inference (co-change prediction, impact traversal).",
+
+  "port": 8080,
+
+  "shapes": [
+    "mcp:tool_call",
+    "code:cochange_prediction",
+    "code:impact_analysis"
+  ],
+
+  "resolver": {
+    "endpoint": "/v2/impulses/resolve",
+    "format": "pointer",
+    "authScheme": "ApiKey",
+    "timeoutMs": 30000
+  },
+
+  "tools": [
+    {
+      "name": "init_workspace",
+      "description": "Parse workspace files into the local CPG index. Run before predict_cochanges or analyze_impact."
+    },
+    {
+      "name": "get_problems",
+      "description": "Fetch code problems from the analysis server ranked by severity and impact."
+    },
+    {
+      "name": "search_codebase",
+      "description": "Semantic search over the indexed codebase using natural language."
+    },
+    {
+      "name": "predict_cochanges",
+      "description": "Predict co-changing files/components using local GCN embeddings. No API call required."
+    },
+    {
+      "name": "analyze_impact",
+      "description": "Traverse the local CPG to find downstream dependents of changed files."
+    },
+    {
+      "name": "annotate_component",
+      "description": "Attach design decisions, notes, or warnings to a code component."
+    },
+    {
+      "name": "mark_complete",
+      "description": "Mark a problem as resolved with optional commit reference."
+    },
+    {
+      "name": "generate_spec",
+      "description": "Generate a detailed implementation plan from a natural language goal."
+    },
+    {
+      "name": "get_metrics",
+      "description": "Project-level code health metrics and summary statistics."
+    },
+    {
+      "name": "activity",
+      "description": "Activity lifecycle: resolve_impulse, run_goal, get_recommendations, submit_trace."
+    }
+  ],
+
+  "protocols": ["mcp:stdio", "http:resolver"],
+
+  "dependencies": {
+    "vessels": [
+      "identity-vessel",
+      "metabob-analysis-api"
+    ]
+  },
+
+  "development": {
+    "enabled": true,
+    "startCommand": "bun run dev",
+    "port": 8080,
+    "healthPath": "/health",
+    "notes": [
+      "MCP stdio transport is separate from the HTTP vessel server — both start in the same process.",
+      "Set ANALYSIS_API_URL to point at a running metabob-analysis-api instance.",
+      "Set METABOB_API_KEY for authenticated API calls; the vessel server validates incoming requests against the same key.",
+      "init_workspace must be called before predict_cochanges or analyze_impact — local CPG is in-process only.",
+      "WORKSPACE_PATH defaults to cwd; set it if the agent's cwd differs from the repo root."
+    ]
+  }
+}

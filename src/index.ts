@@ -18,10 +18,12 @@ import { SessionManager } from './session-manager.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
-import { HealthServer } from './health-server.js';
+import { VesselServer } from './vessel-server.js';
+import { AuthService } from './auth-service.js';
+import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { ZodError } from 'zod';
 
-// Configuration from environment variables
+// ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'http://localhost:8081';
 const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'http://localhost:8080';
 const SESSION_ID = process.env.SESSION_ID || 'default-session';
@@ -29,8 +31,15 @@ const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
-const JWT_TOKEN = process.env.JWT_TOKEN;
+/** Pre-obtained session token (skips the key-exchange step). */
+const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
+
+// Vessel system (identity.metabob.com + discovery)
+const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || 'https://identity.metabob.com';
+const ACTIVITY_ENDPOINT = process.env.ACTIVITY_ENDPOINT || 'https://activity.metabob.com';
+const VESSEL_ID = process.env.VESSEL_ID || 'metabob-mcp';
+const VESSEL_ENDPOINT = process.env.VESSEL_ENDPOINT || `http://localhost:${HEALTH_PORT}`;
 
 // Initialize clients
 const apiClient = new AnalysisAPIClient({
@@ -40,7 +49,7 @@ const apiClient = new AnalysisAPIClient({
   retryAttempts: 3,
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
-  jwtToken: JWT_TOKEN,
+  sessionToken: SESSION_TOKEN,
   useConnectionSlots: USE_CONNECTION_SLOTS,
   onConnectionStateChange: (state) => {
     log('info', `Connection state changed: ${state}`);
@@ -62,17 +71,44 @@ const circuitBreaker = new CircuitBreaker({
   resetTimeout: 60000,
 });
 
-const healthServer = new HealthServer({
+// ── Auth service (identity.metabob.com path) ─────────────────────────────────
+const authService = new AuthService();
+const identityApiKey = process.env.IDENTITY_API_KEY ?? METABOB_API_KEY;
+if (identityApiKey) {
+  authService.setApiKey(identityApiKey);
+}
+
+const vesselServer = new VesselServer({
   port: HEALTH_PORT,
   apiClient,
   circuitBreaker,
+  sessionId: SESSION_ID,
+  apiKey: METABOB_API_KEY,
+  authService,
+});
+
+// ── Vessel heartbeat (discovery registration) ─────────────────────────────────
+const vesselHeartbeat = new VesselHeartbeat({
+  activityEndpoint: ACTIVITY_ENDPOINT,
+  vesselId: VESSEL_ID,
+  vesselName: 'Metabob MCP',
+  endpoint: VESSEL_ENDPOINT,
+  shapes: [
+    'mcp:tool_call',
+    'code:cochange_prediction',
+    'code:impact_analysis',
+    'code:git_change_assignment',
+    'code:analysis_context',
+  ],
+  metadata: { version: '0.2.0' },
+  authService,
 });
 
 // Create MCP server
 const server = new Server(
   {
     name: 'metabob-mcp',
-    version: '0.1.0',
+    version: '0.2.0',
   },
   {
     capabilities: {
@@ -236,35 +272,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  */
 async function main() {
   // Determine auth method
-  const authMethod = METABOB_API_KEY ? 'api_key' : JWT_TOKEN ? 'jwt' : 'none';
+  const authMethod = METABOB_API_KEY ? 'api_key' : SESSION_TOKEN ? 'session_token' : 'none';
 
-  log('info', 'Starting metabob-mcp server', {
+  log('info', 'Starting metabob-mcp vessel', {
     analysisAPIURL: ANALYSIS_API_URL,
     activityAPIURL: ACTIVITY_API_URL,
     sessionId: SESSION_ID,
     logLevel: LOG_LEVEL,
     auth: authMethod,
     connectionSlots: USE_CONNECTION_SLOTS,
+    protocols: ['mcp:stdio', `http:resolver(port=${HEALTH_PORT})`],
   });
 
-  // Start health check server
-  try {
-    await healthServer.start();
-  } catch (error) {
-    log('warn', 'Failed to start health server', { error });
+  // Resolve tenant with identity.metabob.com (non-fatal; populates orgId + inline JWT)
+  if (authService.hasKey()) {
+    log('info', `Resolving tenant with identity-vessel (${IDENTITY_ENDPOINT})...`);
+    await authService.resolveTenant(IDENTITY_ENDPOINT);
+    if (authService.isResolved()) {
+      log('info', `Tenant resolved: orgId=${authService.getOrgId()}`);
+    } else {
+      log('warn', 'Tenant resolution incomplete — vessel discovery will use raw ApiKey auth');
+    }
   }
 
-  // Authenticate with API key if provided
+  // Start vessel HTTP server (health + capabilities + impulse resolver)
+  try {
+    await vesselServer.start();
+  } catch (error) {
+    log('warn', 'Failed to start vessel HTTP server', { error });
+  }
+
+  // Authenticate with ide.metabob.com (analysis API path)
   if (METABOB_API_KEY) {
     try {
       log('info', 'Authenticating with API key...');
       const authResponse = await apiClient.authenticateWithApiKey();
-      log('info', 'Authentication successful', {
-        org_id: authResponse.org_id,
-        user_id: authResponse.user_id,
-        scopes: authResponse.scopes,
-        expires_in: authResponse.expires_in,
-      });
+      log('info', 'Session created', { session: authResponse.session.slice(0, 8) + '…' });
     } catch (error) {
       const err = error as Error;
       log('error', 'API key authentication failed', { error: err.message });
@@ -273,9 +316,9 @@ async function main() {
       console.error('Get a new API key from: https://app.metabob.com/settings/api-keys\n');
       process.exit(1);
     }
-  } else if (!JWT_TOKEN) {
+  } else if (!SESSION_TOKEN) {
     log('warn', 'No authentication configured. Some features may be unavailable.');
-    log('warn', 'Set METABOB_API_KEY or use --api-key for authenticated access.');
+    log('warn', 'Set METABOB_API_KEY (exchanged for a session token) or SESSION_TOKEN for authenticated access.');
   }
 
   // Check API health (optional, non-blocking)
@@ -307,6 +350,11 @@ async function main() {
     }
   }
 
+  // Register with discovery-vessel (non-blocking — vessel operates without discovery if unavailable)
+  vesselHeartbeat.start().catch(err => {
+    log('warn', 'Discovery registration failed (continuing without discovery)', { error: (err as Error).message });
+  });
+
   // Create transport and connect
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -316,8 +364,9 @@ async function main() {
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
     log('info', 'Shutting down...');
+    vesselHeartbeat.stop();
     await apiClient.shutdown();
-    await healthServer.stop();
+    await vesselServer.stop();
     sessionManager.stop();
     await server.close();
     process.exit(0);
@@ -325,8 +374,9 @@ async function main() {
 
   process.on('SIGTERM', async () => {
     log('info', 'Shutting down...');
+    vesselHeartbeat.stop();
     await apiClient.shutdown();
-    await healthServer.stop();
+    await vesselServer.stop();
     sessionManager.stop();
     await server.close();
     process.exit(0);
