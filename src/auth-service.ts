@@ -38,6 +38,7 @@ type AuthState =
 
 export class AuthService {
   private state: AuthState = { status: 'unauthenticated' };
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
 
   /** Set the identity API key and mark as key_only until tenant resolves. */
   setApiKey(apiKey: string): void {
@@ -132,6 +133,32 @@ export class AuthService {
 
   async refreshTenant(endpoint?: string): Promise<void> {
     return this.resolveTenant(endpoint);
+  }
+
+  /**
+   * Start a periodic re-resolve loop against identity-vessel.
+   *
+   * Each call to /v1/auth/resolve is the key-issuance heartbeat that
+   * identity-vessel uses to monitor metabob-mcp usage during the interim
+   * period. Cadence is independent of the JWT TTL.
+   */
+  startKeyHeartbeat(intervalMs = 5 * 60_000, endpoint?: string): void {
+    this.stopKeyHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.resolveTenant(endpoint).catch(() => {
+        // resolveTenant logs its own errors
+      });
+    }, intervalMs);
+    if (typeof (this.heartbeatTimer as { unref?: () => void }).unref === 'function') {
+      (this.heartbeatTimer as { unref: () => void }).unref();
+    }
+  }
+
+  stopKeyHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
   }
 
   /** API key to use against identity.metabob.com / vessel system. */

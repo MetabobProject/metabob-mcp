@@ -293,6 +293,9 @@ async function main() {
     } else {
       log('warn', 'Tenant resolution incomplete — vessel discovery will use raw ApiKey auth');
     }
+    // Periodic re-resolve = key-issuance heartbeat that identity-vessel uses
+    // to monitor metabob-mcp usage during the interim period.
+    authService.startKeyHeartbeat(5 * 60_000, IDENTITY_ENDPOINT);
   }
 
   // Start vessel HTTP server (health + capabilities + impulse resolver)
@@ -310,6 +313,8 @@ async function main() {
       log('info', 'Session created', {
         session: authResponse.session.slice(0, 8) + '…',
       });
+      // Keep the opaque session token fresh against ide.metabob.com
+      apiClient.startSessionRefresh();
     } catch (error) {
       const err = error as Error;
       log('error', 'API key authentication failed', { error: err.message });
@@ -367,6 +372,7 @@ async function main() {
   process.on('SIGINT', async () => {
     log('info', 'Shutting down...');
     vesselHeartbeat.stop();
+    authService.stopKeyHeartbeat();
     await apiClient.shutdown();
     await vesselServer.stop();
     sessionManager.stop();
@@ -377,6 +383,7 @@ async function main() {
   process.on('SIGTERM', async () => {
     log('info', 'Shutting down...');
     vesselHeartbeat.stop();
+    authService.stopKeyHeartbeat();
     await apiClient.shutdown();
     await vesselServer.stop();
     sessionManager.stop();

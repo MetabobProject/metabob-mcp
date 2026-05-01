@@ -97,10 +97,9 @@ export class AnalysisAPIClient {
   private timeout: number;
   private retryAttempts: number;
   private retryDelayMs: number;
-  /** Opaque session token from POST /v2/auth/apikey. NOT a JWT. */
+  /** Opaque session token from POST /session. NOT a JWT. */
   private sessionToken?: string;
-  private sessionExpiresAt?: Date;
-  private refreshTimer?: ReturnType<typeof setTimeout>;
+  private refreshTimer?: ReturnType<typeof setInterval>;
   private apiKey?: string;
   private connectionManager?: ConnectionManager;
   private useConnectionSlots: boolean;
@@ -238,9 +237,28 @@ export class AnalysisAPIClient {
     return data;
   }
 
+  /**
+   * Start periodic re-auth against POST /session.
+   * The legacy endpoint exposes no TTL, so we re-issue on a fixed cadence
+   * to keep the opaque session token fresh.
+   */
+  startSessionRefresh(intervalMs = 30 * 60_000): void {
+    if (!this.apiKey) return;
+    this.stopAutoRefresh();
+    this.refreshTimer = setInterval(() => {
+      this.authenticateWithApiKey().catch(err => {
+        console.error(`[api-client] session refresh failed: ${err instanceof Error ? err.message : err}`);
+      });
+    }, intervalMs);
+    // Don't keep the event loop alive purely for refresh
+    if (typeof (this.refreshTimer as { unref?: () => void }).unref === 'function') {
+      (this.refreshTimer as { unref: () => void }).unref();
+    }
+  }
+
   stopAutoRefresh(): void {
     if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
+      clearInterval(this.refreshTimer);
       this.refreshTimer = undefined;
     }
   }
