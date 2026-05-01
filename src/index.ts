@@ -307,7 +307,9 @@ async function main() {
     try {
       log('info', 'Authenticating with API key...');
       const authResponse = await apiClient.authenticateWithApiKey();
-      log('info', 'Session created', { session: authResponse.session.slice(0, 8) + '…' });
+      log('info', 'Session created', {
+        session: authResponse.session.slice(0, 8) + '…',
+      });
     } catch (error) {
       const err = error as Error;
       log('error', 'API key authentication failed', { error: err.message });

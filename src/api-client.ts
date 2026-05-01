@@ -102,7 +102,6 @@ export class AnalysisAPIClient {
   private sessionExpiresAt?: Date;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private apiKey?: string;
-  private authInfo?: { org_id?: string; user_id?: string };
   private connectionManager?: ConnectionManager;
   private useConnectionSlots: boolean;
   private onConnectionStateChange?: (state: ConnectionState) => void;
@@ -199,13 +198,6 @@ export class AnalysisAPIClient {
    */
   setApiKey(apiKey: string | undefined): void {
     this.apiKey = apiKey;
-  }
-
-  /**
-   * Get current auth info (populated after successful authentication)
-   */
-  getAuthInfo(): { org_id?: string; user_id?: string } | undefined {
-    return this.authInfo;
   }
 
   /**
