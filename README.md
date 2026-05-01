@@ -21,7 +21,7 @@ This MCP server provides 7 core tools for code analysis:
 No installation required! Run directly with npx:
 
 ```bash
-npx @metabob/metabob-mcp@latest --api-url=http://localhost:8081 --session-id=my-session
+npx @metabob/mcp@latest --api-url=http://localhost:8081 --session-id=my-session
 ```
 
 ### For Development
@@ -52,22 +52,22 @@ Run the MCP server directly:
 
 ```bash
 # With defaults (connects to http://localhost:8081)
-npx @metabob/metabob-mcp@latest
+npx @metabob/mcp@latest
 
 # With custom API URL
-npx @metabob/metabob-mcp@latest --api-url=http://api.example.com:8081
+npx @metabob/mcp@latest --api-url=http://api.example.com:8081
 
 # With custom session and debug logging
-npx @metabob/metabob-mcp@latest \
+npx @metabob/mcp@latest \
   --session-id=my-session \
   --log-level=debug \
   --health-port=8080
 
 # Show help
-npx @metabob/metabob-mcp@latest --help
+npx @metabob/mcp@latest --help
 
 # Show version
-npx @metabob/metabob-mcp@latest --version
+npx @metabob/mcp@latest --version
 ```
 
 ### Command-Line Options
@@ -466,7 +466,7 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
     "metabob": {
       "command": "npx",
       "args": [
-        "@metabob/metabob-mcp@latest",
+        "@metabob/mcp@latest",
         "--api-url=http://localhost:8081",
         "--session-id=claude-session",
         "--log-level=info"
@@ -486,7 +486,7 @@ Create or update `.cursor/mcp.json` in your project:
     "metabob": {
       "command": "npx",
       "args": [
-        "@metabob/metabob-mcp@latest",
+        "@metabob/mcp@latest",
         "--api-url=http://localhost:8081",
         "--session-id=cursor-session"
       ]
@@ -506,7 +506,7 @@ Add to Continue config (`~/.continue/config.json`):
       "name": "metabob",
       "command": "npx",
       "args": [
-        "@metabob/metabob-mcp@latest",
+        "@metabob/mcp@latest",
         "--api-url=http://localhost:8081"
       ]
     }
@@ -521,7 +521,7 @@ Any MCP client can use npx to run the server:
 ```json
 {
   "command": "npx",
-  "args": ["@metabob/metabob-mcp@latest", "--api-url=<YOUR_API_URL>"]
+  "args": ["@metabob/mcp@latest", "--api-url=<YOUR_API_URL>"]
 }
 ```
 
@@ -553,7 +553,7 @@ metabob-mcp --help
 npm publish
 
 # 6. Verify installation
-npx @metabob/metabob-mcp@latest --version
+npx @metabob/mcp@latest --version
 ```
 
 ### Version Guidelines
@@ -571,7 +571,7 @@ If publish fails:
 npm whoami
 
 # Verify package name is available
-npm info @metabob/metabob-mcp
+npm info @metabob/mcp
 
 # Check package contents
 npm pack --dry-run

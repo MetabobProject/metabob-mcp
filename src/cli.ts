@@ -28,7 +28,7 @@ function showHelp() {
 metabob-mcp - MCP server for Metabob code analysis
 
 USAGE:
-  npx @metabob/metabob-mcp [OPTIONS]
+  npx @metabob/mcp [OPTIONS]
 
 OPTIONS:
   --api-url <URL>              Analysis API URL (default: http://localhost:8081)
@@ -49,16 +49,16 @@ AUTHENTICATION:
 
 EXAMPLES:
   # Start with API key authentication (recommended)
-  npx @metabob/metabob-mcp --api-key=mb_live_your_api_key_here
+  npx @metabob/mcp --api-key=mb_live_your_api_key_here
 
   # Start with default settings (no auth)
-  npx @metabob/metabob-mcp
+  npx @metabob/mcp
 
   # Connect to remote API with auth
-  npx @metabob/metabob-mcp --api-url=https://api.metabob.com --api-key=mb_live_...
+  npx @metabob/mcp --api-url=https://api.metabob.com --api-key=mb_live_...
 
   # Custom session and debug logging
-  npx @metabob/metabob-mcp --session-id=my-session --log-level=debug
+  npx @metabob/mcp --session-id=my-session --log-level=debug
 
 ENVIRONMENT VARIABLES:
   METABOB_API_KEY              API key for authentication (recommended)
@@ -78,7 +78,7 @@ INTEGRATION WITH MCP CLIENTS:
     "mcpServers": {
       "metabob": {
         "command": "npx",
-        "args": ["@metabob/metabob-mcp@latest"],
+        "args": ["@metabob/mcp@latest"],
         "env": {
           "METABOB_API_KEY": "mb_live_your_api_key_here",
           "ANALYSIS_API_URL": "https://api.metabob.com"
@@ -93,7 +93,7 @@ INTEGRATION WITH MCP CLIENTS:
       "metabob": {
         "command": "npx",
         "args": [
-          "@metabob/metabob-mcp@latest",
+          "@metabob/mcp@latest",
           "--api-key=mb_live_your_api_key_here"
         ]
       }
