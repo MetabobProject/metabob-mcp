@@ -1,133 +1,74 @@
-# Quick Start Guide
+# Quick Start
 
-Get started with `@metabob/metabob-mcp` in under 5 minutes.
+## 1. Get an API key
 
-## Installation
+[app.metabob.com/settings/api-keys](https://app.metabob.com/settings/api-keys)
 
-No installation required! Run directly with npx:
+## 2. Add to your AI tool
 
-```bash
-npx @metabob/metabob-mcp@latest --help
-```
-
-## Basic Usage
-
-### 1. Start the MCP Server
+### Claude Code
 
 ```bash
-npx @metabob/metabob-mcp@latest --api-url=http://localhost:8081
+claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
 ```
 
-The server will:
-- Connect to the Metabob Analysis API at the specified URL
-- Start listening for MCP requests on stdin/stdout
-- Expose 7 code analysis tools to AI agents
+Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc.
 
-### 2. Configure Your AI Tool
+### Claude Desktop
 
-#### Claude Desktop
-
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "metabob": {
       "command": "npx",
-      "args": [
-        "@metabob/metabob-mcp@latest",
-        "--api-url=http://localhost:8081"
-      ]
+      "args": ["@metabob/mcp@latest"],
+      "env": { "METABOB_API_KEY": "mb_your_key" }
     }
   }
 }
 ```
 
-Restart Claude Desktop.
+### Cursor
 
-#### Cursor IDE
-
-Create `.cursor/mcp.json` in your project:
+`.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "metabob": {
       "command": "npx",
-      "args": [
-        "@metabob/metabob-mcp@latest",
-        "--api-url=http://localhost:8081"
-      ]
+      "args": ["@metabob/mcp@latest", "--api-key=mb_your_key"]
     }
   }
 }
 ```
 
-Restart Cursor.
+## 3. Try it
 
-### 3. Test the Connection
+Ask your agent:
 
-In Claude or Cursor, try asking:
+> "Initialise metabob for this workspace and show me the highest-severity problems."
 
-> "What are the highest priority code issues in this project?"
+The agent will call `init_workspace` (builds the local CPG and submits files to the analysis server), then `get_problems`.
 
-> "Search for security vulnerabilities in authentication code"
+## Typical flow
 
-> "Analyze the impact of changing the login function"
-
-## Available Tools
-
-1. **get_priority_issues** - Get high-priority problems
-2. **search_codebase** - Semantic code search
-3. **annotate_component** - Add design notes
-4. **suggest_related_changes** - Co-change prediction
-5. **analyze_change_impact** - CPG-based impact analysis
-6. **mark_problem_complete** - Mark issues as resolved
-7. **generate_implementation_spec** - Generate implementation plans
-
-## Configuration Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--api-url` | `http://localhost:8081` | Analysis API endpoint |
-| `--session-id` | `default-session` | Session identifier |
-| `--log-level` | `info` | Logging level (debug, info, warn, error) |
-| `--health-port` | `8080` | HTTP health check port |
-| `--max-requests-per-minute` | `60` | Rate limit |
-
-## Common Issues
-
-### "Connection refused" error
-
-The Analysis API is not running. Start it first:
-
-```bash
-# Check if API is running
-curl http://localhost:8081/health
-
-# If not, start the analysis API
-# (instructions depend on your setup)
+```
+init_workspace        # index workspace, sync first batch
+get_analysis_context  # snapshot: index stats + open problems
+get_problems          # full problem list
+predict_cochanges     # what else should change? (local, no API)
+annotate_component    # explain or recommend fix for a problem
+mark_complete         # record the fix
+init_workspace        # sync next batch as files change
 ```
 
-### "Rate limit exceeded" error
+## Common issues
 
-Too many requests. Options:
+**"Authentication failed"** — API key is invalid or expired. Generate a new one at [app.metabob.com](https://app.metabob.com/settings/api-keys).
 
-1. Wait 60 seconds for the rate limit to reset
-2. Increase limit: `--max-requests-per-minute=120`
+**"Circuit breaker open"** — The analysis API had repeated failures. Resets automatically after 60 seconds.
 
-### "Circuit breaker open" error
-
-The API had multiple failures. The circuit breaker will automatically reset after 60 seconds.
-
-## Next Steps
-
-- Read the full [README.md](./README.md) for detailed tool documentation
-- Check [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment options
-- See [PUBLISHING.md](./PUBLISHING.md) for publishing guidelines
-
-## Support
-
-For issues or questions:
-- GitHub Issues: https://github.com/metabob/metabob-devbob/issues
-- Documentation: https://github.com/metabob/metabob-devbob/tree/main/repos/metabob-mcp
+**"Rate limit exceeded"** — Default is 60 requests/min per session. Set `MAX_REQUESTS_PER_MINUTE=120` to raise it.

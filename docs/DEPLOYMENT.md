@@ -1,248 +1,88 @@
-# metabob-mcp Deployment Guide
+# Deployment
 
-## Quick Start
+`@metabob/mcp` runs as a stdio MCP server. For server-side or container deployments the same binary also exposes an HTTP vessel server on `HEALTH_PORT`.
 
-### Build Docker Image
+## Docker
+
 ```bash
-cd repos/metabob-mcp
 docker build -t metabob-mcp:latest .
+docker run --rm \
+  -e METABOB_API_KEY=mb_... \
+  -e ANALYSIS_API_URL=https://ide.metabob.com \
+  -e HEALTH_PORT=8080 \
+  -p 8080:8080 \
+  metabob-mcp:latest
 ```
 
-### Deploy to Kubernetes
-```bash
-cd ../../helm
-helmfile -f activity-system-minimal.yaml.gotmpl sync
-```
+## Kubernetes / Helm
 
-### Verify Deployment
 ```bash
+helmfile -f helm/activity-system-minimal.yaml.gotmpl sync
 kubectl get pods -n activity-system -l app.kubernetes.io/name=metabob-mcp
-kubectl logs -n activity-system -l app.kubernetes.io/name=metabob-mcp
 ```
 
-## Configuration
-
-### Environment Variables
-
-- `ANALYSIS_API_URL` - URL of metabob-analysis-api (default: http://metabob-analysis-api:8080)
-- `SESSION_ID` - Session identifier for tracking (default: docker-session)
-- `LOG_LEVEL` - Logging level: info, debug, error (default: info)
-- `HEALTH_PORT` - Health check server port (default: 8080)
-- `MAX_REQUESTS_PER_MINUTE` - Rate limit per session (default: 60)
-
-### Helm Values
-
-Customize via `helm/charts/metabob-mcp/values.yaml`:
+Helm values (`helm/charts/metabob-mcp/values.yaml`):
 
 ```yaml
-replicaCount: 1
-
 image:
   repository: metabob-mcp
-  pullPolicy: Always
   tag: "latest"
 
 config:
-  analysisApiUrl: "http://metabob-analysis-api.activity-system.svc.cluster.local:8080"
-  sessionId: "mcp-server-session"
+  analysisApiUrl: "https://ide.metabob.com"
   logLevel: "info"
   maxRequestsPerMinute: 60
 
 resources:
   requests:
-    memory: "128Mi"
-    cpu: "50m"
-  limits:
     memory: "256Mi"
-    cpu: "200m"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+secrets:
+  metabobApiKey: "mb_..."
 ```
 
-## Access
+## Environment variables
 
-### Internal (from within cluster)
-```
-http://metabob-mcp.activity-system.svc.cluster.local:8080
-```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `METABOB_API_KEY` | — | **Required.** Exchanged for a session token on startup |
+| `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
+| `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel |
+| `ACTIVITY_ENDPOINT` | `https://activity.metabob.com` | Discovery vessel |
+| `SESSION_ID` | `default-session` | Session identifier |
+| `HEALTH_PORT` | `8080` | Vessel HTTP server port |
+| `VESSEL_ENDPOINT` | `http://localhost:$HEALTH_PORT` | This vessel's reachable URL |
+| `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
+| `MAX_REQUESTS_PER_MINUTE` | `60` | Rate limit per session |
 
-### External (requires /etc/hosts)
-```
-http://mcp.minibob.local
-```
+## Health
 
-Add to `/etc/hosts`:
-```
-127.0.0.1  mcp.minibob.local
-```
-
-### Port Forward (testing)
 ```bash
+curl http://localhost:8080/health
+# {"status":"healthy","circuitState":"CLOSED","timestamp":"..."}
+
+curl http://localhost:8080/v2/capabilities
+# {"vesselId":"metabob-mcp","shapes":[...]}
+```
+
+Circuit breaker states: `CLOSED` (normal) → `OPEN` (5 consecutive failures; auto-resets after 60s) → `HALF_OPEN` (recovery probe).
+
+## Kubernetes ops
+
+```bash
+# Port-forward for local testing
 kubectl port-forward -n activity-system svc/metabob-mcp 8090:8080
-curl http://localhost:8090/health
-```
 
-## Available Tools
-
-The MCP server exposes 7 tools:
-
-1. **get_priority_issues** - Retrieve high-priority code issues with filtering
-2. **search_codebase** - Search codebase using semantic or text queries
-3. **annotate_component** - Add metadata annotations to code components
-4. **suggest_related_changes** - Suggest related code modifications based on changes
-5. **analyze_change_impact** - Analyze the impact of proposed code changes
-6. **mark_problem_complete** - Mark detected problems as resolved
-7. **generate_implementation_spec** - Generate implementation specifications for features
-
-## Health Monitoring
-
-### Health Endpoint
-```bash
-curl http://mcp.minibob.local/health
-```
-
-Response:
-```json
-{
-  "status": "healthy",
-  "circuitState": "CLOSED",
-  "timestamp": "2026-03-24T16:27:21.854Z"
-}
-```
-
-### Circuit Breaker States
-- `CLOSED` - Normal operation
-- `OPEN` - Service unavailable (too many failures)
-- `HALF_OPEN` - Testing recovery
-
-### Check Logs
-```bash
+# Logs
 kubectl logs -n activity-system -l app.kubernetes.io/name=metabob-mcp -f
-```
 
-## Troubleshooting
-
-### Pod Not Starting
-```bash
-kubectl describe pod -n activity-system -l app.kubernetes.io/name=metabob-mcp
-kubectl logs -n activity-system -l app.kubernetes.io/name=metabob-mcp
-```
-
-### Analysis API Connection Failed
-Check if metabob-analysis-api is running:
-```bash
-kubectl get pods -n activity-system -l app.kubernetes.io/name=metabob-analysis-api
-```
-
-Test connectivity:
-```bash
-kubectl exec -n activity-system -it $(kubectl get pod -n activity-system -l app.kubernetes.io/name=metabob-mcp -o jsonpath='{.items[0].metadata.name}') -- sh
-# Inside pod:
-wget -O- http://metabob-analysis-api.activity-system.svc.cluster.local:8080/health
-```
-
-### Rate Limit Exceeded
-Wait for rate limit window to reset (60 seconds) or increase `MAX_REQUESTS_PER_MINUTE`.
-
-### Circuit Breaker Open
-The circuit breaker opens after 5 consecutive failures. It will automatically reset after 60 seconds if the Analysis API becomes healthy.
-
-## Scaling
-
-### Horizontal Scaling
-```bash
-kubectl scale deployment -n activity-system metabob-mcp --replicas=3
-```
-
-Or update Helm values:
-```yaml
-replicaCount: 3
-```
-
-### Resource Tuning
-Monitor resource usage:
-```bash
-kubectl top pods -n activity-system -l app.kubernetes.io/name=metabob-mcp
-```
-
-Adjust resources in values.yaml as needed.
-
-## Maintenance
-
-### Update Docker Image
-```bash
-cd repos/metabob-mcp
-docker build -t metabob-mcp:latest .
+# Restart
 kubectl rollout restart deployment -n activity-system metabob-mcp
-```
 
-### View Deployment Status
-```bash
-kubectl rollout status deployment -n activity-system metabob-mcp
-```
-
-### Rollback
-```bash
+# Rollback
 kubectl rollout undo deployment -n activity-system metabob-mcp
 ```
-
-## Integration
-
-### Use with AI Agents
-
-The MCP server follows the Model Context Protocol specification. Configure your AI agent to connect via:
-
-**Transport:** stdio or HTTP
-**Endpoint:** http://metabob-mcp.activity-system.svc.cluster.local:8080
-
-Example MCP client configuration:
-```json
-{
-  "mcpServers": {
-    "metabob": {
-      "url": "http://mcp.minibob.local",
-      "transport": "http"
-    }
-  }
-}
-```
-
-### MiniBob Integration
-
-MiniBob can use the MCP server via the MCP client. The metabob-activity-api already includes MCP integration for tool calling.
-
-## Security
-
-### Production Considerations
-
-1. **Authentication:** Add API key authentication
-2. **TLS:** Enable HTTPS with certificates
-3. **Network Policies:** Restrict pod-to-pod communication
-4. **Resource Limits:** Set appropriate CPU/memory limits
-5. **Rate Limiting:** Adjust per-session limits based on usage
-
-### Secrets Management
-
-For production, store sensitive configuration in Kubernetes secrets:
-```bash
-kubectl create secret generic metabob-mcp-config \
-  --from-literal=analysis-api-key="your-api-key" \
-  -n activity-system
-```
-
-## Uninstall
-
-### Remove Deployment
-```bash
-helm uninstall metabob-mcp -n activity-system
-```
-
-### Remove Docker Image
-```bash
-docker rmi metabob-mcp:latest
-```
-
-## Support
-
-For issues or questions:
-- Check logs: `kubectl logs -n activity-system -l app.kubernetes.io/name=metabob-mcp`
-- View events: `kubectl get events -n activity-system --field-selector involvedObject.name=metabob-mcp`
-- Review README: `repos/metabob-mcp/README.md`
