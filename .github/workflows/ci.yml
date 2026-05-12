@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test tests/unit/
+
+      - name: Integration tests
+        run: bun test tests/integration/
+        env:
+          SESSION_ID: ci-test-session
+          ANALYSIS_API_URL: http://localhost:8081
+          LOG_LEVEL: error
+
+      - name: Build
+        run: bun run build
