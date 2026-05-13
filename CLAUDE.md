@@ -13,6 +13,8 @@ Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metab
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
 bun test                            # run tests
+bun run build                       # compile src/ → dist/cli.js (required for npm link)
+npm link                            # register metabob-mcp bin globally for local testing
 bash scripts/git-hooks/install.sh   # install pre-commit hook
 ```
 

@@ -8,8 +8,17 @@
 
 ### Claude Code
 
+From npm (after package is published):
+
 ```bash
 claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
+```
+
+From a local checkout (development):
+
+```bash
+cd repos/metabob-mcp && bun run build && npm link
+claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
 ```
 
 Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc.

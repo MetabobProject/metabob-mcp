@@ -25,7 +25,9 @@ Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/
 | `assign_git_changes` | Local + API | Map changed files to CPG components + co-change predictions |
 | `get_analysis_context` | Local + API | Current analysis state snapshot for agent decision-making |
 
-Local-tier tools run entirely in-process via `@metabob/cpg-inference` (Tree-sitter parse → GCN embeddings → vector search). API-tier tools require `METABOB_API_KEY` and a session against `ide.metabob.com`.
+**Local-tier** tools run entirely in-process via `@metabob/cpg-inference` (Tree-sitter parse → GCN embeddings → vector search). They require `init_workspace` to have run first but make no network calls.
+
+**API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`.
 
 ## Configuration
 
@@ -39,6 +41,8 @@ Local-tier tools run entirely in-process via `@metabob/cpg-inference` (Tree-sitt
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
+
+All variables can also be passed as CLI flags — run `metabob-mcp --help` for the full flag reference.
 
 ## Integrations
 
@@ -106,8 +110,20 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
 bun install
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
-bun test                            # run tests
+bun test                            # run all tests
 bash scripts/git-hooks/install.sh   # install pre-commit hook
 ```
+
+To test the MCP server locally via the installed bin (mirrors the npm install flow):
+
+```bash
+bun run build   # compile src/ → dist/cli.js
+npm link        # register metabob-mcp bin globally
+
+# add to Claude Code pointing at the local build
+claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
+```
+
+`npm link` makes the local build available as `metabob-mcp` on your PATH without publishing to npm. Re-run `bun run build` after source changes.
 
 See [CLAUDE.md](CLAUDE.md) for development guidance and [docs/](docs/) for detailed references.
