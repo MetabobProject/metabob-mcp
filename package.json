@@ -4,7 +4,7 @@
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
-    "metabob-mcp": "./dist/cli.js"
+    "metabob-mcp": "dist/cli.js"
   },
   "files": [
     "dist/**/*",
@@ -34,7 +34,7 @@
   "license": "PROPRIETARY",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MetabobProject/metabob-mcp"
+    "url": "git+https://github.com/MetabobProject/metabob-mcp.git"
   },
   "publishConfig": {
     "access": "public",
