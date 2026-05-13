@@ -6,6 +6,7 @@
   "bin": {
     "metabob-mcp": "dist/cli.js"
   },
+  "workspaces": ["vendor/cpg-inference"],
   "files": [
     "dist/**/*",
     "README.md",
@@ -16,7 +17,8 @@
     "dev": "bun --watch src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/cli.ts --target node --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external usearch && chmod +x dist/cli.js",
+    "build:vendor": "(cd vendor/cpg-inference && bun run build)",
+    "build": "bun run build:vendor && bun build src/cli.ts --target node --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external usearch && chmod +x dist/cli.js",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "keywords": [
@@ -44,9 +46,13 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@metabob/cpg-inference": "file:../cpg-inference-ts",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "hono": "^4.0.0",
+    "onnxruntime-node": "^1.20.1",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.23.0",
+    "tree-sitter-python": "^0.23.5",
+    "usearch": "^2.21.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
