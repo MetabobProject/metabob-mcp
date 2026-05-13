@@ -64,7 +64,7 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 |----------|---------|---------|
 | `METABOB_API_KEY` | — | API key — session token exchange with `ide.metabob.com` + identity-vessel |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
-| `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
+| `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL (default) |
 | `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel endpoint |
 | `ACTIVITY_ENDPOINT` | `https://activity.metabob.com` | Discovery vessel endpoint |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |

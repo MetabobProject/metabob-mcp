@@ -24,8 +24,8 @@ import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { ZodError } from 'zod';
 
 // ── Configuration ────────────────────────────────────────────────────────────
-const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'http://localhost:8081';
-const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'http://localhost:8080';
+const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
+const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://activity.metabob.com';
 const SESSION_ID = process.env.SESSION_ID || 'default-session';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;

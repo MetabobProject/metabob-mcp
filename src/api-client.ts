@@ -108,7 +108,7 @@ export class AnalysisAPIClient {
   private predictions: Map<string, PredictionRecord[]> = new Map();
 
   constructor(config: APIClientConfig) {
-    this.baseURL = config.baseURL || 'http://localhost:8081';
+    this.baseURL = config.baseURL || 'https://ide.metabob.com';
     this.activityApiUrl = config.activityApiUrl;
     this.timeout = config.timeout || 30000;
     this.retryAttempts = config.retryAttempts || 3;

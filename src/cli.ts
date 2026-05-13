@@ -31,7 +31,7 @@ USAGE:
   npx @metabob/mcp [OPTIONS]
 
 OPTIONS:
-  --api-url <URL>              Analysis API URL (default: http://localhost:8081)
+  --api-url <URL>              Analysis API URL (default: https://ide.metabob.com)
   --session-id <ID>            Session identifier (default: default-session)
   --api-key <KEY>              Metabob API key for authentication (recommended)
   --jwt-token <TOKEN>          JWT token for authentication (advanced, use --api-key instead)
