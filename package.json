@@ -34,8 +34,7 @@
   "license": "PROPRIETARY",
   "repository": {
     "type": "git",
-    "url": "https://github.com/metabob/metabob-devbob",
-    "directory": "repos/metabob-mcp"
+    "url": "https://github.com/MetabobProject/metabob-mcp"
   },
   "publishConfig": {
     "access": "public",
