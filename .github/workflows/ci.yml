@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -30,7 +32,7 @@ jobs:
         run: bun test tests/integration/
         env:
           SESSION_ID: ci-test-session
-          ANALYSIS_API_URL: http://localhost:8081
+          ANALYSIS_API_URL: https://ide.metabob.com
           LOG_LEVEL: error
 
       - name: Build
