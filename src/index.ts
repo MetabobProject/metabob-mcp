@@ -20,7 +20,6 @@ import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
-import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { ZodError } from 'zod';
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -35,11 +34,8 @@ const METABOB_API_KEY = process.env.METABOB_API_KEY;
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 
-// Vessel system (identity.metabob.com + discovery)
+// Identity (tenant resolution only — discovery registration removed)
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || 'https://identity.metabob.com';
-const ACTIVITY_ENDPOINT = process.env.ACTIVITY_ENDPOINT || 'https://activity.metabob.com';
-const VESSEL_ID = process.env.VESSEL_ID || 'metabob_mcp';
-const VESSEL_ENDPOINT = process.env.VESSEL_ENDPOINT || `http://localhost:${HEALTH_PORT}`;
 
 // Initialize clients
 const apiClient = new AnalysisAPIClient({
@@ -84,23 +80,6 @@ const vesselServer = new VesselServer({
   circuitBreaker,
   sessionId: SESSION_ID,
   apiKey: METABOB_API_KEY,
-  authService,
-});
-
-// ── Vessel heartbeat (discovery registration) ─────────────────────────────────
-const vesselHeartbeat = new VesselHeartbeat({
-  activityEndpoint: ACTIVITY_ENDPOINT,
-  vesselId: VESSEL_ID,
-  vesselName: 'Metabob MCP',
-  endpoint: VESSEL_ENDPOINT,
-  shapes: [
-    'mcp:tool_call',
-    'code:cochange_prediction',
-    'code:impact_analysis',
-    'code:git_change_assignment',
-    'code:analysis_context',
-  ],
-  metadata: { version: '0.2.0' },
   authService,
 });
 
@@ -357,11 +336,6 @@ async function main() {
     }
   }
 
-  // Register with discovery-vessel (non-blocking — vessel operates without discovery if unavailable)
-  vesselHeartbeat.start().catch(err => {
-    log('warn', 'Discovery registration failed (continuing without discovery)', { error: (err as Error).message });
-  });
-
   // Create transport and connect
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -371,7 +345,7 @@ async function main() {
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
     log('info', 'Shutting down...');
-    vesselHeartbeat.stop();
+
     authService.stopKeyHeartbeat();
     await apiClient.shutdown();
     await vesselServer.stop();
@@ -382,7 +356,7 @@ async function main() {
 
   process.on('SIGTERM', async () => {
     log('info', 'Shutting down...');
-    vesselHeartbeat.stop();
+
     authService.stopKeyHeartbeat();
     await apiClient.shutdown();
     await vesselServer.stop();
