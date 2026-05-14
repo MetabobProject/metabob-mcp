@@ -5,7 +5,7 @@ MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities 
 - **MCP (stdio)** — Claude Code, Cursor, Continue, and other MCP clients
 - **HTTP resolver (port 8080)** — activity system invokes tools via impulse pointers
 
-Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metabob.com` on startup. The same key also resolves a tenant JWT from `identity.metabob.com` for vessel discovery registration.
+Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metabob.com` on startup. The same key also resolves a tenant JWT from `identity.metabob.com` (used for the HTTP impulse resolver).
 
 ## Quick reference
 
@@ -26,7 +26,6 @@ bash scripts/git-hooks/install.sh   # install pre-commit hook
 | `src/api-client.ts` | HTTP client to `ide.metabob.com` — session auth, file submission, analysis fetch |
 | `src/auth-service.ts` | Identity-vessel auth — tenant resolution, JWT refresh, key-issuance heartbeat |
 | `src/vessel-server.ts` | Hono HTTP server — `/health`, `/v2/capabilities`, `POST /v2/impulses/resolve` |
-| `src/vessel-heartbeat.ts` | Discovery registration against `activity.metabob.com` |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor` from `cpg-inference-ts` |
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
 | `docs/SPEC.md` | Full tool specification with input/output schemas |
@@ -65,12 +64,10 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `METABOB_API_KEY` | — | API key — session token exchange with `ide.metabob.com` + identity-vessel |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL (default) |
-| `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel endpoint |
-| `ACTIVITY_ENDPOINT` | `https://activity.metabob.com` | Discovery vessel endpoint |
+| `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel endpoint (tenant resolution) |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
-| `VESSEL_ENDPOINT` | `http://localhost:$HEALTH_PORT` | This vessel's reachable HTTP URL |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `USE_CONNECTION_SLOTS` | `false` | Enable activity-API connection slot management |
