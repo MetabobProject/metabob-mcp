@@ -172,32 +172,45 @@ await check('annotate_component', async () => {
 
 // Phase 4 — local CPG (CPU-intensive, runs last to avoid blocking API calls)
 console.log('\nPhase 4: local CPG');
+let initWorkspaceFiles: string[] = [];
 await check('init_workspace', async () => {
+  // Collect a few .ts files from src/ to pass as recently_changed_files so they get
+  // prioritised in the batch and are available for Phase 5 inference checks.
+  const { readdirSync: rd, existsSync: ex } = await import('fs');
+  const srcDir = `${WORKSPACE}/src`;
+  initWorkspaceFiles = (ex(srcDir) ? rd(srcDir) : rd(WORKSPACE))
+    .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
+    .slice(0, 3)
+    .map(f => `${ex(srcDir) ? srcDir : WORKSPACE}/${f}`);
+
   const out = await callTool('init_workspace', {
     workspace_path: WORKSPACE,
-    batch_size: 3,
+    recently_changed_files: initWorkspaceFiles,
+    batch_size: 5,
     sync_api: true,
   }, 180000); // 3 min — ONNX + Tree-sitter parse can be slow
   const match = out.match(/Files scanned:\s*(\d+)/);
   return match ? `${match[1] ?? '?'} files scanned` : (out.trim().split('\n')[0] ?? '(empty)');
 });
 
+await check('search_codebase (post-init)', async () => {
+  const out = await callTool('search_codebase', { query: 'handle', limit: 3, target: 'components' });
+  return out.trim().split('\n')[0] ?? '(empty)';
+});
+
 // Phase 5 — local inference (after init_workspace)
 console.log('\nPhase 5: local inference');
-const { readdirSync } = await import('fs');
-const tsFiles = readdirSync(WORKSPACE)
-  .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
-  .slice(0, 2)
-  .map(f => `${WORKSPACE}/${f}`);
+// Use the same files that init_workspace prioritised so they're guaranteed indexed.
+const tsFiles = initWorkspaceFiles.slice(0, 2);
 
 await check('predict_cochanges', async () => {
-  if (!tsFiles.length) return 'skipped (no .ts/.js at workspace root)';
+  if (!tsFiles.length) return 'skipped (no .ts/.js found)';
   const out = await callTool('predict_cochanges', { changed_files: tsFiles, limit: 3 }, 60000);
   return out.trim().split('\n')[0] ?? '(empty)';
 });
 
 await check('analyze_impact', async () => {
-  if (!tsFiles.length) return 'skipped (no .ts/.js at workspace root)';
+  if (!tsFiles.length) return 'skipped (no .ts/.js found)';
   const out = await callTool('analyze_impact', { changed_files: tsFiles.slice(0, 1), direction: 'forward' }, 60000);
   return out.trim().split('\n')[0] ?? '(empty)';
 });
@@ -210,8 +223,9 @@ await check('get_analysis_context', async () => {
 });
 
 await check('assign_git_changes', async () => {
+  const changedFile = initWorkspaceFiles[0] ?? `${WORKSPACE}/src/index.ts`;
   const out = await callTool('assign_git_changes', {
-    changed_files: [`${WORKSPACE}/src/index.ts`],
+    changed_files: [changedFile],
     include_cochange_predictions: true,
   });
   return out.trim().split('\n')[0] ?? '(empty)';
