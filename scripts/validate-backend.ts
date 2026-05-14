@@ -179,7 +179,7 @@ await check('init_workspace', async () => {
     sync_api: true,
   }, 180000); // 3 min — ONNX + Tree-sitter parse can be slow
   const match = out.match(/Files scanned:\s*(\d+)/);
-  return match ? `${match[1]} files scanned` : out.trim().split('\n')[0];
+  return match ? `${match[1] ?? '?'} files scanned` : (out.trim().split('\n')[0] ?? '(empty)');
 });
 
 // Phase 5 — local inference (after init_workspace)
@@ -223,5 +223,5 @@ console.log(`  Passed: ${passed}   Failed: ${failed}   Total: ${passed + failed}
 console.log(failed === 0 ? '  All checks passed ✓' : `  ${failed} check(s) failed`);
 console.log('');
 
-child?.kill();
+(child as ReturnType<typeof spawn> | null)?.kill();
 process.exit(failed > 0 ? 1 : 0);

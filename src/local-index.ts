@@ -16,6 +16,8 @@ class LocalIndex {
   private _ready = false;
   private _workspacePath: string | null = null;
   private _filesIndexed = 0;
+  private _submittedFiles = new Set<string>();
+  private _parsedFiles = new Set<string>();
 
   constructor() {
     this.predictor = new CoChangePredictor({ minSimilarity: 0.0 });
@@ -32,8 +34,33 @@ class LocalIndex {
   }
 
   setWorkspace(path: string, filesIndexed: number): void {
+    // Reset submission tracking when workspace changes
+    if (this._workspacePath !== path) {
+      this._submittedFiles.clear();
+      this._parsedFiles.clear();
+    }
     this._workspacePath = path;
     this._filesIndexed = filesIndexed;
+  }
+
+  isParsed(filePath: string): boolean {
+    return this._parsedFiles.has(filePath);
+  }
+
+  markParsed(filePath: string): void {
+    this._parsedFiles.add(filePath);
+  }
+
+  isSubmitted(filePath: string): boolean {
+    return this._submittedFiles.has(filePath);
+  }
+
+  markSubmitted(filePaths: string[]): void {
+    for (const p of filePaths) this._submittedFiles.add(p);
+  }
+
+  submittedCount(): number {
+    return this._submittedFiles.size;
   }
 
   getCPG(): CodePropertyGraph {

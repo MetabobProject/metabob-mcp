@@ -140,7 +140,7 @@ export async function handle(
     : DEFAULT_EXTENSIONS;
   const excludeDirs = input.exclude ? new Set(input.exclude) : DEFAULT_EXCLUDE;
 
-  // ── Local CPG indexing (always — all files) ────────────────────────────────
+  // ── Local CPG indexing (skip files already parsed in this process) ───────────
   const localIndex = getLocalIndex();
   await localIndex.init();
 
@@ -153,11 +153,13 @@ export async function handle(
 
   let newComponents = 0;
   for (const [path, content] of files) {
+    if (localIndex.isParsed(path)) continue;
     try {
       const result = await localIndex.predictor.addFile(path, content);
       newComponents += result.componentsAdded;
+      localIndex.markParsed(path);
     } catch {
-      // skip unparseable files
+      localIndex.markParsed(path); // don't retry unparseable files
     }
   }
   localIndex.setWorkspace(workspacePath, files.size);
@@ -191,39 +193,47 @@ export async function handle(
     }
   }
 
-  // ── Incremental API sync — submit one ranked batch ─────────────────────────
+  // ── Incremental API sync — submit one batch of not-yet-submitted files ──────
   let submitted: string[] = [];
-  let jobId: string | null = null;
   let syncStatus = 'skipped';
 
   if (input.sync_api) {
+    // Rank all files, then filter to those not yet submitted to produce true
+    // incremental progress across repeated calls.
     const ranked = rankByRelevance(files, recentlyChanged, cochangePaths);
-    const batch = ranked.slice(0, input.batch_size);
-    const remaining = ranked.length - batch.length;
+    const unsubmitted = ranked.filter(p => !localIndex.isSubmitted(p));
+    const batch = unsubmitted.slice(0, input.batch_size);
+    const remaining = unsubmitted.length - batch.length;
 
-    try {
-      const fileList = batch.map(path => ({ path, content: files.get(path)! }));
-      const result = await apiClient.submitFiles(fileList, sessionId);
+    if (batch.length === 0) {
+      syncStatus = `all ${localIndex.submittedCount()} files already submitted`;
+    } else {
+      try {
+        const fileList = batch.map(path => ({ path, content: files.get(path)! }));
+        const result = await apiClient.submitFiles(fileList, sessionId);
 
-      submitted = batch;
-      if (result.status === 'complete') {
-        syncStatus = 'complete';
-      } else if (result.jobId) {
-        jobId = result.jobId;
-        syncStatus = `pending (job: ${result.jobId})`;
-      } else {
-        syncStatus = result.status;
+        localIndex.markSubmitted(batch);
+        submitted = batch;
+
+        if (result.status === 'complete') {
+          syncStatus = 'complete';
+        } else if (result.jobId) {
+          syncStatus = `pending (job: ${result.jobId})`;
+        } else {
+          syncStatus = result.status;
+        }
+
+        if (remaining > 0) {
+          syncStatus += ` — ${remaining} file${remaining === 1 ? '' : 's'} not yet submitted (call again to continue)`;
+        }
+      } catch (err) {
+        syncStatus = `failed: ${(err as Error).message}`;
       }
-
-      if (remaining > 0) {
-        syncStatus += ` — ${remaining} file${remaining === 1 ? '' : 's'} not yet submitted (call again to continue)`;
-      }
-    } catch (err) {
-      syncStatus = `failed: ${(err as Error).message}`;
     }
   }
 
   const duration = Date.now() - startTime;
+  const totalSubmitted = localIndex.submittedCount();
 
   let text = `Workspace: ${workspacePath}\n\n`;
   text += `Local CPG index\n`;
@@ -233,8 +243,9 @@ export async function handle(
 
   text += `API sync (batch ${input.batch_size})\n`;
   text += `  Status:   ${syncStatus}\n`;
+  text += `  Progress: ${totalSubmitted}/${files.size} files submitted\n`;
   if (submitted.length > 0) {
-    text += `  Submitted (${submitted.length}):\n`;
+    text += `  This batch (${submitted.length}):\n`;
     for (const p of submitted) text += `    ${p}\n`;
   }
   if (recentlyChanged.length > 0) {
