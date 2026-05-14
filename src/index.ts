@@ -38,7 +38,7 @@ const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 // Vessel system (identity.metabob.com + discovery)
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || 'https://identity.metabob.com';
 const ACTIVITY_ENDPOINT = process.env.ACTIVITY_ENDPOINT || 'https://activity.metabob.com';
-const VESSEL_ID = process.env.VESSEL_ID || 'metabob-mcp';
+const VESSEL_ID = process.env.VESSEL_ID || 'metabob_mcp';
 const VESSEL_ENDPOINT = process.env.VESSEL_ENDPOINT || `http://localhost:${HEALTH_PORT}`;
 
 // Initialize clients

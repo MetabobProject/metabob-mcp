@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { createServer } from 'node:http';
+import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { AnalysisAPIClient } from './api-client.js';
 import type { CircuitBreaker } from './circuit-breaker.js';
 import { CircuitState } from './circuit-breaker.js';
@@ -21,7 +23,7 @@ export interface VesselServerConfig {
 const VERSION = '0.1.0';
 
 export class VesselServer {
-  private server: ReturnType<typeof Bun.serve> | null = null;
+  private nodeServer: Server | null = null;
   private config: VesselServerConfig;
 
   constructor(config: VesselServerConfig) {
@@ -32,16 +34,53 @@ export class VesselServer {
     const app = this.buildApp();
     const { port } = this.config;
 
-    this.server = Bun.serve({
-      port,
-      fetch: app.fetch,
-    });
-
+    this.nodeServer = await this.startNodeServer(app, port);
     console.error(`[${new Date().toISOString()}] [INFO] Vessel server listening on port ${port}`);
   }
 
   async stop(): Promise<void> {
-    this.server?.stop();
+    await new Promise<void>((resolve) => {
+      if (this.nodeServer) {
+        this.nodeServer.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  private startNodeServer(app: Hono, port: number): Promise<Server> {
+    return new Promise((resolve, reject) => {
+      const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+        const url = `http://localhost:${port}${req.url ?? '/'}`;
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(req.headers)) {
+          if (value != null) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+        }
+
+        let body: Buffer | undefined;
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          body = await new Promise<Buffer>((res) => {
+            const chunks: Buffer[] = [];
+            req.on('data', (chunk: Buffer) => chunks.push(chunk));
+            req.on('end', () => res(Buffer.concat(chunks)));
+          });
+        }
+
+        const request = new Request(url, {
+          method: req.method,
+          headers,
+          body: body?.length ? body : undefined,
+        });
+
+        const response = await app.fetch(request);
+        res.statusCode = response.status;
+        response.headers.forEach((value, key) => res.setHeader(key, value));
+        res.end(await response.text());
+      });
+
+      server.listen(port, () => resolve(server));
+      server.once('error', reject);
+    });
   }
 
   private buildApp(): Hono {
