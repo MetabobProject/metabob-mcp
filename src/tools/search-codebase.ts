@@ -43,8 +43,24 @@ export const InputSchema = z.object({
 
 export type SearchCodebaseInput = z.infer<typeof InputSchema>;
 
-function matchesQuery(text: string, query: string): boolean {
-  return text.toLowerCase().includes(query.toLowerCase());
+/** Split an identifier into lowercase tokens — handles camelCase, snake_case, kebab-case. */
+function tokenize(text: string): string[] {
+  return text
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → camel Case
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // HTMLParser → HTML Parser
+    .split(/[\s_\-./\\:]+/)
+    .map(t => t.toLowerCase())
+    .filter(t => t.length > 1);
+}
+
+function matchesQuery(text: string, queryTokens: string[]): boolean {
+  if (queryTokens.length === 0) return false;
+  const textTokens = tokenize(text);
+  const textLower = text.toLowerCase();
+  // Exact substring match first (fast path)
+  if (queryTokens.length === 1 && textLower.includes(queryTokens[0]!)) return true;
+  // Token intersection — any query token matches any text token
+  return queryTokens.some(qt => textTokens.some(tt => tt.includes(qt) || qt.includes(tt)));
 }
 
 export async function handle(
@@ -53,7 +69,7 @@ export async function handle(
   sessionId: string,
 ): Promise<string> {
   const startTime = Date.now();
-  const q = input.query.toLowerCase();
+  const queryTokens = tokenize(input.query);
   const sections: string[] = [];
 
   // ── Local CPG component search ─────────────────────────────────────────────
@@ -69,9 +85,9 @@ export async function handle(
         const type: string = node.type ?? '';
 
         const matches =
-          matchesQuery(name, q) ||
-          matchesQuery(filePath, q) ||
-          matchesQuery(type, q);
+          matchesQuery(name, queryTokens) ||
+          matchesQuery(filePath, queryTokens) ||
+          matchesQuery(type, queryTokens);
 
         if (!matches) continue;
         if (input.file_filter?.length && !input.file_filter.some(f => filePath.includes(f))) continue;
@@ -98,7 +114,7 @@ export async function handle(
     try {
       const analysis = await apiClient.getAnalysis(sessionId);
       const results = (analysis.results ?? []).filter(r => {
-        if (!matchesQuery(r.path, q) && !matchesQuery(r.category, q) && !matchesQuery(r.summary, q) && !matchesQuery(r.description, q)) return false;
+        if (!matchesQuery(r.path, queryTokens) && !matchesQuery(r.category, queryTokens) && !matchesQuery(r.summary, queryTokens) && !matchesQuery(r.description, queryTokens)) return false;
         if (input.file_filter?.length && !input.file_filter.some(f => r.path.includes(f))) return false;
         return true;
       }).slice(0, input.limit);
