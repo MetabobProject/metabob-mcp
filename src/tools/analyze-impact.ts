@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
-import type { CPGNode } from '@metabob/cpg-inference';
+import type { CPGNode } from '../cpg-inference.js';
 
 export const AnalyzeImpactTool = {
   name: 'analyze_impact',

@@ -1,6 +1,6 @@
-import { CoChangePredictor } from '@metabob/cpg-inference';
-import type { CoChangePrediction } from '@metabob/cpg-inference';
-import type { CodePropertyGraph } from '@metabob/cpg-inference';
+import { CoChangePredictor } from './cpg-inference.js';
+import type { CoChangePrediction } from './cpg-inference.js';
+import type { CodePropertyGraph } from './cpg-inference.js';
 
 export type { CoChangePrediction };
 
