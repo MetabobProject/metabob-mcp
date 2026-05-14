@@ -4,6 +4,19 @@
  * Provides command-line argument parsing for npx usage
  */
 
+// Re-exec under Node.js with an expanded heap before loading ONNX / Tree-sitter.
+// Bun manages its own memory, so this guard is Node-only.
+if (!process.versions.bun && !process.env.__METABOB_HEAP_EXPANDED) {
+  const { spawn } = await import('node:child_process');
+  const child = spawn(
+    process.execPath,
+    ['--max-old-space-size=4096', ...process.argv.slice(1)],
+    { stdio: 'inherit', env: { ...process.env, __METABOB_HEAP_EXPANDED: '1' } },
+  );
+  child.on('exit', (code) => process.exit(code ?? 0));
+  await new Promise(() => {}); // wait for child to call process.exit
+}
+
 import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
