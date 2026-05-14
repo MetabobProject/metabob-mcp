@@ -21,6 +21,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyConfigDefaults, loadMetabobCLIConfig } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,7 +29,7 @@ interface CLIOptions {
   apiUrl?: string;
   sessionId?: string;
   apiKey?: string;
-  jwtToken?: string;
+  sessionToken?: string;
   logLevel?: string;
   healthPort?: number;
   maxRequestsPerMinute?: number;
@@ -47,7 +48,7 @@ OPTIONS:
   --api-url <URL>              Analysis API URL (default: https://ide.metabob.com)
   --session-id <ID>            Session identifier (default: default-session)
   --api-key <KEY>              Metabob API key for authentication (recommended)
-  --jwt-token <TOKEN>          JWT token for authentication (advanced, use --api-key instead)
+  --session-token <TOKEN>      Pre-obtained session token (advanced)
   --log-level <LEVEL>          Logging level: debug, info, warn, error (default: info)
   --health-port <PORT>         HTTP port for health checks (default: 8080)
   --max-requests-per-minute <N> Rate limit per session (default: 60)
@@ -56,7 +57,10 @@ OPTIONS:
 
 AUTHENTICATION:
   Use --api-key or METABOB_API_KEY for authentication. The API key is exchanged
-  for a short-lived JWT token on startup, with automatic refresh.
+  for a session token on startup, with automatic refresh.
+
+  If METABOB_API_KEY is not set, metabob-mcp also checks ~/.metabob/config.json
+  and uses metabob.apiKey (or instance.apiKey) as a fallback.
 
   Get your API key from the Metabob dashboard: https://app.metabob.com/settings/api-keys
 
@@ -75,14 +79,15 @@ EXAMPLES:
 
 ENVIRONMENT VARIABLES:
   METABOB_API_KEY              API key for authentication (recommended)
+  ACTIVITY_API_URL             Activity API URL (fallback: ~/.metabob/config.json metabob.endpoint)
   ANALYSIS_API_URL             Same as --api-url
   SESSION_ID                   Same as --session-id
-  JWT_TOKEN                    Same as --jwt-token (advanced)
+  SESSION_TOKEN                Pre-obtained session token (advanced)
   LOG_LEVEL                    Same as --log-level
   HEALTH_PORT                  Same as --health-port
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
 
-  Note: Command-line options take precedence over environment variables.
+  Precedence: CLI flags > environment variables > ~/.metabob/config.json.
 
 INTEGRATION WITH MCP CLIENTS:
 
@@ -139,6 +144,7 @@ function parseCliArgs(): CLIOptions {
         'api-url': { type: 'string' },
         'session-id': { type: 'string' },
         'api-key': { type: 'string' },
+        'session-token': { type: 'string' },
         'jwt-token': { type: 'string' },
         'log-level': { type: 'string' },
         'health-port': { type: 'string' },
@@ -150,16 +156,16 @@ function parseCliArgs(): CLIOptions {
       allowPositionals: false,
     });
 
-    return {
-      apiUrl: values['api-url'] as string | undefined,
-      sessionId: values['session-id'] as string | undefined,
-      apiKey: values['api-key'] as string | undefined,
-      jwtToken: values['jwt-token'] as string | undefined,
-      logLevel: values['log-level'] as string | undefined,
-      healthPort: values['health-port'] ? parseInt(values['health-port'] as string, 10) : undefined,
-      maxRequestsPerMinute: values['max-requests-per-minute']
-        ? parseInt(values['max-requests-per-minute'] as string, 10)
-        : undefined,
+      return {
+        apiUrl: values['api-url'] as string | undefined,
+        sessionId: values['session-id'] as string | undefined,
+        apiKey: values['api-key'] as string | undefined,
+        sessionToken: (values['session-token'] as string | undefined) ?? (values['jwt-token'] as string | undefined),
+        logLevel: values['log-level'] as string | undefined,
+        healthPort: values['health-port'] ? parseInt(values['health-port'] as string, 10) : undefined,
+        maxRequestsPerMinute: values['max-requests-per-minute']
+          ? parseInt(values['max-requests-per-minute'] as string, 10)
+          : undefined,
       help: values['help'] as boolean | undefined,
       version: values['version'] as boolean | undefined,
     };
@@ -216,6 +222,9 @@ async function main() {
   // Validate options
   validateOptions(options);
 
+  // Load fallback config before applying CLI overrides.
+  applyConfigDefaults(process.env, loadMetabobCLIConfig());
+
   // Set environment variables from CLI options (CLI takes precedence)
   if (options.apiUrl) {
     process.env.ANALYSIS_API_URL = options.apiUrl;
@@ -226,8 +235,8 @@ async function main() {
   if (options.apiKey) {
     process.env.METABOB_API_KEY = options.apiKey;
   }
-  if (options.jwtToken) {
-    process.env.JWT_TOKEN = options.jwtToken;
+  if (options.sessionToken) {
+    process.env.SESSION_TOKEN = options.sessionToken;
   }
   if (options.logLevel) {
     process.env.LOG_LEVEL = options.logLevel;

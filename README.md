@@ -27,7 +27,7 @@ Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/
 
 **Local-tier** tools run entirely in-process via `@metabob/cpg-inference` (Tree-sitter parse → GCN embeddings → vector search). They require `init_workspace` to have run first but make no network calls.
 
-**API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`.
+**API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`. If `METABOB_API_KEY` is unset, the CLI also falls back to `~/.metabob/config.json` and reads `metabob.apiKey` (or `instance.apiKey`).
 
 ## Configuration
 
@@ -36,13 +36,14 @@ Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/
 | `METABOB_API_KEY` | — | API key — exchanged for a session token on startup |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
+| `ACTIVITY_API_URL` | `https://activity.metabob.com` | Activity API base URL; falls back to `metabob.endpoint` in `~/.metabob/config.json` |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 
-All variables can also be passed as CLI flags — run `metabob-mcp --help` for the full flag reference.
+CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
 
 ## Integrations
 
