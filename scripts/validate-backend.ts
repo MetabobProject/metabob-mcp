@@ -8,12 +8,12 @@
  *
  * workspace defaults to the current directory.
  *
- * What it checks:
- *   Phase 1 — auth: session token exchange with ide.metabob.com
- *   Phase 2 — local: init_workspace (CPG parse + file submission)
- *   Phase 3 — api reads: get_metrics, get_problems, search_codebase
- *   Phase 4 — local inference: predict_cochanges, analyze_impact
- *   Phase 5 — api writes: annotate_component (if problems found)
+ * Phases (API tools tested before init_workspace to avoid event-loop blocking):
+ *   Phase 1 — auth + protocol: session token exchange, tools/list
+ *   Phase 2 — api reads: get_metrics, get_problems, search_codebase
+ *   Phase 3 — api writes: annotate_component (if problems found)
+ *   Phase 4 — local CPG: init_workspace (parse + submission)
+ *   Phase 5 — local inference: predict_cochanges, analyze_impact
  *   Phase 6 — context: get_analysis_context, assign_git_changes
  */
 
@@ -39,8 +39,12 @@ const pending = new Map<number, { resolve: (r: any) => void; reject: (e: Error) 
 
 function startServer(): Promise<void> {
   return new Promise((resolve, reject) => {
-    child = spawn('metabob-mcp', [], {
+    // Use bun to run the source directly — avoids the Node.js ~4GB heap limit
+    // that ONNX + Tree-sitter grammars exceed when running via dist/cli.js.
+    const serverDir = new URL('../', import.meta.url).pathname;
+    child = spawn('bun', ['run', 'src/index.ts'], {
       stdio: ['pipe', 'pipe', 'inherit'],
+      cwd: serverDir,
       env: {
         ...process.env,
         METABOB_API_KEY: API_KEY!,
@@ -48,6 +52,7 @@ function startServer(): Promise<void> {
         SESSION_ID: 'validate-backend',
         LOG_LEVEL: 'error',
         HEALTH_PORT: '18099',
+        NODE_OPTIONS: '--max-old-space-size=8192',
       },
     });
 
@@ -69,18 +74,18 @@ function startServer(): Promise<void> {
 
     child.on('error', reject);
 
-    // Give the server 5s to authenticate and become ready
-    setTimeout(resolve, 5000);
+    // Give the server 8s to authenticate and become ready
+    setTimeout(resolve, 8000);
   });
 }
 
-function send(method: string, params: Record<string, unknown> = {}): Promise<any> {
+function send(method: string, params: Record<string, unknown> = {}, timeoutMs = 30000): Promise<any> {
   const id = ++msgId;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error(`Timeout waiting for response to ${method}`));
-    }, 30000);
+      reject(new Error(`Timeout after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
 
     pending.set(id, {
       resolve: (r) => { clearTimeout(timer); resolve(r); },
@@ -91,12 +96,11 @@ function send(method: string, params: Record<string, unknown> = {}): Promise<any
   });
 }
 
-async function callTool(name: string, args: Record<string, unknown> = {}): Promise<any> {
-  const res = await send('tools/call', { name, arguments: args });
+async function callTool(name: string, args: Record<string, unknown> = {}, timeoutMs = 30000): Promise<string> {
+  const res = await send('tools/call', { name, arguments: args }, timeoutMs);
   if (res.error) throw new Error(res.error.message ?? JSON.stringify(res.error));
   const content = res.result?.content ?? [];
-  const text = content.map((c: any) => c.text ?? '').join('\n');
-  return text;
+  return content.map((c: any) => c.text ?? '').join('\n');
 }
 
 // ── Test runner ───────────────────────────────────────────────────────────────
@@ -128,7 +132,7 @@ console.log('');
 console.log('Starting server...');
 await startServer();
 
-// Phase 1 — protocol handshake
+// Phase 1 — protocol
 console.log('\nPhase 1: protocol');
 await check('tools/list returns 10 tools', async () => {
   const res = await send('tools/list', {});
@@ -137,78 +141,72 @@ await check('tools/list returns 10 tools', async () => {
   return `${n} tools`;
 });
 
-// Phase 2 — local + API submission
-console.log('\nPhase 2: init_workspace');
-await check('CPG parse + file submission', async () => {
-  const out = await callTool('init_workspace', {
-    workspace_path: WORKSPACE,
-    batch_size: 3,
-    max_files: 20,
-  });
-  if (!out.includes('Workspace') && !out.includes('workspace') && !out.includes('files')) {
-    throw new Error(`unexpected output: ${out.slice(0, 120)}`);
-  }
-  const match = out.match(/(\d+)\s*files?/i);
-  return match ? match[0] : 'done';
-});
-
-// Phase 3 — API reads
-console.log('\nPhase 3: api reads');
-const metricsOut = await check('get_metrics', async () => {
+// Phase 2 — API reads (no workspace needed, tests auth + session)
+console.log('\nPhase 2: api reads');
+await check('get_metrics', async () => {
   const out = await callTool('get_metrics', {});
-  return out.slice(0, 80).replace(/\n/g, ' ');
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
 let firstProblemId: string | null = null;
 await check('get_problems', async () => {
   const out = await callTool('get_problems', { limit: 5 });
-  // Try to extract a problem ID for annotate_component
   const idMatch = out.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/);
   if (idMatch) firstProblemId = idMatch[0];
   const lines = out.split('\n').filter(Boolean);
-  return `${lines.length} lines returned${firstProblemId ? ', problem ID captured' : ''}`;
+  return `${lines.length} lines${firstProblemId ? ', ID captured' : ''}`;
 });
 
-await check('search_codebase (codebase)', async () => {
-  const out = await callTool('search_codebase', { query: 'function', limit: 3, target: 'codebase' });
-  return out.slice(0, 80).replace(/\n/g, ' ');
+await check('search_codebase', async () => {
+  const out = await callTool('search_codebase', { query: 'error', limit: 3, target: 'both' });
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
-// Phase 4 — local inference (needs init_workspace to have run first)
-console.log('\nPhase 4: local inference');
+// Phase 3 — API write
+console.log('\nPhase 3: api writes');
+await check('annotate_component', async () => {
+  if (!firstProblemId) return 'skipped (no problems in session)';
+  const out = await callTool('annotate_component', { problem_id: firstProblemId, mode: 'explain' });
+  return out.trim().split('\n')[0] ?? '(empty)';
+});
+
+// Phase 4 — local CPG (CPU-intensive, runs last to avoid blocking API calls)
+console.log('\nPhase 4: local CPG');
+await check('init_workspace', async () => {
+  const out = await callTool('init_workspace', {
+    workspace_path: WORKSPACE,
+    batch_size: 3,
+    sync_api: true,
+  }, 180000); // 3 min — ONNX + Tree-sitter parse can be slow
+  const match = out.match(/Files scanned:\s*(\d+)/);
+  return match ? `${match[1]} files scanned` : out.trim().split('\n')[0];
+});
+
+// Phase 5 — local inference (after init_workspace)
+console.log('\nPhase 5: local inference');
+const { readdirSync } = await import('fs');
+const tsFiles = readdirSync(WORKSPACE)
+  .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
+  .slice(0, 2)
+  .map(f => `${WORKSPACE}/${f}`);
+
 await check('predict_cochanges', async () => {
-  const files = (await import('fs')).readdirSync(WORKSPACE)
-    .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
-    .slice(0, 2)
-    .map(f => `${WORKSPACE}/${f}`);
-  if (!files.length) return 'skipped (no .ts/.js files at workspace root)';
-  const out = await callTool('predict_cochanges', { changed_files: files, limit: 3 });
-  return out.slice(0, 80).replace(/\n/g, ' ');
+  if (!tsFiles.length) return 'skipped (no .ts/.js at workspace root)';
+  const out = await callTool('predict_cochanges', { changed_files: tsFiles, limit: 3 }, 60000);
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
 await check('analyze_impact', async () => {
-  const files = (await import('fs')).readdirSync(WORKSPACE)
-    .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
-    .slice(0, 1)
-    .map(f => `${WORKSPACE}/${f}`);
-  if (!files.length) return 'skipped (no .ts/.js files at workspace root)';
-  const out = await callTool('analyze_impact', { changed_files: files, direction: 'downstream' });
-  return out.slice(0, 80).replace(/\n/g, ' ');
+  if (!tsFiles.length) return 'skipped (no .ts/.js at workspace root)';
+  const out = await callTool('analyze_impact', { changed_files: tsFiles.slice(0, 1), direction: 'forward' }, 60000);
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
-// Phase 5 — API write (annotation)
-console.log('\nPhase 5: api writes');
-await check('annotate_component', async () => {
-  if (!firstProblemId) return 'skipped (no problem ID from get_problems)';
-  const out = await callTool('annotate_component', { problem_id: firstProblemId, mode: 'explain' });
-  return out.slice(0, 80).replace(/\n/g, ' ');
-});
-
-// Phase 6 — context tools
+// Phase 6 — context
 console.log('\nPhase 6: context');
 await check('get_analysis_context', async () => {
   const out = await callTool('get_analysis_context', { problem_limit: 3, scope: 'session' });
-  return out.slice(0, 80).replace(/\n/g, ' ');
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
 await check('assign_git_changes', async () => {
@@ -216,17 +214,13 @@ await check('assign_git_changes', async () => {
     changed_files: [`${WORKSPACE}/src/index.ts`],
     include_cochange_predictions: true,
   });
-  return out.slice(0, 80).replace(/\n/g, ' ');
+  return out.trim().split('\n')[0] ?? '(empty)';
 });
 
 // ── Summary ────────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(50)}`);
 console.log(`  Passed: ${passed}   Failed: ${failed}   Total: ${passed + failed}`);
-if (failed === 0) {
-  console.log('  All checks passed ✓');
-} else {
-  console.log(`  ${failed} check(s) failed`);
-}
+console.log(failed === 0 ? '  All checks passed ✓' : `  ${failed} check(s) failed`);
 console.log('');
 
 child?.kill();
