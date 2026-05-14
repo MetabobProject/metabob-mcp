@@ -1,12 +1,14 @@
 {
   "name": "@metabob/mcp",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
     "metabob-mcp": "dist/cli.js"
   },
-  "workspaces": ["vendor/cpg-inference"],
+  "workspaces": [
+    "vendor/cpg-inference"
+  ],
   "files": [
     "dist/**/*",
     "include/**/*",
