@@ -78,14 +78,14 @@ class LocalIndex {
   }
 
   componentIdsForFile(filePath: string): string[] {
-    const ids: string[] = [];
+    const seen = new Set<string>();
     for (const [id, node] of this.predictor.componentMap) {
       const nodePath = (node as any).filePath as string | undefined;
       if (nodePath && (nodePath === filePath || nodePath.endsWith(`/${filePath}`) || filePath.endsWith(`/${nodePath}`))) {
-        ids.push(id);
+        seen.add(id);
       }
     }
-    return ids;
+    return [...seen];
   }
 }
 

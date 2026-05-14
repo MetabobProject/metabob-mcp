@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, extname, dirname } from 'path';
+import { join, extname, dirname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 
@@ -138,7 +138,7 @@ export async function handle(
   sessionId: string,
 ): Promise<string> {
   const startTime = Date.now();
-  const workspacePath = input.workspace_path ?? process.env.WORKSPACE_PATH ?? process.cwd();
+  const workspacePath = resolve(input.workspace_path ?? process.env.WORKSPACE_PATH ?? process.cwd());
   const extensions = input.include
     ? new Set(input.include.map(e => (e.startsWith('.') ? e : `.${e}`)))
     : DEFAULT_EXTENSIONS;

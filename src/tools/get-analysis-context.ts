@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AnalysisAPIClient } from '../api-client.js';
+import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 
 export const GetAnalysisContextTool = {
@@ -71,41 +71,43 @@ export async function handle(
     }
   }
 
-  // ── Open problems from analysis API (best-effort) ─────────────────────────
-  let problemsText = '(analysis API unavailable)';
+  // ── Open problems from analysis API (same source as get_problems) ────────
+  let problemsText = '(analysis pending or unavailable)';
   let criticalCount = 0;
   let highCount = 0;
   let totalOpen = 0;
   let recentProblems: string[] = [];
 
   try {
-    const result = await apiClient.get<{
-      problems: Array<{
-        id: string;
-        severity: string;
-        category: string;
-        file_path: string;
-        start_line: number;
-        message: string;
-        status: string;
-        created_at: string;
-      }>;
-      total: number;
-    }>(
-      '/v2/analysis/problems',
-      { limit: input.problem_limit, scope: input.scope, status: ['open'] },
-      sessionId,
-    );
+    const analysis = await apiClient.getAnalysis(sessionId);
 
-    totalOpen = result.total;
-    for (const p of result.problems) {
-      if (p.severity === 'CRITICAL') criticalCount++;
-      if (p.severity === 'HIGH') highCount++;
-      recentProblems.push(
-        `  • [${p.severity}] ${p.category}  ${p.file_path}:${p.start_line}\n    ${p.message.slice(0, 100)}\n    id: ${p.id}`,
-      );
+    if (analysis.status === 'complete') {
+      const results: AnalysisResult[] = (analysis.results ?? []).filter(r => !r.discarded);
+      totalOpen = results.length;
+
+      const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
+      const sorted = [...results].sort((a, b) => {
+        const sa = SEVERITY_ORDER[a.severity?.toUpperCase() ?? ''] ?? 99;
+        const sb = SEVERITY_ORDER[b.severity?.toUpperCase() ?? ''] ?? 99;
+        return sa !== sb ? sa - sb : a.path.localeCompare(b.path);
+      });
+
+      for (const p of sorted) {
+        if (p.severity?.toUpperCase() === 'CRITICAL') criticalCount++;
+        if (p.severity?.toUpperCase() === 'HIGH') highCount++;
+      }
+
+      for (const p of sorted.slice(0, input.problem_limit)) {
+        recentProblems.push(
+          `  • [${p.severity ?? 'LOW'}] ${p.category}  ${p.path}:${p.startLine}\n    ${p.summary.slice(0, 100)}\n    id: ${p.id}`,
+        );
+      }
+      problemsText = `${totalOpen} open (${criticalCount} critical, ${highCount} high)`;
+    } else if (analysis.status === 'pending' || analysis.status === 'running') {
+      problemsText = `(analysis ${analysis.status} — run init_workspace then try again)`;
+    } else if (analysis.status === 'failed') {
+      problemsText = `(analysis failed — re-submit files via init_workspace)`;
     }
-    problemsText = `${totalOpen} open (${criticalCount} critical, ${highCount} high)`;
   } catch {
     // keep unavailable message
   }

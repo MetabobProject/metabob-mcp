@@ -100,13 +100,15 @@ export async function handle(
     allComponentIds.push(...componentIds);
   }
 
-  const totalComponents = allComponentIds.length;
+  // Deduplicate across files (same component can be touched by multiple changed files)
+  const uniqueComponentIds = [...new Set(allComponentIds)];
+  const totalComponents = uniqueComponentIds.length;
 
   // Co-change predictions across all changed components
   let predictions: CochangePrediction[] = [];
-  if (input.include_cochange_predictions && allComponentIds.length > 0) {
+  if (input.include_cochange_predictions && uniqueComponentIds.length > 0) {
     const raw = await localIndex.predictor.predictCochanges(
-      allComponentIds,
+      uniqueComponentIds,
       input.prediction_limit * input.changed_files.length,
     );
     predictions = raw.map(p => ({

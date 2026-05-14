@@ -37,10 +37,18 @@ export async function handle(
 ): Promise<string> {
   const startTime = Date.now();
 
-  await apiClient.postFeedback(input.problem_id, sessionId, {
-    endorsed: input.action === 'endorse',
-    discarded: input.action === 'discard',
-  });
+  try {
+    await apiClient.postFeedback(input.problem_id, sessionId, {
+      endorsed: input.action === 'endorse',
+      discarded: input.action === 'discard',
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('404') || msg.includes('not found') || msg.toLowerCase().includes('invalid')) {
+      return `Problem ID "${input.problem_id}" not found. Use get_problems to list valid IDs.`;
+    }
+    return `Failed to update problem: ${msg}`;
+  }
 
   const duration = Date.now() - startTime;
   const verb = input.action === 'endorse' ? 'endorsed (marked resolved)' : 'discarded (marked false positive)';
