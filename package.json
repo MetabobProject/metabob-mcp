@@ -21,6 +21,7 @@
     "build:vendor": "(cd vendor/cpg-inference && bun run build)",
     "build:model": "mkdir -p include && cp vendor/cpg-inference/include/*.onnx vendor/cpg-inference/include/*.onnx.data include/",
     "build": "bun run build:vendor && bun run build:model && bun build src/cli.ts --target node --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external usearch && chmod +x dist/cli.js",
+    "validate:backend": "bun run scripts/validate-backend.ts",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "keywords": [
