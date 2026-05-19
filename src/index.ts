@@ -29,6 +29,7 @@ const SESSION_ID = process.env.SESSION_ID || 'default-session';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
+const SUBMIT_TIMEOUT_MS = Number(process.env.SUBMIT_TIMEOUT_MS) || 120000;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 /** Pre-obtained session token (skips the key-exchange step). */
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
@@ -42,6 +43,7 @@ const apiClient = new AnalysisAPIClient({
   baseURL: ANALYSIS_API_URL,
   activityApiUrl: ACTIVITY_API_URL,
   timeout: 30000,
+  submitTimeoutMs: SUBMIT_TIMEOUT_MS,
   retryAttempts: 3,
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
@@ -87,7 +89,7 @@ const vesselServer = new VesselServer({
 const server = new Server(
   {
     name: 'metabob-mcp',
-    version: '0.2.0',
+    version: '0.2.6',
   },
   {
     capabilities: {

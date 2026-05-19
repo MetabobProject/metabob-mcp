@@ -86,6 +86,7 @@ ENVIRONMENT VARIABLES:
   LOG_LEVEL                    Same as --log-level
   HEALTH_PORT                  Same as --health-port
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
+  SUBMIT_TIMEOUT_MS            Timeout for init_workspace file submission (default: 120000)
 
   Precedence: CLI flags > environment variables > ~/.metabob/config.json.
 

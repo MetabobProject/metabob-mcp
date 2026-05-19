@@ -62,6 +62,8 @@ Ask your agent:
 
 The agent will call `init_workspace` (builds the local CPG and submits files to the analysis server), then `get_problems`.
 
+Metabob analysis is asynchronous. After `init_workspace`, the server may report `pending` or `running` before results are ready, so agents should prefer async follow-up instead of assuming analysis will finish immediately.
+
 ## Typical flow
 
 ```
@@ -69,7 +71,7 @@ init_workspace        # index workspace, sync first batch
 get_analysis_context  # snapshot: index stats + open problems
 get_problems          # full problem list
 predict_cochanges     # what else should change? (local, no API)
-annotate_component    # explain or recommend fix for a problem
+annotate_component    # add why/how notes for a problem
 mark_complete         # record the fix
 init_workspace        # sync next batch as files change
 ```
