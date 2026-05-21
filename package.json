@@ -1,6 +1,6 @@
 {
   "name": "@metabob/mcp",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
