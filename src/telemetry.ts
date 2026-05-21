@@ -20,6 +20,11 @@ export interface TelemetryEvent {
   mcp_version: string;
 }
 
+export interface OutcomeEvent {
+  tool_name: string;
+  outcome_payload: Record<string, unknown>;
+}
+
 export interface TelemetryOptions {
   endpoint?: string;
   apiKey?: string;
@@ -30,12 +35,14 @@ export interface TelemetryOptions {
 
 export class Telemetry {
   private buffer: TelemetryEvent[] = [];
+  private outcomeBuffer: OutcomeEvent[] = [];
   private endpoint: string;
   private apiKey: string;
   private mcpVersion: string;
   private enabled: boolean;
   private fetchImpl: typeof fetch;
   private flushing = false;
+  private flushingOutcomes = false;
 
   constructor(opts: TelemetryOptions) {
     this.endpoint = opts.endpoint ?? process.env.USER_VESSEL_URL ?? "https://user.metabob.com";
@@ -92,6 +99,49 @@ export class Telemetry {
     }
   }
 
+  /**
+   * Queue a semantic outcome event and trigger an async flush. Returns
+   * immediately. Caller is responsible for extracting tool-specific payload
+   * fields before invoking.
+   */
+  outcome(event: OutcomeEvent): void {
+    if (!this.enabled) return;
+    this.outcomeBuffer.push({
+      tool_name: event.tool_name,
+      outcome_payload: event.outcome_payload,
+    });
+    void this.flushOutcomes();
+  }
+
+  private async flushOutcomes(): Promise<void> {
+    if (this.flushingOutcomes) return;
+    this.flushingOutcomes = true;
+    try {
+      while (this.outcomeBuffer.length > 0) {
+        const ev = this.outcomeBuffer.shift()!;
+        try {
+          const resp = await this.fetchImpl(`${this.endpoint}/v2/mcp/outcomes`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `ApiKey ${this.apiKey}`,
+            },
+            body: JSON.stringify(ev),
+          });
+          if (!resp.ok && resp.status >= 500) {
+            this.outcomeBuffer.unshift(ev);
+            return;
+          }
+        } catch {
+          this.outcomeBuffer.unshift(ev);
+          return;
+        }
+      }
+    } finally {
+      this.flushingOutcomes = false;
+    }
+  }
+
   /** Test helper — true when METABOB_TELEMETRY=off or no key. */
   isDisabled(): boolean {
     return !this.enabled;
@@ -100,5 +150,52 @@ export class Telemetry {
   /** Test helper — peek buffer length. */
   bufferSize(): number {
     return this.buffer.length;
+  }
+
+  /** Test helper — peek outcome buffer length. */
+  outcomeBufferSize(): number {
+    return this.outcomeBuffer.length;
+  }
+}
+
+/**
+ * Extract a semantic outcome payload for state-changing tools. Returns null
+ * for tools that don't have an outcome to capture (read-only tools).
+ *
+ * - mark_complete → { problem_id, verdict }
+ * - annotate_component → { problem_id, kind, content_summary } (200-char cap)
+ * - assign_git_changes → { changed_files } (20-entry cap)
+ */
+export function extractOutcomePayload(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+  if (!args || typeof args !== "object") return null;
+  switch (toolName) {
+    case "mark_complete": {
+      const problem_id = args.problem_id;
+      const verdict = args.verdict;
+      if (typeof problem_id !== "string" || typeof verdict !== "string") return null;
+      return { problem_id, verdict };
+    }
+    case "annotate_component": {
+      const problem_id = args.problem_id;
+      const kind = args.kind;
+      const content = args.content;
+      if (typeof problem_id !== "string" || typeof kind !== "string") return null;
+      const content_summary =
+        typeof content === "string" ? content.slice(0, 200) : "";
+      return { problem_id, kind, content_summary };
+    }
+    case "assign_git_changes": {
+      const changed_files = args.changed_files;
+      if (!Array.isArray(changed_files)) return null;
+      const capped = changed_files
+        .filter((f): f is string => typeof f === "string")
+        .slice(0, 20);
+      return { changed_files: capped };
+    }
+    default:
+      return null;
   }
 }

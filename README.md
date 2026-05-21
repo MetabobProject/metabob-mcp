@@ -130,4 +130,8 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
 
 `npm link` makes the local build available as `metabob-mcp` on your PATH without publishing to npm. Re-run `bun run build` after source changes.
 
+## Copilot instructions
+
+This repository includes repo-local Copilot instruction files under `.github/` that teach agents to use the attached Metabob MCP workflow for initialization, problem triage, co-change prediction, and impact analysis.
+
 See [CLAUDE.md](CLAUDE.md) for development guidance and [docs/](docs/) for detailed references.

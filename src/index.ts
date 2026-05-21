@@ -20,10 +20,10 @@ import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
-import { Telemetry } from './telemetry.js';
+import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = '0.2.6';
+const MCP_VERSION = '0.2.8';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
@@ -102,7 +102,7 @@ const vesselServer = new VesselServer({
 const server = new Server(
   {
     name: 'metabob-mcp',
-    version: '0.2.6',
+    version: '0.2.8',
   },
   {
     capabilities: {
@@ -218,6 +218,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       success: true,
       duration_ms: duration,
     });
+
+    // Semantic outcome event for state-changing tools (best-effort).
+    const outcomePayload = extractOutcomePayload(
+      name,
+      (args as Record<string, unknown> | undefined) ?? undefined,
+    );
+    if (outcomePayload) {
+      telemetry.outcome({ tool_name: name, outcome_payload: outcomePayload });
+    }
 
     log('info', `Tool ${name} completed in ${duration}ms`);
 
