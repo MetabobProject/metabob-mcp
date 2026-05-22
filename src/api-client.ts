@@ -16,6 +16,8 @@ export interface APIClientConfig {
   /** Activity API URL (for connection slots and resolution) */
   activityApiUrl?: string;
   timeout?: number;
+  /** Timeout specifically for file submission and analysis start-up */
+  submitTimeoutMs?: number;
   retryAttempts?: number;
   retryDelayMs?: number;
   /** Session token for authentication (obtained by exchanging an API key at POST /v2/auth/apikey).
@@ -95,6 +97,7 @@ export class AnalysisAPIClient {
   private baseURL: string;
   private activityApiUrl?: string;
   private timeout: number;
+  private submitTimeoutMs: number;
   private retryAttempts: number;
   private retryDelayMs: number;
   /** Opaque session token from POST /session. NOT a JWT. */
@@ -111,6 +114,7 @@ export class AnalysisAPIClient {
     this.baseURL = config.baseURL || 'https://ide.metabob.com';
     this.activityApiUrl = config.activityApiUrl;
     this.timeout = config.timeout || 30000;
+    this.submitTimeoutMs = config.submitTimeoutMs || Math.max(this.timeout, 120000);
     this.retryAttempts = config.retryAttempts || 3;
     this.retryDelayMs = config.retryDelayMs || 100;
     this.sessionToken = config.sessionToken;
@@ -407,6 +411,7 @@ export class AnalysisAPIClient {
   async submitFiles(
     files: Array<{ path: string; content: string }>,
     sessionId: string,
+    opts: { timeoutMs?: number } = {},
   ): Promise<AnalysisResponse> {
     const form = new FormData();
     for (const f of files) {
@@ -417,8 +422,9 @@ export class AnalysisAPIClient {
     const headers = this.buildHeaders(sessionId);
     delete (headers as Record<string, string>)['Content-Type']; // let fetch set multipart boundary
 
+    const timeoutMs = opts.timeoutMs ?? this.submitTimeoutMs;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${this.baseURL}/v2/submit`, {
         method: 'POST',

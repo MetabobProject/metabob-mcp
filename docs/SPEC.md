@@ -27,7 +27,7 @@ Agent (Claude Code / Cursor / custom)
 - File submission: `POST /v2/submit` (multipart)
 - Analysis results: `GET /analysis`
 - Feedback: `POST /feedback/detection`
-- Explain / recommend: `POST /explain`, `POST /recommend`
+- Problem details: `GET /analysis`
 
 ---
 
@@ -36,6 +36,8 @@ Agent (Claude Code / Cursor / custom)
 ### init_workspace
 
 Initialize the local CPG index and incrementally sync the most relevant files to the analysis server. Call repeatedly as you work — each call submits one small batch ranked by relevance to recently changed files.
+
+Analysis is asynchronous: after submission, the server may continue processing in the background and later calls may still see `pending` or `running`. Agents should prefer async follow-up when working with Metabob.
 
 **Input**
 
@@ -53,12 +55,14 @@ Initialize the local CPG index and incrementally sync the most relevant files to
 2. Ranks files: recently changed → CPG co-change neighbours → same directory → alphabetical.
 3. Submits `batch_size` files to `POST /v2/submit`.
 4. Reports how many files remain unsynced.
+5. Uses a longer submission timeout than ordinary API calls; if the server is slow to answer, prefer async follow-up with `get_analysis_context` or `get_problems`.
+6. Does not wait for backend analysis to finish; use `get_analysis_context` or `get_problems` to check progress later.
 
 ---
 
 ### get_problems
 
-Fetch code problems detected by the analysis server for this session, ranked by severity.
+Fetch code problems detected by the analysis server for this session, ranked by severity. If analysis is still running, the tool reports that state instead of blocking until completion.
 
 **Input**
 
@@ -127,17 +131,17 @@ Requires `init_workspace`.
 
 ### annotate_component
 
-Get an AI-generated explanation or fix recommendation for a detected problem.
+Add structured notes for a detected problem using the current analysis result.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `problem_id` | string | **required** | Problem ID from `get_problems` |
-| `mode` | `explain\|recommend` | `explain` | Explanation or fix recommendation |
-| `context` | string | — | Additional context for the AI |
+| `mode` | `explain\|recommend` | `explain` | `explain` adds why-focused notes, `recommend` adds how-to-fix notes |
+| `context` | string | — | Additional context to include in the notes |
 
-Calls `POST /explain` (mode=explain) or `POST /recommend` (mode=recommend).
+Calls `GET /analysis`, finds the matching problem ID, and returns structured notes.
 
 ---
 

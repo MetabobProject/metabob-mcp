@@ -3,7 +3,10 @@
  * Tests all 10 registered tool handlers with a mocked API client
  */
 
-import { test, expect, mock, beforeEach } from 'bun:test';
+import { test, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AnalysisAPIClient } from '../../src/api-client';
 
 import * as InitWorkspace from '../../src/tools/init-workspace';
@@ -18,6 +21,7 @@ import * as AssignGitChanges from '../../src/tools/assign-git-changes';
 import * as GetAnalysisContext from '../../src/tools/get-analysis-context';
 
 const SESSION = 'test-session';
+const tempPaths: string[] = [];
 
 let mockApiClient: AnalysisAPIClient;
 
@@ -26,16 +30,30 @@ beforeEach(() => {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
     put: mock(async () => ({})),
+    submitFiles: mock(async () => ({ status: 'pending', jobId: 'job_123' })),
     getAnalysis: mock(async () => ({
-      session_id: SESSION,
       status: 'complete',
-      problems: [],
-      components: [],
-      total_problems: 0,
+      results: [],
     })),
     postFeedback: mock(async () => ({})),
   } as unknown as AnalysisAPIClient;
 });
+
+afterEach(() => {
+  for (const path of tempPaths.splice(0)) {
+    rmSync(path, { recursive: true, force: true });
+  }
+});
+
+function writeTempWorkspace(files: Record<string, string>): string {
+  const dir = join(tmpdir(), `metabob-mcp-tools-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  for (const [name, contents] of Object.entries(files)) {
+    writeFileSync(join(dir, name), contents, 'utf-8');
+  }
+  tempPaths.push(dir);
+  return dir;
+}
 
 // ===== init_workspace =====
 
@@ -51,6 +69,26 @@ test('init_workspace: schema uses defaults', () => {
 
 // init_workspace.handle() triggers ONNX runtime + Tree-sitter grammars (native,
 // memory-heavy) — not suitable for fast unit tests. Handler tested in integration suite.
+
+test('init_workspace: reports timeout as slow async processing instead of failure', async () => {
+  (mockApiClient.submitFiles as ReturnType<typeof mock>).mockRejectedValue({
+    code: 'API_TIMEOUT',
+    message: 'Request to analysis API timed out',
+  });
+
+  const workspace = writeTempWorkspace({
+    'index.ts': 'export const value = 1;\n',
+  });
+
+  const input = InitWorkspace.InputSchema.parse({
+    workspace_path: workspace,
+    batch_size: 1,
+  });
+
+  const result = await InitWorkspace.handle(input, mockApiClient, SESSION);
+  expect(result).toContain('response timeout');
+  expect(result).toContain('server may still be processing this batch');
+});
 
 // ===== get_problems =====
 
@@ -161,11 +199,33 @@ test('annotate_component: schema requires problem_id', () => {
 });
 
 test('annotate_component: handler returns non-empty string', async () => {
-  (mockApiClient.post as ReturnType<typeof mock>).mockImplementation(async () => ({ explanation: 'This is a bug.' }));
+  (mockApiClient.getAnalysis as ReturnType<typeof mock>).mockImplementation(async () => ({
+    status: 'complete',
+    results: [{
+      id: 'prob_123',
+      path: 'src/health-server.ts',
+      category: 'Runtime issues',
+      startLine: 27,
+      endLine: 30,
+      summary: 'Server startup can fail without handling.',
+      description: 'Bun.serve may throw when the port is already in use.',
+      severity: 'HIGH',
+      discarded: false,
+      endorsed: false,
+    }],
+  }));
   const input = AnnotateComponent.InputSchema.parse({ problem_id: 'prob_123' });
   const result = await AnnotateComponent.handle(input, mockApiClient, SESSION);
   expect(typeof result).toBe('string');
   expect(result.length).toBeGreaterThan(0);
+  expect(result).toContain('Why this matters');
+});
+
+test('annotate_component: calls getAnalysis and returns not found for unknown ids', async () => {
+  const input = AnnotateComponent.InputSchema.parse({ problem_id: 'missing-problem', mode: 'recommend' });
+  const result = await AnnotateComponent.handle(input, mockApiClient, SESSION);
+  expect(mockApiClient.getAnalysis).toHaveBeenCalledWith(SESSION);
+  expect(result).toContain('not found');
 });
 
 // ===== mark_complete =====

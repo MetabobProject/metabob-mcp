@@ -9,7 +9,8 @@ export const InitWorkspaceTool = {
   description:
     'Initialize the local CPG index and incrementally sync the most relevant files to the analysis server. ' +
     'Pass recently_changed_files to prioritise those files and their co-change neighbours in the sync batch. ' +
-    'Call repeatedly as you work to keep the server up to date — each call submits one small batch.',
+    'Call repeatedly as you work to keep the server up to date — each call submits one small batch. ' +
+    'Analysis may remain pending for a while after submission, so agents should prefer async follow-up when working with Metabob.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -250,7 +251,13 @@ export async function handle(
           syncStatus += ` — ${remaining} file${remaining === 1 ? '' : 's'} not yet submitted (call again to continue)`;
         }
       } catch (err) {
-        syncStatus = `failed: ${(err as Error).message}`;
+        const error = err as { code?: string; message?: string };
+        if (error.code === 'API_TIMEOUT') {
+          syncStatus =
+            'response timeout — the server may still be processing this batch; prefer async follow-up with get_analysis_context or get_problems before retrying';
+        } else {
+          syncStatus = `failed: ${error.message ?? String(err)}`;
+        }
       }
     }
   }

@@ -10,6 +10,8 @@ npx @metabob/mcp@latest --api-key=mb_your_api_key_here
 
 Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/settings/api-keys).
 
+Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backend may take a while to finish processing it. Agents should prefer async follow-up with Metabob tools and treat `pending` or `running` analysis states as normal.
+
 ## Tools
 
 | Tool | Tier | Description |
@@ -19,7 +21,7 @@ Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/
 | `search_codebase` | Local + API | Search components (CPG) and problems by keyword |
 | `predict_cochanges` | **Local** | GCN-based co-change prediction — no API call |
 | `analyze_impact` | **Local** | CPG traversal showing what a change affects |
-| `annotate_component` | API | AI explanation or fix recommendation for a problem |
+| `annotate_component` | API | Add structured why/how notes for a problem using the current analysis result |
 | `mark_complete` | API | Endorse a fix or discard a false positive |
 | `get_metrics` | API | Session and project analysis health overview |
 | `assign_git_changes` | Local + API | Map changed files to CPG components + co-change predictions |
@@ -42,6 +44,7 @@ Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
+| `SUBMIT_TIMEOUT_MS` | `120000` | Timeout for `init_workspace` file submission before treating it as a slow async response |
 
 CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
 
@@ -129,5 +132,9 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
 ```
 
 `npm link` makes the local build available as `metabob-mcp` on your PATH without publishing to npm. Re-run `bun run build` after source changes.
+
+## Copilot instructions
+
+This repository includes repo-local Copilot instruction files under `.github/` that teach agents to use the attached Metabob MCP workflow for initialization, problem triage, co-change prediction, and impact analysis.
 
 See [CLAUDE.md](CLAUDE.md) for development guidance and [docs/](docs/) for detailed references.

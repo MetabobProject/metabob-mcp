@@ -20,7 +20,10 @@ import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
+import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { ZodError } from 'zod';
+
+const MCP_VERSION = '0.2.8';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
@@ -29,6 +32,7 @@ const SESSION_ID = process.env.SESSION_ID || 'default-session';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
+const SUBMIT_TIMEOUT_MS = Number(process.env.SUBMIT_TIMEOUT_MS) || 120000;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 /** Pre-obtained session token (skips the key-exchange step). */
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
@@ -42,6 +46,7 @@ const apiClient = new AnalysisAPIClient({
   baseURL: ANALYSIS_API_URL,
   activityApiUrl: ACTIVITY_API_URL,
   timeout: 30000,
+  submitTimeoutMs: SUBMIT_TIMEOUT_MS,
   retryAttempts: 3,
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
@@ -74,6 +79,16 @@ if (identityApiKey) {
   authService.setApiKey(identityApiKey);
 }
 
+// ── Usage telemetry (user-vessel /v2/mcp/usage) ──────────────────────────────
+// Fire-and-forget per-tool-call telemetry so the cloud-dashboard /mcp Usage
+// tab can observe what this client did. Disabled by METABOB_TELEMETRY=off or
+// when no API key is configured.
+const telemetry = new Telemetry({
+  endpoint: process.env.USER_VESSEL_URL,
+  apiKey: identityApiKey,
+  mcpVersion: MCP_VERSION,
+});
+
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
   apiClient,
@@ -87,7 +102,7 @@ const vesselServer = new VesselServer({
 const server = new Server(
   {
     name: 'metabob-mcp',
-    version: '0.2.0',
+    version: '0.2.8',
   },
   {
     capabilities: {
@@ -197,6 +212,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
+    // Fire-and-forget telemetry to user-vessel (per-key usage snapshot).
+    telemetry.record({
+      tool_name: name,
+      success: true,
+      duration_ms: duration,
+    });
+
+    // Semantic outcome event for state-changing tools (best-effort).
+    const outcomePayload = extractOutcomePayload(
+      name,
+      (args as Record<string, unknown> | undefined) ?? undefined,
+    );
+    if (outcomePayload) {
+      telemetry.outcome({ tool_name: name, outcome_payload: outcomePayload });
+    }
+
     log('info', `Tool ${name} completed in ${duration}ms`);
 
     // Return MCP response
@@ -211,6 +242,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error) {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
+
+    // Fire-and-forget telemetry on failure path. error_code is the message
+    // (truncated by Telemetry.record's body validator on the server side).
+    {
+      const err = error as { message?: string } | undefined;
+      telemetry.record({
+        tool_name: name,
+        success: false,
+        duration_ms: duration,
+        error_code: err?.message?.slice(0, 200),
+      });
+    }
 
     // Record circuit breaker failure for API errors
     if (error && typeof error === 'object' && 'code' in error) {

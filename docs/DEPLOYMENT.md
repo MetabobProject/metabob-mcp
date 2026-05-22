@@ -58,6 +58,7 @@ secrets:
 | `VESSEL_ENDPOINT` | `http://localhost:$HEALTH_PORT` | This vessel's reachable URL |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | Rate limit per session |
+| `SUBMIT_TIMEOUT_MS` | `120000` | Timeout for `init_workspace` file submission before treating the backend as slow |
 
 ## Health
 

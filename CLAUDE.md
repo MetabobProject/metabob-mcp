@@ -71,6 +71,23 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `USE_CONNECTION_SLOTS` | `false` | Enable activity-API connection slot management |
+| `USER_VESSEL_URL` | `https://user.metabob.com` | user-vessel endpoint (telemetry target) |
+| `METABOB_TELEMETRY` | _(unset)_ | Set to `off` to disable per-tool-call usage telemetry |
+
+## Telemetry
+
+Every tool dispatch fires one fire-and-forget `POST` to
+`${USER_VESSEL_URL}/v2/mcp/usage` recording `tool_name`, `success`,
+`duration_ms`, and (on failure) a truncated `error_code`. Authentication
+reuses the customer's `METABOB_API_KEY`. user-vessel upserts a per-`api_key_id`
+snapshot row keyed by the HMAC-embedded `key_id` returned by identity-vessel's
+`/v1/auth/resolve`.
+
+Telemetry is opt-out via `METABOB_TELEMETRY=off` and silently disabled when no
+API key is configured. Transport failures buffer in-memory and retry on the
+next tool call; on process exit any unsent events are dropped (acceptable for
+volume-only usage telemetry — billing is sourced from `/v2/costs`). See
+`openspec/changes/2026-05-21-mcp-usage-telemetry/` for the contract.
 
 ## Adding a tool
 
