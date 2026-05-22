@@ -29,7 +29,10 @@ async function sendMCPRequest(request: MCPRequest): Promise<MCPResponse> {
       reject(new Error('Request timeout after 10 seconds'));
     }, 10000);
 
-    const child = spawn('bun', ['run', 'src/index.ts'], {
+    const runtime = process.execPath;
+    const args = process.versions.bun ? ['run', 'src/index.ts'] : ['src/index.ts'];
+
+    const child = spawn(runtime, args, {
       stdio: ['pipe', 'pipe', 'inherit'],
       env: {
         ...process.env,

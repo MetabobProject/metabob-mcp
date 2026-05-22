@@ -108,12 +108,15 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
 ## Development
 
 ```bash
+git submodule update --init --recursive
 bun install
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
 bun test                            # run all tests
 bash scripts/git-hooks/install.sh   # install pre-commit hook
 ```
+
+The local CPG implementation lives in `vendor/cpg-inference`, so a recursive submodule checkout is required before build, test, or dev commands.
 
 To test the MCP server locally via the installed bin (mirrors the npm install flow):
 

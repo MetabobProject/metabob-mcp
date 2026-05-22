@@ -1,4 +1,4 @@
 [submodule "vendor/cpg-inference"]
 	path = vendor/cpg-inference
-	url = git@github.com:MetabobProject/cpg-inference-ts.git
+	url = https://github.com/MetabobProject/cpg-inference-ts.git
 	branch = main

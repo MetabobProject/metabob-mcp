@@ -17,7 +17,11 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
 From a local checkout (development):
 
 ```bash
-cd repos/metabob-mcp && bun run build && npm link
+cd repos/metabob-mcp
+git submodule update --init --recursive
+bun install
+bun run build
+npm link
 claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
 ```
 
@@ -26,6 +30,8 @@ Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc.
 ### Claude Desktop
 
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+On Windows, use `%APPDATA%\Claude\claude_desktop_config.json`.
 
 ```json
 {
