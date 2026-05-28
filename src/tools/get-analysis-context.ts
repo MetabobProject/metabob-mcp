@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import type { LocalStore } from '../local-store.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
@@ -41,6 +42,7 @@ export async function handle(
   input: GetAnalysisContextInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
   const localIndex = getLocalIndex();
@@ -68,6 +70,28 @@ export async function handle(
       } catch {
         // non-fatal
       }
+    }
+  }
+
+  // ── Sidecar mode: read problems from local cache ───────────────────────────
+  let cacheTag: string | null = null;
+  let cachedProblems: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
+  if (localStore && input.recently_changed_files?.length) {
+    for (const f of input.recently_changed_files) {
+      const seeds = localStore.getCachedSeeds(f);
+      cachedProblems.push(...seeds.map(s => ({
+        severity: s.severity,
+        category: s.category,
+        file_path: s.file_path,
+        line_start: s.line_start,
+        brief: s.brief,
+        id: s.id,
+      })));
+    }
+    if (cachedProblems.length > 0) {
+      const freshness = localStore.getFreshness(input.recently_changed_files[0]!);
+      const ageSec = Math.round(freshness.age_ms / 1000);
+      cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
     }
   }
 
@@ -163,5 +187,6 @@ export async function handle(
   }
 
   text += `\nContext generated in ${duration}ms`;
+  if (cacheTag) text += `\n\n${cacheTag}`;
   return text;
 }

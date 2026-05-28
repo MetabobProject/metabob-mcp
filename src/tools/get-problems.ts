@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
+import type { LocalStore } from '../local-store.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
@@ -54,9 +55,65 @@ export async function handle(
   input: GetProblemsInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
 
+  // ── Sidecar mode: serve from local cache ────────────────────────────────────
+  if (localStore && input.file_path) {
+    const seeds = localStore.getCachedSeeds(input.file_path);
+    const freshness = localStore.getFreshness(input.file_path);
+
+    if (seeds.length === 0) {
+      // Nothing cached — enqueue at P0 and tell the caller to try again.
+      localStore.enqueue(input.file_path, 0, 'default');
+      const warmMsg = `No cached problems for ${input.file_path}. Analysis queued — try again in a few seconds.`;
+      return warmMsg + `\n\n[cache: warming]`;
+    }
+
+    // Apply filters
+    let filtered = seeds;
+    if (input.severity?.length) {
+      const sevSet = new Set<string>(input.severity);
+      filtered = filtered.filter(s => sevSet.has(s.severity.toUpperCase()));
+    }
+    if (input.category?.length) {
+      const catSet = new Set(input.category.map(c => c.toLowerCase()));
+      filtered = filtered.filter(s => catSet.has(s.category.toLowerCase()));
+    }
+
+    const total = filtered.length;
+    filtered = filtered.slice(0, input.limit);
+
+    const ageSec = Math.round(freshness.age_ms / 1000);
+    const cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
+
+    if (filtered.length === 0) {
+      return `No problems found (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\n${cacheTag}`;
+    }
+
+    let text = `${filtered.length} problem${filtered.length === 1 ? '' : 's'}`;
+    if (total > filtered.length) text += ` (${total} total after filters)`;
+    text += '\n\n';
+
+    for (let i = 0; i < filtered.length; i++) {
+      const s = filtered[i]!;
+      // Mark seed as read
+      localStore.markSeedRead(s.id);
+      text += `${i + 1}. [${s.severity}] ${s.category}\n`;
+      text += `   File:    ${s.file_path}:${s.line_start}–${s.line_end}\n`;
+      text += `   Summary: ${s.brief}\n`;
+      if (s.confidence < 0.8) {
+        text += `   Confidence: ${(s.confidence * 100).toFixed(0)}%\n`;
+      }
+      text += `   ID:      ${s.id}\n\n`;
+    }
+
+    text += `Query completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
+    return text;
+  }
+
+  // ── Legacy / stateless: fetch from analysis API ─────────────────────────────
   const analysis = await apiClient.getAnalysis(sessionId);
 
   if (analysis.status === 'pending' || analysis.status === 'running') {

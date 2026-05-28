@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import type { LocalStore } from '../local-store.js';
 
 export const SearchCodebaseTool = {
   name: 'search_codebase',
@@ -67,10 +68,57 @@ export async function handle(
   input: SearchCodebaseInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
   const queryTokens = tokenize(input.query);
   const sections: string[] = [];
+
+  // ── Sidecar mode: seed (problem) search from local SQLite cache ───────────
+  let cacheTag: string | null = null;
+  if (localStore && input.target !== 'components') {
+    // We search by file_filter first; fall through if no matches.
+    const filesToSearch = input.file_filter ?? [];
+    const seedResults: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
+
+    if (filesToSearch.length > 0) {
+      for (const f of filesToSearch) {
+        for (const s of localStore.getCachedSeeds(f)) {
+          if (
+            matchesQuery(s.brief, queryTokens) ||
+            matchesQuery(s.category, queryTokens) ||
+            matchesQuery(s.file_path, queryTokens)
+          ) {
+            seedResults.push({
+              severity: s.severity,
+              category: s.category,
+              file_path: s.file_path,
+              line_start: s.line_start,
+              brief: s.brief,
+              id: s.id,
+            });
+          }
+        }
+      }
+    }
+
+    if (seedResults.length > 0) {
+      const freshness = filesToSearch[0]
+        ? localStore.getFreshness(filesToSearch[0])
+        : { age_ms: 0, stale: false };
+      const ageSec = Math.round(freshness.age_ms / 1000);
+      cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
+
+      const capped = seedResults.slice(0, input.limit);
+      let text = `Problems matching "${input.query}" (${capped.length}, from cache):\n`;
+      for (const p of capped) {
+        text += `  • [${p.severity}] ${p.category}  ${p.file_path}:${p.line_start}\n`;
+        text += `    ${p.brief}\n`;
+        text += `    id: ${p.id}\n`;
+      }
+      sections.push(text);
+    }
+  }
 
   // ── Local CPG component search ─────────────────────────────────────────────
   if (input.target !== 'problems') {
@@ -139,5 +187,6 @@ export async function handle(
     return `No results for "${input.query}" — try a different term or run init_workspace.`;
   }
 
-  return sections.join('\n') + `\nSearch completed in ${duration}ms`;
+  const suffix = cacheTag ? `\nSearch completed in ${duration}ms\n\n${cacheTag}` : `\nSearch completed in ${duration}ms`;
+  return sections.join('\n') + suffix;
 }

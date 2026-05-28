@@ -21,14 +21,27 @@ import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
+import { LocalStore } from './local-store.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = '0.2.8';
+const MCP_VERSION = '0.2.9';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
 const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://activity.metabob.com';
-const SESSION_ID = process.env.SESSION_ID || 'default-session';
+
+/**
+ * When METABOB_STATELESS=true (or ANALYSIS_API_URL still points at the legacy
+ * ide.metabob.com host) we use the original per-call HTTP behavior unchanged.
+ * Otherwise "sidecar mode" is active: tool reads are served from the local
+ * SQLite cache and telemetry is batched to the analysis-api.
+ */
+const SIDECAR_MODE =
+  process.env.METABOB_STATELESS !== 'true' &&
+  !ANALYSIS_API_URL.includes('ide.metabob.com');
+
+/** Stable session identifier — callers may inject SESSION_ID; otherwise a fresh UUID. */
+const SESSION_ID = process.env.SESSION_ID || crypto.randomUUID();
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
@@ -79,15 +92,28 @@ if (identityApiKey) {
   authService.setApiKey(identityApiKey);
 }
 
-// ── Usage telemetry (user-vessel /v2/mcp/usage) ──────────────────────────────
-// Fire-and-forget per-tool-call telemetry so the cloud-dashboard /mcp Usage
-// tab can observe what this client did. Disabled by METABOB_TELEMETRY=off or
-// when no API key is configured.
+// ── Usage telemetry ──────────────────────────────────────────────────────────
+// In sidecar mode: batches events to ${ANALYSIS_API_URL}/v2/events/mcp.
+// In legacy mode (ide.metabob.com): fire-and-forget to user-vessel /v2/mcp/usage.
+// Disabled by METABOB_TELEMETRY=off or when no API key is configured.
 const telemetry = new Telemetry({
   endpoint: process.env.USER_VESSEL_URL,
+  analysisApiUrl: ANALYSIS_API_URL,
   apiKey: identityApiKey,
   mcpVersion: MCP_VERSION,
+  sessionId: SESSION_ID,
 });
+
+// ── Local SQLite store (sidecar mode only) ────────────────────────────────────
+const localStore = SIDECAR_MODE ? new LocalStore() : null;
+if (localStore) {
+  try {
+    localStore.init();
+  } catch (err) {
+    // Non-fatal: sidecar features degrade gracefully if SQLite is unavailable.
+    console.error('[warn] LocalStore init failed:', err);
+  }
+}
 
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
@@ -147,6 +173,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const startTime = Date.now();
   let success = false;
+  let validatedInput: Record<string, unknown> | undefined;
 
   try {
     // Check rate limit
@@ -189,7 +216,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     // Validate input
-    let validatedInput;
     try {
       validatedInput = tool.validateInput(args || {});
     } catch (error) {
@@ -202,8 +228,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw error;
     }
 
-    // Execute tool
-    const result = await tool.handler(validatedInput, apiClient, SESSION_ID);
+    // Execute tool — pass localStore as fourth arg for cache-aware handlers
+    const result = await (tool.handler as (
+      input: any,
+      apiClient: any,
+      sessionId: string,
+      localStore?: LocalStore | null,
+    ) => Promise<string>)(validatedInput, apiClient, SESSION_ID, localStore);
 
     success = true;
     circuitBreaker.recordSuccess();
@@ -212,20 +243,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
-    // Fire-and-forget telemetry to user-vessel (per-key usage snapshot).
+    // Extract optional file path from input (present on get_problems, search_codebase, etc.)
+    const inputRecord = (validatedInput as Record<string, unknown> | null) ?? {};
+    const filePath =
+      typeof inputRecord['file_path'] === 'string' ? inputRecord['file_path'] : undefined;
+
+    // Fire-and-forget telemetry.
     telemetry.record({
       tool_name: name,
       success: true,
       duration_ms: duration,
+      file: filePath,
     });
 
-    // Semantic outcome event for state-changing tools (best-effort).
-    const outcomePayload = extractOutcomePayload(
-      name,
-      (args as Record<string, unknown> | undefined) ?? undefined,
-    );
-    if (outcomePayload) {
-      telemetry.outcome({ tool_name: name, outcome_payload: outcomePayload });
+    // Semantic outcome events for state-changing tools (best-effort).
+    const rawArgs = (args as Record<string, unknown> | undefined) ?? {};
+    if (name === 'mark_complete') {
+      const verdict = typeof rawArgs['action'] === 'string' ? rawArgs['action'] : 'endorse';
+      const problemId = typeof rawArgs['problem_id'] === 'string' ? rawArgs['problem_id'] : '';
+      if (problemId) {
+        const resolutionEvent: Parameters<typeof telemetry.recordOutcome>[0] = {
+          kind: 'resolution',
+          ts: Date.now(),
+          session_id: SESSION_ID,
+          annotation: { type: 'resolution', body: verdict, problem_id: problemId },
+        };
+        telemetry.recordOutcome(resolutionEvent);
+      }
+    } else if (name === 'annotate_component') {
+      const body = typeof rawArgs['context'] === 'string' ? rawArgs['context'] : '';
+      const mode = typeof rawArgs['mode'] === 'string' ? rawArgs['mode'] : 'explain';
+      const problemId = typeof rawArgs['problem_id'] === 'string' ? rawArgs['problem_id'] : '';
+      const truncated = body.length > 1985 ? body.slice(0, 1985) + '…[truncated]' : body;
+      const annotationEvent: Parameters<typeof telemetry.recordOutcome>[0] = {
+        kind: 'annotation',
+        ts: Date.now(),
+        session_id: SESSION_ID,
+        annotation: { type: mode, body: truncated, problem_id: problemId || undefined },
+      };
+      telemetry.recordOutcome(annotationEvent);
+    } else {
+      // Generic outcome payload for other state-changing tools (assign_git_changes etc.)
+      const outcomePayload = extractOutcomePayload(name, rawArgs);
+      if (outcomePayload) {
+        telemetry.outcome({ tool_name: name, outcome_payload: outcomePayload });
+      }
     }
 
     log('info', `Tool ${name} completed in ${duration}ms`);
@@ -247,11 +309,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // (truncated by Telemetry.record's body validator on the server side).
     {
       const err = error as { message?: string } | undefined;
+      const inputRecord2 = (validatedInput as Record<string, unknown> | null | undefined) ?? {};
+      const filePath2 =
+        typeof inputRecord2['file_path'] === 'string' ? inputRecord2['file_path'] : undefined;
       telemetry.record({
         tool_name: name,
         success: false,
         duration_ms: duration,
         error_code: err?.message?.slice(0, 200),
+        file: filePath2,
       });
     }
 
@@ -390,6 +456,8 @@ async function main() {
     log('info', 'Shutting down...');
 
     authService.stopKeyHeartbeat();
+    telemetry.destroy();
+    localStore?.close();
     await apiClient.shutdown();
     await vesselServer.stop();
     sessionManager.stop();
@@ -401,6 +469,8 @@ async function main() {
     log('info', 'Shutting down...');
 
     authService.stopKeyHeartbeat();
+    telemetry.destroy();
+    localStore?.close();
     await apiClient.shutdown();
     await vesselServer.stop();
     sessionManager.stop();
