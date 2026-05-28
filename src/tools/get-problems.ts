@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
+import { getLocalIndex } from '../local-index.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
@@ -110,6 +111,60 @@ export async function handle(
     }
 
     text += `Query completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
+    return text;
+  }
+
+  // ── Vessel mode: fan out problem_detection across the local CPG file list ─
+  if (apiClient.isVesselMode()) {
+    const index = getLocalIndex();
+    let filePaths = index.getIndexedFilePaths();
+    if (input.file_path) {
+      filePaths = filePaths.filter(p => p.includes(input.file_path!));
+    }
+    if (filePaths.length === 0) {
+      return input.file_path
+        ? `No indexed files match "${input.file_path}". Run init_workspace first.`
+        : 'No indexed files yet — run init_workspace first.';
+    }
+
+    const raw = await apiClient.resolveShape('problem_detection', { filePaths });
+    const payload = raw as { problems?: Array<Record<string, unknown>>; files_analyzed?: number; error?: string };
+    if (payload.error) {
+      return `analysis-vessel error: ${payload.error}`;
+    }
+    let problems = payload.problems ?? [];
+    if (input.severity?.length) {
+      const sevSet = new Set(input.severity.map(s => s.toLowerCase()));
+      problems = problems.filter(p => sevSet.has(String(p.severity ?? '').toLowerCase()));
+    }
+    if (input.category?.length) {
+      const catSet = new Set(input.category.map(c => c.toLowerCase()));
+      problems = problems.filter(p => catSet.has(String(p.category ?? '').toLowerCase()));
+    }
+    problems.sort((a, b) => {
+      const sa = SEVERITY_ORDER[String(a.severity ?? '').toUpperCase()] ?? 99;
+      const sb = SEVERITY_ORDER[String(b.severity ?? '').toUpperCase()] ?? 99;
+      return sa !== sb ? sa - sb : String(a.file ?? '').localeCompare(String(b.file ?? ''));
+    });
+
+    const total = problems.length;
+    const shown = problems.slice(0, input.limit);
+    const duration = Date.now() - startTime;
+
+    if (shown.length === 0) {
+      return `No problems found across ${filePaths.length} indexed file${filePaths.length === 1 ? '' : 's'} (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\nQuery completed in ${duration}ms`;
+    }
+
+    let text = `${shown.length} problem${shown.length === 1 ? '' : 's'}`;
+    if (total > shown.length) text += ` (${total} total after filters)`;
+    text += ` across ${payload.files_analyzed ?? filePaths.length} file${filePaths.length === 1 ? '' : 's'}\n\n`;
+    for (let i = 0; i < shown.length; i++) {
+      const p = shown[i]!;
+      text += `${i + 1}. [${String(p.severity ?? 'LOW').toUpperCase()}] ${p.category}\n`;
+      text += `   File:    ${p.file}:${p.line ?? 0}\n`;
+      text += `   Summary: ${p.message}\n\n`;
+    }
+    text += `Query completed in ${duration}ms`;
     return text;
   }
 

@@ -77,6 +77,15 @@ class LocalIndex {
     };
   }
 
+  getIndexedFilePaths(): string[] {
+    const seen = new Set<string>();
+    for (const node of this.predictor.componentMap.values()) {
+      const nodePath = (node as any).filePath as string | undefined;
+      if (nodePath) seen.add(nodePath);
+    }
+    return [...seen];
+  }
+
   componentIdsForFile(filePath: string): string[] {
     const seen = new Set<string>();
     for (const [id, node] of this.predictor.componentMap) {

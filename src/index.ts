@@ -24,7 +24,7 @@ import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { LocalStore } from './local-store.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = '0.2.9';
+const MCP_VERSION = '0.2.10';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
@@ -54,6 +54,13 @@ const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 // Identity (tenant resolution only — discovery registration removed)
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || 'https://identity.metabob.com';
 
+/**
+ * Vessel mode: ANALYSIS_API_URL points at a discovery-style impulse resolver
+ * (substrate analysis-vessel) instead of the legacy ide.metabob.com REST surface.
+ * Same gate as SIDECAR_MODE today; kept as a separate name for clarity.
+ */
+const VESSEL_MODE = SIDECAR_MODE;
+
 // Initialize clients
 const apiClient = new AnalysisAPIClient({
   baseURL: ANALYSIS_API_URL,
@@ -64,7 +71,8 @@ const apiClient = new AnalysisAPIClient({
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
   sessionToken: SESSION_TOKEN,
-  useConnectionSlots: USE_CONNECTION_SLOTS,
+  useConnectionSlots: USE_CONNECTION_SLOTS && !VESSEL_MODE,
+  vesselMode: VESSEL_MODE,
   onConnectionStateChange: (state) => {
     log('info', `Connection state changed: ${state}`);
   },
@@ -394,7 +402,7 @@ async function main() {
   }
 
   // Authenticate with ide.metabob.com (analysis API path)
-  if (METABOB_API_KEY) {
+  if (METABOB_API_KEY && !VESSEL_MODE) {
     try {
       log('info', 'Authenticating with API key...');
       const authResponse = await apiClient.authenticateWithApiKey();
@@ -411,6 +419,10 @@ async function main() {
       console.error('Get a new API key from: https://app.metabob.com/settings/api-keys\n');
       process.exit(1);
     }
+  } else if (VESSEL_MODE) {
+    log('info', 'Vessel mode: authenticating with raw ApiKey header against analysis-vessel', {
+      analysisAPIURL: ANALYSIS_API_URL,
+    });
   } else if (!SESSION_TOKEN) {
     log('warn', 'No authentication configured. Some features may be unavailable.');
     log('warn', 'Set METABOB_API_KEY (exchanged for a session token) or SESSION_TOKEN for authenticated access.');

@@ -29,6 +29,16 @@ export interface APIClientConfig {
   useConnectionSlots?: boolean;
   /** Callback when connection state changes */
   onConnectionStateChange?: (state: ConnectionState) => void;
+  /**
+   * Vessel mode: baseURL is a discovery-style impulse resolver
+   * (e.g. substrate analysis-vessel on port 18250) rather than the legacy
+   * ide.metabob.com REST surface. When true the client:
+   *   - Authenticates with `Authorization: ApiKey <apiKey>` (no /session exchange)
+   *   - Stubs legacy endpoints (getAnalysis/submitFiles/post/get/postFeedback)
+   *     so tools can still call them without HTTP errors
+   *   - Routes vessel-aware operations through `resolveShape()` → POST /resolve
+   */
+  vesselMode?: boolean;
 }
 
 // Re-export connection types
@@ -107,6 +117,7 @@ export class AnalysisAPIClient {
   private connectionManager?: ConnectionManager;
   private useConnectionSlots: boolean;
   private onConnectionStateChange?: (state: ConnectionState) => void;
+  private readonly vesselMode: boolean;
   /** Recent predictions per session for feedback tracking */
   private predictions: Map<string, PredictionRecord[]> = new Map();
 
@@ -121,6 +132,7 @@ export class AnalysisAPIClient {
     this.apiKey = config.apiKey;
     this.useConnectionSlots = config.useConnectionSlots || false;
     this.onConnectionStateChange = config.onConnectionStateChange;
+    this.vesselMode = config.vesselMode ?? false;
 
     // Initialize connection manager if activity API is configured
     if (this.activityApiUrl && this.useConnectionSlots) {
@@ -210,6 +222,46 @@ export class AnalysisAPIClient {
     return !!(this.apiKey || this.sessionToken);
   }
 
+  /** True when baseURL points at a discovery-style impulse resolver, not ide.metabob.com. */
+  isVesselMode(): boolean {
+    return this.vesselMode;
+  }
+
+  /**
+   * POST /resolve on the analysis-vessel. Body shape matches the daemon's
+   * accepted formats: `{impulse:{pointer:{type,...}}}` with ApiKey auth.
+   */
+  async resolveShape(shape: string, pointer: Record<string, unknown>): Promise<unknown> {
+    if (!this.vesselMode) {
+      throw new Error('resolveShape is only available in vessel mode');
+    }
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.apiKey) headers['Authorization'] = `ApiKey ${this.apiKey}`;
+
+    // analysis-vessel's tree-sitter parse path can take 30s+ per file
+    // inside the substrate container, well beyond the standard 30s timeout.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(this.submitTimeoutMs, 120000));
+    try {
+      const res = await fetch(`${this.baseURL}/resolve`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ impulse: { pointer: { type: shape, ...pointer } } }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        throw new Error(`resolveShape(${shape}) failed: ${res.status} ${await res.text().catch(() => '')}`);
+      }
+      return res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  }
+
   /**
    * Authenticate using an API key.
    * Calls POST /session with { apiKey } and stores the returned session token.
@@ -218,6 +270,13 @@ export class AnalysisAPIClient {
   async authenticateWithApiKey(): Promise<SessionResponse> {
     if (!this.apiKey) {
       throw new Error('No API key configured');
+    }
+
+    if (this.vesselMode) {
+      // analysis-vessel authenticates each request with `Authorization: ApiKey <key>`.
+      // No /session endpoint exists; treat the raw key as the session token.
+      this.sessionToken = this.apiKey;
+      return { session: this.apiKey };
     }
 
     const response = await fetch(`${this.baseURL}/session`, {
@@ -301,6 +360,11 @@ export class AnalysisAPIClient {
    * HTTP POST with JSON body
    */
   async post<T>(endpoint: string, body: unknown, sessionId: string): Promise<T> {
+    if (this.vesselMode) {
+      // Legacy REST endpoints have no equivalent on analysis-vessel; return
+      // an empty object so fire-and-forget telemetry posts don't error.
+      return {} as T;
+    }
     return this.retry(async () => {
       const url = `${this.baseURL}${endpoint}`;
 
@@ -333,6 +397,9 @@ export class AnalysisAPIClient {
    * HTTP GET with query parameters
    */
   async get<T>(endpoint: string, params: Record<string, any>, sessionId: string): Promise<T> {
+    if (this.vesselMode) {
+      return {} as T;
+    }
     return this.retry(async () => {
       const url = new URL(`${this.baseURL}${endpoint}`);
 
@@ -413,6 +480,11 @@ export class AnalysisAPIClient {
     sessionId: string,
     opts: { timeoutMs?: number } = {},
   ): Promise<AnalysisResponse> {
+    if (this.vesselMode) {
+      // analysis-vessel is stateless — no submit step. init_workspace's local
+      // CPG indexing path remains; the remote batch is a no-op here.
+      return { status: 'complete', results: [] };
+    }
     const form = new FormData();
     for (const f of files) {
       const filename = f.path.split('/').pop() ?? 'file.txt';
@@ -443,6 +515,11 @@ export class AnalysisAPIClient {
 
   /** GET /analysis — returns current analysis results for this session. */
   async getAnalysis(sessionId: string): Promise<AnalysisResponse> {
+    if (this.vesselMode) {
+      // analysis-vessel has no per-session results store; callers that need
+      // problem data should call resolveShape('problem_detection', ...) instead.
+      return { status: 'complete', results: [] };
+    }
     return this.get<AnalysisResponse>('/analysis', {}, sessionId);
   }
 
@@ -480,6 +557,15 @@ export class AnalysisAPIClient {
    * Health check endpoint
    */
   async health(): Promise<{ status: string }> {
+    if (this.vesselMode) {
+      const res = await fetch(`${this.baseURL}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
+      const body = await res.json() as { status?: string };
+      return { status: body.status ?? 'healthy' };
+    }
     const response = await fetch(`${this.baseURL}/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(5000),
