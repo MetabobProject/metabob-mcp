@@ -12,12 +12,14 @@ COPY package.json bun.lock ./
 # Install dependencies (production only, no optional deps)
 RUN bun install --frozen-lockfile --production --no-optional
 
-# Copy source code
+# Copy source code and vendor dependencies
 COPY src ./src
+COPY vendor ./vendor
+COPY scripts ./scripts
 COPY tsconfig.json ./
 
-# Build the application
-RUN bun build src/index.ts --target=bun --outdir=dist
+# Build the application (uses bun run build which produces dist/cli.js)
+RUN bun run build 2>/dev/null || bun build src/index.ts --target=bun --outdir=dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript
 
 # Stage 2: Production image
 FROM oven/bun:1-slim AS production
@@ -46,5 +48,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD bun run -e "fetch('http://localhost:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-# Run MCP server
-CMD ["bun", "run", "dist/index.js"]
+# Run MCP server (dist/cli.js produced by bun run build; dist/index.js fallback)
+CMD ["bun", "run", "dist/cli.js"]
