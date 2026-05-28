@@ -14,8 +14,9 @@
  */
 
 import { execSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import { readFileSync, statSync } from 'fs';
-import { extname, relative } from 'path';
+import { extname, isAbsolute, join, relative } from 'path';
 import type { LocalStore } from './local-store.js';
 import type { Telemetry } from './telemetry.js';
 
@@ -28,6 +29,7 @@ interface RecentCommit {
 }
 
 interface Bundle {
+  request_id: string;
   file_path: string;
   excerpt: string;
   language: string;
@@ -130,11 +132,14 @@ async function buildBundle(
   workspaceRoot: string,
   workspaceId: string,
 ): Promise<Bundle> {
-  const excerpt = readExcerpt(filePath);
+  // Resolve relative paths against workspaceRoot
+  const absolutePath = isAbsolute(filePath) ? filePath : join(workspaceRoot, filePath);
+  const excerpt = readExcerpt(absolutePath);
   const language = detectLanguage(filePath);
-  const recent_commits = readRecentCommits(filePath, workspaceRoot);
+  const recent_commits = readRecentCommits(absolutePath, workspaceRoot);
 
   return {
+    request_id: randomUUID(),
     file_path: filePath,
     excerpt,
     language,
@@ -142,6 +147,7 @@ async function buildBundle(
     cpg_neighbors: [],
     embedding_neighbors: [],
     recent_commits,
+    priority: 1,
   };
 }
 
@@ -177,7 +183,7 @@ export class Scheduler {
   private sendCount = 0;                    // total sends this session (for P2 slice guard)
   private p2SendCount = 0;                  // P2 sends this session
 
-  // Workspace root (derived from filePath parent heuristic at first send)
+  // Workspace root — resolved at start, used for relative file paths
   private workspaceRoot = '';
 
   constructor(
@@ -186,7 +192,10 @@ export class Scheduler {
     private analysisApiUrl: string,
     private apiKey: string,
     private telemetry: Telemetry,
-  ) {}
+    workspaceRoot?: string,
+  ) {
+    this.workspaceRoot = workspaceRoot ?? process.env['WORKSPACE_PATH'] ?? process.cwd();
+  }
 
   start(): void {
     if (this.intervalHandle) return;
@@ -241,12 +250,6 @@ export class Scheduler {
   }
 
   private async processItem(filePath: string, queueId: string, priority: number): Promise<void> {
-    // Resolve workspaceRoot heuristically from file path
-    if (!this.workspaceRoot) {
-      // Use the first ancestor that looks like a project root, or fall back to cwd
-      this.workspaceRoot = process.env['WORKSPACE_PATH'] ?? process.cwd();
-    }
-
     let bundle: Bundle;
     try {
       bundle = await buildBundle(this.store, filePath, this.workspaceRoot, this.workspaceId);
@@ -309,7 +312,7 @@ export class Scheduler {
           this.store.upsertSeed({
             id: seed.id,
             workspace_id: this.workspaceId,
-            file_path: seed.file_path,
+            file_path: filePath,
             line_start: seed.line_start,
             line_end: seed.line_end,
             category: seed.category,

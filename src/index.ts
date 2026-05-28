@@ -496,6 +496,7 @@ async function main() {
         ANALYSIS_API_URL,
         METABOB_API_KEY,
         telemetry,
+        workspaceRoot,
       );
       scheduler.start();
       log('info', '[sidecar] scheduler started', { workspaceRoot, workspaceId: workspaceId.slice(0, 8) });
