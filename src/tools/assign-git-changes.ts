@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import type { LocalStore } from '../local-store.js';
 
 export const AssignGitChangesTool = {
   name: 'assign_git_changes',
@@ -66,8 +67,42 @@ export async function handle(
   input: AssignGitChangesInput,
   _apiClient: AnalysisAPIClient,
   _sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
+
+  // ── Sidecar mode: include cached seeds in assignment output ───────────────
+  let sidecarSeedText = '';
+  let cacheTag: string | null = null;
+  if (localStore && input.changed_files.length > 0) {
+    const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
+    let oldestAgeMs = 0;
+    let anyStale = false;
+    for (const f of input.changed_files) {
+      const seeds = localStore.getCachedSeeds(f);
+      const freshness = localStore.getFreshness(f);
+      allSeeds.push(...seeds);
+      if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
+        oldestAgeMs = freshness.age_ms;
+      }
+      if (freshness.stale) anyStale = true;
+    }
+    if (allSeeds.length > 0) {
+      const ageSec = Math.round(oldestAgeMs / 1000);
+      cacheTag = `[cache: ${ageSec}s old${anyStale ? ', stale' : ''}]`;
+      sidecarSeedText = `\nCached problems in changed files (${allSeeds.length}):\n`;
+      for (const s of allSeeds.slice(0, 10)) {
+        sidecarSeedText += `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}  ${s.brief}\n`;
+      }
+      if (allSeeds.length > 10) sidecarSeedText += `  … and ${allSeeds.length - 10} more\n`;
+    } else {
+      // Enqueue for warming
+      for (const f of input.changed_files) {
+        localStore.enqueue(f, 1 /* P1 */, 'default');
+      }
+    }
+  }
+
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {
@@ -151,5 +186,7 @@ export async function handle(
   }
 
   text += `Completed in ${duration}ms`;
+  if (sidecarSeedText) text += sidecarSeedText;
+  if (cacheTag) text += `\n\n${cacheTag}`;
   return text;
 }

@@ -283,6 +283,11 @@ export class LocalStore {
     );
   }
 
+  /** Remove a single queue item by id (called after successful or unrecoverable send). */
+  removeFromQueue(id: string): void {
+    this.store.run('DELETE FROM schedule_queue WHERE id = ?', [id]);
+  }
+
   dequeue(limit: number): QueueItem[] {
     const rows = this.store.query(
       `SELECT id, file_path, priority, enqueued_at, processing, workspace_id

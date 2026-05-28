@@ -13,7 +13,7 @@ export interface Tool {
   name: string;
   description: string;
   inputSchema: Record<string, any>;
-  handler: (input: any, apiClient: any, sessionId: string) => Promise<string>;
+  handler: (input: any, apiClient: any, sessionId: string, localStore?: any) => Promise<string>;
   validateInput: (input: any) => any;
 }
 

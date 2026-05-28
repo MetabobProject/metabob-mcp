@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import type { LocalStore } from '../local-store.js';
 
 export const PredictCochangesTool = {
   name: 'predict_cochanges',
@@ -41,8 +42,52 @@ export async function handle(
   input: PredictCochangesInput,
   _apiClient: AnalysisAPIClient,
   _sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
+
+  // ── Sidecar mode: surface cached seeds as change context ──────────────────
+  if (localStore && input.changed_files.length > 0) {
+    const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
+    let hasCache = false;
+    let oldestAgeMs = 0;
+    let anyStale = false;
+
+    for (const f of input.changed_files) {
+      const seeds = localStore.getCachedSeeds(f);
+      const freshness = localStore.getFreshness(f);
+      if (seeds.length > 0) { hasCache = true; allSeeds.push(...seeds); }
+      if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
+        oldestAgeMs = freshness.age_ms;
+      }
+      if (freshness.stale) anyStale = true;
+    }
+
+    if (!hasCache) {
+      for (const f of input.changed_files) {
+        localStore.enqueue(f, 0 /* P0 */, 'default');
+      }
+      return `No cached analysis for changed files. Analysis queued — try again in a few seconds.\n\n[cache: warming]`;
+    }
+
+    if (hasCache && allSeeds.length > 0) {
+      const ageSec = Math.round(oldestAgeMs / 1000);
+      const cacheTag = `[cache: ${ageSec}s old${anyStale ? ', stale' : ''}]`;
+      const shown = allSeeds.slice(0, input.limit);
+
+      let text = `Co-change context (from cache) for:\n`;
+      for (const f of input.changed_files) text += `  - ${f}\n`;
+      text += `\n${shown.length} related problem${shown.length === 1 ? '' : 's'} in changed files:\n\n`;
+      for (let i = 0; i < shown.length; i++) {
+        const s = shown[i]!;
+        text += `${i + 1}. [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}\n`;
+        text += `   ${s.brief}\n   id: ${s.id}\n\n`;
+      }
+      text += `Query completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
+      return text;
+    }
+  }
+
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {

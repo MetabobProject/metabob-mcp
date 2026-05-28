@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
+import type { LocalStore } from '../local-store.js';
 
 export const GetMetricsTool = {
   name: 'get_metrics',
@@ -19,8 +20,27 @@ export async function handle(
   _input: GetMetricsInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
+
+  // ── Sidecar mode: include local cache summary ─────────────────────────────
+  let cacheTag: string | null = null;
+  let cacheSummaryText = '';
+  if (localStore) {
+    // Best-effort: query total seeds from the store's internal db
+    try {
+      const db = (localStore as any)['db'];
+      if (db) {
+        const row = db.query('SELECT COUNT(*) as cnt FROM seeds WHERE stale = 0').get() as { cnt: number } | null;
+        const total = row?.cnt ?? 0;
+        cacheSummaryText = `\nLocal cache: ${total} cached seed${total === 1 ? '' : 's'} (non-stale)`;
+        cacheTag = `[cache: local store active]`;
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
 
   const [metricsResult, sessionResult, analysisResult] = await Promise.allSettled([
     apiClient.get<Record<string, unknown>>('/metrics', {}, sessionId),
@@ -75,5 +95,7 @@ export async function handle(
   }
 
   text += `Fetched in ${duration}ms`;
+  if (cacheSummaryText) text += cacheSummaryText;
+  if (cacheTag) text += `\n\n${cacheTag}`;
   return text;
 }

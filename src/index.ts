@@ -22,6 +22,10 @@ import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { LocalStore } from './local-store.js';
+import { Scheduler } from './scheduler.js';
+import { startWatcher } from './watcher.js';
+import { startGitWatcher } from './git-watcher.js';
+import { resolveWorkspaceId } from './workspace.js';
 import { ZodError } from 'zod';
 
 const MCP_VERSION = '0.2.10';
@@ -113,6 +117,10 @@ const telemetry = new Telemetry({
 });
 
 // ── Local SQLite store (sidecar mode only) ────────────────────────────────────
+// In anonymous mode (no API key), we still init the store and watchers but
+// skip telemetry flushes and scheduler sends.
+const ANONYMOUS_MODE = SIDECAR_MODE && !METABOB_API_KEY;
+
 const localStore = SIDECAR_MODE ? new LocalStore() : null;
 if (localStore) {
   try {
@@ -122,6 +130,15 @@ if (localStore) {
     console.error('[warn] LocalStore init failed:', err);
   }
 }
+
+if (ANONYMOUS_MODE) {
+  console.error('[sidecar] anonymous mode — caching disabled, watchers active');
+}
+
+// ── Sidecar workers (same-process, lightweight timers) ────────────────────────
+let scheduler: Scheduler | null = null;
+let stopWatcher: (() => void) | null = null;
+let stopGitWatcher: (() => void) | null = null;
 
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
@@ -463,32 +480,49 @@ async function main() {
 
   log('info', 'MCP server ready');
 
+  // ── Start sidecar workers ─────────────────────────────────────────────────
+  if (SIDECAR_MODE && localStore) {
+    const workspaceRoot = process.env['WORKSPACE_PATH'] ?? process.cwd();
+    const workspaceId = await resolveWorkspaceId(workspaceRoot);
+
+    // Watchers run even in anonymous mode (they just enqueue; scheduler won't drain)
+    stopWatcher = startWatcher(workspaceRoot, localStore, workspaceId);
+    stopGitWatcher = startGitWatcher(workspaceRoot, localStore, workspaceId);
+
+    if (!ANONYMOUS_MODE && METABOB_API_KEY) {
+      scheduler = new Scheduler(
+        localStore,
+        workspaceId,
+        ANALYSIS_API_URL,
+        METABOB_API_KEY,
+        telemetry,
+      );
+      scheduler.start();
+      log('info', '[sidecar] scheduler started', { workspaceRoot, workspaceId: workspaceId.slice(0, 8) });
+    }
+  }
+
+  // ── Graceful shutdown ─────────────────────────────────────────────────────
+  async function shutdown() {
+    log('info', 'Shutting down...');
+
+    scheduler?.stop();
+    stopWatcher?.();
+    stopGitWatcher?.();
+
+    authService.stopKeyHeartbeat();
+    telemetry.destroy();
+    localStore?.close();
+    await apiClient.shutdown();
+    await vesselServer.stop();
+    sessionManager.stop();
+    await server.close();
+    process.exit(0);
+  }
+
   // Handle graceful shutdown
-  process.on('SIGINT', async () => {
-    log('info', 'Shutting down...');
-
-    authService.stopKeyHeartbeat();
-    telemetry.destroy();
-    localStore?.close();
-    await apiClient.shutdown();
-    await vesselServer.stop();
-    sessionManager.stop();
-    await server.close();
-    process.exit(0);
-  });
-
-  process.on('SIGTERM', async () => {
-    log('info', 'Shutting down...');
-
-    authService.stopKeyHeartbeat();
-    telemetry.destroy();
-    localStore?.close();
-    await apiClient.shutdown();
-    await vesselServer.stop();
-    sessionManager.stop();
-    await server.close();
-    process.exit(0);
-  });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 // Run server
