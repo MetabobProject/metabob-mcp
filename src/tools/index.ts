@@ -8,6 +8,7 @@ import * as MarkComplete from './mark-complete.js';
 import * as GetMetrics from './get-metrics.js';
 import * as AssignGitChanges from './assign-git-changes.js';
 import * as GetAnalysisContext from './get-analysis-context.js';
+import * as ConceptSearch from './concept-search.js';
 
 export interface Tool {
   name: string;
@@ -67,6 +68,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...GetAnalysisContext.GetAnalysisContextTool,
     handler: GetAnalysisContext.handle,
     validateInput: (i: any) => GetAnalysisContext.InputSchema.parse(i),
+  },
+  concept_search: {
+    ...ConceptSearch.ConceptSearchTool,
+    handler: ConceptSearch.handle,
+    validateInput: (i: any) => ConceptSearch.InputSchema.parse(i),
   },
 };
 
