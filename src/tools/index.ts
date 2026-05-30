@@ -12,6 +12,7 @@ import * as ConceptSearch from './concept-search.js';
 import * as ConceptNeighbors from './concept-neighbors.js';
 import * as ConceptUsageStats from './concept-usage-stats.js';
 import * as ConceptSequence from './concept-sequence.js';
+import * as ConceptLink from './concept-link.js';
 
 export interface Tool {
   name: string;
@@ -91,6 +92,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ConceptSequence.ConceptSequenceTool,
     handler: ConceptSequence.handle,
     validateInput: (i: any) => ConceptSequence.InputSchema.parse(i),
+  },
+  concept_link: {
+    ...ConceptLink.ConceptLinkTool,
+    handler: ConceptLink.handle,
+    validateInput: (i: any) => ConceptLink.InputSchema.parse(i),
   },
 };
 
