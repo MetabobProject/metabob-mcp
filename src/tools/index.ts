@@ -14,6 +14,7 @@ import * as ConceptUsageStats from './concept-usage-stats.js';
 import * as ConceptSequence from './concept-sequence.js';
 import * as ConceptLink from './concept-link.js';
 import * as ConceptCreate from './concept-create.js';
+import * as RunGoal from './run-goal.js';
 
 export interface Tool {
   name: string;
@@ -103,6 +104,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ConceptCreate.ConceptCreateTool,
     handler: ConceptCreate.handle,
     validateInput: (i: any) => ConceptCreate.InputSchema.parse(i),
+  },
+  run_goal: {
+    ...RunGoal.RunGoalTool,
+    handler: RunGoal.handle,
+    validateInput: (i: any) => RunGoal.InputSchema.parse(i),
   },
 };
 
