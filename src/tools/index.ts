@@ -9,6 +9,9 @@ import * as GetMetrics from './get-metrics.js';
 import * as AssignGitChanges from './assign-git-changes.js';
 import * as GetAnalysisContext from './get-analysis-context.js';
 import * as ConceptSearch from './concept-search.js';
+import * as ConceptNeighbors from './concept-neighbors.js';
+import * as ConceptUsageStats from './concept-usage-stats.js';
+import * as ConceptSequence from './concept-sequence.js';
 
 export interface Tool {
   name: string;
@@ -73,6 +76,21 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ConceptSearch.ConceptSearchTool,
     handler: ConceptSearch.handle,
     validateInput: (i: any) => ConceptSearch.InputSchema.parse(i),
+  },
+  concept_neighbors: {
+    ...ConceptNeighbors.ConceptNeighborsTool,
+    handler: ConceptNeighbors.handle,
+    validateInput: (i: any) => ConceptNeighbors.InputSchema.parse(i),
+  },
+  concept_usage_stats: {
+    ...ConceptUsageStats.ConceptUsageStatsTool,
+    handler: ConceptUsageStats.handle,
+    validateInput: (i: any) => ConceptUsageStats.InputSchema.parse(i),
+  },
+  concept_sequence: {
+    ...ConceptSequence.ConceptSequenceTool,
+    handler: ConceptSequence.handle,
+    validateInput: (i: any) => ConceptSequence.InputSchema.parse(i),
   },
 };
 
