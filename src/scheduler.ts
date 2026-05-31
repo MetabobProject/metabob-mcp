@@ -38,6 +38,7 @@ interface Bundle {
   cpg_neighbors: string[];
   embedding_neighbors: string[];
   recent_commits: RecentCommit[];
+  priority: number;
 }
 
 type BackoffHint = 'none' | 'reduce-proactive' | 'reduce-event' | 'reactive-only';
