@@ -9,6 +9,7 @@
  */
 
 import type { AuthService } from './auth-service.js';
+import { fetchWithBearerFallback } from './auth-header.js';
 
 const MAX_FAILURES = 3;
 const DEFAULT_TTL_S = 300;
@@ -86,10 +87,10 @@ export class VesselHeartbeat {
     }
     const bearer = authService.getBearerToken();
     const identityApiKey = authService.getIdentityApiKey();
+    // JWT bearer takes precedence; otherwise we let fetchWithBearerFallback
+    // pick the scheme for the raw API key (Bearer-first, ApiKey fallback).
     if (bearer) {
       headers['Authorization'] = `Bearer ${bearer}`;
-    } else if (identityApiKey) {
-      headers['Authorization'] = `ApiKey ${identityApiKey}`;
     }
 
     const body = {
@@ -110,12 +111,20 @@ export class VesselHeartbeat {
     };
 
     try {
-      const res = await fetch(`${activityEndpoint}/v2/vessels/register`, {
+      const url = `${activityEndpoint}/v2/vessels/register`;
+      const reqInit = {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10_000),
-      });
+      };
+      const res = bearer || !identityApiKey
+        ? await fetch(url, reqInit)
+        : await fetchWithBearerFallback({
+            url,
+            apiKey: identityApiKey,
+            init: reqInit,
+          });
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');

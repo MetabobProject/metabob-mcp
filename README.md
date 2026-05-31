@@ -48,6 +48,19 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 
 CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
 
+## Corporate proxies & SSL inspection
+
+Many enterprise networks (Zscaler, Netskope, Cisco Umbrella, Forcepoint, Palo Alto Prisma, Sophos, etc.) intercept TLS and re-sign it with an MDM-installed corporate root CA. Node.js ignores the OS trust store by default, so without mitigation every call to `*.metabob.com` would fail with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`.
+
+`@metabob/mcp` ships four mitigations out of the box:
+
+1. **OS trust store auto-load** — at startup, the OS root CAs are read (via [`system-ca`](https://www.npmjs.com/package/system-ca)) and merged into `tls.rootCertificates`, `https.globalAgent`, and the global `fetch` dispatcher. No env vars required. Pass `--no-system-ca` (or set `METABOB_NO_SYSTEM_CA=1`) to opt out.
+2. **Diagnostic TLS errors** — chain-validation failures are translated into a structured `TLS_INTERCEPTED` error that names the intercepting CA (extracted from the served cert) and tells the user to either trust the corporate root or add `*.metabob.com` to the proxy's SSL inspection bypass list. The original error code is preserved as `.cause`.
+3. **Bearer auth by default** — `Authorization: Bearer <key>` is sent first; on a 401 the client transparently retries once with the legacy `Authorization: ApiKey <key>` and remembers per host so subsequent requests skip the retry.
+4. **Fingerprint self-probe** — first successful TLS connect to each Metabob host records the leaf SPKI SHA-256 in `~/.metabob/known-hosts.json`. If a future connect serves a different fingerprint whose root is in your OS trust but not in the bundled Mozilla bundle, a one-time stderr warning identifies the likely MITM. Never blocks.
+
+If you've installed the corporate root in your OS trust store, metabob-mcp will Just Work. If you haven't, you'll see a diagnostic TLS error telling you exactly what to do.
+
 ## Integrations
 
 ### Claude Code

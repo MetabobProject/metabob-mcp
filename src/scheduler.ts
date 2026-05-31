@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { readFileSync, statSync } from 'fs';
 import { extname, isAbsolute, join, relative } from 'path';
 import type { LocalStore } from './local-store.js';
+import { fetchWithBearerFallback } from './auth-header.js';
 import type { Telemetry } from './telemetry.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -264,14 +265,15 @@ export class Scheduler {
     let responseData: AnalysisRunResponse = {};
 
     try {
-      const res = await fetch(`${this.analysisApiUrl}/v2/mcp/analysis/run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `ApiKey ${this.apiKey}`,
+      const res = await fetchWithBearerFallback({
+        url: `${this.analysisApiUrl}/v2/mcp/analysis/run`,
+        apiKey: this.apiKey,
+        init: {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bundle),
+          signal: AbortSignal.timeout(30000),
         },
-        body: JSON.stringify(bundle),
-        signal: AbortSignal.timeout(30000),
       });
 
       if (res.status === 429) {

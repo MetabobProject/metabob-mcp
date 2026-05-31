@@ -4,6 +4,12 @@
  * Exposes code analysis tools to AI agents via MCP protocol
  */
 
+// Install OS trust store before any HTTPS fires. Idempotent — if cli.ts
+// already ran this, subsequent calls are no-ops. Covers the case where
+// users run `bun src/index.ts` or import this module directly.
+import { installSystemTrustStoreSync } from './tls-trust.js';
+installSystemTrustStoreSync({ disabled: process.env.METABOB_NO_SYSTEM_CA === '1' });
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -21,6 +27,8 @@ import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
+import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
+import { getLastTrustSummary } from './tls-trust.js';
 import { LocalStore } from './local-store.js';
 import { Scheduler } from './scheduler.js';
 import { startWatcher } from './watcher.js';
@@ -28,7 +36,7 @@ import { startGitWatcher } from './git-watcher.js';
 import { resolveWorkspaceId } from './workspace.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = '0.2.10';
+const MCP_VERSION = '0.2.11';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
@@ -396,6 +404,32 @@ async function main() {
     connectionSlots: USE_CONNECTION_SLOTS,
     protocols: ['mcp:stdio', `http:resolver(port=${HEALTH_PORT})`],
   });
+
+  // Fire-and-forget TLS fingerprint self-probe. Records first-seen
+  // fingerprints in ~/.metabob/known-hosts.json and warns once on
+  // changes that look like MITM (new chain root in OS trust store but
+  // not bundled Mozilla roots).
+  const trustSummary = getLastTrustSummary();
+  if (trustSummary?.installed) {
+    log('debug', 'OS trust store loaded', {
+      systemCerts: trustSummary.systemCertCount,
+      bundledCerts: trustSummary.bundledCertCount,
+    });
+  }
+  try {
+    // system-ca certs were merged into tls.rootCertificates by
+    // installSystemTrustStoreSync — slice off the bundled prefix for the
+    // probe's MITM heuristic. (If we don't know the split, we still get
+    // the change-detection benefit; we just won't flag MITM as confidently.)
+    const probeHosts = pickMonitoredHosts([ANALYSIS_API_URL, ACTIVITY_API_URL, IDENTITY_ENDPOINT]);
+    for (const host of probeHosts) {
+      probeHostFingerprint({ host }).catch((err) => {
+        log('debug', `Cert fingerprint probe failed for ${host}`, { error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+  } catch (err) {
+    log('debug', 'Cert fingerprint probe setup failed', { error: err instanceof Error ? err.message : String(err) });
+  }
 
   // Resolve tenant with identity.metabob.com (non-fatal; populates orgId + inline JWT)
   if (authService.hasKey()) {

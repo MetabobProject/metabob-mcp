@@ -86,6 +86,8 @@ export interface TelemetryOptions {
 
 const BATCH_FLUSH_INTERVAL_MS = 5_000;
 const BATCH_MAX_EVENTS = 50;
+import { fetchWithBearerFallback } from './auth-header.js';
+
 const LEGACY_HOST = 'ide.metabob.com';
 
 // ── Telemetry class ───────────────────────────────────────────────────────────
@@ -245,17 +247,17 @@ export class Telemetry {
       // Snapshot and clear the buffer.
       const events = this.batchBuffer.splice(0, BATCH_MAX_EVENTS);
       try {
-        const resp = await this.fetchImpl(
-          `${this.analysisApiUrl}/v2/events/mcp`,
-          {
+        const url = `${this.analysisApiUrl}/v2/events/mcp`;
+        const resp = await fetchWithBearerFallback({
+          url,
+          apiKey: this.apiKey,
+          fetchImpl: this.fetchImpl,
+          init: {
             method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              Authorization: `ApiKey ${this.apiKey}`,
-            },
+            headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ session_id: this.sessionId, events }),
           },
-        );
+        });
         if (!resp.ok && resp.status >= 500) {
           // Transient server error — put events back at the head.
           this.batchBuffer.unshift(...events);
@@ -279,13 +281,15 @@ export class Telemetry {
       while (this.buffer.length > 0) {
         const ev = this.buffer.shift()!;
         try {
-          const resp = await this.fetchImpl(`${this.endpoint}/v2/mcp/usage`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              Authorization: `ApiKey ${this.apiKey}`,
+          const resp = await fetchWithBearerFallback({
+            url: `${this.endpoint}/v2/mcp/usage`,
+            apiKey: this.apiKey,
+            fetchImpl: this.fetchImpl,
+            init: {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(ev),
             },
-            body: JSON.stringify(ev),
           });
           if (!resp.ok && resp.status >= 500) {
             this.buffer.unshift(ev);
@@ -308,13 +312,15 @@ export class Telemetry {
       while (this.outcomeBuffer.length > 0) {
         const ev = this.outcomeBuffer.shift()!;
         try {
-          const resp = await this.fetchImpl(`${this.endpoint}/v2/mcp/outcomes`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              Authorization: `ApiKey ${this.apiKey}`,
+          const resp = await fetchWithBearerFallback({
+            url: `${this.endpoint}/v2/mcp/outcomes`,
+            apiKey: this.apiKey,
+            fetchImpl: this.fetchImpl,
+            init: {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(ev),
             },
-            body: JSON.stringify(ev),
           });
           if (!resp.ok && resp.status >= 500) {
             this.outcomeBuffer.unshift(ev);

@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyConfigDefaults, loadMetabobCLIConfig } from './config.js';
+import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +34,7 @@ interface CLIOptions {
   logLevel?: string;
   healthPort?: number;
   maxRequestsPerMinute?: number;
+  noSystemCa?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -52,6 +54,11 @@ OPTIONS:
   --log-level <LEVEL>          Logging level: debug, info, warn, error (default: info)
   --health-port <PORT>         HTTP port for health checks (default: 8080)
   --max-requests-per-minute <N> Rate limit per session (default: 60)
+  --no-system-ca               Skip loading OS root CAs at startup (advanced;
+                               for users who hit a system-ca read bug). Without
+                               this flag, metabob-mcp augments Node's bundled
+                               Mozilla roots with the OS trust store so it
+                               works behind corporate SSL inspection out-of-box.
   --help                       Show this help message
   --version                    Show version information
 
@@ -150,6 +157,7 @@ function parseCliArgs(): CLIOptions {
         'log-level': { type: 'string' },
         'health-port': { type: 'string' },
         'max-requests-per-minute': { type: 'string' },
+        'no-system-ca': { type: 'boolean' },
         'help': { type: 'boolean', short: 'h' },
         'version': { type: 'boolean', short: 'v' },
       },
@@ -167,6 +175,7 @@ function parseCliArgs(): CLIOptions {
         maxRequestsPerMinute: values['max-requests-per-minute']
           ? parseInt(values['max-requests-per-minute'] as string, 10)
           : undefined,
+      noSystemCa: values['no-system-ca'] as boolean | undefined,
       help: values['help'] as boolean | undefined,
       version: values['version'] as boolean | undefined,
     };
@@ -222,6 +231,14 @@ async function main() {
 
   // Validate options
   validateOptions(options);
+
+  // Install OS trust store BEFORE any HTTPS request fires. This is the
+  // single most impactful mitigation for corporate proxies / Zscaler /
+  // MDM-deployed SSL inspection that otherwise breaks every Metabob call
+  // with UNABLE_TO_GET_ISSUER_CERT_LOCALLY. Opt-out via --no-system-ca or
+  // METABOB_NO_SYSTEM_CA=1.
+  const noSystemCa = options.noSystemCa === true || process.env.METABOB_NO_SYSTEM_CA === '1';
+  installSystemTrustStoreSync({ disabled: noSystemCa });
 
   // Load fallback config before applying CLI overrides.
   applyConfigDefaults(process.env, loadMetabobCLIConfig());

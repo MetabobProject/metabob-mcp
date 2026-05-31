@@ -10,6 +10,8 @@ import {
   type ConnectionState,
   type ConnectionInfo,
 } from './connection-manager.js';
+import { buildAuthHeader, fetchWithBearerFallback } from './auth-header.js';
+import { MetabobTlsError, translateTlsError } from './tls-error.js';
 
 export interface APIClientConfig {
   baseURL: string;
@@ -238,19 +240,31 @@ export class AnalysisAPIClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    if (this.apiKey) headers['Authorization'] = `ApiKey ${this.apiKey}`;
 
     // analysis-vessel's tree-sitter parse path can take 30s+ per file
     // inside the substrate container, well beyond the standard 30s timeout.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), Math.max(this.submitTimeoutMs, 120000));
+    const resolveUrl = `${this.baseURL}/resolve`;
+    const body = JSON.stringify({ impulse: { pointer: { type: shape, ...pointer } } });
     try {
-      const res = await fetch(`${this.baseURL}/resolve`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ impulse: { pointer: { type: shape, ...pointer } } }),
-        signal: controller.signal,
-      });
+      const res = this.apiKey
+        ? await fetchWithBearerFallback({
+            url: resolveUrl,
+            apiKey: this.apiKey,
+            init: {
+              method: 'POST',
+              headers,
+              body,
+              signal: controller.signal,
+            },
+          })
+        : await fetch(resolveUrl, {
+            method: 'POST',
+            headers,
+            body,
+            signal: controller.signal,
+          });
       clearTimeout(timeoutId);
       if (!res.ok) {
         throw new Error(`resolveShape(${shape}) failed: ${res.status} ${await res.text().catch(() => '')}`);
@@ -803,6 +817,26 @@ export class AnalysisAPIClient {
    * Handle generic errors (network, timeout, etc.)
    */
   private handleError(error: unknown): MCPError {
+    // TLS chain errors get the structured corporate-proxy diagnostic.
+    const tlsTranslated = translateTlsError(error, { url: this.baseURL });
+    if (tlsTranslated) {
+      return {
+        code: tlsTranslated.code,
+        message: tlsTranslated.message,
+        details: tlsTranslated.toMcpDetails(),
+        suggestion: tlsTranslated.hint,
+      };
+    }
+
+    if (error instanceof MetabobTlsError) {
+      return {
+        code: error.code,
+        message: error.message,
+        details: error.toMcpDetails(),
+        suggestion: error.hint,
+      };
+    }
+
     if (error && typeof error === 'object' && 'code' in error) {
       // Already an MCPError
       return error as MCPError;

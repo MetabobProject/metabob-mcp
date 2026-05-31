@@ -52,7 +52,7 @@ test('kill switch: missing apiKey disables emission', () => {
   expect(fetched).toBe(0);
 });
 
-test('enabled: record() triggers async POST with ApiKey auth', async () => {
+test('enabled: record() triggers async POST with Bearer auth', async () => {
   delete process.env.METABOB_TELEMETRY;
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   const fetchImpl: typeof fetch = async (url, init) => {
@@ -72,7 +72,8 @@ test('enabled: record() triggers async POST with ApiKey auth', async () => {
   expect(calls.length).toBe(1);
   expect(calls[0]!.url).toBe('http://user.test/v2/mcp/usage');
   const headers = calls[0]!.init?.headers as Record<string, string> | undefined;
-  expect(headers?.Authorization).toBe('ApiKey raw-key');
+  // Bearer-first per 2026-05 auth header migration; falls back to ApiKey on 401.
+  expect(headers?.Authorization).toBe('Bearer raw-key');
   const body = JSON.parse(String(calls[0]!.init?.body));
   expect(body.tool_name).toBe('init_workspace');
   expect(body.success).toBe(true);
