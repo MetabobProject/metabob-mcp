@@ -45,6 +45,7 @@ metabob-mcp - MCP server for Metabob code analysis
 
 USAGE:
   npx @metabob/mcp [OPTIONS]
+  npx @metabob/mcp doctor             Diagnose corporate-proxy / TLS-inspection issues
 
 OPTIONS:
   --api-url <URL>              Analysis API URL (default: https://ide.metabob.com)
@@ -216,6 +217,22 @@ function validateOptions(options: CLIOptions): void {
 }
 
 async function main() {
+  // Doctor subcommand: handle BEFORE parseArgs (strict mode rejects positionals).
+  // Form: `npx @metabob/mcp doctor [...]`
+  if (process.argv[2] === 'doctor') {
+    // Strip the subcommand so doctor-cli sees only its own args.
+    process.argv.splice(2, 1);
+    const { runDoctor } = await import('./doctor.js');
+    try {
+      const { exitCode } = await runDoctor();
+      process.exit(exitCode);
+    } catch (err) {
+      console.error('[metabob-mcp doctor] fatal:', err instanceof Error ? err.message : err);
+      process.exit(2);
+    }
+    return;
+  }
+
   const options = parseCliArgs();
 
   // Handle help and version flags

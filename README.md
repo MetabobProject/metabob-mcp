@@ -61,6 +61,18 @@ Many enterprise networks (Zscaler, Netskope, Cisco Umbrella, Forcepoint, Palo Al
 
 If you've installed the corporate root in your OS trust store, metabob-mcp will Just Work. If you haven't, you'll see a diagnostic TLS error telling you exactly what to do.
 
+### Diagnosing corporate-proxy issues
+
+If you're behind a proxy and the mitigations above don't fully restore connectivity, run the bundled doctor to produce evidence you can hand to your IT team or attach to a support ticket:
+
+```bash
+npx @metabob/mcp doctor
+# or, if the main binary can't load (e.g. bun not available):
+npx -p @metabob/mcp metabob-mcp-doctor
+```
+
+The doctor runs a battery of probes — DNS resolution, OS trust store inspection (with vendor-CA matching for Zscaler / Netskope / Forcepoint / Palo Alto / etc.), TLS handshake capture (full chain, fingerprints, ALPN), HTTPS request comparison (default vs OS-trust), and a WebSocket Upgrade probe — and writes a JSON artifact (`metabob-mcp-doctor-<timestamp>.json` in the current directory) alongside a human-readable report. No API key required.
+
 ## Integrations
 
 ### Claude Code
