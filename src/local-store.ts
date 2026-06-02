@@ -13,7 +13,7 @@
 
 import { Database } from 'bun:sqlite';
 import { homedir } from 'os';
-import { mkdirSync } from 'fs';
+import { mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -81,6 +81,19 @@ export class LocalStore {
     // Ensure ~/.metabob/ exists
     const dir = this.dbPath.substring(0, this.dbPath.lastIndexOf('/'));
     mkdirSync(dir, { recursive: true });
+
+    // Abrupt process kills leave a corrupted WAL state: sidecar.db-wal is
+    // zero bytes but sidecar.db-shm is non-empty. Bun's SQLite cannot open
+    // this. Detect the pattern and delete all three files to start fresh.
+    try {
+      const { statSync } = require('fs') as typeof import('fs');
+      const walSize = statSync(this.dbPath + '-wal').size;
+      if (walSize === 0) {
+        for (const p of [this.dbPath, this.dbPath + '-wal', this.dbPath + '-shm']) {
+          try { unlinkSync(p); } catch { /* already gone */ }
+        }
+      }
+    } catch { /* -wal file doesn't exist — clean state */ }
 
     this.db = new Database(this.dbPath, { create: true });
     this.db.exec('PRAGMA journal_mode=WAL;');
