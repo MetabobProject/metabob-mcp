@@ -68,7 +68,19 @@ export async function fetchWithBearerFallback(
   };
   const response = await fetchImpl(opts.url, { ...opts.init, headers: firstAttemptHeaders });
 
-  if (response.status !== 401 || scheme !== 'Bearer') return response;
+  // analysis-api returns 400 with {"error":"ApiKey_required"} when Bearer is
+  // used on ApiKey-only endpoints. Treat this the same as 401 for fallback purposes.
+  const needsFallback =
+    (response.status === 401 || response.status === 400) && scheme === 'Bearer';
+  if (!needsFallback) return response;
+
+  // Peek at body to confirm it's an ApiKey_required signal (400 case).
+  // Clone first so the body can still be read by the caller if we return early.
+  if (response.status === 400) {
+    const clone = response.clone();
+    const text = await clone.text().catch(() => '');
+    if (!text.includes('ApiKey_required')) return response;
+  }
 
   // Bearer rejected — try ApiKey once. We can't reuse the body of a streaming
   // request, so opts.init.body must be a string / Buffer / FormData snapshot,

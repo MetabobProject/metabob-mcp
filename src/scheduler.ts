@@ -266,7 +266,7 @@ export class Scheduler {
     let responseData: AnalysisRunResponse = {};
 
     try {
-      const res = await fetchWithBearerFallback({
+      let res = await fetchWithBearerFallback({
         url: `${this.analysisApiUrl}/v2/mcp/analysis/run`,
         apiKey: this.apiKey,
         init: {
