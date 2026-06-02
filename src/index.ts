@@ -304,7 +304,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         telemetry.recordOutcome(resolutionEvent);
       }
     } else if (name === 'annotate_component') {
-      const body = typeof rawArgs['context'] === 'string' ? rawArgs['context'] : '';
+      // Use explicit context arg if provided; fall back to the tool's generated text.
+      const contextArg = typeof rawArgs['context'] === 'string' ? rawArgs['context'] : '';
+      const body = contextArg || (typeof result === 'string' ? result : '');
       const mode = typeof rawArgs['mode'] === 'string' ? rawArgs['mode'] : 'explain';
       const problemId = typeof rawArgs['problem_id'] === 'string' ? rawArgs['problem_id'] : '';
       const truncated = body.length > 1985 ? body.slice(0, 1985) + '…[truncated]' : body;
