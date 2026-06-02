@@ -127,8 +127,16 @@ export async function handle(
         : 'No indexed files yet — run init_workspace first.';
     }
 
-    const raw = await apiClient.resolveShape('problem_detection', { filePaths });
-    const payload = raw as { problems?: Array<Record<string, unknown>>; files_analyzed?: number; error?: string };
+    const raw = await apiClient.resolveShape('problem_detection', { filePaths }, sessionId);
+    // Support both legacy { problems, files_analyzed } and analysis-api { resolved: [{ content, metadata }] } formats
+    type LegacyPayload = { problems?: Array<Record<string, unknown>>; files_analyzed?: number; error?: string };
+    type NewPayload = { resolved?: Array<{ content?: Array<Record<string, unknown>>; metadata?: { files_analyzed?: number } }> };
+    const asNew = raw as NewPayload;
+    const asLegacy = raw as LegacyPayload;
+    const firstResolved = asNew.resolved?.[0];
+    const payload: LegacyPayload = firstResolved
+      ? { problems: firstResolved.content ?? [], files_analyzed: firstResolved.metadata?.files_analyzed }
+      : asLegacy;
     if (payload.error) {
       return `analysis-vessel error: ${payload.error}`;
     }

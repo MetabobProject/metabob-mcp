@@ -233,13 +233,14 @@ export class AnalysisAPIClient {
    * POST /resolve on the analysis-vessel. Body shape matches the daemon's
    * accepted formats: `{impulse:{pointer:{type,...}}}` with ApiKey auth.
    */
-  async resolveShape(shape: string, pointer: Record<string, unknown>): Promise<unknown> {
+  async resolveShape(shape: string, pointer: Record<string, unknown>, sessionId?: string): Promise<unknown> {
     if (!this.vesselMode) {
       throw new Error('resolveShape is only available in vessel mode');
     }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
+    if (sessionId) headers['X-Session-ID'] = sessionId;
 
     // analysis-vessel's tree-sitter parse path can take 30s+ per file
     // inside the substrate container, well beyond the standard 30s timeout.
