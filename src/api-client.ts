@@ -680,16 +680,29 @@ export class AnalysisAPIClient {
     opts: { endorsed?: boolean; discarded?: boolean } = {},
   ): Promise<void> {
     if (this.vesselMode) {
-      const resolution_summary = opts.endorsed
-        ? 'Fixed by operator'
-        : opts.discarded
-        ? 'Discarded as false positive'
-        : 'Marked complete';
-      await this.put<unknown>(
-        `/v2/analysis/problems/${encodeURIComponent(problemId)}/complete`,
-        { resolution_summary, auto_annotate: false },
-        sessionId,
-      );
+      // Seed IDs (from resolveShape / get_problems) live in mcp_seeds, not
+      // analysis_problems. Record feedback as a resolution event in the MCP
+      // event stream so it surfaces in the session dashboard.
+      const body = opts.endorsed ? 'Fixed by operator' : 'Discarded as false positive';
+      const event = {
+        kind: 'resolution' as const,
+        ts: Date.now(),
+        session_id: sessionId,
+        annotation: { type: 'resolution' as const, body, problem_id: problemId },
+      };
+      const res = await fetchWithBearerFallback({
+        url: `${this.baseURL}/v2/events/mcp`,
+        apiKey: this.apiKey ?? '',
+        init: {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, events: [event] }),
+        },
+      });
+      if (!res.ok && res.status >= 500) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Feedback recording failed (${res.status}): ${text}`);
+      }
       return;
     }
     await this.post<unknown>('/feedback/detection', {

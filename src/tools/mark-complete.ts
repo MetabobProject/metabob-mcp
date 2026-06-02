@@ -43,7 +43,7 @@ export async function handle(
       discarded: input.action === 'discard',
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
     if (msg.includes('404') || msg.includes('not found') || msg.toLowerCase().includes('invalid')) {
       return `Problem ID "${input.problem_id}" not found. Use get_problems to list valid IDs.`;
     }
