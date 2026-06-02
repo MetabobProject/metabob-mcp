@@ -45,6 +45,7 @@ function tlsOk(host: string): TlsHandshakeResult {
     rootInOsTrustStore: true,
     rootIssuer: 'CN=ISRG Root X1',
     mitmSuspected: false,
+    viaProxy: false,
   };
 }
 function tlsMitm(host: string, vendor: string): TlsHandshakeResult {
@@ -63,6 +64,7 @@ function tlsMitm(host: string, vendor: string): TlsHandshakeResult {
     rootIssuer: `CN=${vendor} Root`,
     mitmSuspected: true,
     mitmVendor: vendor,
+    viaProxy: false,
   };
 }
 const emptyTrust: TrustStoreSnapshot = {
@@ -97,6 +99,7 @@ describe('synthesizeDiagnosis', () => {
       errorDefault: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
       statusOsTrust: 200,
       mitmConfirmed: true,
+      viaProxy: false,
     };
     const d = synthesizeDiagnosis({
       dns: { 'activity.metabob.com': dnsOk('activity.metabob.com') },
@@ -117,6 +120,7 @@ describe('synthesizeDiagnosis', () => {
       statusOsTrust: null,
       errorOsTrust: 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
       mitmConfirmed: false,
+      viaProxy: false,
     };
     const d = synthesizeDiagnosis({
       dns: { 'activity.metabob.com': dnsOk('activity.metabob.com') },
@@ -127,6 +131,144 @@ describe('synthesizeDiagnosis', () => {
     expect(d.status).toBe('mitm-failed');
     expect(d.suggestedActions.length).toBeGreaterThan(0);
     expect(d.suggestedActions.join(' ')).toContain('NODE_EXTRA_CA_CERTS');
+  });
+
+  test('user scenario: HTTPS via proxy ok, raw TLS direct fail, 5xx on activity → degraded, not unreachable', () => {
+    // Replicates the corporate-proxy report in the bug brief:
+    // - DNS ok, HTTPS probes succeed via proxy (activity returns 503),
+    //   raw TLS direct connections fail because direct egress is blocked.
+    const dead: TlsHandshakeResult = {
+      host: 'activity.metabob.com',
+      port: 443,
+      durationMs: 38,
+      protocol: null,
+      alpn: null,
+      chain: [],
+      rootInMozillaBundle: false,
+      rootInOsTrustStore: false,
+      rootIssuer: null,
+      mitmSuspected: false,
+      viaProxy: false, // bypassed proxy (the old bug)
+      error: 'Client network socket disconnected before secure TLS connection was established',
+    };
+    const httpsActivity: HttpsProbeResult = {
+      url: 'https://activity.metabob.com/health',
+      durationMs: 200,
+      statusDefault: 503,
+      statusOsTrust: 503,
+      mitmConfirmed: false,
+      viaProxy: true,
+      proxyUrl: 'http://proxygate20.nic.nec.co.jp:8080',
+    };
+    const httpsIdentity: HttpsProbeResult = {
+      url: 'https://identity.metabob.com/health',
+      durationMs: 200,
+      statusDefault: 200,
+      statusOsTrust: 200,
+      mitmConfirmed: false,
+      viaProxy: true,
+      proxyUrl: 'http://proxygate20.nic.nec.co.jp:8080',
+    };
+    const d = synthesizeDiagnosis({
+      dns: {
+        'activity.metabob.com': dnsOk('activity.metabob.com'),
+        'identity.metabob.com': dnsOk('identity.metabob.com'),
+      },
+      tlsHandshakes: {
+        'activity.metabob.com': dead,
+        'identity.metabob.com': { ...dead, host: 'identity.metabob.com' },
+      },
+      httpsProbes: {
+        'activity.metabob.com': httpsActivity,
+        'identity.metabob.com': httpsIdentity,
+      },
+      trustStore: emptyTrust,
+      proxy: {
+        httpProxy: 'http://proxygate20.nic.nec.co.jp:8080',
+        httpsProxy: 'http://proxygate20.nic.nec.co.jp:8080',
+        noProxy: null,
+        npmProxy: null,
+        npmHttpsProxy: null,
+        effectiveProxyForMetabob: 'http://proxygate20.nic.nec.co.jp:8080',
+        proxyScheme: 'http',
+        noProxyExcludesMetabob: [],
+        nodeExtraCaCerts: null,
+      },
+    });
+    // Must NOT say unreachable / DNS failure.
+    expect(d.status).not.toBe('unreachable');
+    expect(d.summary).not.toMatch(/DNS/i);
+    // Must surface the 5xx as a service-side issue.
+    expect(d.observations.some((o) => o.code === 'service-5xx')).toBe(true);
+    // Must explain the raw-TLS-direct-failure as expected proxy behavior.
+    expect(d.observations.some((o) => o.code === 'tls-direct-blocked')).toBe(true);
+  });
+
+  test('proxy set but unreachable (HTTP_PROXY=http://127.0.0.1:1) → proxy-unreachable', () => {
+    const dead: HttpsProbeResult = {
+      url: 'https://activity.metabob.com/health',
+      durationMs: 50,
+      statusDefault: null,
+      errorDefault: 'ECONNREFUSED',
+      statusOsTrust: null,
+      errorOsTrust: 'ECONNREFUSED',
+      mitmConfirmed: false,
+      viaProxy: true,
+      proxyUrl: 'http://127.0.0.1:1',
+    };
+    const d = synthesizeDiagnosis({
+      dns: { 'activity.metabob.com': dnsOk('activity.metabob.com') },
+      tlsHandshakes: {
+        'activity.metabob.com': {
+          host: 'activity.metabob.com',
+          port: 443,
+          durationMs: 5,
+          protocol: null,
+          alpn: null,
+          chain: [],
+          rootInMozillaBundle: false,
+          rootInOsTrustStore: false,
+          rootIssuer: null,
+          mitmSuspected: false,
+          viaProxy: true,
+          proxyUrl: 'http://127.0.0.1:1',
+          error: 'ECONNREFUSED',
+        },
+      },
+      httpsProbes: { 'activity.metabob.com': dead },
+      trustStore: emptyTrust,
+      proxy: {
+        httpProxy: 'http://127.0.0.1:1',
+        httpsProxy: 'http://127.0.0.1:1',
+        noProxy: null,
+        npmProxy: null,
+        npmHttpsProxy: null,
+        effectiveProxyForMetabob: 'http://127.0.0.1:1',
+        proxyScheme: 'http',
+        noProxyExcludesMetabob: [],
+        nodeExtraCaCerts: null,
+      },
+    });
+    expect(d.observations.some((o) => o.code === 'proxy-unreachable')).toBe(true);
+    expect(d.summary).toMatch(/127\.0\.0\.1:1/);
+  });
+
+  test('OS trust store skipped (missing optional native module) is info, not error', () => {
+    const d = synthesizeDiagnosis({
+      dns: { 'activity.metabob.com': dnsOk('activity.metabob.com') },
+      tlsHandshakes: { 'activity.metabob.com': tlsOk('activity.metabob.com') },
+      httpsProbes: {},
+      trustStore: {
+        systemCertCount: 0,
+        bundledCertCount: 100,
+        systemCertSkipped: true,
+        systemCertSkipReason: 'Cannot require module win-export-certificate-and-key',
+        mitmCaMatches: [],
+      },
+    });
+    expect(d.status).toBe('ok');
+    const skip = d.observations.find((o) => o.code === 'os-trust-skipped');
+    expect(skip?.severity).toBe('info');
   });
 
   test('all metabob hosts unreachable → unreachable', () => {
