@@ -265,6 +265,33 @@ export class LocalStore {
     }));
   }
 
+  /** Return all non-stale seeds across all files, ordered by severity. */
+  getAllCachedSeeds(): SeedRecord[] {
+    const rows = this.store.query(
+      `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
+              brief, confidence, refs_json, produced_at, read_at, stale
+       FROM seeds WHERE stale = 0
+       ORDER BY
+         CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END,
+         file_path, line_start`,
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map(r => ({
+      id: r['id'] as string,
+      workspace_id: r['workspace_id'] as string,
+      file_path: r['file_path'] as string,
+      line_start: r['line_start'] as number,
+      line_end: r['line_end'] as number,
+      category: r['category'] as string,
+      severity: r['severity'] as string,
+      brief: r['brief'] as string,
+      confidence: r['confidence'] as number,
+      refs_json: r['refs_json'] as string,
+      produced_at: r['produced_at'] as number,
+      read_at: r['read_at'] as number | null,
+      stale: false,
+    }));
+  }
+
   markSeedsStale(filePaths: string[]): void {
     if (filePaths.length === 0) return;
     const placeholders = filePaths.map(() => '?').join(',');

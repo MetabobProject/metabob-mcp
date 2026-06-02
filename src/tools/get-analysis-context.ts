@@ -105,8 +105,19 @@ export async function handle(
   try {
     const analysis = await apiClient.getAnalysis(sessionId);
 
+    // In vessel mode getAnalysis() returns empty; fall back to local store seeds
+    const fallbackResults: AnalysisResult[] | null =
+      analysis.results?.length === 0 && localStore
+        ? localStore.getAllCachedSeeds().map(s => ({
+            id: s.id, path: s.file_path, category: s.category,
+            severity: s.severity, summary: s.brief, description: s.brief,
+            startLine: s.line_start, endLine: s.line_end,
+            discarded: false, endorsed: false,
+          } as AnalysisResult))
+        : null;
+
     if (analysis.status === 'complete') {
-      const results: AnalysisResult[] = (analysis.results ?? []).filter(r => !r.discarded);
+      const results: AnalysisResult[] = (fallbackResults ?? analysis.results ?? []).filter(r => !r.discarded);
       totalOpen = results.length;
 
       const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
