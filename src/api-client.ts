@@ -245,7 +245,7 @@ export class AnalysisAPIClient {
     // inside the substrate container, well beyond the standard 30s timeout.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), Math.max(this.submitTimeoutMs, 120000));
-    const resolveUrl = `${this.baseURL}/resolve`;
+    const resolveUrl = `${this.baseURL}/v2/impulses/resolve`;
     const body = JSON.stringify({ impulse: { pointer: { type: shape, ...pointer } } });
     try {
       const res = this.apiKey
@@ -357,7 +357,9 @@ export class AnalysisAPIClient {
       'X-Session-ID': sessionId,
     };
 
-    if (this.sessionToken) {
+    if (this.vesselMode && this.apiKey) {
+      headers['Authorization'] = `ApiKey ${this.apiKey}`;
+    } else if (this.sessionToken) {
       headers['Authorization'] = `Bearer ${this.sessionToken}`;
     }
 
@@ -375,9 +377,54 @@ export class AnalysisAPIClient {
    */
   async post<T>(endpoint: string, body: unknown, sessionId: string): Promise<T> {
     if (this.vesselMode) {
-      // Legacy REST endpoints have no equivalent on analysis-vessel; return
-      // an empty object so fire-and-forget telemetry posts don't error.
-      return {} as T;
+      // Map legacy endpoints to analysis-api equivalents; swallow unknowns.
+      const VESSEL_POST_MAP: Record<string, string> = {
+        '/recommend': '/v2/analysis/specs/generate',
+        '/v2/analysis/learning/cochange': '/v2/analysis/learning/cochange',
+        '/v2/analysis/learning/feedback': '/v2/analysis/learning/feedback',
+        // '/v2/analysis/learning/tool-usage' intentionally absent — no vessel equivalent
+      };
+      const mappedEndpoint = VESSEL_POST_MAP[endpoint];
+      if (!mappedEndpoint) return {} as T;
+
+      let mappedBody: unknown = body;
+      if (endpoint === '/recommend') {
+        const b = body as Record<string, unknown>;
+        mappedBody = {
+          goal: b.problemId ? `Fix problem ${b.problemId}` : String(b.goal ?? ''),
+          context: b.context,
+        };
+      }
+
+      return this.retry(async () => {
+        const url = `${this.baseURL}${mappedEndpoint}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: this.buildHeaders(sessionId),
+            body: JSON.stringify(mappedBody),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!response.ok) throw await this.transformAPIError(response);
+          const data = await response.json() as Record<string, unknown>;
+          // Map /recommend response to expected { recommendation } shape
+          if (endpoint === '/recommend') {
+            const overview = data.overview as string | undefined;
+            const steps = (data.steps as Array<{ description: string }> | undefined) ?? [];
+            const recommendation = overview
+              ? `${overview}\n\nSteps:\n${steps.map((s, i) => `${i + 1}. ${s.description}`).join('\n')}`
+              : '(no recommendation)';
+            return { recommendation } as T;
+          }
+          return data as T;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw this.handleError(error);
+        }
+      });
     }
     return this.retry(async () => {
       const url = `${this.baseURL}${endpoint}`;
@@ -412,7 +459,34 @@ export class AnalysisAPIClient {
    */
   async get<T>(endpoint: string, params: Record<string, any>, sessionId: string): Promise<T> {
     if (this.vesselMode) {
-      return {} as T;
+      const VESSEL_GET_MAP: Record<string, string> = {
+        '/metrics': '/v2/analysis/learning/metrics',
+        // '/session/stats' intentionally absent — no vessel equivalent; callers handle {}
+      };
+      const mappedEndpoint = VESSEL_GET_MAP[endpoint];
+      if (!mappedEndpoint) return {} as T;
+
+      return this.retry(async () => {
+        const url = new URL(`${this.baseURL}${mappedEndpoint}`);
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        try {
+          const response = await fetch(url.toString(), {
+            method: 'GET',
+            headers: this.buildHeaders(sessionId),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!response.ok) throw await this.transformAPIError(response);
+          return response.json() as Promise<T>;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw this.handleError(error);
+        }
+      });
     }
     return this.retry(async () => {
       const url = new URL(`${this.baseURL}${endpoint}`);
@@ -495,9 +569,54 @@ export class AnalysisAPIClient {
     opts: { timeoutMs?: number } = {},
   ): Promise<AnalysisResponse> {
     if (this.vesselMode) {
-      // analysis-vessel is stateless — no submit step. init_workspace's local
-      // CPG indexing path remains; the remote batch is a no-op here.
-      return { status: 'complete', results: [] };
+      if (files.length === 0) return { status: 'complete', results: [] };
+
+      const timeoutMs = opts.timeoutMs ?? this.submitTimeoutMs;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const allResults: AnalysisResult[] = [];
+        for (const f of files) {
+          const ext = f.path.split('.').pop()?.toLowerCase() ?? '';
+          const language =
+            ext === 'ts' || ext === 'tsx' ? 'typescript' :
+            ext === 'js' || ext === 'jsx' || ext === 'mjs' || ext === 'cjs' ? 'javascript' :
+            ext === 'py' ? 'python' : 'unknown';
+          const body = JSON.stringify({
+            request_id: crypto.randomUUID(),
+            workspace_id: sessionId,
+            file_path: f.path,
+            excerpt: f.content.length > 12000 ? f.content.slice(0, 12000) : f.content,
+            language,
+            priority: 1,
+          });
+          const res = await fetchWithBearerFallback({
+            url: `${this.baseURL}/v2/mcp/analysis/run`,
+            apiKey: this.apiKey ?? '',
+            init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal },
+          });
+          if (!res.ok) {
+            if (res.status === 429) continue; // budget exhausted — soft skip
+            console.error(`[api-client] submitFiles vessel: ${f.path} → ${res.status}`);
+            continue;
+          }
+          const data = await res.json() as { seeds?: Array<{ id: string; category: string; severity: string; brief: string; line_start: number; line_end: number }> };
+          for (const seed of data.seeds ?? []) {
+            allResults.push({
+              path: f.path, id: seed.id, category: seed.category,
+              severity: seed.severity.toUpperCase(),
+              summary: seed.brief, description: seed.brief,
+              startLine: seed.line_start, endLine: seed.line_end,
+              discarded: false, endorsed: false,
+            });
+          }
+        }
+        clearTimeout(timeoutId);
+        return { status: 'complete', results: allResults };
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw this.handleError(error);
+      }
     }
     const form = new FormData();
     for (const f of files) {
@@ -560,6 +679,19 @@ export class AnalysisAPIClient {
     sessionId: string,
     opts: { endorsed?: boolean; discarded?: boolean } = {},
   ): Promise<void> {
+    if (this.vesselMode) {
+      const resolution_summary = opts.endorsed
+        ? 'Fixed by operator'
+        : opts.discarded
+        ? 'Discarded as false positive'
+        : 'Marked complete';
+      await this.put<unknown>(
+        `/v2/analysis/problems/${encodeURIComponent(problemId)}/complete`,
+        { resolution_summary, auto_annotate: false },
+        sessionId,
+      );
+      return;
+    }
     await this.post<unknown>('/feedback/detection', {
       problemId,
       endorsed: opts.endorsed,
