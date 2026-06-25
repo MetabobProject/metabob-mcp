@@ -88,6 +88,7 @@ EXAMPLES:
 ENVIRONMENT VARIABLES:
   METABOB_API_KEY              API key for authentication (recommended)
   ACTIVITY_API_URL             Activity API URL (fallback: ~/.metabob/config.json metabob.endpoint)
+  DISCOVERY_ENDPOINT           Discovery-vessel URL for substrate routing
   ANALYSIS_API_URL             Same as --api-url
   SESSION_ID                   Same as --session-id
   SESSION_TOKEN                Pre-obtained session token (advanced)
@@ -97,6 +98,11 @@ ENVIRONMENT VARIABLES:
   SUBMIT_TIMEOUT_MS            Timeout for init_workspace file submission (default: 120000)
 
   Precedence: CLI flags > environment variables > ~/.metabob/config.json.
+
+  Local substrate note:
+    If ~/.metabob/config.json points metabob.endpoint at http://localhost:18080,
+    metabob-mcp automatically derives DISCOVERY_ENDPOINT=http://localhost:18100.
+    Substrate tools then resolve concept-db / goal-host-vessel through discovery.
 
 INTEGRATION WITH MCP CLIENTS:
 

@@ -12,9 +12,11 @@ import {
 } from './connection-manager.js';
 import { buildAuthHeader, fetchWithBearerFallback } from './auth-header.js';
 import { MetabobTlsError, translateTlsError } from './tls-error.js';
+import { buildResolverUrl, discoverFirstVesselByShape } from './discovery.js';
 
 export interface APIClientConfig {
   baseURL: string;
+  discoveryEndpoint?: string;
   /** Activity API URL (for connection slots and resolution) */
   activityApiUrl?: string;
   timeout?: number;
@@ -107,6 +109,7 @@ interface PredictionRecord {
 
 export class AnalysisAPIClient {
   private baseURL: string;
+  private discoveryEndpoint?: string;
   private activityApiUrl?: string;
   private timeout: number;
   private submitTimeoutMs: number;
@@ -125,6 +128,7 @@ export class AnalysisAPIClient {
 
   constructor(config: APIClientConfig) {
     this.baseURL = config.baseURL || 'https://ide.metabob.com';
+    this.discoveryEndpoint = config.discoveryEndpoint;
     this.activityApiUrl = config.activityApiUrl;
     this.timeout = config.timeout || 30000;
     this.submitTimeoutMs = config.submitTimeoutMs || Math.max(this.timeout, 120000);
@@ -166,6 +170,14 @@ export class AnalysisAPIClient {
    */
   getConnectionId(): string | undefined {
     return this.connectionManager?.getConnectionId();
+  }
+
+  hasDiscovery(): boolean {
+    return Boolean(this.discoveryEndpoint);
+  }
+
+  getDiscoveryEndpoint(): string | undefined {
+    return this.discoveryEndpoint;
   }
 
   /**
@@ -234,9 +246,70 @@ export class AnalysisAPIClient {
    * accepted formats: `{impulse:{pointer:{type,...}}}` with ApiKey auth.
    */
   async resolveShape(shape: string, pointer: Record<string, unknown>, sessionId?: string): Promise<unknown> {
-    if (!this.vesselMode) {
-      throw new Error('resolveShape is only available in vessel mode');
+    if (!this.vesselMode && !this.discoveryEndpoint) {
+      throw new Error('resolveShape is only available in vessel mode or when discovery is configured');
     }
+
+    if (this.discoveryEndpoint) {
+      const discovered = await discoverFirstVesselByShape({
+        discoveryEndpoint: this.discoveryEndpoint,
+        shape,
+        apiKey: this.apiKey,
+      });
+
+      if (discovered) {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (sessionId) headers['X-Session-ID'] = sessionId;
+
+        if (discovered.auth_scheme === 'ApiKey' && this.apiKey) {
+          headers.Authorization = `ApiKey ${this.apiKey}`;
+        } else if (discovered.auth_scheme === 'Bearer' && this.sessionToken) {
+          headers.Authorization = `Bearer ${this.sessionToken}`;
+        }
+
+        const body = JSON.stringify(
+          discovered.resolve_request_format === 'mcp-tool'
+            ? {
+                tool: `${shape}_resolve`,
+                arguments: { type: shape, ...pointer },
+              }
+            : {
+                impulse: {
+                  pointer: { type: shape, ...pointer },
+                },
+              },
+        );
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          discovered.resolve_timeout_ms ?? Math.max(this.submitTimeoutMs, 120000),
+        );
+        try {
+          const response = await fetch(buildResolverUrl(discovered, this.discoveryEndpoint), {
+            method: 'POST',
+            headers,
+            body,
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (!response.ok) {
+            throw new Error(`resolveShape(${shape}) failed: ${response.status} ${await response.text().catch(() => '')}`);
+          }
+          return response.json();
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
+      }
+    }
+
+    if (!this.vesselMode) {
+      throw new Error(`No vessel advertises shape "${shape}" via discovery`);
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };

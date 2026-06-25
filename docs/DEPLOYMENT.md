@@ -51,6 +51,7 @@ secrets:
 |----------|---------|-------------|
 | `METABOB_API_KEY` | — | **Required.** Exchanged for a session token on startup |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
+| `DISCOVERY_ENDPOINT` | — | Discovery-vessel base URL for substrate routing |
 | `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel |
 | `ACTIVITY_ENDPOINT` | `https://activity.metabob.com` | Discovery vessel |
 | `SESSION_ID` | `default-session` | Session identifier |

@@ -22,8 +22,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-
-const DEFAULT_CONCEPT_DB_URL = process.env.CONCEPT_DB_URL || 'http://127.0.0.1:18260';
+import { resolveServiceEndpointByShape } from '../discovery.js';
 
 const EDGE_TYPES = [
   'related_to',
@@ -95,12 +94,21 @@ export async function handle(
   input: ConceptLinkInput,
   apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.isVesselMode()) {
-    return 'concept_link is only available in vessel mode.';
+  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
+    return 'concept_link requires discovery or an explicit CONCEPT_DB_URL.';
   }
 
   const start = Date.now();
   const apiKey = process.env.METABOB_API_KEY;
+  const conceptDbUrl = await resolveServiceEndpointByShape({
+    explicitUrl: process.env.CONCEPT_DB_URL,
+    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
+    shape: 'concept',
+    apiKey,
+  });
+  if (!conceptDbUrl) {
+    return 'concept_link could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
+  }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
@@ -111,7 +119,7 @@ export async function handle(
     ...(input.weight !== undefined ? { weight: input.weight } : {}),
   };
 
-  const url = `${DEFAULT_CONCEPT_DB_URL}/concepts/${encodeURIComponent(input.from_concept_id)}/link`;
+  const url = `${conceptDbUrl}/concepts/${encodeURIComponent(input.from_concept_id)}/link`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -122,7 +130,7 @@ export async function handle(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return `concept_link failed to reach ${DEFAULT_CONCEPT_DB_URL}: ${msg}`;
+    return `concept_link failed to reach ${conceptDbUrl}: ${msg}`;
   }
   if (!res.ok) {
     return `concept_link: ${res.status} ${(await res.text().catch(() => '')).slice(0, 300)}`;

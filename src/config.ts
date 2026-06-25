@@ -2,11 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { deriveLocalDiscoveryEndpoint } from './discovery.js';
 
 const RawConfigSchema = z.object({
   metabob: z.object({
     apiKey: z.string().min(1).optional(),
     endpoint: z.string().min(1).optional(),
+    discoveryEndpoint: z.string().min(1).optional(),
+    analysisApiUrl: z.string().min(1).optional(),
+    identityEndpoint: z.string().min(1).optional(),
+    conceptDbUrl: z.string().min(1).optional(),
+    goalHostVesselUrl: z.string().min(1).optional(),
   }).optional(),
   instance: z.object({
     apiKey: z.string().min(1).optional(),
@@ -16,11 +22,33 @@ const RawConfigSchema = z.object({
 export interface MetabobCLIConfig {
   apiKey?: string;
   activityApiUrl?: string;
+  discoveryEndpoint?: string;
+  analysisApiUrl?: string;
+  identityEndpoint?: string;
+  conceptDbUrl?: string;
+  goalHostVesselUrl?: string;
   sourcePath: string;
 }
 
 export function getDefaultConfigPath(): string {
   return join(homedir(), '.metabob', 'config.json');
+}
+
+function normalizeUrl(urlString: string): string | undefined {
+  try {
+    return new URL(urlString).toString().replace(/\/$/, '');
+  } catch {
+    return undefined;
+  }
+}
+
+function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
+  MetabobCLIConfig,
+  'discoveryEndpoint'
+> {
+  return {
+    discoveryEndpoint: deriveLocalDiscoveryEndpoint(activityApiUrl),
+  };
 }
 
 export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath()): MetabobCLIConfig | null {
@@ -46,15 +74,26 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
   }
 
   const apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
-  const activityApiUrl = result.data.metabob?.endpoint;
+  const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '');
+  const derived = deriveSubstrateDefaults(activityApiUrl);
+  const discoveryEndpoint = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '') ?? derived.discoveryEndpoint;
+  const analysisApiUrl = normalizeUrl(result.data.metabob?.analysisApiUrl ?? '');
+  const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '');
+  const conceptDbUrl = normalizeUrl(result.data.metabob?.conceptDbUrl ?? '');
+  const goalHostVesselUrl = normalizeUrl(result.data.metabob?.goalHostVesselUrl ?? '');
 
-  if (!apiKey && !activityApiUrl) {
+  if (!apiKey && !activityApiUrl && !discoveryEndpoint && !analysisApiUrl && !identityEndpoint && !conceptDbUrl && !goalHostVesselUrl) {
     return null;
   }
 
   return {
     apiKey,
     activityApiUrl,
+    discoveryEndpoint,
+    analysisApiUrl,
+    identityEndpoint,
+    conceptDbUrl,
+    goalHostVesselUrl,
     sourcePath: configPath,
   };
 }
@@ -73,5 +112,25 @@ export function applyConfigDefaults(
 
   if (!env.ACTIVITY_API_URL && config.activityApiUrl) {
     env.ACTIVITY_API_URL = config.activityApiUrl;
+  }
+
+  if (!env.DISCOVERY_ENDPOINT && config.discoveryEndpoint) {
+    env.DISCOVERY_ENDPOINT = config.discoveryEndpoint;
+  }
+
+  if (!env.ANALYSIS_API_URL && config.analysisApiUrl) {
+    env.ANALYSIS_API_URL = config.analysisApiUrl;
+  }
+
+  if (!env.IDENTITY_ENDPOINT && config.identityEndpoint) {
+    env.IDENTITY_ENDPOINT = config.identityEndpoint;
+  }
+
+  if (!env.CONCEPT_DB_URL && config.conceptDbUrl) {
+    env.CONCEPT_DB_URL = config.conceptDbUrl;
+  }
+
+  if (!env.GOAL_HOST_VESSEL_URL && config.goalHostVesselUrl) {
+    env.GOAL_HOST_VESSEL_URL = config.goalHostVesselUrl;
   }
 }

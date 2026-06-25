@@ -27,6 +27,12 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
 
 Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc.
 
+### Local substrate
+
+If you've already run `scripts/substrate/configure-local.sh` in the super-repo, `~/.metabob/config.json` already points at `http://localhost:18080`. metabob-mcp derives the local discovery-vessel URL (`http://localhost:18100`) from that and uses discovery to find registered substrate services like concept-db and goal-host-vessel.
+
+No extra MCP env vars are required unless you want to override discovery or force a specific vessel URL.
+
 ### Claude Desktop
 
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -89,3 +95,5 @@ init_workspace        # sync next batch as files change
 **"Circuit breaker open"** — The analysis API had repeated failures. Resets automatically after 60 seconds.
 
 **"Rate limit exceeded"** — Default is 60 requests/min per session. Set `MAX_REQUESTS_PER_MINUTE=120` to raise it.
+
+**"concept_* could not find concept-db via discovery"** — discovery-vessel is reachable, but concept-db is not registered there yet. Check `curl http://localhost:18100/health` and verify concept-db is alive, or set `CONCEPT_DB_URL` explicitly as a temporary override.

@@ -33,6 +33,11 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
     activityApiUrl: 'https://activity.metabob.com',
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
+    goalHostVesselUrl: undefined,
     sourcePath: path,
   });
 });
@@ -47,6 +52,55 @@ test('loadMetabobCLIConfig falls back to instance api key', () => {
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_instance_key',
     activityApiUrl: undefined,
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
+    goalHostVesselUrl: undefined,
+    sourcePath: path,
+  });
+});
+
+test('loadMetabobCLIConfig derives substrate sibling endpoints from local activity endpoint', () => {
+  const path = writeConfigFile(JSON.stringify({
+    metabob: {
+      apiKey: 'mb_test_key',
+      endpoint: 'http://localhost:18080',
+    },
+  }));
+
+  expect(loadMetabobCLIConfig(path)).toEqual({
+    apiKey: 'mb_test_key',
+    activityApiUrl: 'http://localhost:18080',
+    discoveryEndpoint: 'http://localhost:18100',
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
+    goalHostVesselUrl: undefined,
+    sourcePath: path,
+  });
+});
+
+test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived defaults', () => {
+  const path = writeConfigFile(JSON.stringify({
+    metabob: {
+      endpoint: 'http://localhost:18080',
+      discoveryEndpoint: 'http://localhost:9990',
+      analysisApiUrl: 'http://localhost:9991',
+      identityEndpoint: 'http://localhost:9992',
+      conceptDbUrl: 'http://localhost:9993',
+      goalHostVesselUrl: 'http://localhost:9994',
+    },
+  }));
+
+  expect(loadMetabobCLIConfig(path)).toEqual({
+    apiKey: undefined,
+    activityApiUrl: 'http://localhost:18080',
+    discoveryEndpoint: 'http://localhost:9990',
+    analysisApiUrl: 'http://localhost:9991',
+    identityEndpoint: 'http://localhost:9992',
+    conceptDbUrl: 'http://localhost:9993',
+    goalHostVesselUrl: 'http://localhost:9994',
     sourcePath: path,
   });
 });
@@ -73,9 +127,19 @@ test('applyConfigDefaults fills only missing environment values', () => {
   applyConfigDefaults(env, {
     apiKey: 'config_key',
     activityApiUrl: 'https://activity.metabob.com',
+    discoveryEndpoint: 'http://localhost:18100',
+    analysisApiUrl: 'http://localhost:18250',
+    identityEndpoint: 'http://localhost:18101',
+    conceptDbUrl: 'http://localhost:18260',
+    goalHostVesselUrl: 'http://localhost:18210',
     sourcePath: '/tmp/config.json',
   });
 
   expect(env.METABOB_API_KEY).toBe('existing_key');
   expect(env.ACTIVITY_API_URL).toBe('https://activity.metabob.com');
+  expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
+  expect(env.ANALYSIS_API_URL).toBe('http://localhost:18250');
+  expect(env.IDENTITY_ENDPOINT).toBe('http://localhost:18101');
+  expect(env.CONCEPT_DB_URL).toBe('http://localhost:18260');
+  expect(env.GOAL_HOST_VESSEL_URL).toBe('http://localhost:18210');
 });

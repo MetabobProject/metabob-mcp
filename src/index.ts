@@ -41,6 +41,7 @@ const MCP_VERSION = '0.2.11';
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
 const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://activity.metabob.com';
+const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;
 
 /**
  * When METABOB_STATELESS=true (or ANALYSIS_API_URL still points at the legacy
@@ -64,7 +65,7 @@ const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 
 // Identity (tenant resolution only — discovery registration removed)
-const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || 'https://identity.metabob.com';
+const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || (DISCOVERY_ENDPOINT ? undefined : 'https://identity.metabob.com');
 
 /**
  * Vessel mode: ANALYSIS_API_URL points at a discovery-style impulse resolver
@@ -76,6 +77,7 @@ const VESSEL_MODE = SIDECAR_MODE;
 // Initialize clients
 const apiClient = new AnalysisAPIClient({
   baseURL: ANALYSIS_API_URL,
+  discoveryEndpoint: DISCOVERY_ENDPOINT,
   activityApiUrl: ACTIVITY_API_URL,
   timeout: 30000,
   submitTimeoutMs: SUBMIT_TIMEOUT_MS,
@@ -423,7 +425,9 @@ async function main() {
     // installSystemTrustStoreSync — slice off the bundled prefix for the
     // probe's MITM heuristic. (If we don't know the split, we still get
     // the change-detection benefit; we just won't flag MITM as confidently.)
-    const probeHosts = pickMonitoredHosts([ANALYSIS_API_URL, ACTIVITY_API_URL, IDENTITY_ENDPOINT]);
+    const probeHosts = pickMonitoredHosts(
+      [ANALYSIS_API_URL, ACTIVITY_API_URL, IDENTITY_ENDPOINT].filter((value): value is string => Boolean(value)),
+    );
     for (const host of probeHosts) {
       probeHostFingerprint({ host }).catch((err) => {
         log('debug', `Cert fingerprint probe failed for ${host}`, { error: err instanceof Error ? err.message : String(err) });
@@ -434,7 +438,7 @@ async function main() {
   }
 
   // Resolve tenant with identity.metabob.com (non-fatal; populates orgId + inline JWT)
-  if (authService.hasKey()) {
+  if (authService.hasKey() && IDENTITY_ENDPOINT) {
     log('info', `Resolving tenant with identity-vessel (${IDENTITY_ENDPOINT})...`);
     await authService.resolveTenant(IDENTITY_ENDPOINT);
     if (authService.isResolved()) {
@@ -445,6 +449,8 @@ async function main() {
     // Periodic re-resolve = key-issuance heartbeat that identity-vessel uses
     // to monitor metabob-mcp usage during the interim period.
     authService.startKeyHeartbeat(5 * 60_000, IDENTITY_ENDPOINT);
+  } else if (authService.hasKey() && DISCOVERY_ENDPOINT) {
+    log('info', 'Discovery-only substrate mode: skipping identity-vessel auto-resolution without an explicit IDENTITY_ENDPOINT');
   }
 
   // Start vessel HTTP server (health + capabilities + impulse resolver)

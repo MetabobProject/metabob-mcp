@@ -39,6 +39,7 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
 | `ACTIVITY_API_URL` | `https://activity.metabob.com` | Activity API base URL; falls back to `metabob.endpoint` in `~/.metabob/config.json` |
+| `DISCOVERY_ENDPOINT` | — | Discovery-vessel base URL for substrate routing; auto-derived from local `metabob.endpoint` when it points at `http://localhost:18080` |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
@@ -47,6 +48,8 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 | `SUBMIT_TIMEOUT_MS` | `120000` | Timeout for `init_workspace` file submission before treating it as a slow async response |
 
 CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
+
+When `~/.metabob/config.json` points `metabob.endpoint` at the local substrate (`http://localhost:18080`), metabob-mcp auto-derives `DISCOVERY_ENDPOINT=http://localhost:18100`. Substrate-specific tools such as `concept_*` and `run_goal` then discover their target vessels from discovery instead of assuming fixed sibling ports. Explicit `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`, or `DISCOVERY_ENDPOINT` values still win.
 
 ## Corporate proxies & SSL inspection
 
@@ -74,6 +77,20 @@ npx -p @metabob/mcp metabob-mcp-doctor
 The doctor runs a battery of probes — DNS resolution, OS trust store inspection (with vendor-CA matching for Zscaler / Netskope / Forcepoint / Palo Alto / etc.), TLS handshake capture (full chain, fingerprints, ALPN), HTTPS request comparison (default vs OS-trust), and a WebSocket Upgrade probe — and writes a JSON artifact (`metabob-mcp-doctor-<timestamp>.json` in the current directory) alongside a human-readable report. No API key required.
 
 ## Integrations
+
+### Local substrate
+
+After `scripts/substrate/configure-local.sh`, the standard `~/.metabob/config.json` is enough for discovery-backed substrate tools:
+
+```bash
+cd repos/metabob-mcp
+bun install
+bun run build
+npm link
+claude mcp add metabob -- metabob-mcp
+```
+
+`metabob-mcp` reads the local substrate API key and activity endpoint from `~/.metabob/config.json`, derives the discovery-vessel URL, and resolves registered substrate vessels from discovery.
 
 ### Claude Code
 

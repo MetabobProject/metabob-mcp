@@ -19,9 +19,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-
-const DEFAULT_GOAL_HOST_VESSEL_URL =
-  process.env.GOAL_HOST_VESSEL_URL || 'http://127.0.0.1:18210';
+import { buildResolverUrl, discoverFirstVesselByShape } from '../discovery.js';
 
 const RESOLVE_TIMEOUT_MS = parseInt(
   process.env.RUN_GOAL_TIMEOUT_MS || '290000',
@@ -93,12 +91,11 @@ export async function handle(
   input: RunGoalInput,
   apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.isVesselMode()) {
+  if (!apiClient.hasDiscovery() && !process.env.GOAL_HOST_VESSEL_URL) {
     return [
-      'run_goal is only available in vessel mode.',
-      'Configure ANALYSIS_API_URL to point at a substrate analysis-vessel,',
-      'and ensure GOAL_HOST_VESSEL_URL points at the substrate goal-host-vessel',
-      '(default http://127.0.0.1:18210).',
+      'run_goal requires discovery or an explicit GOAL_HOST_VESSEL_URL.',
+      'Configure DISCOVERY_ENDPOINT to point at discovery-vessel,',
+      'or set GOAL_HOST_VESSEL_URL directly.',
     ].join(' ');
   }
 
@@ -115,7 +112,22 @@ export async function handle(
   if (input.composition_chain) pointer.composition_chain = input.composition_chain;
 
   const body = JSON.stringify({ impulse: { pointer } });
-  const url = `${DEFAULT_GOAL_HOST_VESSEL_URL}/resolve`;
+  const explicitGoalHostUrl = process.env.GOAL_HOST_VESSEL_URL?.replace(/\/$/, '');
+  const discoveredGoalHost = explicitGoalHostUrl
+    ? null
+    : await discoverFirstVesselByShape({
+        discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
+        shape: 'goal_execution',
+        apiKey,
+      });
+  const url = explicitGoalHostUrl
+    ? `${explicitGoalHostUrl}/resolve`
+    : discoveredGoalHost
+      ? buildResolverUrl(discoveredGoalHost, apiClient.getDiscoveryEndpoint())
+      : undefined;
+  if (!url) {
+    return 'run_goal could not find goal-host-vessel via discovery. Set GOAL_HOST_VESSEL_URL explicitly or register goal_execution with discovery.';
+  }
 
   let res: Response;
   try {
@@ -127,7 +139,7 @@ export async function handle(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return `run_goal failed to reach ${DEFAULT_GOAL_HOST_VESSEL_URL}: ${msg}`;
+    return `run_goal failed to reach ${url}: ${msg}`;
   }
 
   const duration = Date.now() - start;
