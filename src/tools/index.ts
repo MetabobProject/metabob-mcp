@@ -15,6 +15,8 @@ import * as ConceptSequence from './concept-sequence.js';
 import * as ConceptLink from './concept-link.js';
 import * as ConceptCreate from './concept-create.js';
 import * as RunGoal from './run-goal.js';
+import * as RunGoalAsync from './run-goal-async.js';
+import * as GoalStatus from './goal-status.js';
 
 export interface Tool {
   name: string;
@@ -109,6 +111,16 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...RunGoal.RunGoalTool,
     handler: RunGoal.handle,
     validateInput: (i: any) => RunGoal.InputSchema.parse(i),
+  },
+  run_goal_async: {
+    ...RunGoalAsync.RunGoalAsyncTool,
+    handler: RunGoalAsync.handle,
+    validateInput: (i: any) => RunGoalAsync.InputSchema.parse(i),
+  },
+  goal_status: {
+    ...GoalStatus.GoalStatusTool,
+    handler: GoalStatus.handle,
+    validateInput: (i: any) => GoalStatus.InputSchema.parse(i),
   },
 };
 

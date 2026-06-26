@@ -44,6 +44,17 @@ bash scripts/git-hooks/install.sh   # install pre-commit hook
 | `get_metrics` | API | Parallel fetch of `/metrics`, `/session/stats`, `/analysis` |
 | `assign_git_changes` | Local + API | Maps changed files → CPG components + co-change predictions |
 | `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions |
+| `run_goal` | Substrate | Dispatch a goal **synchronously** via goal-host `/resolve` (impulse shape `goal_execution`); blocks ~290s. Short, one-shot goals. |
+| `run_goal_async` | Substrate | Dispatch a goal **asynchronously** via goal-host `POST /run-goal`; returns a `dispatchId` immediately. Long goals / fire-and-forget. |
+| `goal_status` | Substrate | Poll a `dispatchId` → live status + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). `completed` ≠ reached. |
+| `concept_*` | Substrate | concept-db graph: `concept_search` / `_neighbors` / `_usage_stats` / `_sequence` / `_link` / `_create`. See the `metabob-substrate` skill. |
+
+**Substrate tools** (`run_goal*`, `goal_status`, `concept_*`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require `~/.metabob/config.json` to point `metabob.endpoint` at the local substrate (`http://localhost:18080`, which auto-derives `DISCOVERY_ENDPOINT=…:18100`) plus a valid `metabob.apiKey`. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` override discovery.
+
+**Goal dispatch/track contract** (goal-host-vessel, `repos/goal-host-vessel`):
+- `POST /run-goal` → `202 { dispatchId, status:"running" }` (async; the goal runs in the background).
+- `GET /executions/:dispatchId` → `{ status, executionId, selectedTemplateId, error }` (in-memory, last ~100 dispatches, pruned). `goal_status` polls this, then hydrates the durable trace from activity-api `GET /v2/activities/execution-traces/:executionId`.
+- `POST /resolve` (impulse-envelope) → synchronous result; what `run_goal` uses.
 
 ## Impulse shapes resolved (HTTP)
 

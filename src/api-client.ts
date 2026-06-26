@@ -180,6 +180,12 @@ export class AnalysisAPIClient {
     return this.discoveryEndpoint;
   }
 
+  /** Activity-API base URL (trace store + learner), if configured. Used by
+   *  goal_status to hydrate a finished dispatch's execution trace. */
+  getActivityApiUrl(): string | undefined {
+    return this.activityApiUrl;
+  }
+
   /**
    * Connect and acquire a slot (if connection slots enabled)
    */
