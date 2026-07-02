@@ -4,6 +4,43 @@
  * Provides command-line argument parsing for npx usage
  */
 
+// Re-exec under Bun with the OS trust store enabled, before any network I/O.
+// The shipped bin runs under Bun (see scripts/finalize-cli.ts), and Bun 1.3.x
+// ignores NODE_EXTRA_CA_CERTS (oven-sh/bun#23735). Behind a TLS-inspecting
+// corporate proxy (Zscaler, Netskope, …) every fetch then fails with
+// "unable to get local issuer certificate" until Bun is launched with
+// `--use-system-ca`. `npx @metabob/mcp` and the Windows npm shim invoke bare
+// `bun dist/cli.js` with no flag, so we re-exec ourselves with it. Bun already
+// honors HTTP(S)_PROXY natively, so this is the only missing piece.
+// Opt out: METABOB_NO_SYSTEM_CA=1 or --no-system-ca.
+if (
+  process.versions.bun &&
+  process.argv[1] &&
+  !process.execArgv.includes('--use-system-ca') &&
+  !process.env.__METABOB_SYSTEM_CA_REEXEC &&
+  process.env.METABOB_NO_SYSTEM_CA !== '1' &&
+  !process.argv.includes('--no-system-ca')
+) {
+  const { spawn } = await import('node:child_process');
+  await new Promise<void>((resolve) => {
+    const child = spawn(
+      process.execPath,
+      ['--use-system-ca', ...process.argv.slice(1)],
+      { stdio: 'inherit', env: { ...process.env, __METABOB_SYSTEM_CA_REEXEC: '1' } },
+    );
+    child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+    child.on('error', (err) => {
+      // Could not re-spawn (e.g. bun not on PATH) — run in-process rather than
+      // failing to start; TLS may still fail, but that is strictly no worse.
+      console.error(
+        `[metabob-mcp] could not re-exec with --use-system-ca (${err.message}); ` +
+          `continuing without the OS trust store`,
+      );
+      resolve();
+    });
+  });
+}
+
 // Re-exec under Node.js with an expanded heap before loading ONNX / Tree-sitter.
 // Bun manages its own memory, so this guard is Node-only.
 if (!process.versions.bun && !process.env.__METABOB_HEAP_EXPANDED) {
