@@ -54,17 +54,6 @@ export const InputSchema = z.object({
 
 export type GoalReasoningInput = z.infer<typeof InputSchema>;
 
-/** One captured walk decision, if the goal-host carries a structured walkLog. */
-interface WalkStep {
-  step?: number;
-  kind?: string; // satisfier | bridge | or-edge | backward-chain | gap-filed | template-run | reach-gate
-  shape?: string;
-  templateId?: string;
-  status?: string;
-  newShapes?: number;
-  detail?: string;
-}
-
 interface DispatchRecordResponse {
   dispatchId?: string;
   status?: string;
@@ -72,7 +61,8 @@ interface DispatchRecordResponse {
   selectedTemplateId?: string;
   error?: string;
   stateSignature?: unknown;
-  walkLog?: WalkStep[];
+  /** Reason-plane walk decision-log: raw goal-host decision lines, in walk order. */
+  walkLog?: string[];
 }
 
 function authHeaders(): Record<string, string> {
@@ -86,24 +76,19 @@ function shapeList(v: unknown): string[] {
   return Array.isArray(v) ? v.map(String) : [];
 }
 
-/** Render the structured walkLog if the goal-host carries one (v1.5 capture). */
-function renderWalkLog(walkLog: WalkStep[]): string[] {
+/**
+ * Render the goal-host walk decision-log (raw decision lines, in walk order).
+ * This is authoritative for satisfier-only reaches that produce no template
+ * trace. Each line is stripped of the noisy `[goal-host-vessel] ` prefix and
+ * numbered so the reasoning reads as an ordered sequence.
+ */
+function renderWalkLog(walkLog: string[]): string[] {
   if (!walkLog.length) return [];
   const lines = ['', 'Walk decision-log (goal-host):'];
-  for (const s of walkLog) {
-    const n = s.step != null ? `#${s.step}` : '·';
-    const head = [s.kind, s.shape ? `"${s.shape}"` : null, s.templateId ? `→ ${s.templateId}` : null]
-      .filter(Boolean)
-      .join(' ');
-    const tail = [
-      s.status ? `status=${s.status}` : null,
-      s.newShapes != null ? `+${s.newShapes} shapes` : null,
-    ]
-      .filter(Boolean)
-      .join(' ');
-    lines.push(`  ${n} ${head}${tail ? `  [${tail}]` : ''}`);
-    if (s.detail) lines.push(`       ${s.detail}`);
-  }
+  walkLog.forEach((raw, i) => {
+    const clean = String(raw).replace(/^\[goal-host-vessel\]\s*/, '');
+    lines.push(`  ${i + 1}. ${clean}`);
+  });
   return lines;
 }
 
