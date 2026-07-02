@@ -46,7 +46,7 @@ bash scripts/git-hooks/install.sh   # install pre-commit hook
 | `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions |
 | `run_goal` | Substrate | Dispatch a goal **synchronously** via goal-host `/resolve` (impulse shape `goal_execution`); blocks ~290s. Short, one-shot goals. |
 | `run_goal_async` | Substrate | Dispatch a goal **asynchronously** via goal-host `POST /run-goal`; returns a `dispatchId` immediately. Long goals / fire-and-forget. |
-| `goal_status` | Substrate | Poll a `dispatchId` → live status + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). `completed` ≠ reached. |
+| `goal_status` | Substrate | Poll a `dispatchId` → the honest **`reached`** verdict (primary line), then `status`/executionId/template + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). Read `reached`, not `status` — `completed`≠reached, and a satisfier reach can be `status:"failed"` yet `reached:true`. |
 | `goal_reasoning` | Substrate | The "reason plane": reconstruct the goal-host walk's decision-log for a `dispatchId` — ordered per-task walk steps (resolver + tier, shapes consumed → produced, success, failure_mode), reach verdict, Thompson α/β. Richer than `goal_status`; for satisfier-only reaches (no template ran) the trace is thin and the tool says so, rendering the goal-host `walkLog` when present. Read-only first slice of Claude-Code-as-implicit-vessel. |
 | `provide_feedback` | Substrate | The "feedback plane": record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) on a `dispatchId` → writes a ground-truth label into the substrate's oracle corpus (`goal_verification_labels`) that calibrates the automated reach-gate. Auto-derives goal/executionId/template from the dispatch record. Pair with `goal_reasoning`: inspect the walk, then endorse or correct it. Measured feedback, not advice. Folds the operator id into the label notes. |
 | `registry_query` | Substrate | Inspect discovery-vessel's registry directly (replaces `docker exec … curl discovery`). `mode:"shapes"` lists the advertised shape vocabulary (optional `shape` substring filter via `GET /registry/shapes`); `mode:"vessels"` (requires `shape`) lists vessels advertising a shape (vesselId, endpoint, protocol, resolve_endpoint) via the `vesselCapability` pointer. |
@@ -54,7 +54,18 @@ bash scripts/git-hooks/install.sh   # install pre-commit hook
 | `resolve_impulse` | Substrate | ADVANCED escape hatch: general impulse-resolve passthrough for ANY shape (memoryNote, feature_compose, `*_write`, …) instead of raw `curl /v2/impulses/resolve`. `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery; else defaults to activity-api. Prefer the dedicated tools when they fit. |
 | `concept_*` | Substrate | concept-db graph: `concept_search` / `_neighbors` / `_usage_stats` / `_sequence` / `_link` / `_create`. See the `metabob-substrate` skill. |
 
-**Substrate tools** (`run_goal*`, `goal_status`, `concept_*`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require `~/.metabob/config.json` to point `metabob.endpoint` at the local substrate (`http://localhost:18080`, which auto-derives `DISCOVERY_ENDPOINT=…:18100`) plus a valid `metabob.apiKey`. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` override discovery.
+**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require `~/.metabob/config.json` to point `metabob.endpoint` at the local substrate (`http://localhost:18080`, which auto-derives `DISCOVERY_ENDPOINT=…:18100`) plus a valid `metabob.apiKey`. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` override discovery.
+
+**The surface is a complete operator cockpit — no host access needed.** Three planes + a coverage set: ACT (`run_goal*`), TRACK (`goal_status`), REASON (`goal_reasoning`), FEEDBACK (`provide_feedback`), INSPECT (`registry_query` / `execution_trace` / `resolve_impulse`). The last three replace `docker exec` / `journalctl` / raw `curl` for reading the running substrate. Canonical loop:
+
+```
+run_goal_async({ goal })        → dispatchId    (name a repos/<vessel>/src file for a code change)
+goal_status({ dispatch_id })    → read `reached`, not `status`
+goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell short
+provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
+```
+
+**Plain code-change goals route to `feature_compose`.** A goal that names a real `repos/<vessel>/src/…` file (e.g. `run_goal_async({ goal: "edit repos/development-vessel/src/resolvers/gap-to-feature.ts: <change>" })`) routes through the edit-intent path to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit via mitosis cutover — the byte-exact BEFORE/AFTER trick is no longer required. `reached:true` + a `feature_compose` `selectedTemplateId` + a landed commit means it worked; then read the diff (a change can pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`).
 
 **Goal dispatch/track contract** (goal-host-vessel, `repos/goal-host-vessel`):
 - `POST /run-goal` → `202 { dispatchId, status:"running" }` (async; the goal runs in the background).

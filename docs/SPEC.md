@@ -201,6 +201,38 @@ Return the current analysis state: CPG index stats, open problems summary, and c
 
 ---
 
+## Substrate goal tools (the operator cockpit)
+
+Beyond the CPG-analysis tools above, the MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it — without host access** (`docker exec` / `journalctl` / raw `curl` are the last resort, not the default). They resolve goal-host / discovery / activity-api through discovery-vessel; they need `metabob.endpoint` + `apiKey` in `~/.metabob/config.json`.
+
+Three planes + a coverage set:
+
+| Tool | Plane | Behaviour |
+|------|-------|-----------|
+| `run_goal` | ACT | Synchronous dispatch via goal-host `POST /resolve` (~290s cap). Short goals answered inline. |
+| `run_goal_async` | ACT | Async dispatch via goal-host `POST /run-goal` → `dispatchId` immediately. Default for non-trivial goals. **Names a `repos/<vessel>/src/…` file → routes to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit** (no byte-exact trick needed). |
+| `goal_status` | ACT | Poll a `dispatchId` → the honest **`reached`** verdict (primary), executionId/template, hydrated roll-up (state signature, produced shapes, failure mode, Thompson α/β). |
+| `goal_reasoning` | REASON | The goal-host **walk decision-log** for a `dispatchId`: goal-target inference → satisfier/bridge/step decisions → reach verdict + per-task trace sequence. *Why* it reached or fell short. Renders the `walkLog` for satisfier-only reaches (no template trace). |
+| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → writes a `goal_verification_labels` oracle-corpus label that calibrates the reach-gate. Auto-derives goal/executionId/template from the dispatch record. |
+| `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Replaces `curl discovery`. |
+| `execution_trace` | INSPECT | Durable trace by `execution_id`: status, template, chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), per-task sequence + failure_mode. Replaces raw trace curls. |
+| `resolve_impulse` | INSPECT | Advanced escape hatch: resolve/write ANY impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery. Prefer dedicated tools when they fit. |
+
+**`reached`, not `status`.** `status` (`running|completed|failed`) is only the template *exit status*. **`reached`** (`yes|no`) is the goal-reach verdict and the load-bearing signal — surfaced first by `goal_status`/`goal_reasoning`. `completed`+`reached:false` (hollow) and `failed`+`reached:true` (e.g. satisfier reach) are both normal; trusting `status` mis-judges the outcome. High-stakes → also read the actual diff/output (a change can typecheck + pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`) into the trace tags.
+
+**Canonical loop:**
+
+```
+run_goal_async({ goal })        → dispatchId       (name a repos/<vessel>/src file for code changes)
+goal_status({ dispatch_id })    → read `reached`, not `status`
+goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell short
+provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
+```
+
+> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill). Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
+
+---
+
 ## Typical agent workflow
 
 ```
