@@ -2,6 +2,12 @@ export interface DiscoveryCapability {
   vesselId: string;
   vesselName: string;
   endpoint: string;
+  /**
+   * Optional host/LAN-reachable URL advertised by the vessel at registration
+   * (discovery-vessel SC-P4 contract). When present, callers outside the
+   * container network should use it verbatim instead of remapping `endpoint`.
+   */
+  public_endpoint?: string;
   protocol?: string;
   confidence: number;
   lastSeen: string;
@@ -24,6 +30,14 @@ interface DiscoveryResponse {
 const DISCOVERY_CACHE_TTL_MS = 60_000;
 const discoveryCache = new Map<string, { expiresAt: number; capability: DiscoveryCapability | null }>();
 
+/**
+ * LEGACY FALLBACK for registrations that predate `public_endpoint`.
+ *
+ * Heuristically rewrites a substrate-internal `localhost:8xxx` endpoint to the
+ * host-mapped `localhost:<port+10000>` when the discovery endpoint itself is
+ * host-mapped. Vessels that advertise `public_endpoint` bypass this entirely —
+ * see resolveVesselBaseUrl().
+ */
 function normalizeDiscoveredUrl(rawUrl: string, discoveryEndpoint?: string): string {
   try {
     const url = new URL(rawUrl);
@@ -55,6 +69,19 @@ function normalizeDiscoveredUrl(rawUrl: string, discoveryEndpoint?: string): str
   } catch {
     return rawUrl.replace(/\/$/, '');
   }
+}
+
+/**
+ * Preferred way to obtain a discovered vessel's base URL: use the
+ * registry-advertised `public_endpoint` verbatim when present (it is already
+ * reachable from outside the container network), and only fall back to the
+ * legacy `endpoint` + port-remap heuristic when it is absent.
+ */
+function resolveVesselBaseUrl(capability: DiscoveryCapability, discoveryEndpoint?: string): string {
+  if (typeof capability.public_endpoint === 'string' && capability.public_endpoint.trim().length > 0) {
+    return capability.public_endpoint.replace(/\/+$/, '');
+  }
+  return normalizeDiscoveredUrl(capability.endpoint, discoveryEndpoint);
 }
 
 export function deriveLocalDiscoveryEndpoint(activityApiUrl?: string): string | undefined {
@@ -149,7 +176,7 @@ export async function resolveServiceEndpointByShape(options: {
   }
 
   const capability = await discoverFirstVesselByShape(options);
-  return capability ? normalizeDiscoveredUrl(capability.endpoint, options.discoveryEndpoint) : undefined;
+  return capability ? resolveVesselBaseUrl(capability, options.discoveryEndpoint) : undefined;
 }
 
 export function buildResolverUrl(capability: DiscoveryCapability, discoveryEndpoint?: string): string {
@@ -158,7 +185,7 @@ export function buildResolverUrl(capability: DiscoveryCapability, discoveryEndpo
     return normalizeDiscoveredUrl(resolveEndpoint, discoveryEndpoint);
   }
 
-  const url = new URL(normalizeDiscoveredUrl(capability.endpoint, discoveryEndpoint));
+  const url = new URL(resolveVesselBaseUrl(capability, discoveryEndpoint));
   url.pathname = resolveEndpoint.startsWith('/') ? resolveEndpoint : `/${resolveEndpoint}`;
   url.search = '';
   url.hash = '';
