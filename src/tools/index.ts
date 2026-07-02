@@ -17,6 +17,7 @@ import * as ConceptCreate from './concept-create.js';
 import * as RunGoal from './run-goal.js';
 import * as RunGoalAsync from './run-goal-async.js';
 import * as GoalStatus from './goal-status.js';
+import * as GoalReasoning from './goal-reasoning.js';
 
 export interface Tool {
   name: string;
@@ -121,6 +122,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...GoalStatus.GoalStatusTool,
     handler: GoalStatus.handle,
     validateInput: (i: any) => GoalStatus.InputSchema.parse(i),
+  },
+  goal_reasoning: {
+    ...GoalReasoning.GoalReasoningTool,
+    handler: GoalReasoning.handle,
+    validateInput: (i: any) => GoalReasoning.InputSchema.parse(i),
   },
 };
 
