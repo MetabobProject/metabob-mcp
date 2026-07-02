@@ -74,6 +74,21 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
   const bundled = new Set(tls.rootCertificates);
   const additions = systemCerts.filter((pem) => !bundled.has(pem));
 
+  // Detect a corporate forward proxy from the environment. This matters even
+  // when the OS store has no extra CA: Node's native `fetch` (undici) does NOT
+  // honor HTTP(S)_PROXY on its own before Node 24, so in a forced-egress
+  // environment (Zscaler, Netskope, …) runtime fetch calls never traverse the
+  // proxy unless we install a proxy-aware global dispatcher. The doctor already
+  // does this per-request; the runtime previously did not — this closes the gap
+  // that made `doctor` pass while the live server failed to connect.
+  const proxyEnv =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    '';
+  const proxyPresent = proxyEnv.trim().length > 0;
+
   if (additions.length > 0) {
     // 1. Mutate the array exported by tls so libraries that snapshot
     //    tls.rootCertificates after this point see the augmented set.
@@ -106,35 +121,64 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
     ];
     agent.options.ca = merged;
 
-    // 3. Wire into undici (the engine behind global `fetch` in Node 18+).
-    //    Undici is bundled with Node, so a static import would still work,
-    //    but we lazy-load to keep this module side-effect-free on older Node.
-    try {
-      // Lazy + untyped require so projects without @types/undici (it's
-      // bundled with Node 18+ but lacks first-party type declarations) still
-      // build cleanly.
-      const undici = require('undici') as {
-        setGlobalDispatcher: (d: unknown) => void;
-        Agent: new (opts: { connect?: { ca?: string | string[] } }) => unknown;
-      };
-      undici.setGlobalDispatcher(
-        new undici.Agent({
-          connect: { ca: merged },
-        }),
-      );
-    } catch (err) {
-      // If undici is unavailable, global fetch will keep using its own pool —
-      // log so the operator can diagnose if requests still fail.
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[metabob-mcp] system-ca: undici dispatcher not installed (${msg})`);
-    }
-
     appendedCount = additions.length;
     installed = true;
   } else if (!readError) {
     // System trust store was readable but identical to bundled — still mark
     // installed so we don't retry on every call.
     installed = true;
+  }
+
+  // 3. Wire the undici global dispatcher (the engine behind global `fetch` in
+  //    Node 18+). Runs whenever we have EITHER a corporate CA to inject OR a
+  //    proxy to traverse — native fetch needs both and the previous build did
+  //    neither (undici was not even installed, so this always threw and the CA
+  //    reached only https.globalAgent, which fetch does not use).
+  if (additions.length > 0 || proxyPresent) {
+    try {
+      const caList = additions.length > 0 ? [...tls.rootCertificates] : undefined;
+      const undici = require('undici') as {
+        setGlobalDispatcher: (d: unknown) => void;
+        Agent: new (opts?: Record<string, unknown>) => unknown;
+        ProxyAgent?: new (opts: Record<string, unknown>) => unknown;
+        EnvHttpProxyAgent?: new (opts?: Record<string, unknown>) => unknown;
+      };
+
+      let dispatcher: unknown;
+      // TLS to the destination (Zscaler re-signs the origin cert) needs the CA
+      // on the *request* leg, so we pass it as both `connect` (Agent) and
+      // `requestTls` (ProxyAgent/EnvHttpProxyAgent) to cover every undici path.
+      if (proxyPresent && typeof undici.EnvHttpProxyAgent === 'function') {
+        // Preferred: EnvHttpProxyAgent honors HTTP_PROXY/HTTPS_PROXY/NO_PROXY itself.
+        dispatcher = new undici.EnvHttpProxyAgent(
+          caList ? { requestTls: { ca: caList } } : {},
+        );
+      } else if (proxyPresent && typeof undici.ProxyAgent === 'function') {
+        // Older undici without EnvHttpProxyAgent: resolve the proxy URL ourselves.
+        const { getProxyForUrl } = require('proxy-from-env') as {
+          getProxyForUrl: (u: string) => string;
+        };
+        const proxyUri = getProxyForUrl('https://ide.metabob.com') || proxyEnv;
+        dispatcher = new undici.ProxyAgent({
+          uri: proxyUri,
+          ...(caList ? { requestTls: { ca: caList } } : {}),
+        });
+      } else {
+        // No proxy (or no proxy-agent support): plain Agent carrying the CA.
+        dispatcher = new undici.Agent(caList ? { connect: { ca: caList } } : {});
+      }
+      undici.setGlobalDispatcher(dispatcher);
+      installed = true;
+    } catch (err) {
+      // If undici is unavailable, global fetch keeps its own pool — log loudly
+      // so the operator can diagnose (this is the request path that actually
+      // fails behind an intercepting proxy).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[metabob-mcp] system-ca: undici global dispatcher not installed (${msg}); ` +
+          `runtime fetch will NOT trust the corporate CA or use the proxy`,
+      );
+    }
   }
 
   lastSummary = {
