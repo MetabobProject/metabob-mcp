@@ -21,6 +21,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { operatorId } from '../operator-id.js';
 
 const DISPATCH_TIMEOUT_MS = parseInt(
   process.env.RUN_GOAL_ASYNC_TIMEOUT_MS || '30000',
@@ -103,7 +104,7 @@ export async function handle(
 
   // goal-host's /run-goal accepts the flat body (not the impulse envelope):
   // { goal, targetTemplateId, variables, parent_execution_id, composition_chain }.
-  const body: Record<string, unknown> = {};
+  const body: Record<string, unknown> = { operator: operatorId() };
   if (input.goal) body.goal = input.goal;
   if (input.target_template_id) body.targetTemplateId = input.target_template_id;
   if (input.variables) body.variables = input.variables;

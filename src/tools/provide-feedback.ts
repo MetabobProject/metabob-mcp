@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { operatorId } from '../operator-id.js';
 
 const TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 
@@ -148,6 +149,11 @@ export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPI
   const verdict = VERDICT_MAP[input.verdict];
   const confidence = input.confidence ?? 0.9;
 
+  // The oracle-corpus write contract has no dedicated operator field, so fold the
+  // operator identity into the notes for attribution.
+  const operator = operatorId();
+  const notes = `${input.rationale} [operator: ${operator}]`;
+
   // 2. Write the oracle-corpus label via the activity-api impulse resolver.
   const pointer = {
     type: 'goal_verification_label_write',
@@ -157,7 +163,7 @@ export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPI
     verdict,
     confidence,
     labeler: 'human',
-    notes: input.rationale,
+    notes,
   };
 
   let writeRes: Response;
@@ -196,6 +202,7 @@ export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPI
     `  executionId:  ${executionId}`,
     `  activity_id:  ${activityId}`,
     `  rationale:    ${input.rationale.slice(0, 160)}`,
+    `  operator:     ${operator}`,
     `  oracle label: ${labelId}`,
     '',
     '  Written to goal_verification_labels (oracle corpus) — this ground-truth verdict',

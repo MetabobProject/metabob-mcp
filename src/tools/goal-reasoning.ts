@@ -63,6 +63,18 @@ interface DispatchRecordResponse {
   stateSignature?: unknown;
   /** Reason-plane walk decision-log: raw goal-host decision lines, in walk order. */
   walkLog?: string[];
+  /** Honest goal-reach verdict (distinct from `status`, the template exit status). */
+  reached?: boolean | null;
+  /** Operator identity attributed to this dispatch, if any. */
+  operator?: string | null;
+}
+
+/** Render the honest reach verdict as the primary outcome line. */
+function reachLine(reached: boolean | null | undefined, status?: string): string {
+  if (status === 'running') return '  reached:            (running)';
+  if (reached === true) return '  reached:            yes';
+  if (reached === false) return '  reached:            no';
+  return '  reached:            (unknown — goal-host reported no reach verdict)';
 }
 
 function authHeaders(): Record<string, string> {
@@ -213,8 +225,11 @@ export async function handle(input: GoalReasoningInput, apiClient: AnalysisAPICl
 
   const lines = [
     `Reasoning for dispatch ${record.dispatchId ?? input.dispatch_id}`,
+    reachLine(record.reached, record.status),
+    '  (reached = the goal verdict; status below is only the template exit status)',
     `  status:             ${record.status ?? '(unset)'}`,
     `  executionId:        ${record.executionId ?? '(pending)'}`,
+    record.operator ? `  operator:           ${record.operator}` : null,
     record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
     record.error ? `  error:              ${record.error}` : null,
   ].filter(Boolean) as string[];

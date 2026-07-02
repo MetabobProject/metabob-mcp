@@ -20,6 +20,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { buildResolverUrl, discoverFirstVesselByShape } from '../discovery.js';
+import { operatorId } from '../operator-id.js';
 
 const RESOLVE_TIMEOUT_MS = parseInt(
   process.env.RUN_GOAL_TIMEOUT_MS || '290000',
@@ -104,7 +105,7 @@ export async function handle(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
-  const pointer: Record<string, unknown> = { type: 'goal_execution' };
+  const pointer: Record<string, unknown> = { type: 'goal_execution', operator: operatorId() };
   if (input.goal) pointer.goal = input.goal;
   if (input.target_template_id) pointer.target_template_id = input.target_template_id;
   if (input.variables) pointer.variables = input.variables;

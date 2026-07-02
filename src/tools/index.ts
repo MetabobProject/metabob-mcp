@@ -19,6 +19,9 @@ import * as RunGoalAsync from './run-goal-async.js';
 import * as GoalStatus from './goal-status.js';
 import * as GoalReasoning from './goal-reasoning.js';
 import * as ProvideFeedback from './provide-feedback.js';
+import * as RegistryQuery from './registry-query.js';
+import * as ExecutionTrace from './execution-trace.js';
+import * as ResolveImpulse from './resolve-impulse.js';
 
 export interface Tool {
   name: string;
@@ -133,6 +136,21 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ProvideFeedback.ProvideFeedbackTool,
     handler: ProvideFeedback.handle,
     validateInput: (i: any) => ProvideFeedback.InputSchema.parse(i),
+  },
+  registry_query: {
+    ...RegistryQuery.RegistryQueryTool,
+    handler: RegistryQuery.handle,
+    validateInput: (i: any) => RegistryQuery.InputSchema.parse(i),
+  },
+  execution_trace: {
+    ...ExecutionTrace.ExecutionTraceTool,
+    handler: ExecutionTrace.handle,
+    validateInput: (i: any) => ExecutionTrace.InputSchema.parse(i),
+  },
+  resolve_impulse: {
+    ...ResolveImpulse.ResolveImpulseTool,
+    handler: ResolveImpulse.handle,
+    validateInput: (i: any) => ResolveImpulse.InputSchema.parse(i),
   },
 };
 
