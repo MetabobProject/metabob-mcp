@@ -4,7 +4,6 @@
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
-    "mcp": "dist/cli.js",
     "metabob-mcp": "dist/cli.js",
     "metabob-mcp-doctor": "dist/doctor-cli.js"
   },
@@ -48,10 +47,13 @@
     "registry": "https://registry.npmjs.org/"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "bun": ">=1.1.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "hono": "^4.0.0",
     "https-proxy-agent": "^7.0.0",
     "onnxruntime-node": "^1.20.1",
@@ -73,7 +75,9 @@
   },
   "trustedDependencies": [
     "onnxruntime-node",
+    "tree-sitter",
     "tree-sitter-javascript",
-    "tree-sitter-python"
+    "tree-sitter-python",
+    "tree-sitter-typescript"
   ]
 }

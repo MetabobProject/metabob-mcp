@@ -1,0 +1,114 @@
+name: Package smoke (all OSs)
+
+# Full-OS packaging validation: build → npm pack → global install from the
+# tarball → CLI + server smoke test, on every supported platform. Expensive,
+# so it runs only on manual dispatch or when package.json's version changes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, dev]
+    paths:
+      - package.json
+
+jobs:
+  version-check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Did package.json version change?
+        id: diff
+        run: |
+          current=$(node -p "require('./package.json').version")
+          previous=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "none")
+          echo "previous=$previous current=$current"
+          if [ "$current" != "$previous" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  smoke:
+    needs: [version-check]
+    # needs.version-check is skipped (not failed) on workflow_dispatch;
+    # `!failure() && !cancelled()` lets this job still run in that case.
+    if: >-
+      !failure() && !cancelled() &&
+      (github.event_name == 'workflow_dispatch' || needs.version-check.outputs.changed == 'true')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.AUTOMATION_PAT }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Pack tarball
+        id: pack
+        shell: bash
+        run: echo "tarball=$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Global install from tarball (npm, like end users)
+        shell: bash
+        run: npm install -g "./${{ steps.pack.outputs.tarball }}"
+
+      - name: CLI smoke — version + help
+        shell: bash
+        run: |
+          metabob-mcp --version
+          metabob-mcp --help > /dev/null
+
+      - name: Node fast-fail smoke — clear Bun message, not a raw ESM error
+        shell: bash
+        run: |
+          set +e
+          out=$(node "$(npm root -g)/@metabob/mcp/dist/cli.js" 2>&1)
+          set -e
+          echo "$out"
+          echo "$out" | grep -q "requires the Bun runtime"
+
+      - name: Server smoke — reaches MCP-ready
+        shell: bash
+        env:
+          METABOB_API_KEY: ${{ secrets.METABOB_TEST_API_KEY }}
+          LOG_LEVEL: debug
+        run: |
+          if [ -z "$METABOB_API_KEY" ]; then
+            echo "METABOB_TEST_API_KEY secret not set — skipping authenticated server smoke"
+            exit 0
+          fi
+          metabob-mcp > server.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 30); do
+            if grep -q "MCP server ready" server.log; then break; fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          cat server.log
+          grep -q "MCP server ready" server.log

@@ -11,7 +11,10 @@
  * the async wrappers exist only for API symmetry with async callers.
  */
 
-import { Database } from 'bun:sqlite';
+// Type-only: the runtime binding is required lazily in init() so the bundled
+// CLI can load under Node for --help/--version/doctor and print an actionable
+// "requires Bun" error, instead of dying at ESM load on the bun: scheme.
+import type { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
@@ -95,6 +98,7 @@ export class LocalStore {
       }
     } catch { /* -wal file doesn't exist — clean state */ }
 
+    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     this.db = new Database(this.dbPath, { create: true });
     this.db.exec('PRAGMA journal_mode=WAL;');
     this.db.exec('PRAGMA foreign_keys=ON;');

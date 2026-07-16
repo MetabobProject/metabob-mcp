@@ -326,6 +326,21 @@ async function main() {
     process.env.MAX_REQUESTS_PER_MINUTE = options.maxRequestsPerMinute.toString();
   }
 
+  // The server requires the Bun runtime (bun:sqlite in the local seed store).
+  // Under Node the import below would die with an opaque
+  // ERR_UNSUPPORTED_ESM_URL_SCHEME — fail fast with an actionable message
+  // instead. --help, --version, and the doctor subcommand still run under Node.
+  if (!process.versions.bun) {
+    console.error(
+      '[metabob-mcp] The MCP server requires the Bun runtime (https://bun.sh) — ' +
+        'it uses bun:sqlite for the local analysis cache.\n' +
+        '  Install: curl -fsSL https://bun.sh/install | bash   (Windows: powershell -c "irm bun.sh/install.ps1 | iex")\n' +
+        '  Then re-run; the npx/npm bin shim invokes bun automatically once it is on PATH.\n' +
+        '  Note: Bun has no Windows ARM64 build — Windows on ARM is unsupported.',
+    );
+    process.exit(1);
+  }
+
   // Import and start the MCP server
   // The index.ts file will read from environment variables we just set
   await import('./index.js');

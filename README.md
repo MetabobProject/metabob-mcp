@@ -10,6 +10,12 @@ npx @metabob/mcp@latest --api-key=mb_your_api_key_here
 
 Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/settings/api-keys).
 
+**Runtime**: the MCP server runs on [Bun](https://bun.sh) (≥1.1) — the installed
+bin shim invokes `bun` automatically, so it just needs to be on PATH. Node.js is
+only sufficient for `--help`, `--version`, and the `doctor` subcommand.
+Supported platforms: Linux, macOS, and Windows x64. Windows ARM64 is
+unsupported (no Bun ARM64 build, no tree-sitter win32-arm64 prebuilds).
+
 Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backend may take a while to finish processing it. Agents should prefer async follow-up with Metabob tools and treat `pending` or `running` analysis states as normal.
 
 ## Tools
