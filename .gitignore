@@ -36,3 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # ephemeral doctor diagnostics
 metabob-mcp-doctor-*.json
+
+# local org-split test setup (do not commit — contains test key / machine paths)
+.metabob-test/
+.mcp.json
