@@ -8,6 +8,7 @@ import * as MarkComplete from './mark-complete.js';
 import * as GetMetrics from './get-metrics.js';
 import * as AssignGitChanges from './assign-git-changes.js';
 import * as GetAnalysisContext from './get-analysis-context.js';
+import * as RecordFinding from './record-finding.js';
 import * as ConceptSearch from './concept-search.js';
 import * as ConceptNeighbors from './concept-neighbors.js';
 import * as ConceptUsageStats from './concept-usage-stats.js';
@@ -81,6 +82,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...GetAnalysisContext.GetAnalysisContextTool,
     handler: GetAnalysisContext.handle,
     validateInput: (i: any) => GetAnalysisContext.InputSchema.parse(i),
+  },
+  record_finding: {
+    ...RecordFinding.RecordFindingTool,
+    handler: RecordFinding.handle,
+    validateInput: (i: any) => RecordFinding.InputSchema.parse(i),
   },
   concept_search: {
     ...ConceptSearch.ConceptSearchTool,

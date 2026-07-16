@@ -2,11 +2,12 @@ import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { getLocalIndex } from '../local-index.js';
+import { fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
   description:
-    'Fetch code problems detected by the analysis server for this session. Results are ranked by severity. Submit files first via init_workspace.',
+    'Fetch known problems for this codebase, ranked by severity: backend detections for this session plus findings recorded by agents (record_finding) working on the same region of this codebase. Submit files first via init_workspace.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -53,6 +54,27 @@ const SEVERITY_ORDER: Record<string, number> = {
 };
 
 export async function handle(
+  input: GetProblemsInput,
+  apiClient: AnalysisAPIClient,
+  sessionId: string,
+  localStore?: LocalStore | null,
+): Promise<string> {
+  // Core detection sources (local seed cache / vessel fan-out / legacy API)
+  // run first; then the cross-agent findings recall (concept-db, best-effort,
+  // non-fatal) is appended as a distinct section.
+  let core: string;
+  try {
+    core = await handleCore(input, apiClient, sessionId, localStore);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    core = `Backend detection unavailable (${msg.slice(0, 200)}) — server-side detection is deprecated; agent-recorded findings (record_finding) are the primary source.`;
+  }
+  const recall = await fetchAgentFindings(apiClient, [workspaceRepoName(), input.file_path]);
+  const section = renderFindingsSection(recall, { max: 10 });
+  return section ? `${core}\n\n${section}` : core;
+}
+
+async function handleCore(
   input: GetProblemsInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
@@ -125,7 +147,16 @@ export async function handle(
         : 'No indexed files yet — run init_workspace first.';
     }
 
-    const raw = await apiClient.resolveShape('problem_detection', { filePaths }, sessionId);
+    // Deprecated as the primary source of problems: server-side LLM detection
+    // has moved to the agent side (record_finding). Keep the fan-out as a
+    // best-effort fallback, but never let its failure mask agent findings.
+    let raw: unknown;
+    try {
+      raw = await apiClient.resolveShape('problem_detection', { filePaths }, sessionId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return `Backend detection unavailable (${msg.slice(0, 200)}) — server-side detection is deprecated; agent-recorded findings (record_finding) are the primary source.`;
+    }
     // Support both legacy { problems, files_analyzed } and analysis-api { resolved: [{ content, metadata }] } formats
     type LegacyPayload = { problems?: Array<Record<string, unknown>>; files_analyzed?: number; error?: string };
     type NewPayload = { resolved?: Array<{ content?: Array<Record<string, unknown>>; metadata?: { files_analyzed?: number } }> };

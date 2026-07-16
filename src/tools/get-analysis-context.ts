@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
+import { fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
@@ -147,6 +148,15 @@ export async function handle(
     // keep unavailable message
   }
 
+  // ── Cross-agent findings recall (concept-db, best-effort, compact) ────────
+  // Phase-0 orientation sees other agents' recorded findings without an extra
+  // call. Non-fatal: unreachable concept-db renders a one-line note.
+  const recall = await fetchAgentFindings(apiClient, [
+    workspaceRepoName(),
+    ...(input.recently_changed_files ?? []),
+  ]);
+  const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
+
   const duration = Date.now() - startTime;
 
   // ── Build structured context for LLM consumption ─────────────────────────
@@ -180,6 +190,11 @@ export async function handle(
       text += '  (none above threshold or workspace not indexed)\n';
     }
     text += '\n';
+  }
+
+  // Cross-agent recall
+  if (findingsSection) {
+    text += findingsSection + '\n\n';
   }
 
   // Guidance for LLM

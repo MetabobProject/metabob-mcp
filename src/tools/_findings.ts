@@ -1,0 +1,204 @@
+/**
+ * Shared helpers for the agent-side findings plane.
+ *
+ * Design shift: LLM processing lives on the agent side. The MCP server
+ * (1) organizes code structure data, (2) attributes agent-noticed details to
+ * code via `record_finding`, and (3) surfaces those attributions to other
+ * agents working on the same region of the same codebase via `get_problems`
+ * and `get_analysis_context`.
+ *
+ * Findings are persisted in two tiers:
+ *  - LocalStore seeds (`agf_*` ids) — immediate in-session surfacing.
+ *  - concept-db concepts (shape `code_finding`) — org-wide cross-agent recall.
+ *
+ * concept-db is always best-effort: unreachable is non-fatal, and callers
+ * report its status instead of failing.
+ */
+
+import { basename } from 'node:path';
+import type { AnalysisAPIClient } from '../api-client.js';
+import { getLocalIndex } from '../local-index.js';
+import { resolveServiceEndpointByShape } from '../discovery.js';
+
+/** The concept shape used for agent-recorded findings. */
+export const FINDING_SHAPE = 'code_finding';
+/** The concept shape used for verdicts on findings (mark_complete). */
+export const VERDICT_SHAPE = 'finding_verdict';
+
+/** Basename of the active workspace root, or null if not indexed yet. */
+export function workspaceRepoName(): string | null {
+  const wp = getLocalIndex().workspacePath();
+  return wp ? basename(wp) : null;
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const apiKey = process.env.METABOB_API_KEY;
+  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
+  return headers;
+}
+
+/**
+ * Resolve the concept-db base URL (explicit CONCEPT_DB_URL, else discovery via
+ * the `conceptGraph` shape). Returns null when neither is configured or
+ * discovery fails — callers treat null as "concept-db not configured".
+ */
+export async function resolveConceptDbUrl(apiClient: AnalysisAPIClient): Promise<string | null> {
+  try {
+    const client = apiClient as unknown as {
+      hasDiscovery?: () => boolean;
+      getDiscoveryEndpoint?: () => string | undefined;
+    };
+    const hasDiscovery = typeof client.hasDiscovery === 'function' && client.hasDiscovery();
+    if (!hasDiscovery && !process.env.CONCEPT_DB_URL) return null;
+    const url = await resolveServiceEndpointByShape({
+      explicitUrl: process.env.CONCEPT_DB_URL,
+      discoveryEndpoint:
+        typeof client.getDiscoveryEndpoint === 'function' ? client.getDiscoveryEndpoint() : undefined,
+      shape: 'conceptGraph',
+      apiKey: process.env.METABOB_API_KEY,
+    });
+    return url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface PostConceptResult {
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+
+/**
+ * Best-effort POST {conceptDbUrl}/concepts — mirrors the body contract used
+ * by concept_create (content/shape/source_type/pointer [+ summary]).
+ * Never throws.
+ */
+export async function postConcept(
+  conceptDbUrl: string,
+  body: Record<string, unknown>,
+): Promise<PostConceptResult> {
+  try {
+    const res = await fetch(`${conceptDbUrl}/concepts`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { ok: false, error: `${res.status} ${text.slice(0, 200)}` };
+    }
+    const concept = (await res.json().catch(() => ({}))) as { id?: string };
+    return { ok: true, id: (concept.id ?? '').replace(/^concept:/, '') };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface AgentFinding {
+  id: string;
+  summary: string;
+  content: string;
+  updated_at?: string;
+}
+
+export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable';
+
+export interface AgentFindingsResult {
+  status: AgentFindingsStatus;
+  findings: AgentFinding[];
+  detail?: string;
+}
+
+/**
+ * Fetch `code_finding` concepts from concept-db (list mode — deliberately no
+ * `query=` param: semantic search is unstable on the local vessel) and filter
+ * client-side to concepts whose summary/content mention any of `matchTerms`
+ * (repo name, requested file paths). Never throws.
+ */
+export async function fetchAgentFindings(
+  apiClient: AnalysisAPIClient,
+  matchTerms: Array<string | null | undefined>,
+): Promise<AgentFindingsResult> {
+  const terms = matchTerms
+    .map(t => (t ?? '').trim().toLowerCase())
+    .filter(t => t.length > 0);
+  if (terms.length === 0) return { status: 'skipped', findings: [] };
+
+  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
+  if (!conceptDbUrl) return { status: 'skipped', findings: [] };
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(FINDING_SHAPE)}&limit=50`,
+      { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
+    );
+  } catch (err) {
+    return {
+      status: 'unreachable',
+      findings: [],
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (!res.ok) {
+    return { status: 'unreachable', findings: [], detail: `HTTP ${res.status}` };
+  }
+
+  interface ConceptRow {
+    id?: string;
+    summary?: string | null;
+    content?: string | null;
+    updated_at?: string;
+  }
+  const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
+  const rows = payload.concepts ?? [];
+
+  const findings: AgentFinding[] = [];
+  for (const row of rows) {
+    const summary = row.summary ?? '';
+    const content = row.content ?? '';
+    const hay = `${summary}\n${content}`.toLowerCase();
+    if (!terms.some(t => hay.includes(t))) continue;
+    findings.push({
+      id: (row.id ?? '').replace(/^concept:/, ''),
+      summary,
+      content,
+      updated_at: row.updated_at,
+    });
+  }
+  return { status: 'ok', findings };
+}
+
+/**
+ * Render the cross-agent findings section. Returns '' when there is nothing
+ * useful to show (skipped, or reachable but no matches).
+ */
+export function renderFindingsSection(
+  result: AgentFindingsResult,
+  opts: { max: number; compact?: boolean } = { max: 10 },
+): string {
+  if (result.status === 'unreachable') {
+    return `Findings recorded by agents on this codebase: (concept-db unreachable — ${result.detail ?? 'no detail'})`;
+  }
+  if (result.status === 'skipped' || result.findings.length === 0) return '';
+
+  const shown = result.findings.slice(0, opts.max);
+  let text = `Findings recorded by agents on this codebase`;
+  if (result.findings.length > shown.length) {
+    text += ` (top ${shown.length} of ${result.findings.length})`;
+  }
+  text += ':\n';
+  for (const f of shown) {
+    const line = f.summary || f.content.split('\n')[0] || f.id;
+    text += `  • ${line}\n`;
+    if (!opts.compact) {
+      const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
+      if (fileLine) text += `    ${fileLine}\n`;
+      text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
+    }
+  }
+  return text.trimEnd();
+}

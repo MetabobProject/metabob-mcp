@@ -1,0 +1,189 @@
+/**
+ * record_finding — the write half of agent-side analysis.
+ *
+ * The agent (not the server) does the LLM work: it notices an issue, a
+ * constraint, or a risk while working, and calls this tool to ATTRIBUTE that
+ * observation to concrete code. The server then:
+ *
+ *  1. upserts a SeedRecord per file into the LocalStore so `get_problems`
+ *     surfaces it immediately in this session (ids are `agf_*` —
+ *     agent finding — and flow through mark_complete like any problem), and
+ *  2. best-effort mints a `code_finding` concept into concept-db so OTHER
+ *     agents' sessions working on the same repo/region recall it org-wide.
+ *
+ * concept-db unreachable is non-fatal and reported in the output.
+ */
+
+import { z } from 'zod';
+import { basename, isAbsolute, relative } from 'node:path';
+import type { AnalysisAPIClient } from '../api-client.js';
+import type { LocalStore } from '../local-store.js';
+import { getLocalIndex } from '../local-index.js';
+import { FINDING_SHAPE, postConcept, resolveConceptDbUrl } from './_findings.js';
+
+export const RecordFindingTool = {
+  name: 'record_finding',
+  description:
+    'Record something you (the agent) noticed about specific code — a bug, a security risk, a design constraint, a gotcha. The finding is attributed to the given files, surfaces immediately via get_problems in this session, and is shared (best-effort) to the org-wide concept graph so other agents working on the same region of this codebase see it. Use mark_complete on the returned agf_* id to endorse (fixed) or discard (retract) it later.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      files: {
+        type: 'array',
+        description: 'Files the finding is attributed to (workspace-relative or absolute)',
+        items: { type: 'string' },
+      },
+      summary: {
+        type: 'string',
+        description: 'One-line description of the finding',
+      },
+      details: {
+        type: 'string',
+        description: 'Optional longer explanation, reproduction notes, or suggested fix',
+      },
+      severity: {
+        type: 'string',
+        enum: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'],
+        description: 'Severity of the finding',
+      },
+      category: {
+        type: 'string',
+        description: 'Free-form category slug, e.g. security, correctness, design-constraint',
+      },
+      line_start: {
+        type: 'number',
+        description: 'Optional start line the finding refers to',
+      },
+      line_end: {
+        type: 'number',
+        description: 'Optional end line the finding refers to',
+      },
+      status: {
+        type: 'string',
+        description: 'Finding status (default: open)',
+        default: 'open',
+      },
+    },
+    required: ['files', 'summary', 'severity', 'category'],
+  },
+};
+
+export const InputSchema = z.object({
+  files: z.array(z.string().min(1)).min(1),
+  summary: z.string().min(1),
+  details: z.string().optional(),
+  severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']),
+  category: z.string().min(1),
+  line_start: z.number().int().nonnegative().optional(),
+  line_end: z.number().int().nonnegative().optional(),
+  status: z.string().default('open'),
+});
+
+export type RecordFindingInput = z.infer<typeof InputSchema>;
+
+function generateFindingId(): string {
+  return `agf_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Normalize a file path to workspace-relative when possible. */
+function toWorkspaceRelative(filePath: string, workspacePath: string | null): string {
+  if (workspacePath && isAbsolute(filePath)) {
+    const rel = relative(workspacePath, filePath);
+    if (rel && !rel.startsWith('..')) return rel;
+  }
+  return filePath;
+}
+
+export async function handle(
+  input: RecordFindingInput,
+  apiClient: AnalysisAPIClient,
+  _sessionId: string,
+  localStore?: LocalStore | null,
+): Promise<string> {
+  const startTime = Date.now();
+  const localIndex = getLocalIndex();
+  const workspacePath = localIndex.workspacePath();
+  const workspaceId = workspacePath ?? 'unknown';
+  const repoName = workspacePath ? basename(workspacePath) : 'unknown';
+
+  const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
+  const lineStart = input.line_start ?? 0;
+  const lineEnd = input.line_end ?? lineStart;
+
+  // ── 1. Local seeds — immediate in-session surfacing via get_problems ───────
+  const ids: Array<{ file: string; id: string }> = [];
+  const now = Date.now();
+  let localStatus = 'local cache unavailable — finding not cached in-session';
+  if (localStore) {
+    for (const file of relFiles) {
+      const id = generateFindingId();
+      localStore.upsertSeed({
+        id,
+        workspace_id: workspaceId,
+        file_path: file,
+        line_start: lineStart,
+        line_end: lineEnd,
+        category: input.category,
+        severity: input.severity,
+        brief: input.summary,
+        confidence: 1,
+        refs_json: '[]',
+        produced_at: now,
+        stale: input.status !== 'open',
+      });
+      ids.push({ file, id });
+    }
+    localStatus = `cached locally — visible to get_problems in this session`;
+  }
+
+  // ── 2. Best-effort org-wide share via concept-db ────────────────────────────
+  let conceptStatus: string;
+  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
+  if (!conceptDbUrl) {
+    conceptStatus = 'concept-db not configured — finding recorded locally only';
+  } else {
+    const contentLines = [
+      `repo: ${repoName}`,
+      `workspace: ${workspaceId}`,
+      `files: ${relFiles.join(', ')}`,
+    ];
+    if (input.line_start !== undefined) {
+      contentLines.push(`lines: ${lineStart}–${lineEnd}`);
+    }
+    contentLines.push(
+      `severity: ${input.severity}`,
+      `category: ${input.category}`,
+      `status: ${input.status}`,
+      `finding_ids: ${ids.map(x => x.id).join(', ') || '(not cached locally)'}`,
+    );
+    if (input.details) contentLines.push('', input.details);
+
+    const result = await postConcept(conceptDbUrl, {
+      content: contentLines.join('\n'),
+      summary: `[${input.severity}][${input.category}] ${repoName}: ${input.summary}`,
+      shape: FINDING_SHAPE,
+      source_type: 'metabob_annotation',
+      pointer: { type: FINDING_SHAPE },
+    });
+    conceptStatus = result.ok
+      ? `shared org-wide via concept-db (concept ${result.id ?? '?'})`
+      : `concept-db unreachable (${result.error}) — finding recorded locally only`;
+  }
+
+  // ── Output ──────────────────────────────────────────────────────────────────
+  const duration = Date.now() - startTime;
+  let text = `Finding recorded: [${input.severity}][${input.category}] ${input.summary}\n\n`;
+  if (ids.length > 0) {
+    for (const { file, id } of ids) {
+      text += `  ${file}${input.line_start !== undefined ? `:${lineStart}–${lineEnd}` : ''}  →  ${id}\n`;
+    }
+    text += '\n';
+  } else {
+    text += `  files: ${relFiles.join(', ')}\n\n`;
+  }
+  text += `  local:      ${localStatus}\n`;
+  text += `  concept-db: ${conceptStatus}\n\n`;
+  text += `Use mark_complete { problem_id: "<agf id>", action: "endorse"|"discard" } when resolved or retracted.\n`;
+  text += `Recorded in ${duration}ms`;
+  return text;
+}
