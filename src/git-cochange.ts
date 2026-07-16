@@ -48,8 +48,12 @@ export async function mineGitCochanges(
   const log = await gitLogNameOnly(workspaceRoot);
   if (!log) return [];
 
+  // git log emits forward-slash paths on every platform; path.relative()
+  // uses backslashes on Windows — normalize so the lookup matches.
   const targets = new Set(
-    changedFiles.map((f) => relative(workspaceRoot, resolve(workspaceRoot, f))),
+    changedFiles.map((f) =>
+      relative(workspaceRoot, resolve(workspaceRoot, f)).replace(/\\/g, '/'),
+    ),
   );
 
   // Parse commits: hash line, then file lines, separated by blank lines.
