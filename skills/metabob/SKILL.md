@@ -60,6 +60,13 @@ Status: pending (job: …) — 172 files not yet submitted (call again to contin
 server's map stays current and your edits enter the analysis pipeline. Treat it
 like saving your work.
 
+**When you notice an issue while working** (a bug, a security risk, a design
+constraint, a gotcha tied to specific code): `record_finding { files, summary,
+severity, category }` immediately — you are the detector now; the server
+attributes your observation to the code, surfaces it via `get_problems` and
+shares it org-wide so other agents on this region see it. Don't hold findings
+in your head until close-out.
+
 **When hunting**: `search_codebase { query }` (structural, not string match) and
 `concept_neighbors` / `concept_sequence` when a recalled concept is nearby.
 
@@ -68,7 +75,10 @@ like saving your work.
 Analysis lags submission by design. On a natural pause — not immediately after a
 sync — run:
 
-- `get_problems { limit, severity }` — ranked findings.
+- `get_problems { limit, severity }` — ranked findings: backend detections plus
+  **findings recorded by other agents on this codebase** (a distinct section).
+  Treat other agents' findings as first-class — they were noticed by an LLM
+  working the same region.
 - `annotate_component { problem_id }` — explanation or concrete fix for one you
   intend to act on. Skip annotation for problems you won't touch this session.
 
@@ -81,14 +91,16 @@ Before committing / ending the session, in order:
 1. `init_workspace { recently_changed_files: <final edits> }` — last sync batch.
 2. `assign_git_changes` — maps your diff to affected components + predicted
    co-changes. If it names a file you didn't touch, check it before committing.
-3. `mark_complete` for **every** problem you resolved (endorse) or disproved
-   (discard). This trains the org's shared detector — a false positive you
-   discard goes quiet for every client in the org. Not optional bookkeeping.
-4. `concept_create` for each non-obvious thing you learned (why an approach was
+3. `record_finding` for anything you noticed but did not fix — attributed,
+   open findings survive the session and reach the next agent.
+4. `mark_complete` for **every** problem you resolved (endorse) or disproved
+   (discard) — including your own and other agents' `agf_*` findings. Verdicts
+   are shared org-wide. Not optional bookkeeping.
+5. `concept_create` for each non-obvious thing you learned (why an approach was
    chosen, a constraint, a gotcha). Use `source_type: "memo"` for findings,
    `"human_input"` for things the user told you. Then `concept_link` it to the
    repo's anchor concept (see below).
-5. If you dispatched substrate goals this session: `goal_reasoning` on each
+6. If you dispatched substrate goals this session: `goal_reasoning` on each
    dispatch, then `provide_feedback { verdict, rationale }` — your verdict
    calibrates goal routing for the whole org.
 

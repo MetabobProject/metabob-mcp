@@ -35,15 +35,16 @@ bash scripts/git-hooks/install.sh   # install pre-commit hook
 | Tool | Tier | Key behaviour |
 |------|------|--------------|
 | `init_workspace` | Local + API | Parses workspace into CPG; submits relevance-ranked batch to `ide.metabob.com` |
-| `get_problems` | API | `GET /analysis` — problems ranked by severity |
+| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus a "Findings recorded by agents on this codebase" section recalled from concept-db (`code_finding` concepts, list-mode, filtered client-side to the current repo/files). Server-side LLM detection is deprecated as the primary source. |
+| `record_finding` | Local + Substrate | The write half of agent-side analysis: attribute an agent-noticed issue (files, summary, severity, category, optional lines/details) to code. Upserts a LocalStore seed (`agf_*` id — surfaces immediately via `get_problems`) and best-effort mints a `code_finding` concept into concept-db so other agents on this codebase recall it. concept-db unreachable = non-fatal, reported in output. |
 | `search_codebase` | Local + API | Keyword search over CPG nodes and analysis results |
 | `predict_cochanges` | **Local** | GCN embeddings + vector search — no API call; needs `init_workspace` |
 | `analyze_impact` | **Local** | BFS over local CPG; shows affected components by depth |
 | `annotate_component` | API | `POST /explain` or `POST /recommend` for a problem ID |
-| `mark_complete` | API | `POST /feedback/detection` — endorse (fixed) or discard (false positive) |
+| `mark_complete` | API / Local | `POST /feedback/detection` — endorse (fixed) or discard (false positive). For agent findings (`agf_*` ids): endorse marks the LocalStore seed stale, discard deletes it, and a `finding_verdict` concept is best-effort recorded to concept-db. |
 | `get_metrics` | API | Parallel fetch of `/metrics`, `/session/stats`, `/analysis` |
 | `assign_git_changes` | Local + API | Maps changed files → CPG components + co-change predictions |
-| `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions |
+| `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions + compact top-5 recall of other agents' recorded findings for this codebase |
 | `run_goal` | Substrate | Dispatch a goal **synchronously** via goal-host `/resolve` (impulse shape `goal_execution`); blocks ~290s. Short, one-shot goals. |
 | `run_goal_async` | Substrate | Dispatch a goal **asynchronously** via goal-host `POST /run-goal`; returns a `dispatchId` immediately. Long goals / fire-and-forget. |
 | `goal_status` | Substrate | Poll a `dispatchId` → the honest **`reached`** verdict (primary line), then `status`/executionId/template + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). Read `reached`, not `status` — `completed`≠reached, and a satisfier reach can be `status:"failed"` yet `reached:true`. |

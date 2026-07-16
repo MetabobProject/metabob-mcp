@@ -62,7 +62,7 @@ Analysis is asynchronous: after submission, the server may continue processing i
 
 ### get_problems
 
-Fetch code problems detected by the analysis server for this session, ranked by severity. If analysis is still running, the tool reports that state instead of blocking until completion.
+Fetch known problems for this codebase, ranked by severity: backend detections plus findings recorded by agents (`record_finding`) working on the same region. If analysis is still running, the tool reports that state instead of blocking until completion.
 
 **Input**
 
@@ -74,7 +74,28 @@ Fetch code problems detected by the analysis server for this session, ranked by 
 | `file_path` | string | — | Substring match on file path |
 | `include_discarded` | boolean | `false` | Include dismissed false positives |
 
-**Behaviour** — calls `GET /analysis`, client-side filters, sorts by severity then file path.
+**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) or falls back to backend detection (`GET /analysis` / vessel fan-out — deprecated as the primary source), then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: `GET {conceptDbUrl}/concepts/search?shape=code_finding&limit=50` (list mode, no `query=`), filtered client-side to concepts mentioning the current repo name or the requested file path. concept-db unreachable is non-fatal.
+
+---
+
+### record_finding
+
+The write half of agent-side analysis: LLM processing lives on the agent; the server attributes agent-noticed details to code and surfaces them to other agents on the same codebase.
+
+**Input**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `files` | string[] | **required** | Files the finding is attributed to (workspace-relative or absolute) |
+| `summary` | string | **required** | One-line description |
+| `details` | string | — | Longer explanation / suggested fix |
+| `severity` | `CRITICAL\|HIGH\|MEDIUM\|LOW\|INFO` | **required** | Severity |
+| `category` | string | **required** | Free-form slug (security, correctness, design-constraint, …) |
+| `line_start` | number | — | Start line |
+| `line_end` | number | — | End line |
+| `status` | string | `open` | Finding status |
+
+**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, content carrying repo name, workspace-relative files, line range and details — so other agents' sessions recall it org-wide. concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
 
 ---
 
@@ -156,7 +177,7 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 | `problem_id` | string | **required** | Problem ID from `get_problems` |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-Calls `POST /feedback/detection`.
+Calls `POST /feedback/detection`. For agent-recorded findings (`agf_*` ids from `record_finding`) the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes it, and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal).
 
 ---
 
@@ -189,7 +210,7 @@ Requires `init_workspace`.
 
 ### get_analysis_context
 
-Return the current analysis state: CPG index stats, open problems summary, and co-change predictions for recently changed files. Designed to feed an LLM deciding what to do next.
+Return the current analysis state: CPG index stats, open problems summary, co-change predictions for recently changed files, and a compact top-5 recall of findings recorded by agents on this codebase (concept-db `code_finding` concepts, non-fatal when unreachable). Designed to feed an LLM deciding what to do next.
 
 **Input**
 
