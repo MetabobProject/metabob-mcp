@@ -36,6 +36,7 @@ beforeEach(() => {
       results: [],
     })),
     postFeedback: mock(async () => ({})),
+    isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
 });
 
@@ -322,14 +323,18 @@ test('get_analysis_context: handler returns non-empty string', async () => {
 
 // ===== Tool registry =====
 
-test('TOOL_REGISTRY contains all 10 tools', async () => {
+test('TOOL_REGISTRY contains all 24 tools', async () => {
   const { TOOL_REGISTRY } = await import('../../src/tools/index');
   const names = Object.keys(TOOL_REGISTRY);
-  expect(names.length).toBe(10);
+  expect(names.length).toBe(24);
   const expected = [
     'init_workspace', 'get_problems', 'search_codebase', 'predict_cochanges',
     'analyze_impact', 'annotate_component', 'mark_complete', 'get_metrics',
     'assign_git_changes', 'get_analysis_context',
+    'concept_search', 'concept_neighbors', 'concept_usage_stats',
+    'concept_sequence', 'concept_link', 'concept_create',
+    'run_goal', 'run_goal_async', 'goal_status', 'goal_reasoning',
+    'provide_feedback', 'registry_query', 'execution_trace', 'resolve_impulse',
   ];
   for (const name of expected) {
     expect(names).toContain(name);

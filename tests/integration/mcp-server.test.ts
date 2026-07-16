@@ -92,10 +92,10 @@ test('MCP server responds to tools/list', async () => {
   expect(response.id).toBe(1);
   expect(response.result).toBeDefined();
   expect(response.result.tools).toBeArray();
-  expect(response.result.tools.length).toBe(10);
+  expect(response.result.tools.length).toBe(24);
 });
 
-test('tools/list returns all 10 current tool names', async () => {
+test('tools/list returns all core tool names', async () => {
   const response = await sendMCPRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
   const toolNames = (response.result?.tools || []).map((t: any) => t.name);
 
