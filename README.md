@@ -38,7 +38,7 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 | `METABOB_API_KEY` | — | API key — exchanged for a session token on startup |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
-| `ACTIVITY_API_URL` | `https://activity.metabob.com` | Activity API base URL; falls back to `metabob.endpoint` in `~/.metabob/config.json` |
+| `ACTIVITY_API_URL` | `https://ide.metabob.com` | Activity API base URL; falls back to `metabob.endpoint` in `~/.metabob/config.json` |
 | `DISCOVERY_ENDPOINT` | — | Discovery-vessel base URL for substrate routing; auto-derived from local `metabob.endpoint` when it points at `http://localhost:18080` |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
@@ -97,6 +97,32 @@ claude mcp add metabob -- metabob-mcp
 ```bash
 claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
 ```
+
+### Claude Code plugin (MCP server + skill)
+
+This repo doubles as a plugin marketplace. The plugin bundles the MCP server
+and the `metabob` sequencing skill:
+
+```bash
+claude plugin marketplace add MetabobProject/metabob-mcp
+claude plugin install metabob@metabob
+```
+
+The plugin ships no credentials. After installing, put your API key in
+`~/.metabob/config.json`:
+
+```json
+{
+  "metabob": {
+    "apiKey": "mb_your_api_key_here",
+    "endpoint": "https://ide.metabob.com"
+  }
+}
+```
+
+Alternatively, export `METABOB_API_KEY` in your shell profile — the plugin's
+MCP server inherits your environment. Without a key the server still starts,
+but API-tier tools fail on first call.
 
 ### Claude Desktop
 
