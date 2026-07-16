@@ -44,11 +44,26 @@ function normalizeUrl(urlString: string): string | undefined {
 
 function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   MetabobCLIConfig,
-  'discoveryEndpoint'
+  'discoveryEndpoint' | 'analysisApiUrl' | 'identityEndpoint' | 'conceptDbUrl'
 > {
-  return {
-    discoveryEndpoint: deriveLocalDiscoveryEndpoint(activityApiUrl),
-  };
+  // Local port-published substrate (localhost:18080 → discovery on :18100).
+  const localDiscovery = deriveLocalDiscoveryEndpoint(activityApiUrl);
+  if (localDiscovery) {
+    return { discoveryEndpoint: localDiscovery };
+  }
+
+  // Remote substrate behind a path-splitting reverse proxy: sibling services
+  // live under conventional path prefixes of the same base endpoint.
+  if (activityApiUrl && /^https?:\/\/[^/]+$/.test(activityApiUrl)) {
+    return {
+      discoveryEndpoint: `${activityApiUrl}/discovery`,
+      analysisApiUrl: `${activityApiUrl}/analysis`,
+      identityEndpoint: `${activityApiUrl}/identity`,
+      conceptDbUrl: `${activityApiUrl}/conceptdb`,
+    };
+  }
+
+  return {};
 }
 
 export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath()): MetabobCLIConfig | null {
@@ -77,9 +92,9 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
   const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '');
   const derived = deriveSubstrateDefaults(activityApiUrl);
   const discoveryEndpoint = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '') ?? derived.discoveryEndpoint;
-  const analysisApiUrl = normalizeUrl(result.data.metabob?.analysisApiUrl ?? '');
-  const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '');
-  const conceptDbUrl = normalizeUrl(result.data.metabob?.conceptDbUrl ?? '');
+  const analysisApiUrl = normalizeUrl(result.data.metabob?.analysisApiUrl ?? '') ?? derived.analysisApiUrl;
+  const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '') ?? derived.identityEndpoint;
+  const conceptDbUrl = normalizeUrl(result.data.metabob?.conceptDbUrl ?? '') ?? derived.conceptDbUrl;
   const goalHostVesselUrl = normalizeUrl(result.data.metabob?.goalHostVesselUrl ?? '');
 
   if (!apiKey && !activityApiUrl && !discoveryEndpoint && !analysisApiUrl && !identityEndpoint && !conceptDbUrl && !goalHostVesselUrl) {

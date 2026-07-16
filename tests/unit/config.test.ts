@@ -33,10 +33,10 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
     activityApiUrl: 'https://activity.metabob.com',
-    discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
-    identityEndpoint: undefined,
-    conceptDbUrl: undefined,
+    discoveryEndpoint: 'https://activity.metabob.com/discovery',
+    analysisApiUrl: 'https://activity.metabob.com/analysis',
+    identityEndpoint: 'https://activity.metabob.com/identity',
+    conceptDbUrl: 'https://activity.metabob.com/conceptdb',
     goalHostVesselUrl: undefined,
     sourcePath: path,
   });

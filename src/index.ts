@@ -44,14 +44,14 @@ const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_AP
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;
 
 /**
- * When METABOB_STATELESS=true (or ANALYSIS_API_URL still points at the legacy
- * ide.metabob.com host) we use the original per-call HTTP behavior unchanged.
- * Otherwise "sidecar mode" is active: tool reads are served from the local
- * SQLite cache and telemetry is batched to the analysis-api.
+ * When METABOB_STATELESS=true we use the original per-call HTTP behavior
+ * unchanged (legacy REST surface with POST /session exchange). Otherwise
+ * "sidecar mode" is active: tool reads are served from the local SQLite cache,
+ * telemetry is batched to the analysis-api, and the analysis endpoint is
+ * treated as an impulse-resolving vessel. No hostname is special-cased —
+ * all deployments (local substrate, org-split corp) speak the vessel protocol.
  */
-const SIDECAR_MODE =
-  process.env.METABOB_STATELESS !== 'true' &&
-  !ANALYSIS_API_URL.includes('ide.metabob.com');
+const SIDECAR_MODE = process.env.METABOB_STATELESS !== 'true';
 
 /** Stable session identifier — callers may inject SESSION_ID; otherwise a fresh UUID. */
 const SESSION_ID = process.env.SESSION_ID || crypto.randomUUID();
@@ -163,7 +163,7 @@ const vesselServer = new VesselServer({
 const server = new Server(
   {
     name: 'metabob-mcp',
-    version: '0.2.8',
+    version: '0.2.15',
   },
   {
     capabilities: {
