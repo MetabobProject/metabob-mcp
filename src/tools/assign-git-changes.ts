@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
+import { mineGitCochanges } from '../git-cochange.js';
 
 export const AssignGitChangesTool = {
   name: 'assign_git_changes',
@@ -174,6 +175,21 @@ export async function handle(
       }
     }
     text += '\n';
+  }
+
+  // Git-history co-change — the primary "did I miss a lockstep sibling?" signal.
+  if (input.include_cochange_predictions) {
+    const workspaceRoot = localIndex.workspacePath();
+    const gitPreds = workspaceRoot
+      ? await mineGitCochanges(workspaceRoot, input.changed_files, input.prediction_limit * 2)
+      : [];
+    if (gitPreds.length > 0) {
+      text += `Co-changes from git history (files that historically move with this diff):\n`;
+      for (const p of gitPreds) {
+        text += `  • ${p.filePath}  ${(p.confidence * 100).toFixed(0)}% (${p.cooccurrences} commit${p.cooccurrences === 1 ? '' : 's'})\n`;
+      }
+      text += '\n';
+    }
   }
 
   if (predictions.length > 0) {
