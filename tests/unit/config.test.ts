@@ -73,9 +73,9 @@ test('loadMetabobCLIConfig derives substrate sibling endpoints from local activi
     apiKey: 'mb_test_key',
     activityApiUrl: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:18100',
-    analysisApiUrl: undefined,
+    analysisApiUrl: 'http://localhost:18250',
     identityEndpoint: undefined,
-    conceptDbUrl: undefined,
+    conceptDbUrl: 'http://localhost:18260',
     goalHostVesselUrl: undefined,
     sourcePath: path,
   });

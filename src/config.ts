@@ -46,10 +46,24 @@ function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   MetabobCLIConfig,
   'discoveryEndpoint' | 'analysisApiUrl' | 'identityEndpoint' | 'conceptDbUrl'
 > {
-  // Local port-published substrate (localhost:18080 → discovery on :18100).
+  // Local port-published substrate: the vessels sit at fixed offsets from the
+  // activity port (18080 → discovery 18100, analysis 18250, concept-db 18260;
+  // same pattern for 8xxx and 28xxx prefixes).
   const localDiscovery = deriveLocalDiscoveryEndpoint(activityApiUrl);
   if (localDiscovery) {
-    return { discoveryEndpoint: localDiscovery };
+    const base = new URL(activityApiUrl!);
+    const activityPort = Number(base.port || 80);
+    const portAt = (offset: number) => {
+      const url = new URL(base);
+      url.port = String(activityPort - 80 + offset);
+      url.pathname = '';
+      return url.toString().replace(/\/$/, '');
+    };
+    return {
+      discoveryEndpoint: localDiscovery,
+      analysisApiUrl: portAt(250),
+      conceptDbUrl: portAt(260),
+    };
   }
 
   // Remote substrate behind a path-splitting reverse proxy: sibling services
