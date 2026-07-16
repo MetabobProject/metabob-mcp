@@ -40,7 +40,7 @@ const MCP_VERSION = '0.2.11';
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
-const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://activity.metabob.com';
+const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;
 
 /**
@@ -64,8 +64,10 @@ const METABOB_API_KEY = process.env.METABOB_API_KEY;
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 
-// Identity (tenant resolution only — discovery registration removed)
-const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || (DISCOVERY_ENDPOINT ? undefined : 'https://identity.metabob.com');
+// Identity (tenant resolution only — discovery registration removed).
+// Defaults to the /identity path of the single public endpoint; the
+// identity.metabob.com vhost is not part of the deployment's routing.
+const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || (DISCOVERY_ENDPOINT ? undefined : 'https://ide.metabob.com/identity');
 
 /**
  * Vessel mode: ANALYSIS_API_URL points at a discovery-style impulse resolver

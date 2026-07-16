@@ -114,7 +114,7 @@ export class Telemetry {
   private flushingBatch = false;
 
   constructor(opts: TelemetryOptions) {
-    this.endpoint = opts.endpoint ?? process.env.USER_VESSEL_URL ?? 'https://user.metabob.com';
+    this.endpoint = opts.endpoint ?? process.env.USER_VESSEL_URL ?? 'https://ide.metabob.com';
     this.analysisApiUrl =
       opts.analysisApiUrl ??
       process.env.ANALYSIS_API_URL ??

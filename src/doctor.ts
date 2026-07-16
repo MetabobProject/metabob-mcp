@@ -207,9 +207,9 @@ export interface RunDoctorOptions {
 // Constants
 // ---------------------------------------------------------------------------
 
+// Everything routes through the single public endpoint — probing the
+// specialized vhosts would diagnose hosts the client no longer talks to.
 const DEFAULT_METABOB_HOSTS = [
-  'activity.metabob.com',
-  'identity.metabob.com',
   'ide.metabob.com',
 ];
 
@@ -398,7 +398,7 @@ function inspectNodeExtraCaCerts(): ProxySnapshot['nodeExtraCaCerts'] {
   }
 }
 
-function snapshotProxy(metabobHost = 'activity.metabob.com'): ProxySnapshot {
+function snapshotProxy(metabobHost = 'ide.metabob.com'): ProxySnapshot {
   const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? null;
   const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? null;
   const noProxy = process.env.NO_PROXY ?? process.env.no_proxy ?? null;
@@ -1093,7 +1093,7 @@ export function synthesizeDiagnosis(input: {
       severity: 'error',
       code: 'dns-fail',
       message: 'DNS resolution failed for all Metabob hosts.',
-      verify: 'nslookup activity.metabob.com',
+      verify: 'nslookup ide.metabob.com',
       action: 'Check your DNS resolver and confirm that *.metabob.com records are reachable.',
     });
   } else if (dnsFailures.length > 0) {
@@ -1128,7 +1128,7 @@ export function synthesizeDiagnosis(input: {
         severity: 'error',
         code: 'proxy-unreachable',
         message: `Proxy ${proxyUrl} is configured but no Metabob host is reachable through it.`,
-        verify: `curl -x ${proxyUrl} -I https://activity.metabob.com/`,
+        verify: `curl -x ${proxyUrl} -I https://ide.metabob.com/`,
         action: 'Ask IT to confirm that *.metabob.com is on the proxy allowlist and that the proxy itself is reachable.',
       });
     } else {
@@ -1136,7 +1136,7 @@ export function synthesizeDiagnosis(input: {
         severity: 'error',
         code: 'egress-blocked',
         message: 'Direct egress to Metabob hosts is blocked, and no HTTPS_PROXY is configured.',
-        verify: 'curl -I https://activity.metabob.com/',
+        verify: 'curl -I https://ide.metabob.com/',
         action: 'On a corporate network: set HTTPS_PROXY to your proxy URL. Otherwise: check VPN / firewall rules.',
       });
     }
@@ -1646,9 +1646,9 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
   );
   const httpsMap: Record<string, HttpsProbeResult> = Object.fromEntries(httpsEntries);
 
-  // WebSocket probe — just activity.metabob.com.
+  // WebSocket probe — just ide.metabob.com.
   const wsTargets = hosts
-    .filter((h) => h === 'activity.metabob.com')
+    .filter((h) => h === 'ide.metabob.com')
     .map((h) => `wss://${h}/ws`);
   const wsEntries: Array<[string, WebSocketProbeResult]> = await Promise.all(
     wsTargets.map(async (url): Promise<[string, WebSocketProbeResult]> => [

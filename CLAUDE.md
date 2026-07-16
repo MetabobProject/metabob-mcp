@@ -5,7 +5,7 @@ MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities 
 - **MCP (stdio)** — Claude Code, Cursor, Continue, and other MCP clients
 - **HTTP resolver (port 8080)** — activity system invokes tools via impulse pointers
 
-Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metabob.com` on startup. The same key also resolves a tenant JWT from `identity.metabob.com` (used for the HTTP impulse resolver).
+Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metabob.com` on startup. The same key also resolves a tenant JWT from the identity vessel at `ide.metabob.com/identity` (used for the HTTP impulse resolver) — identity resolution routes through the single public endpoint, never a specialized host.
 
 ## Quick reference
 
@@ -92,14 +92,14 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `METABOB_API_KEY` | — | API key — session token exchange with `ide.metabob.com` + identity-vessel |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
 | `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL (default) |
-| `IDENTITY_ENDPOINT` | `https://identity.metabob.com` | Identity vessel endpoint (tenant resolution) |
+| `IDENTITY_ENDPOINT` | `https://ide.metabob.com/identity` | Identity vessel endpoint (tenant resolution) — derives from the single public endpoint |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `USE_CONNECTION_SLOTS` | `false` | Enable activity-API connection slot management |
-| `USER_VESSEL_URL` | `https://user.metabob.com` | user-vessel endpoint (telemetry target) |
+| `USER_VESSEL_URL` | `https://ide.metabob.com` | user-vessel endpoint (legacy telemetry target) |
 | `METABOB_TELEMETRY` | _(unset)_ | Set to `off` to disable per-tool-call usage telemetry |
 | `MB_OPERATOR_ID` | `claude-code-operator` | Operator identity threaded onto goal dispatch (`run_goal` / `run_goal_async`) and folded into `provide_feedback` label notes |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; overrides discovery derivation for `registry_query` / `resolve_impulse` (local default `http://localhost:18100`) |
@@ -135,7 +135,7 @@ Agent (Claude Code / Cursor / custom)
 @metabob/mcp  ──────────────────────────────────────────────────────┐
    │ HTTP (session token)          │ in-process                      │ identity-vessel JWT
    ▼                               ▼                                 ▼
-ide.metabob.com              cpg-inference-ts              identity.metabob.com
+ide.metabob.com              cpg-inference-ts              ide.metabob.com/identity
 (file submit, analysis,      (Tree-sitter, GCN,            (tenant resolution,
  explain, recommend,          vector search)                key-issuance heartbeat)
  feedback)

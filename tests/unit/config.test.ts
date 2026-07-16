@@ -42,20 +42,22 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
   });
 });
 
-test('loadMetabobCLIConfig falls back to instance api key', () => {
+test('loadMetabobCLIConfig falls back to instance api key and defaults the endpoint', () => {
   const path = writeConfigFile(JSON.stringify({
     instance: {
       apiKey: 'mb_instance_key',
     },
   }));
 
+  // An apiKey-only config routes everything through the single public
+  // endpoint — identity included, never a specialized host.
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_instance_key',
-    activityApiUrl: undefined,
-    discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
-    identityEndpoint: undefined,
-    conceptDbUrl: undefined,
+    activityApiUrl: 'https://ide.metabob.com',
+    discoveryEndpoint: 'https://ide.metabob.com/discovery',
+    analysisApiUrl: 'https://ide.metabob.com/analysis',
+    identityEndpoint: 'https://ide.metabob.com/identity',
+    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
     goalHostVesselUrl: undefined,
     sourcePath: path,
   });

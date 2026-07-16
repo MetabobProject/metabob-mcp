@@ -7,19 +7,21 @@
  *                           via POST /v2/auth/apikey → JWT. That flow is
  *                           unchanged; this service does NOT touch it.
  *
- *   identity.metabob.com path — new vessel system; this service calls
+ *   identity path         — new vessel system; this service calls
  *                           POST /v1/auth/resolve with the impulse form to
  *                           resolve orgId/userId and capture an inline JWT
  *                           for use against discovery + activity vessels.
  *
  * Env vars:
  *   METABOB_API_KEY   — key for ide.metabob.com (analysis API)
- *   IDENTITY_API_KEY  — key for identity.metabob.com (vessel system);
+ *   IDENTITY_API_KEY  — key for the identity vessel;
  *                       falls back to METABOB_API_KEY when not set
- *   IDENTITY_ENDPOINT — defaults to https://identity.metabob.com
+ *   IDENTITY_ENDPOINT — defaults to https://ide.metabob.com/identity
+ *                       (identity resolution routes through the single
+ *                       public endpoint, never a specialized host)
  */
 
-const DEFAULT_IDENTITY_ENDPOINT = 'https://identity.metabob.com';
+const DEFAULT_IDENTITY_ENDPOINT = 'https://ide.metabob.com/identity';
 const RESOLVE_TIMEOUT_MS = 5_000;
 const BEARER_REFRESH_MARGIN_MS = 60_000;
 

@@ -15,7 +15,7 @@ const MAX_FAILURES = 3;
 const DEFAULT_TTL_S = 300;
 
 export interface VesselHeartbeatConfig {
-  /** discovery-vessel / activity-api endpoint (e.g. https://activity.metabob.com) */
+  /** discovery-vessel / activity-api endpoint (e.g. https://ide.metabob.com) */
   activityEndpoint: string;
   vesselId: string;
   vesselName: string;

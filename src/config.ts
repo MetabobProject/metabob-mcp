@@ -30,6 +30,9 @@ export interface MetabobCLIConfig {
   sourcePath: string;
 }
 
+/** The single public endpoint. Every sibling service derives from it. */
+export const DEFAULT_ENDPOINT = 'https://ide.metabob.com';
+
 export function getDefaultConfigPath(): string {
   return join(homedir(), '.metabob', 'config.json');
 }
@@ -103,7 +106,12 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
   }
 
   const apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
-  const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '');
+  // An apiKey-only config is valid: the endpoint defaults to the public
+  // deployment and every sibling service (identity included) derives from it.
+  // Nothing defaults to a specialized host — all traffic routes through the
+  // one endpoint.
+  const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '')
+    ?? (apiKey ? DEFAULT_ENDPOINT : undefined);
   const derived = deriveSubstrateDefaults(activityApiUrl);
   const discoveryEndpoint = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '') ?? derived.discoveryEndpoint;
   const analysisApiUrl = normalizeUrl(result.data.metabob?.analysisApiUrl ?? '') ?? derived.analysisApiUrl;
