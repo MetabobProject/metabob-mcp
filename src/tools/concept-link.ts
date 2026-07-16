@@ -103,7 +103,7 @@ export async function handle(
   const conceptDbUrl = await resolveServiceEndpointByShape({
     explicitUrl: process.env.CONCEPT_DB_URL,
     discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'concept',
+    shape: 'conceptGraph',
     apiKey,
   });
   if (!conceptDbUrl) {
