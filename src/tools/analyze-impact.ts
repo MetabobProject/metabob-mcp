@@ -203,6 +203,49 @@ export async function handle(
     });
   }
 
+  // ── File-level import graph — CALLS edges miss module dependencies, so a
+  // schema/config file with no callers still has importers that break when it
+  // changes. BFS the import graph alongside the component graph.
+  const importGraph = localIndex.fileImportGraph();
+  const reverseImports = new Map<string, Set<string>>();
+  for (const [from, targets] of importGraph) {
+    for (const to of targets) {
+      if (!reverseImports.has(to)) reverseImports.set(to, new Set());
+      reverseImports.get(to)!.add(from);
+    }
+  }
+  const changedAbs = input.changed_files.map(f => localIndex.resolvePath(f));
+  const seenFiles = new Map<string, number>();
+  let frontier = changedAbs.filter(f => importGraph.has(f));
+  for (let depth = 1; depth <= input.max_depth && frontier.length > 0; depth++) {
+    const next: string[] = [];
+    for (const file of frontier) {
+      const neighbors = [
+        ...(input.direction !== 'forward' ? reverseImports.get(file) ?? [] : []),
+        ...(input.direction !== 'backward' ? importGraph.get(file) ?? [] : []),
+      ];
+      for (const n of neighbors) {
+        if (changedAbs.includes(n) || seenFiles.has(n)) continue;
+        seenFiles.set(n, depth);
+        next.push(n);
+      }
+    }
+    frontier = next;
+  }
+  const coveredFiles = new Set(allImpacted.map(c => c.file_path));
+  for (const [file, depth] of seenFiles) {
+    if (coveredFiles.has(file)) continue;
+    if (!input.include_tests && isTestFile(file)) continue;
+    allImpacted.push({
+      component_id: `${file}::file`,
+      component_name: file.split('/').pop() ?? file,
+      file_path: file,
+      start_line: 0,
+      depth,
+      risk: riskLevel(depth, seenFiles.size),
+    });
+  }
+
   allImpacted.sort((a, b) => a.depth - b.depth || b.risk.localeCompare(a.risk));
 
   const direct = allImpacted.filter(c => c.depth === 1);

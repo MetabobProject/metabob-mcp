@@ -156,9 +156,12 @@ export async function handle(
     return `No indexable files found under ${workspacePath}.\nCheck the path and extensions: ${[...extensions].join(', ')}.`;
   }
 
-  localIndex.setWorkspace(workspacePath, allPaths.size);
+  await localIndex.setWorkspace(workspacePath, allPaths.size);
 
-  const recentlyChanged = input.recently_changed_files ?? [];
+  // Resolve against the workspace root — a relative path left as-is would be
+  // read against the SERVER's cwd and index a different repo's file into this
+  // workspace's graph.
+  const recentlyChanged = (input.recently_changed_files ?? []).map(f => resolve(workspacePath, f));
 
   // ── Ensure recently-changed files are parsed so co-change ranking works ──────
   const cochangePaths = new Set<string>();
@@ -170,6 +173,7 @@ export async function handle(
           try {
             await localIndex.predictor.addFile(f, content);
           } catch { /* skip unparseable */ }
+          localIndex.recordImports(f, content);
           localIndex.markParsed(f);
         }
       }
@@ -209,6 +213,7 @@ export async function handle(
           const r = await localIndex.predictor.addFile(path, content);
           newComponents += r.componentsAdded;
         } catch { /* skip unparseable */ }
+        localIndex.recordImports(path, content);
         localIndex.markParsed(path);
       }
     } else {
