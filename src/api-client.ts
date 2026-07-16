@@ -705,7 +705,7 @@ export class AnalysisAPIClient {
     }
     const form = new FormData();
     for (const f of files) {
-      const filename = f.path.split('/').pop() ?? 'file.txt';
+      const filename = f.path.split(/[\\/]/).pop() ?? 'file.txt';
       form.append('files', new Blob([f.content], { type: 'text/plain' }), filename);
     }
 

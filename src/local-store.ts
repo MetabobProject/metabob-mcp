@@ -17,7 +17,7 @@
 import type { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -82,8 +82,7 @@ export class LocalStore {
   /** Open (or create) the database and apply the schema. Idempotent. */
   init(): void {
     // Ensure ~/.metabob/ exists
-    const dir = this.dbPath.substring(0, this.dbPath.lastIndexOf('/'));
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dirname(this.dbPath), { recursive: true });
 
     // Abrupt process kills leave a corrupted WAL state: sidecar.db-wal is
     // zero bytes but sidecar.db-shm is non-empty. Bun's SQLite cannot open

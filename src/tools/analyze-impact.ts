@@ -238,7 +238,7 @@ export async function handle(
     if (!input.include_tests && isTestFile(file)) continue;
     allImpacted.push({
       component_id: `${file}::file`,
-      component_name: file.split('/').pop() ?? file,
+      component_name: file.split(/[\\/]/).pop() ?? file,
       file_path: file,
       start_line: 0,
       depth,
