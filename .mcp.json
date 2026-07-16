@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "metabob": {
+      "command": "npx",
+      "args": ["-y", "@metabob/mcp"]
+    }
+  }
+}

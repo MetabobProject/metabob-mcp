@@ -1,0 +1,16 @@
+{
+  "name": "metabob",
+  "owner": {
+    "name": "Metabob",
+    "url": "https://github.com/MetabobProject"
+  },
+  "plugins": [
+    {
+      "name": "metabob",
+      "source": "./",
+      "description": "Metabob code intelligence for AI agents: Code Property Graph of your repo, blast-radius impact analysis, git-history co-change prediction, agent-recorded findings shared across your org, and durable design memory — plus the working protocol (skill) that sequences it.",
+      "category": "development",
+      "keywords": ["code-intelligence", "cpg", "impact-analysis", "co-change", "mcp", "code-review"]
+    }
+  ]
+}

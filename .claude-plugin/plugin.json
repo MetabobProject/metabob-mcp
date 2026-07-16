@@ -1,0 +1,19 @@
+{
+  "name": "metabob",
+  "version": "0.2.15",
+  "description": "Metabob code intelligence: CPG structure, impact analysis, co-change prediction, cross-agent findings, and org-wide design memory. Bundles the metabob MCP server and the sequencing skill.",
+  "author": {
+    "name": "Metabob",
+    "url": "https://github.com/MetabobProject"
+  },
+  "homepage": "https://github.com/MetabobProject/metabob-mcp",
+  "repository": "https://github.com/MetabobProject/metabob-mcp",
+  "license": "PROPRIETARY",
+  "keywords": [
+    "code-intelligence",
+    "cpg",
+    "impact-analysis",
+    "co-change",
+    "mcp"
+  ]
+}
