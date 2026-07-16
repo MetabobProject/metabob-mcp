@@ -20,8 +20,12 @@ sync and triage calls hit the org's analysis service.
 1. `concept_search { query: "<repo name> <task area>" }` — the org's design memory.
    Another agent (or a past you) may have recorded exactly the constraint or
    gotcha you're about to rediscover. Recall is ~100 tokens; rediscovery is
-   thousands.
-2. `get_analysis_context` — structure snapshot, open problems, co-change signals.
+   thousands. **Note the repo's anchor concept id** (`shape: "repo_anchor"`) if
+   one comes back — Phase 4 links to it. If semantic search errors or times
+   out, fall back to filter mode (`shape` / `source_type`, no `query`) rather
+   than retrying the query.
+2. `get_analysis_context` — structure snapshot, open problems, co-change
+   signals, and findings other agents recorded on this codebase.
 
 Only after both do you start reading files.
 
@@ -98,8 +102,11 @@ Before committing / ending the session, in order:
    are shared org-wide. Not optional bookkeeping.
 5. `concept_create` for each non-obvious thing you learned (why an approach was
    chosen, a constraint, a gotcha). Use `source_type: "memo"` for findings,
-   `"human_input"` for things the user told you. Then `concept_link` it to the
-   repo's anchor concept (see below).
+   `"human_input"` for things the user told you. **Then `concept_link` it to
+   the repo's anchor concept — not optional.** An unlinked concept is only
+   findable by semantic search; a linked one is reachable from the anchor by
+   any future session. You noted the anchor id in Phase 0; if none exists,
+   create it first (see below), then link.
 6. If you dispatched substrate goals this session: `goal_reasoning` on each
    dispatch, then `provide_feedback { verdict, rationale }` — your verdict
    calibrates goal routing for the whole org.
