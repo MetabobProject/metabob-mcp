@@ -114,11 +114,13 @@ The plugin ships no credentials. After installing, put your API key in
 ```json
 {
   "metabob": {
-    "apiKey": "mb_your_api_key_here",
-    "endpoint": "https://ide.metabob.com"
+    "apiKey": "mb_your_api_key_here"
   }
 }
 ```
+
+The endpoint defaults to `https://ide.metabob.com`; set `metabob.endpoint`
+only for self-hosted or local substrate deployments.
 
 Alternatively, export `METABOB_API_KEY` in your shell profile — the plugin's
 MCP server inherits your environment. Without a key the server still starts,
