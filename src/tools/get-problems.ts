@@ -60,17 +60,15 @@ export async function handle(
 ): Promise<string> {
   const startTime = Date.now();
 
-  // ── Sidecar mode: serve from local cache ────────────────────────────────────
-  if (localStore && input.file_path) {
-    const seeds = localStore.getCachedSeeds(input.file_path);
+  // ── Sidecar mode: serve from local cache when it has entries. An empty
+  // cache enqueues the path for background analysis and FALLS THROUGH to the
+  // live fetch below — the cache accelerates, it never gates.
+  const seeds = localStore && input.file_path ? localStore.getCachedSeeds(input.file_path) : [];
+  if (localStore && input.file_path && seeds.length === 0) {
+    localStore.enqueue(input.file_path, 0, 'default');
+  }
+  if (localStore && input.file_path && seeds.length > 0) {
     const freshness = localStore.getFreshness(input.file_path);
-
-    if (seeds.length === 0) {
-      // Nothing cached — enqueue at P0 and tell the caller to try again.
-      localStore.enqueue(input.file_path, 0, 'default');
-      const warmMsg = `No cached problems for ${input.file_path}. Analysis queued — try again in a few seconds.`;
-      return warmMsg + `\n\n[cache: warming]`;
-    }
 
     // Apply filters
     let filtered = seeds;

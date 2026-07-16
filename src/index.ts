@@ -535,7 +535,8 @@ async function main() {
       scheduler = new Scheduler(
         localStore,
         workspaceId,
-        ANALYSIS_API_URL,
+        // /v2/mcp/analysis/run lives on the activity-api, not the analysis vessel.
+        ACTIVITY_API_URL,
         METABOB_API_KEY,
         telemetry,
         workspaceRoot,

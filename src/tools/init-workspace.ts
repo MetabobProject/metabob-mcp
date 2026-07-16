@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, extname, dirname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import type { LocalStore } from '../local-store.js';
 
 export const InitWorkspaceTool = {
   name: 'init_workspace',
@@ -137,6 +138,7 @@ export async function handle(
   input: InitWorkspaceInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
   const workspacePath = resolve(input.workspace_path ?? process.env.WORKSPACE_PATH ?? process.cwd());
@@ -240,6 +242,33 @@ export async function handle(
           const result = await apiClient.submitFiles(fileList, sessionId);
           localIndex.markSubmitted(batch);
           submitted = batch;
+
+          // Persist detection seeds returned synchronously at submit time —
+          // this is what fills the sidecar cache that get_problems and
+          // predict_cochanges read (the vessel cannot read our filesystem).
+          if (localStore && result.results) {
+            const now = Date.now();
+            for (const r of result.results) {
+              try {
+                localStore.upsertSeed({
+                  id: r.id,
+                  workspace_id: workspacePath,
+                  file_path: r.path,
+                  line_start: r.startLine,
+                  line_end: r.endLine,
+                  category: r.category,
+                  severity: r.severity,
+                  brief: r.summary,
+                  confidence: r.confidence ?? 1,
+                  refs_json: '[]',
+                  produced_at: now,
+                  stale: false,
+                });
+              } catch {
+                // Non-fatal: cache miss just means a live fetch later.
+              }
+            }
+          }
 
           if (result.status === 'complete') {
             syncStatus = 'complete';

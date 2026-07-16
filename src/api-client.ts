@@ -70,6 +70,8 @@ export interface AnalysisResult {
   severity: string;
   discarded: boolean;
   endorsed: boolean;
+  /** Detection confidence 0–1, when the backend provides it (vessel mode). */
+  confidence?: number;
 }
 
 export interface AnalysisResponse {
@@ -670,8 +672,10 @@ export class AnalysisAPIClient {
             language,
             priority: 1,
           });
+          // /v2/mcp/* is the activity-api's sidecar surface, not the
+          // analysis vessel's — baseURL only as a last resort.
           const res = await fetchWithBearerFallback({
-            url: `${this.baseURL}/v2/mcp/analysis/run`,
+            url: `${this.activityApiUrl ?? this.baseURL}/v2/mcp/analysis/run`,
             apiKey: this.apiKey ?? '',
             init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal },
           });
@@ -680,7 +684,7 @@ export class AnalysisAPIClient {
             console.error(`[api-client] submitFiles vessel: ${f.path} → ${res.status}`);
             continue;
           }
-          const data = await res.json() as { seeds?: Array<{ id: string; category: string; severity: string; brief: string; line_start: number; line_end: number }> };
+          const data = await res.json() as { seeds?: Array<{ id: string; category: string; severity: string; brief: string; line_start: number; line_end: number; confidence?: number; refs?: string[] }> };
           for (const seed of data.seeds ?? []) {
             allResults.push({
               path: f.path, id: seed.id, category: seed.category,
@@ -688,6 +692,7 @@ export class AnalysisAPIClient {
               summary: seed.brief, description: seed.brief,
               startLine: seed.line_start, endLine: seed.line_end,
               discarded: false, endorsed: false,
+              confidence: seed.confidence,
             });
           }
         }
