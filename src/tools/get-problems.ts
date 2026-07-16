@@ -170,6 +170,13 @@ async function handleCore(
       return `analysis-vessel error: ${payload.error}`;
     }
     let problems = payload.problems ?? [];
+    // read_error means the vessel cannot see this filesystem (arbitrary
+    // codebase outside its mounts) — that is an availability fact, not a
+    // code problem. Drop them rather than reporting 19 ENOENTs as HIGHs.
+    const readErrors = problems.filter(p => String(p.category ?? '') === 'read_error').length;
+    if (readErrors > 0) {
+      problems = problems.filter(p => String(p.category ?? '') !== 'read_error');
+    }
     if (input.severity?.length) {
       const sevSet = new Set(input.severity.map(s => s.toLowerCase()));
       problems = problems.filter(p => sevSet.has(String(p.severity ?? '').toLowerCase()));
@@ -189,7 +196,10 @@ async function handleCore(
     const duration = Date.now() - startTime;
 
     if (shown.length === 0) {
-      return `No problems found across ${filePaths.length} indexed file${filePaths.length === 1 ? '' : 's'} (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\nQuery completed in ${duration}ms`;
+      const vesselNote = readErrors > 0
+        ? `\n(Backend detection could not read ${readErrors} file${readErrors === 1 ? '' : 's'} — this codebase is outside the analysis vessel's filesystem; agent-recorded findings are the primary source here.)`
+        : '';
+      return `No backend detections across ${filePaths.length} indexed file${filePaths.length === 1 ? '' : 's'} (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).${vesselNote}\n\nQuery completed in ${duration}ms`;
     }
 
     let text = `${shown.length} problem${shown.length === 1 ? '' : 's'}`;
