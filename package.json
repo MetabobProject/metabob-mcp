@@ -1,9 +1,10 @@
 {
   "name": "@metabob/mcp",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
+    "mcp": "dist/cli.js",
     "metabob-mcp": "dist/cli.js",
     "metabob-mcp-doctor": "dist/doctor-cli.js"
   },
