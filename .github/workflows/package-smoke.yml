@@ -83,6 +83,17 @@ jobs:
           metabob-mcp --version
           metabob-mcp --help > /dev/null
 
+      - name: Bin-alias smoke — bare `npx @metabob/mcp` resolves
+        shell: bash
+        run: |
+          # The docs, plugin manifest, and .mcp.json all invoke the package as
+          # `npx @metabob/mcp`, which only resolves when a bin named 'mcp' exists
+          # (npm picks the bin matching the package's last path segment). Dropping
+          # that alias silently breaks every documented invocation with "could not
+          # determine executable to run" — guard against it here.
+          command -v mcp
+          mcp --version
+
       - name: Node fast-fail smoke — clear Bun message, not a raw ESM error
         shell: bash
         run: |
