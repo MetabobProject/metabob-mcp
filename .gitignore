@@ -38,3 +38,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 metabob-mcp-doctor-*.json
 
 .metabob-test/
+
+# machine-local MCP config (gitignored)
+.mcp.json
+.metabob/config.json
