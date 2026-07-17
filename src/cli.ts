@@ -58,7 +58,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig } from './config.js';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -329,14 +329,20 @@ async function main() {
     process.env.METABOB_ENDPOINT = options.endpoint;
   }
 
-  // Precedence, lowest to highest: ~/.metabob/config.json  <  env vars  <
-  // explicit specific overrides (ANALYSIS_API_URL, --api-url). applyConfigDefaults
-  // only fills variables that are currently unset, so applying the env-derived
-  // config (METABOB_ENDPOINT gateway) BEFORE the file config lets its derived
-  // siblings win over the file. The canonical minimal setup is METABOB_API_KEY +
-  // METABOB_ENDPOINT — the endpoint is the gateway everything else derives from.
+  // Precedence, lowest to highest: built-in default  <  ~/.metabob/config.json
+  // <  env vars  <  explicit specific overrides (ANALYSIS_API_URL, --api-url).
+  // applyConfigDefaults only fills variables that are currently unset, so:
+  //   1. explicit METABOB_ENDPOINT derivation first — env beats the file;
+  //   2. the config file next;
+  //   3. the api-key-alone default (public gateway) LAST — it must never beat
+  //      an endpoint the file supplied (an MCP client injecting the api key
+  //      via env while config.json points at a local substrate would otherwise
+  //      be silently redirected to ide.metabob.com).
+  // The canonical minimal setup remains METABOB_API_KEY alone; METABOB_ENDPOINT
+  // is the gateway everything else derives from when set.
   applyConfigDefaults(process.env, loadMetabobEnvConfig());
   applyConfigDefaults(process.env, loadMetabobCLIConfig());
+  applyConfigDefaults(process.env, loadMetabobDefaultConfig());
 
   // Remaining CLI options are raw overrides that beat any derived/file value.
   // --api-url / ANALYSIS_API_URL is the advanced raw analysis-base override —

@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig } from '../../src/config';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -125,8 +125,9 @@ test('loadMetabobEnvConfig treats METABOB_ENDPOINT as the gateway and derives si
   });
 });
 
-test('loadMetabobEnvConfig defaults the endpoint to ide.metabob.com — api key alone is valid', () => {
-  const config = loadMetabobEnvConfig({ METABOB_API_KEY: 'mb_env_key' });
+test('loadMetabobDefaultConfig defaults the endpoint to ide.metabob.com — api key alone is valid', () => {
+  expect(loadMetabobEnvConfig({ METABOB_API_KEY: 'mb_env_key' })).toBeNull();
+  const config = loadMetabobDefaultConfig({ METABOB_API_KEY: 'mb_env_key' });
 
   expect(config).toEqual({
     apiKey: 'mb_env_key',
@@ -145,8 +146,9 @@ test('loadMetabobEnvConfig leaves the legacy ANALYSIS_API_URL-only style untouch
     METABOB_API_KEY: 'mb_env_key',
     ANALYSIS_API_URL: 'https://custom.example',
   };
-  // No METABOB_ENDPOINT → loader is inert → applyConfigDefaults changes nothing.
+  // No METABOB_ENDPOINT → both loaders stay inert → nothing changes.
   applyConfigDefaults(env, loadMetabobEnvConfig(env));
+  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
 
   expect(env.ANALYSIS_API_URL).toBe('https://custom.example');
   expect(env.ACTIVITY_API_URL).toBeUndefined();
@@ -243,4 +245,40 @@ test('applyConfigDefaults fills only missing environment values', () => {
   expect(env.IDENTITY_ENDPOINT).toBe('http://localhost:18101');
   expect(env.CONCEPT_DB_URL).toBe('http://localhost:18260');
   expect(env.GOAL_HOST_VESSEL_URL).toBe('http://localhost:18210');
+});
+
+test('file-supplied endpoint beats the api-key-alone default (env apiKey via MCP client)', () => {
+  // Regression: MCP clients inject METABOB_API_KEY via env while
+  // ~/.metabob/config.json points at a local substrate. The defaulted public
+  // gateway must NOT preempt the file endpoint.
+  const path = writeConfigFile(JSON.stringify({
+    metabob: { apiKey: 'mb_file_key', endpoint: 'http://localhost:18080' },
+  }));
+
+  const env: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_env_key' };
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));      // cli.ts order
+  applyConfigDefaults(env, loadMetabobCLIConfig(path));
+  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
+
+  expect(env.ACTIVITY_API_URL).toBe('http://localhost:18080');
+  expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
+  expect(env.ANALYSIS_API_URL).toBe('http://localhost:18250');
+  expect(env.METABOB_API_KEY).toBe('mb_env_key'); // env key still wins
+});
+
+test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
+  const path = writeConfigFile(JSON.stringify({
+    metabob: { apiKey: 'mb_file_key', endpoint: 'http://localhost:18080' },
+  }));
+
+  const env: NodeJS.ProcessEnv = {
+    METABOB_API_KEY: 'mb_env_key',
+    METABOB_ENDPOINT: 'https://ide.metabob.com',
+  };
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));
+  applyConfigDefaults(env, loadMetabobCLIConfig(path));
+  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
+
+  expect(env.ACTIVITY_API_URL).toBe('https://ide.metabob.com');
+  expect(env.DISCOVERY_ENDPOINT).toBe('https://ide.metabob.com/discovery');
 });
