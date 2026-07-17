@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
+import type { LocalStore } from '../local-store.js';
 
 export const AnnotateComponentTool = {
   name: 'annotate_component',
   description:
-    'Add structured notes for a detected problem. Use "explain" for why-focused notes, or "recommend" for how-to-fix notes.',
+    'Add structured notes for a detected problem. Use "explain" for why-focused notes, or "recommend" for how-to-fix notes. Works for agent-recorded findings too (agf_* ids from record_finding).',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -75,8 +76,69 @@ export async function handle(
   input: AnnotateComponentInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
+  localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
+
+  // ── Agent-recorded findings (record_finding → agf_* ids) ───────────────────
+  // These live in the LocalStore, not the analysis API — mirror mark_complete's
+  // branch so the full finding lifecycle (record → annotate → mark_complete)
+  // works on agf ids.
+  if (input.problem_id.startsWith('agf_')) {
+    if (!localStore) {
+      return `Finding "${input.problem_id}" cannot be annotated — local store unavailable in this session.`;
+    }
+    const seed = localStore.getSeedById(input.problem_id);
+    if (!seed) {
+      return `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
+    }
+
+    let refs: string[] = [];
+    try {
+      refs = JSON.parse(seed.refs_json) as string[];
+    } catch {
+      // tolerate malformed refs — annotation still renders from the seed core
+    }
+
+    // Adapt the seed into the shape the note builders consume.
+    const asProblem: AnalysisResult = {
+      id: seed.id,
+      path: seed.file_path,
+      startLine: seed.line_start,
+      endLine: seed.line_end,
+      category: seed.category,
+      severity: seed.severity,
+      summary: seed.brief,
+      description: refs.length ? `${seed.brief} (refs: ${refs.join(', ')})` : seed.brief,
+    } as AnalysisResult;
+
+    const duration = Date.now() - startTime;
+    let text = `Notes for ${input.problem_id} (agent-recorded finding)\n${'═'.repeat(40)}\n\n`;
+    text += `Finding\n${'─'.repeat(40)}\n`;
+    text += `Severity: ${normaliseSeverity(seed.severity)}\n`;
+    text += `Category: ${seed.category}\n`;
+    text += `File: ${seed.file_path}:${seed.line_start}-${seed.line_end}\n`;
+    text += `Summary: ${seed.brief}\n`;
+    if (refs.length) {
+      text += `Refs: ${refs.join(', ')}\n`;
+    }
+    text += `Status: ${seed.stale ? 'resolved (stale)' : 'open'}\n\n`;
+
+    if (input.mode === 'explain') {
+      text += `Why this matters\n${'─'.repeat(40)}\n`;
+      text += `${buildWhyNote(asProblem)}\n`;
+    } else {
+      text += `How to address it\n${'─'.repeat(40)}\n`;
+      for (const [index, step] of buildHowNote(asProblem).entries()) {
+        text += `${index + 1}. ${step}\n`;
+      }
+    }
+
+    text += formatContext(input.context);
+    text += `\nGenerated locally in ${duration}ms`;
+    return text;
+  }
+
   const analysis = await apiClient.getAnalysis(sessionId);
 
   if (analysis.status === 'pending' || analysis.status === 'running') {

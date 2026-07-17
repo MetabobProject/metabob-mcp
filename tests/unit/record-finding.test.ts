@@ -15,6 +15,7 @@ import { LocalStore } from '../../src/local-store';
 import * as RecordFinding from '../../src/tools/record-finding';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import * as GetProblems from '../../src/tools/get-problems';
+import * as AnnotateComponent from '../../src/tools/annotate-component';
 
 const SESSION = 'test-session';
 
@@ -243,4 +244,62 @@ test('get_problems: concept-db unreachable is non-fatal', async () => {
   );
   expect(typeof out).toBe('string');
   expect(out).toContain('concept-db unreachable');
+});
+
+// ===== annotate_component on agf_* ids =====
+
+async function recordOne(): Promise<string> {
+  const input = RecordFinding.InputSchema.parse({
+    files: ['src/api.ts'],
+    summary: 'handleAdd does not validate input before store mutation',
+    severity: 'MEDIUM',
+    category: 'input-validation',
+    line_start: 2,
+    line_end: 2,
+  });
+  const out = await RecordFinding.handle(input, mockApiClient, SESSION, localStore);
+  const id = out.match(/agf_[a-z0-9]+/)?.[0];
+  if (!id) throw new Error('no agf id in record_finding output');
+  return id;
+}
+
+test('annotate_component: explain notes for an agf_* finding come from the local seed', async () => {
+  const id = await recordOne();
+  const out = await AnnotateComponent.handle(
+    AnnotateComponent.InputSchema.parse({ problem_id: id, mode: 'explain' }),
+    mockApiClient, SESSION, localStore,
+  );
+  expect(out).toContain('agent-recorded finding');
+  expect(out).toContain('handleAdd does not validate input');
+  expect(out).toContain('Why this matters');
+  expect(out).toContain('src/api.ts:2-2');
+  expect(out).toContain('Status: open');
+  // Never hit the analysis API for agf ids
+  expect((mockApiClient.getAnalysis as any)).not.toHaveBeenCalled();
+});
+
+test('annotate_component: recommend mode renders fix steps for an agf_* finding', async () => {
+  const id = await recordOne();
+  const out = await AnnotateComponent.handle(
+    AnnotateComponent.InputSchema.parse({ problem_id: id, mode: 'recommend' }),
+    mockApiClient, SESSION, localStore,
+  );
+  expect(out).toContain('How to address it');
+  expect(out).toContain('1. ');
+});
+
+test('annotate_component: unknown agf_* id reports not found', async () => {
+  const out = await AnnotateComponent.handle(
+    AnnotateComponent.InputSchema.parse({ problem_id: 'agf_nope' }),
+    mockApiClient, SESSION, localStore,
+  );
+  expect(out).toContain('not found in the local store');
+});
+
+test('annotate_component: agf_* id without a local store is a clean error', async () => {
+  const out = await AnnotateComponent.handle(
+    AnnotateComponent.InputSchema.parse({ problem_id: 'agf_x' }),
+    mockApiClient, SESSION, null,
+  );
+  expect(out).toContain('local store unavailable');
 });
