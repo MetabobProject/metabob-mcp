@@ -29,6 +29,22 @@ import {
   isMonitoredHost,
 } from './cert-fingerprint.js';
 
+/**
+ * proxy-from-env's getProxyForUrl() runs the legacy url.parse() when handed a
+ * string, which emits `DEP0169 DeprecationWarning: url.parse()` under Node ≥21.
+ * Handing it a WHATWG URL instead makes it skip url.parse() and read
+ * .protocol/.host/.port directly — those fields are byte-compatible with what
+ * it read off the legacy Url, so the result is identical, just warning-free.
+ * Falls back to the string form if the input isn't a parseable absolute URL.
+ */
+function proxyForUrl(rawUrl: string): string {
+  try {
+    return getProxyForUrl(new URL(rawUrl) as unknown as import('node:url').Url);
+  } catch {
+    return getProxyForUrl(rawUrl);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -404,13 +420,13 @@ function snapshotProxy(metabobHost = 'ide.metabob.com'): ProxySnapshot {
   const noProxy = process.env.NO_PROXY ?? process.env.no_proxy ?? null;
 
   // Resolve effective proxy for a representative metabob host (honors NO_PROXY).
-  const effective = getProxyForUrl(`https://${metabobHost}/`);
+  const effective = proxyForUrl(`https://${metabobHost}/`);
   const effectiveProxyForMetabob = effective && effective.length > 0 ? effective : null;
 
   // Detect which metabob hosts are excluded by NO_PROXY.
   const noProxyExcludesMetabob: string[] = [];
   for (const h of DEFAULT_METABOB_HOSTS) {
-    const eff = getProxyForUrl(`https://${h}/`);
+    const eff = proxyForUrl(`https://${h}/`);
     if (httpsProxy && (!eff || eff.length === 0)) {
       noProxyExcludesMetabob.push(h);
     }
@@ -628,7 +644,7 @@ async function probeTlsHandshake(
   // Honor HTTPS_PROXY + NO_PROXY for the raw TLS probe. Without this, the
   // probe bypasses the proxy and looks like a network failure even when the
   // proxy is the required egress path.
-  const proxyUrl = getProxyForUrl(`https://${host}/`);
+  const proxyUrl = proxyForUrl(`https://${host}/`);
   const viaProxy = Boolean(proxyUrl);
 
   let baseSocket: net.Socket | null = null;
@@ -822,7 +838,7 @@ async function probeHttps(
   timeoutMs: number,
 ): Promise<HttpsProbeResult> {
   const start = performance.now();
-  const proxyUrl = getProxyForUrl(url);
+  const proxyUrl = proxyForUrl(url);
   const viaProxy = Boolean(proxyUrl);
 
   // Read NODE_EXTRA_CA_CERTS into PEM string(s) once. Node's globalAgent
@@ -909,7 +925,7 @@ async function probeWebSocket(url: string, timeoutMs: number): Promise<WebSocket
   // Use the `ws` library — Node's built-in WebSocket (Node 22+) honors neither
   // HTTPS_PROXY nor NODE_EXTRA_CA_CERTS on its agent in a way we can easily
   // observe, so we use `ws` for both built-in and pre-22 runtimes.
-  const proxyUrl = getProxyForUrl(url.replace(/^wss?:/, 'https:'));
+  const proxyUrl = proxyForUrl(url.replace(/^wss?:/, 'https:'));
   const viaProxy = Boolean(proxyUrl);
 
   let nodeExtraCaPems: string[] = [];

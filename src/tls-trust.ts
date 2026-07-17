@@ -156,9 +156,12 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
       } else if (proxyPresent && typeof undici.ProxyAgent === 'function') {
         // Older undici without EnvHttpProxyAgent: resolve the proxy URL ourselves.
         const { getProxyForUrl } = require('proxy-from-env') as {
-          getProxyForUrl: (u: string) => string;
+          getProxyForUrl: (u: string | URL) => string;
         };
-        const proxyUri = getProxyForUrl('https://ide.metabob.com') || proxyEnv;
+        // Pass a WHATWG URL (not a string) so getProxyForUrl skips the legacy
+        // url.parse() that emits DEP0169 under Node ≥21. Fields it reads
+        // (.protocol/.host/.port) are byte-compatible with the legacy Url.
+        const proxyUri = getProxyForUrl(new URL('https://ide.metabob.com')) || proxyEnv;
         dispatcher = new undici.ProxyAgent({
           uri: proxyUri,
           ...(caList ? { requestTls: { ca: caList } } : {}),
