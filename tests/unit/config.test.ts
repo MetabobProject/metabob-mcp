@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, loadMetabobCLIConfig } from '../../src/config';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -105,6 +105,105 @@ test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived def
     goalHostVesselUrl: 'http://localhost:9994',
     sourcePath: path,
   });
+});
+
+test('loadMetabobEnvConfig treats METABOB_ENDPOINT as the gateway and derives siblings', () => {
+  const config = loadMetabobEnvConfig({
+    METABOB_API_KEY: 'mb_env_key',
+    METABOB_ENDPOINT: 'https://ide.metabob.com',
+  });
+
+  expect(config).toEqual({
+    apiKey: 'mb_env_key',
+    activityApiUrl: 'https://ide.metabob.com',
+    discoveryEndpoint: 'https://ide.metabob.com/discovery',
+    analysisApiUrl: 'https://ide.metabob.com/analysis',
+    identityEndpoint: 'https://ide.metabob.com/identity',
+    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
+    goalHostVesselUrl: undefined,
+    sourcePath: '<env:METABOB_ENDPOINT>',
+  });
+});
+
+test('loadMetabobEnvConfig defaults the endpoint to ide.metabob.com — api key alone is valid', () => {
+  const config = loadMetabobEnvConfig({ METABOB_API_KEY: 'mb_env_key' });
+
+  expect(config).toEqual({
+    apiKey: 'mb_env_key',
+    activityApiUrl: 'https://ide.metabob.com',
+    discoveryEndpoint: 'https://ide.metabob.com/discovery',
+    analysisApiUrl: 'https://ide.metabob.com/analysis',
+    identityEndpoint: 'https://ide.metabob.com/identity',
+    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
+    goalHostVesselUrl: undefined,
+    sourcePath: '<env:default-endpoint>',
+  });
+});
+
+test('loadMetabobEnvConfig leaves the legacy ANALYSIS_API_URL-only style untouched', () => {
+  const env: NodeJS.ProcessEnv = {
+    METABOB_API_KEY: 'mb_env_key',
+    ANALYSIS_API_URL: 'https://custom.example',
+  };
+  // No METABOB_ENDPOINT → loader is inert → applyConfigDefaults changes nothing.
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));
+
+  expect(env.ANALYSIS_API_URL).toBe('https://custom.example');
+  expect(env.ACTIVITY_API_URL).toBeUndefined();
+  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
+  expect(env.IDENTITY_ENDPOINT).toBeUndefined();
+  expect(env.CONCEPT_DB_URL).toBeUndefined();
+});
+
+test('loadMetabobEnvConfig derives local substrate ports from METABOB_ENDPOINT', () => {
+  const config = loadMetabobEnvConfig({
+    METABOB_API_KEY: 'mb_env_key',
+    METABOB_ENDPOINT: 'http://localhost:18080',
+  });
+
+  expect(config).toEqual({
+    apiKey: 'mb_env_key',
+    activityApiUrl: 'http://localhost:18080',
+    discoveryEndpoint: 'http://localhost:18100',
+    analysisApiUrl: 'http://localhost:18250',
+    identityEndpoint: undefined,
+    conceptDbUrl: 'http://localhost:18260',
+    goalHostVesselUrl: undefined,
+    sourcePath: '<env:METABOB_ENDPOINT>',
+  });
+});
+
+test('loadMetabobEnvConfig returns null when neither key nor endpoint is set', () => {
+  expect(loadMetabobEnvConfig({})).toBeNull();
+});
+
+test('env-var path derives the same endpoints as the config-file path', () => {
+  const path = writeConfigFile(JSON.stringify({
+    metabob: { apiKey: 'mb_test_key', endpoint: 'https://ide.metabob.com' },
+  }));
+
+  const envA: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_test_key', METABOB_ENDPOINT: 'https://ide.metabob.com' };
+  applyConfigDefaults(envA, loadMetabobEnvConfig(envA));
+
+  const envB: NodeJS.ProcessEnv = {};
+  applyConfigDefaults(envB, loadMetabobCLIConfig(path));
+
+  for (const key of ['ACTIVITY_API_URL', 'ANALYSIS_API_URL', 'DISCOVERY_ENDPOINT', 'IDENTITY_ENDPOINT', 'CONCEPT_DB_URL']) {
+    expect(envA[key]).toBe(envB[key]);
+  }
+});
+
+test('explicit ANALYSIS_API_URL still wins over the METABOB_ENDPOINT-derived value', () => {
+  const env: NodeJS.ProcessEnv = {
+    METABOB_API_KEY: 'mb_env_key',
+    METABOB_ENDPOINT: 'https://ide.metabob.com',
+    ANALYSIS_API_URL: 'https://custom.example/analysis',
+  };
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));
+
+  expect(env.ANALYSIS_API_URL).toBe('https://custom.example/analysis');
+  // …but the untouched siblings still derive from the gateway.
+  expect(env.DISCOVERY_ENDPOINT).toBe('https://ide.metabob.com/discovery');
 });
 
 test('loadMetabobCLIConfig returns null for invalid json', () => {

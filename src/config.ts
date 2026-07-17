@@ -83,6 +83,86 @@ function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   return {};
 }
 
+/**
+ * Env vars that manually pin a specific substrate endpoint. Their presence
+ * (without METABOB_ENDPOINT) marks the legacy / hand-configured env style,
+ * where we must NOT auto-default the gateway — see loadMetabobEnvConfig.
+ */
+const SPECIFIC_ENDPOINT_ENV_VARS = [
+  'ANALYSIS_API_URL',
+  'ACTIVITY_API_URL',
+  'DISCOVERY_ENDPOINT',
+  'IDENTITY_ENDPOINT',
+  'CONCEPT_DB_URL',
+  'GOAL_HOST_VESSEL_URL',
+] as const;
+
+/**
+ * Build a config from the environment — the canonical minimal setup is just:
+ *
+ *   METABOB_API_KEY   — the API key
+ *   METABOB_ENDPOINT  — the gateway in the vessel (optional; DEFAULTS to
+ *                       https://ide.metabob.com)
+ *
+ * METABOB_ENDPOINT is the env-var mirror of `metabob.endpoint` from
+ * ~/.metabob/config.json: it points at the gateway and every sibling service
+ * (analysis, discovery, identity, concept-db) is derived from it via
+ * deriveSubstrateDefaults(), keeping the env-var and config-file paths
+ * byte-for-byte equivalent.
+ *
+ * The endpoint DEFAULTS to the public deployment, so an API key alone is a
+ * valid, fully-derived config (analysis at https://ide.metabob.com/analysis,
+ * plus discovery/identity/concept-db) — identical to an api-key-only
+ * ~/.metabob/config.json.
+ *
+ * The one carve-out preserves the older env style: if the user has manually
+ * pinned a specific endpoint var (e.g. METABOB_API_KEY + ANALYSIS_API_URL, as
+ * in the historical Claude Desktop / Cursor examples) WITHOUT setting
+ * METABOB_ENDPOINT, we stay inert rather than forcing the remaining siblings
+ * onto the default gateway (which would split-brain their routing). Setting
+ * METABOB_ENDPOINT is the explicit opt-in that overrides even that carve-out.
+ *
+ * Precedence note: the specific env vars (ANALYSIS_API_URL, DISCOVERY_ENDPOINT,
+ * …) still win when set explicitly, because applyConfigDefaults() only fills
+ * variables that are currently unset.
+ */
+export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): MetabobCLIConfig | null {
+  const explicitEndpoint = env.METABOB_ENDPOINT?.trim() || undefined;
+  const apiKey = env.METABOB_API_KEY?.trim() || undefined;
+
+  // Legacy / hand-configured style: specific endpoint vars set, no gateway var.
+  // Leave it untouched — the user is driving those endpoints themselves.
+  const hasManualEndpoint = SPECIFIC_ENDPOINT_ENV_VARS.some((k) => !!env[k]?.trim());
+  if (!explicitEndpoint && hasManualEndpoint) {
+    return null;
+  }
+
+  // Endpoint defaults to the public deployment: an api key alone is valid.
+  const endpoint = explicitEndpoint ?? (apiKey ? DEFAULT_ENDPOINT : undefined);
+  if (!endpoint) {
+    return null;
+  }
+
+  const activityApiUrl = normalizeUrl(endpoint);
+  if (!activityApiUrl) {
+    console.error(`[metabob-mcp] Ignoring malformed METABOB_ENDPOINT: ${endpoint}`);
+    return null;
+  }
+
+  const derived = deriveSubstrateDefaults(activityApiUrl);
+
+  return {
+    apiKey,
+    activityApiUrl,
+    discoveryEndpoint: derived.discoveryEndpoint,
+    analysisApiUrl: derived.analysisApiUrl,
+    identityEndpoint: derived.identityEndpoint,
+    conceptDbUrl: derived.conceptDbUrl,
+    goalHostVesselUrl: undefined,
+    sourcePath: explicitEndpoint ? '<env:METABOB_ENDPOINT>' : '<env:default-endpoint>',
+  };
+}
+
 export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath()): MetabobCLIConfig | null {
   if (!existsSync(configPath)) {
     return null;

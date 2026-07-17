@@ -58,13 +58,14 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfigDefaults, loadMetabobCLIConfig } from './config.js';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface CLIOptions {
   apiUrl?: string;
+  endpoint?: string;
   sessionId?: string;
   apiKey?: string;
   sessionToken?: string;
@@ -85,9 +86,15 @@ USAGE:
   npx @metabob/mcp doctor             Diagnose corporate-proxy / TLS-inspection issues
 
 OPTIONS:
-  --api-url <URL>              Analysis API URL (default: https://ide.metabob.com)
-  --session-id <ID>            Session identifier (default: default-session)
   --api-key <KEY>              Metabob API key for authentication (recommended)
+  --endpoint <URL>             Gateway in the vessel (optional; default:
+                               https://ide.metabob.com). The single endpoint everything
+                               derives from — analysis, discovery, identity, concept-db.
+                               Flag mirror of METABOB_ENDPOINT / metabob.endpoint.
+                               Omit it and --api-key alone is the whole configuration.
+  --api-url <URL>              Advanced: raw analysis-base override (no sibling
+                               derivation). Same as ANALYSIS_API_URL. Prefer --endpoint.
+  --session-id <ID>            Session identifier (default: default-session)
   --session-token <TOKEN>      Pre-obtained session token (advanced)
   --log-level <LEVEL>          Logging level: debug, info, warn, error (default: info)
   --health-port <PORT>         HTTP port for health checks (default: 8080)
@@ -116,17 +123,26 @@ EXAMPLES:
   # Start with default settings (no auth)
   npx @metabob/mcp
 
-  # Connect to remote API with auth
-  npx @metabob/mcp --api-url=https://api.metabob.com --api-key=mb_live_...
+  # Point at a specific gateway (analysis/discovery/identity/concept-db all derive from it)
+  npx @metabob/mcp --api-key=mb_live_... --endpoint=https://ide.metabob.com
 
   # Custom session and debug logging
   npx @metabob/mcp --session-id=my-session --log-level=debug
 
 ENVIRONMENT VARIABLES:
-  METABOB_API_KEY              API key for authentication (recommended)
-  ACTIVITY_API_URL             Activity API URL (fallback: ~/.metabob/config.json metabob.endpoint)
+  Minimal setup is a single variable — METABOB_API_KEY:
+    METABOB_API_KEY            API key for authentication
+    METABOB_ENDPOINT           Gateway in the vessel. OPTIONAL — defaults to
+                               https://ide.metabob.com, so an API key alone is a
+                               valid, fully-derived config. When set, it is the
+                               gateway everything else derives from (analysis,
+                               discovery, identity, concept-db), exactly like
+                               metabob.endpoint in ~/.metabob/config.json.
+
+  Advanced overrides (rarely needed — each wins over the derived value when set):
+  ACTIVITY_API_URL             Activity API URL (fallback: METABOB_ENDPOINT / config.json)
   DISCOVERY_ENDPOINT           Discovery-vessel URL for substrate routing
-  ANALYSIS_API_URL             Same as --api-url
+  ANALYSIS_API_URL             Raw analysis-base override; same as --api-url
   SESSION_ID                   Same as --session-id
   SESSION_TOKEN                Pre-obtained session token (advanced)
   LOG_LEVEL                    Same as --log-level
@@ -151,7 +167,7 @@ INTEGRATION WITH MCP CLIENTS:
         "args": ["@metabob/mcp@latest"],
         "env": {
           "METABOB_API_KEY": "mb_live_your_api_key_here",
-          "ANALYSIS_API_URL": "https://api.metabob.com"
+          "METABOB_ENDPOINT": "https://ide.metabob.com"
         }
       }
     }
@@ -193,6 +209,7 @@ function parseCliArgs(): CLIOptions {
   try {
     const { values } = parseArgs({
       options: {
+        'endpoint': { type: 'string' },
         'api-url': { type: 'string' },
         'session-id': { type: 'string' },
         'api-key': { type: 'string' },
@@ -211,6 +228,7 @@ function parseCliArgs(): CLIOptions {
 
       return {
         apiUrl: values['api-url'] as string | undefined,
+        endpoint: values['endpoint'] as string | undefined,
         sessionId: values['session-id'] as string | undefined,
         apiKey: values['api-key'] as string | undefined,
         sessionToken: (values['session-token'] as string | undefined) ?? (values['jwt-token'] as string | undefined),
@@ -300,18 +318,34 @@ async function main() {
   const noSystemCa = options.noSystemCa === true || process.env.METABOB_NO_SYSTEM_CA === '1';
   installSystemTrustStoreSync({ disabled: noSystemCa });
 
-  // Load fallback config before applying CLI overrides.
+  // The two derivation-participating flags (--endpoint, --api-key) must land in
+  // the environment BEFORE the config loaders run, so the gateway derivation in
+  // loadMetabobEnvConfig() sees the flag value. --endpoint is the flag mirror of
+  // METABOB_ENDPOINT / metabob.endpoint.
+  if (options.apiKey) {
+    process.env.METABOB_API_KEY = options.apiKey;
+  }
+  if (options.endpoint) {
+    process.env.METABOB_ENDPOINT = options.endpoint;
+  }
+
+  // Precedence, lowest to highest: ~/.metabob/config.json  <  env vars  <
+  // explicit specific overrides (ANALYSIS_API_URL, --api-url). applyConfigDefaults
+  // only fills variables that are currently unset, so applying the env-derived
+  // config (METABOB_ENDPOINT gateway) BEFORE the file config lets its derived
+  // siblings win over the file. The canonical minimal setup is METABOB_API_KEY +
+  // METABOB_ENDPOINT — the endpoint is the gateway everything else derives from.
+  applyConfigDefaults(process.env, loadMetabobEnvConfig());
   applyConfigDefaults(process.env, loadMetabobCLIConfig());
 
-  // Set environment variables from CLI options (CLI takes precedence)
+  // Remaining CLI options are raw overrides that beat any derived/file value.
+  // --api-url / ANALYSIS_API_URL is the advanced raw analysis-base override —
+  // it deliberately overwrites the gateway-derived analysis endpoint.
   if (options.apiUrl) {
     process.env.ANALYSIS_API_URL = options.apiUrl;
   }
   if (options.sessionId) {
     process.env.SESSION_ID = options.sessionId;
-  }
-  if (options.apiKey) {
-    process.env.METABOB_API_KEY = options.apiKey;
   }
   if (options.sessionToken) {
     process.env.SESSION_TOKEN = options.sessionToken;

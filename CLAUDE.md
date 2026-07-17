@@ -87,12 +87,15 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 
 ## Environment variables
 
+**Minimal setup is a single variable: `METABOB_API_KEY`.** `METABOB_ENDPOINT` (the gateway in the vessel) is optional and **defaults to `https://ide.metabob.com`** — so an API key alone is a valid, fully-derived config. When set, the endpoint is the gateway from which analysis / discovery / identity / concept-db all derive (identical to `metabob.endpoint` in `~/.metabob/config.json`). The remaining variables are advanced overrides — each wins over its derived value only when set explicitly. (Carve-out: if you manually pin a specific endpoint var like `ANALYSIS_API_URL` without `METABOB_ENDPOINT`, the default-gateway derivation stays inert so it can't split-brain your hand-configured routing.)
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `METABOB_API_KEY` | — | API key — session token exchange with `ide.metabob.com` + identity-vessel |
+| `METABOB_ENDPOINT` | `https://ide.metabob.com` | **Gateway in the vessel** — the single endpoint everything derives from (analysis, discovery, identity, concept-db). Env-var mirror of `metabob.endpoint`; pairs with `METABOB_API_KEY` as the canonical minimal config |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
-| `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL (default) |
-| `IDENTITY_ENDPOINT` | `https://ide.metabob.com/identity` | Identity vessel endpoint (tenant resolution) — derives from the single public endpoint |
+| `ANALYSIS_API_URL` | _(derived from `METABOB_ENDPOINT`)_ | Advanced: analysis API base URL override |
+| `IDENTITY_ENDPOINT` | _(derived from `METABOB_ENDPOINT`)_ | Advanced: identity vessel endpoint (tenant resolution) override |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | `default-session` | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
