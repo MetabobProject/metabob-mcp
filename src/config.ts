@@ -33,7 +33,18 @@ export interface MetabobCLIConfig {
 /** The single public endpoint. Every sibling service derives from it. */
 export const DEFAULT_ENDPOINT = 'https://ide.metabob.com';
 
+/**
+ * Config resolution is directory-aware, like git: a project pins its own
+ * backend by keeping .metabob/config.json in the directory the server is
+ * launched from (MCP clients spawn stdio servers with cwd = project root).
+ * Falls back to the per-user config when the project has none.
+ * METABOB_CONFIG_PATH still overrides both (see loadMetabobCLIConfig).
+ */
 export function getDefaultConfigPath(): string {
+  const projectConfig = join(process.cwd(), '.metabob', 'config.json');
+  if (existsSync(projectConfig)) {
+    return projectConfig;
+  }
   return join(homedir(), '.metabob', 'config.json');
 }
 
