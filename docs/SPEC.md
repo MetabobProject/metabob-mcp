@@ -31,6 +31,71 @@ Agent (Claude Code / Cursor / custom)
 
 ---
 
+## Configuration
+
+**Minimal setup is a single value: an API key.** Everything else derives.
+
+Two equivalent ways to supply it:
+
+```bash
+# Environment (typical .mcp.json / MCP-client setup)
+METABOB_API_KEY=mb_live_...          # required
+METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
+```
+
+```jsonc
+// ~/.metabob/config.json (or METABOB_CONFIG_PATH)
+{
+  "metabob": {
+    "apiKey": "mb_live_...",
+    "endpoint": "https://ide.metabob.com"   // optional — same default
+  }
+}
+```
+
+`endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the single
+URL from which every sibling service is derived. A remote base endpoint
+derives path-prefixed siblings (`/analysis`, `/discovery`, `/identity`,
+`/conceptdb`); a local substrate endpoint (`http://localhost:18080`) derives
+the port-offset siblings (discovery `:18100`, analysis `:18250`,
+concept-db `:18260`).
+
+### Config-file schema (all keys optional)
+
+| Key | Purpose |
+|-----|---------|
+| `metabob.apiKey` | API key (also accepted at legacy `instance.apiKey`) |
+| `metabob.endpoint` | Gateway URL — everything below derives from it |
+| `metabob.discoveryEndpoint` | Advanced: pin discovery-vessel explicitly |
+| `metabob.analysisApiUrl` | Advanced: pin the analysis API explicitly |
+| `metabob.identityEndpoint` | Advanced: pin identity (tenant resolution) explicitly |
+| `metabob.conceptDbUrl` | Advanced: pin concept-db explicitly |
+| `metabob.goalHostVesselUrl` | Advanced: pin goal-host-vessel explicitly |
+
+Unknown keys are ignored (passthrough). Each explicit key wins over its
+derived value; the same is true of the corresponding env vars
+(`ANALYSIS_API_URL`, `DISCOVERY_ENDPOINT`, `IDENTITY_ENDPOINT`,
+`CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`).
+
+### Precedence (lowest → highest)
+
+1. Built-in default — API key alone routes everything to `https://ide.metabob.com`
+2. `~/.metabob/config.json`
+3. Environment (`METABOB_ENDPOINT` derivation; specific env vars)
+4. CLI flags (`--endpoint`, `--api-key`; `--api-url` as the raw analysis override)
+
+Two guarantees worth knowing:
+
+- A **file-supplied `endpoint` beats the built-in default** even when the API
+  key arrives via env — an MCP client injecting `METABOB_API_KEY` cannot
+  silently redirect a config file pointed at a local substrate.
+- **Legacy carve-out**: pinning a specific endpoint var (e.g.
+  `ANALYSIS_API_URL`) *without* `METABOB_ENDPOINT` keeps gateway derivation
+  inert, so hand-configured routing is never split-brained onto the default
+  gateway.
+
+---
+
 ## Tools
 
 ### init_workspace

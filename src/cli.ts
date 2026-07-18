@@ -150,12 +150,30 @@ ENVIRONMENT VARIABLES:
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
   SUBMIT_TIMEOUT_MS            Timeout for init_workspace file submission (default: 120000)
 
-  Precedence: CLI flags > environment variables > ~/.metabob/config.json.
+  Precedence: CLI flags > environment variables > ~/.metabob/config.json
+  > built-in default. A file-supplied endpoint beats the built-in default even
+  when the API key arrives via env — an MCP client injecting METABOB_API_KEY
+  cannot silently redirect a config file pointed at a local substrate.
 
-  Local substrate note:
-    If ~/.metabob/config.json points metabob.endpoint at http://localhost:18080,
-    metabob-mcp automatically derives DISCOVERY_ENDPOINT=http://localhost:18100.
-    Substrate tools then resolve concept-db / goal-host-vessel through discovery.
+CONFIGURATION FILE (~/.metabob/config.json, or METABOB_CONFIG_PATH):
+  {
+    "metabob": {
+      "apiKey": "mb_live_...",                  // or legacy instance.apiKey
+      "endpoint": "https://ide.metabob.com",    // optional gateway; the default
+      // Advanced pins — each wins over its derived value when set:
+      "discoveryEndpoint": "...",               // discovery-vessel
+      "analysisApiUrl": "...",                  // analysis API
+      "identityEndpoint": "...",                // identity / tenant resolution
+      "conceptDbUrl": "...",                    // concept-db
+      "goalHostVesselUrl": "..."                // goal-host-vessel
+    }
+  }
+  All keys optional; unknown keys ignored. endpoint is the gateway everything
+  derives from: a remote base derives path-prefixed siblings (/analysis,
+  /discovery, /identity, /conceptdb); a local substrate endpoint
+  (http://localhost:18080) derives port-offset siblings (discovery :18100,
+  analysis :18250, concept-db :18260), and substrate tools then resolve
+  concept-db / goal-host-vessel through discovery.
 
 INTEGRATION WITH MCP CLIENTS:
 
