@@ -155,7 +155,10 @@ ENVIRONMENT VARIABLES:
   when the API key arrives via env — an MCP client injecting METABOB_API_KEY
   cannot silently redirect a config file pointed at a local substrate.
 
-CONFIGURATION FILE (~/.metabob/config.json, or METABOB_CONFIG_PATH):
+CONFIGURATION FILE:
+  Resolution is directory-aware, like git: METABOB_CONFIG_PATH >
+  ./.metabob/config.json (the launch directory — lets a project pin its own
+  backend) > ~/.metabob/config.json.
   {
     "metabob": {
       "apiKey": "mb_live_...",                  // or legacy instance.apiKey

@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from '../../src/config';
+import { applyConfigDefaults, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -281,4 +281,88 @@ test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
 
   expect(env.ACTIVITY_API_URL).toBe('https://ide.metabob.com');
   expect(env.DISCOVERY_ENDPOINT).toBe('https://ide.metabob.com/discovery');
+});
+
+// ===== project-local config resolution (directory-aware, like git) =====
+
+function makeTempDir(): string {
+  const dir = join(tmpdir(), `metabob-mcp-proj-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  tempPaths.push(dir);
+  return dir;
+}
+
+test('getDefaultConfigPath prefers project-local .metabob/config.json over the user config', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  writeFileSync(join(proj, '.metabob', 'config.json'), '{}', 'utf-8');
+
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    expect(getDefaultConfigPath()).toBe(join(proj, '.metabob', 'config.json'));
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
+test('getDefaultConfigPath falls back to the user config when the project has none', () => {
+  const proj = makeTempDir();
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    expect(getDefaultConfigPath()).toContain('.metabob');
+    expect(getDefaultConfigPath()).not.toContain(proj);
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
+test('loadMetabobCLIConfig picks up the project-local config from the launch directory', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  writeFileSync(
+    join(proj, '.metabob', 'config.json'),
+    JSON.stringify({ metabob: { apiKey: 'mb_project_key', endpoint: 'http://localhost:18080' } }),
+    'utf-8',
+  );
+
+  const prevCwd = process.cwd();
+  const prevConfigPath = process.env.METABOB_CONFIG_PATH;
+  delete process.env.METABOB_CONFIG_PATH;
+  try {
+    process.chdir(proj);
+    const config = loadMetabobCLIConfig();
+    expect(config?.apiKey).toBe('mb_project_key');
+    expect(config?.activityApiUrl).toBe('http://localhost:18080');
+    expect(config?.discoveryEndpoint).toBe('http://localhost:18100');
+    expect(config?.sourcePath).toBe(join(proj, '.metabob', 'config.json'));
+  } finally {
+    process.chdir(prevCwd);
+    if (prevConfigPath === undefined) delete process.env.METABOB_CONFIG_PATH;
+    else process.env.METABOB_CONFIG_PATH = prevConfigPath;
+  }
+});
+
+test('METABOB_CONFIG_PATH overrides the project-local config', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  writeFileSync(
+    join(proj, '.metabob', 'config.json'),
+    JSON.stringify({ metabob: { apiKey: 'mb_project_key' } }),
+    'utf-8',
+  );
+  const override = writeConfigFile(JSON.stringify({ metabob: { apiKey: 'mb_override_key' } }));
+
+  const prevCwd = process.cwd();
+  const prevConfigPath = process.env.METABOB_CONFIG_PATH;
+  process.env.METABOB_CONFIG_PATH = override;
+  try {
+    process.chdir(proj);
+    expect(loadMetabobCLIConfig()?.apiKey).toBe('mb_override_key');
+  } finally {
+    process.chdir(prevCwd);
+    if (prevConfigPath === undefined) delete process.env.METABOB_CONFIG_PATH;
+    else process.env.METABOB_CONFIG_PATH = prevConfigPath;
+  }
 });

@@ -53,6 +53,11 @@ METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
 }
 ```
 
+Config resolution is **directory-aware, like git**: a project can pin its own
+backend with `.metabob/config.json` in the directory the server is launched
+from (MCP clients spawn stdio servers with cwd = project root). Lookup order:
+`METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`.
+
 `endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the single
 URL from which every sibling service is derived. A remote base endpoint
 derives path-prefixed siblings (`/analysis`, `/discovery`, `/identity`,
