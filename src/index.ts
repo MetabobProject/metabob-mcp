@@ -159,6 +159,7 @@ const vesselServer = new VesselServer({
   sessionId: SESSION_ID,
   apiKey: METABOB_API_KEY,
   authService,
+  localStore,
 });
 
 // Create MCP server

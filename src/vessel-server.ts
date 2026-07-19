@@ -7,6 +7,7 @@ import type { CircuitBreaker } from './circuit-breaker.js';
 import { CircuitState } from './circuit-breaker.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import type { AuthService } from './auth-service.js';
+import type { LocalStore } from './local-store.js';
 import { ZodError } from 'zod';
 
 export interface VesselServerConfig {
@@ -18,6 +19,12 @@ export interface VesselServerConfig {
   apiKey?: string;
   /** Auth service used for identity-vessel key validation. */
   authService: AuthService;
+  /**
+   * Process-wide local SQLite cache. Threaded to tool handlers as the 4th arg
+   * so HTTP-resolved calls (get_problems / get_analysis_context / record_finding)
+   * hit the same cache the MCP path uses, instead of a degraded no-cache branch.
+   */
+  localStore?: LocalStore | null;
 }
 
 const VERSION = '0.1.0';
@@ -85,7 +92,7 @@ export class VesselServer {
 
   private buildApp(): Hono {
     const app = new Hono();
-    const { apiClient, circuitBreaker, sessionId, apiKey, authService } = this.config;
+    const { apiClient, circuitBreaker, sessionId, apiKey, authService, localStore } = this.config;
 
     app.use('*', cors());
 
@@ -175,7 +182,7 @@ export class VesselServer {
             }
 
             const validatedInput = tool.validateInput(toolInput);
-            const content = await tool.handler(validatedInput, apiClient, sessionId);
+            const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
 
             return {
               id,
