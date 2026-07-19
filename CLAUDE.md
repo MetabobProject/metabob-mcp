@@ -15,8 +15,17 @@ bun run typecheck                   # tsc --noEmit
 bun test                            # run tests
 bun run build                       # compile src/ → dist/cli.js (required for npm link)
 npm link                            # register metabob-mcp bin globally for local testing
-bash scripts/git-hooks/install.sh   # install pre-commit hook
+bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
 ```
+
+## Branching
+
+Two-branch model, enforced by the `pre-push` hook (`scripts/git-hooks/pre-push`):
+
+- **`dev`** is the default/integration branch — **all development lands here** via PRs. Branch off `dev`, open PRs into `dev`.
+- **`main`** is the release branch — it advances **only with a version bump** (`package.json` `version`) and **only carries commits already on `dev`**. Never commit feature work directly to `main`; it is a sequence of release checkpoints, not a development branch.
+
+The hook rejects any push to `main` that isn't a version-bumped checkpoint already present on `dev` (emergency override: `METABOB_ALLOW_MAIN_PUSH=1`). Run `bash scripts/git-hooks/install.sh` once per clone to activate.
 
 ## Key files
 

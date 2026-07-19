@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# metabob-mcp pre-push hook — branch policy guard.
+#
+# Enforces the repo's two-branch model:
+#
+#   * dev  — the default/integration branch. All development lands here
+#            (via PRs). This is where day-to-day work goes.
+#   * main — release branch. It advances ONLY in lockstep with a version
+#            update, and only ever carries commits that already exist on dev.
+#            main must never receive direct feature work.
+#
+# So a push that updates main is allowed only when BOTH hold:
+#   1. every pushed commit is already contained in origin/dev
+#      (main is a subset of dev — release checkpoints, not new work), and
+#   2. the pushed range bumps the "version" field in package.json
+#      (the "sequential version update").
+#
+# Pushes to any other branch (dev, feature branches) are unaffected.
+#
+# Emergency bypass:  METABOB_ALLOW_MAIN_PUSH=1 git push ...
+# Blunt bypass:      git push --no-verify   (use sparingly)
+#
+# git invokes this as:  pre-push <remote-name> <remote-url>
+# with one line per ref on stdin:  <local_ref> <local_sha> <remote_ref> <remote_sha>
+
+set -euo pipefail
+
+RED=$'\033[0;31m'
+YELLOW=$'\033[1;33m'
+GREEN=$'\033[0;32m'
+NC=$'\033[0m'
+
+ZERO="0000000000000000000000000000000000000000"
+
+fail() {
+  echo "${RED}✗ pre-push: $1${NC}" >&2
+  echo "" >&2
+  echo "${YELLOW}main is the release branch — it advances only via a version update,${NC}" >&2
+  echo "${YELLOW}and only with commits already on dev. Land this on dev instead:${NC}" >&2
+  echo "    git push origin HEAD:dev            # or open a PR into dev" >&2
+  echo "" >&2
+  echo "If this genuinely IS a release checkpoint, bump package.json version first." >&2
+  echo "Emergency override:  METABOB_ALLOW_MAIN_PUSH=1 git push ..." >&2
+  exit 1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Only police pushes that update main.
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master) ;;
+    *) continue ;;
+  esac
+
+  # Deleting the branch — not our concern.
+  [ "$local_sha" = "$ZERO" ] && continue
+
+  if [ "${METABOB_ALLOW_MAIN_PUSH:-}" = "1" ]; then
+    echo "${YELLOW}pre-push: METABOB_ALLOW_MAIN_PUSH=1 — skipping main branch policy.${NC}" >&2
+    continue
+  fi
+
+  # Establish the range of commits this push would add to main.
+  if [ "$remote_sha" = "$ZERO" ]; then
+    # Creating main from scratch — compare against whatever main tracks, else dev.
+    base="$(git rev-parse --verify --quiet origin/main || git rev-parse --verify --quiet origin/dev || true)"
+  else
+    base="$remote_sha"
+  fi
+
+  if [ -z "${base:-}" ]; then
+    fail "cannot determine the base commit for main; refusing to push blindly."
+  fi
+
+  range="${base}..${local_sha}"
+  new_commits="$(git rev-list "$range")"
+
+  # Nothing new (fast-forward to an equal/ancestor tip) — allow.
+  [ -z "$new_commits" ] && continue
+
+  # (1) every new commit must already live on dev.
+  if git rev-parse --verify --quiet origin/dev >/dev/null; then
+    while read -r c; do
+      [ -z "$c" ] && continue
+      if ! git merge-base --is-ancestor "$c" origin/dev; then
+        short="$(git rev-parse --short "$c")"
+        subj="$(git log -1 --format='%s' "$c")"
+        fail "commit ${short} (\"${subj}\") is not on dev. main takes only release checkpoints already merged to dev."
+      fi
+    done <<< "$new_commits"
+  else
+    echo "${YELLOW}pre-push: origin/dev not found locally (fetch it) — skipping the 'subset of dev' check.${NC}" >&2
+  fi
+
+  # (2) the pushed range must bump package.json "version".
+  if ! git diff "$range" -- package.json | grep -Eq '^\+\s*"version"\s*:'; then
+    fail "this push to main does not bump package.json \"version\". main advances only with a version update."
+  fi
+
+  echo "${GREEN}pre-push: main policy OK — version-bumped release checkpoint from dev.${NC}" >&2
+done
+
+exit 0
