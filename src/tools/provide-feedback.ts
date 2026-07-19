@@ -4,7 +4,8 @@
  * operator can record a verdict on whether the goal was actually achieved. Unlike
  * out-of-band commentary, this verdict is written into the substrate's learning
  * loop as a ground-truth label in the oracle corpus (goal_verification_labels,
- * migration 101) — the same corpus that calibrates the automated reach-gate. The
+ * migration 101) — currently for offline audit (an obsidian-vessel reach-rate
+ * note), not yet consumed by an automated reach-gate recalibration path. The
  * operator becomes an interposable verifier the substrate learns from (the S1→S2→S3
  * arc); measured feedback, not advice.
  *
@@ -33,7 +34,7 @@ const TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 export const ProvideFeedbackTool = {
   name: 'provide_feedback',
   description:
-    "The operator feedback plane: record a verdict on whether a goal dispatched with run_goal_async actually achieved its intent, writing a ground-truth label into the substrate's oracle corpus (goal_verification_labels) that calibrates the automated reach-gate. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
+    "The operator feedback plane: record a verdict on whether a goal dispatched with run_goal_async actually achieved its intent, recording a ground-truth label into the substrate's oracle corpus (goal_verification_labels) — currently for offline audit, not yet consumed by an automated reach-gate recalibration path. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -206,6 +207,6 @@ export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPI
     `  oracle label: ${labelId}`,
     '',
     '  Written to goal_verification_labels (oracle corpus) — this ground-truth verdict',
-    '  calibrates the substrate\'s automated reach-gate over time.',
+    '  is retained for offline audit; no automated reach-gate recalibration reads it yet.',
   ].join('\n');
 }

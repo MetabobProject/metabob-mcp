@@ -7,7 +7,7 @@ import { mineGitCochanges } from '../git-cochange.js';
 export const PredictCochangesTool = {
   name: 'predict_cochanges',
   description:
-    'Predict which files and components should be changed together with the given files. Combines git-history co-change mining (primary) with GCN structural similarity (secondary) — all local, no API call. Requires init_workspace to have been run first.',
+    'Predict which files and components should be changed together with the given files. Combines git-history co-change mining (primary) with a GCN name-similarity ranking (secondary — the model sees only node-name char-codes, not learned structure) — all local, no API call. Requires init_workspace to have been run first.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -101,7 +101,7 @@ export async function handle(
   }
 
   if (gcnPredictions.length > 0) {
-    text += `\nFrom structural similarity (embedded GCN):\n\n`;
+    text += `\nFrom name similarity (embedded GCN):\n\n`;
     for (let i = 0; i < gcnPredictions.length; i++) {
       const p = gcnPredictions[i]!;
       text += `${i + 1}. ${p.componentName} (${p.componentType})\n`;

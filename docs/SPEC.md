@@ -20,7 +20,7 @@ Agent (Claude Code / Cursor / custom)
 
 **Local tier** — runs entirely in-process via `@metabob/cpg-inference`:
 - Tree-sitter parsing → `CodePropertyGraph`
-- GCN embeddings (109 KB bundled ONNX model) → USearch vector index
+- GCN embeddings (109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → USearch vector index
 - BFS graph traversal
 
 **API tier** — requires `METABOB_API_KEY` and a live session against `ide.metabob.com`:
@@ -188,7 +188,7 @@ Requires `init_workspace` for component results.
 
 ### predict_cochanges
 
-Predict which files and components should be changed together with the given files. Runs entirely locally via the embedded GCN model — no API call.
+Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. Git-history co-change mining is the primary signal; the embedded GCN contributes only a secondary name-similarity ranking (it sees node-name char-codes, not learned structure).
 
 **Input**
 
@@ -304,7 +304,7 @@ Three planes + a coverage set:
 | `run_goal_async` | ACT | Async dispatch via goal-host `POST /run-goal` → `dispatchId` immediately. Default for non-trivial goals. **Names a `repos/<vessel>/src/…` file → routes to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit** (no byte-exact trick needed). |
 | `goal_status` | ACT | Poll a `dispatchId` → the honest **`reached`** verdict (primary), executionId/template, hydrated roll-up (state signature, produced shapes, failure mode, Thompson α/β). |
 | `goal_reasoning` | REASON | The goal-host **walk decision-log** for a `dispatchId`: goal-target inference → satisfier/bridge/step decisions → reach verdict + per-task trace sequence. *Why* it reached or fell short. Renders the `walkLog` for satisfier-only reaches (no template trace). |
-| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → writes a `goal_verification_labels` oracle-corpus label that calibrates the reach-gate. Auto-derives goal/executionId/template from the dispatch record. |
+| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → records a `goal_verification_labels` oracle-corpus label (currently for offline audit, not yet consumed by an automated reach-gate recalibration path). Auto-derives goal/executionId/template from the dispatch record. |
 | `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Replaces `curl discovery`. |
 | `execution_trace` | INSPECT | Durable trace by `execution_id`: status, template, chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), per-task sequence + failure_mode. Replaces raw trace curls. |
 | `resolve_impulse` | INSPECT | Advanced escape hatch: resolve/write ANY impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery. Prefer dedicated tools when they fit. |
