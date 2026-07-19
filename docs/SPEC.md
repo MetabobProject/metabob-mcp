@@ -247,7 +247,7 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 | `problem_id` | string | **required** | Problem ID from `get_problems` |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-Calls `POST /feedback/detection`. For agent-recorded findings (`agf_*` ids from `record_finding`) the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes it, and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal).
+Calls `POST /feedback/detection`. For agent-recorded findings (`agf_*` ids from `record_finding`) the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes it, and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Additionally, when the finding seed carries a linked `code_finding` concept (stashed by `record_finding` in `refs_json`), the verdict is folded straight into that concept's **relevance** via a usage signal — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`) — so operator judgment moves the Bayesian relevance score, not just a parallel verdict concept.
 
 ---
 
@@ -320,7 +320,7 @@ goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell
 provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
 ```
 
-> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill). Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
+> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill), including **`concept_record_usage`** — the direct write into concept-db's relevance model. `POST /concepts/:id/usage` with `outcome` ∈ `success|failure|neutral`; concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` (`success` credits and raises relevance; `failure`/`neutral` grow the load denominator). This makes the agent a first-class, deliberate relevance contributor rather than relying only on the passive load event `concept_search` fires and cross-vessel goal executions. `mark_complete` on an `agf_*` finding uses this same channel to fold its verdict into the finding concept's relevance. Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
 
 ---
 

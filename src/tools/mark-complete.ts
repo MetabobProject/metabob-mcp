@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
-import { VERDICT_SHAPE, postConcept, resolveConceptDbUrl, workspaceRepoName } from './_findings.js';
+import {
+  VERDICT_SHAPE,
+  conceptIdFromRefs,
+  postConcept,
+  recordConceptUsage,
+  resolveConceptDbUrl,
+  workspaceRepoName,
+} from './_findings.js';
 
 export const MarkCompleteTool = {
   name: 'mark_complete',
@@ -59,6 +66,7 @@ export async function handle(
 
     // Best-effort verdict into concept-db so other agents see the outcome.
     let conceptStatus = 'concept-db not configured — verdict recorded locally only';
+    let relevanceStatus = '';
     const conceptDbUrl = await resolveConceptDbUrl(apiClient);
     if (conceptDbUrl) {
       const repo = workspaceRepoName() ?? seed.workspace_id;
@@ -79,13 +87,30 @@ export async function handle(
       conceptStatus = result.ok
         ? `verdict shared via concept-db (concept ${result.id ?? '?'})`
         : `concept-db unreachable (${result.error}) — verdict recorded locally only`;
+
+      // Fold the verdict into the finding concept's relevance directly: an
+      // endorsed finding proved useful (success), a discarded one was a false
+      // positive (failure). This is what makes the operator's judgment move
+      // relevance instead of only leaving a parallel verdict concept.
+      const conceptId = conceptIdFromRefs(seed.refs_json);
+      if (conceptId) {
+        const outcome = input.action === 'endorse' ? 'success' : 'failure';
+        const usage = await recordConceptUsage(conceptDbUrl, conceptId, outcome);
+        relevanceStatus = usage.ok
+          ? `relevance: recorded ${outcome} on concept ${conceptId}`
+          : `relevance: could not record ${outcome} on concept ${conceptId} (${usage.error})`;
+      } else {
+        relevanceStatus = 'relevance: no linked concept on this finding — signal skipped';
+      }
     }
 
     const duration = Date.now() - startTime;
     const verb = input.action === 'endorse'
       ? 'endorsed (finding resolved, retired from get_problems)'
       : 'discarded (finding retracted and removed)';
-    return `Finding ${input.problem_id} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
+    let out = `Finding ${input.problem_id} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
+    if (relevanceStatus) out += `\n  ${relevanceStatus}`;
+    return out;
   }
 
   try {
