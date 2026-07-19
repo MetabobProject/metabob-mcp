@@ -33,6 +33,25 @@ The pre-commit hook rejects new cruft at commit time. Existing files are grandfa
 | Screenshots / playwright output | gitignored — these are session artefacts |
 | Status snapshot, fix-complete, investigation note | nowhere — write a commit message instead |
 
+## Branch policy (pre-push hook)
+
+metabob-mcp runs a **two-branch model**:
+
+- **`dev`** — the default/integration branch. All development lands here, via PRs. This is the branch you clone, branch off, and open PRs against.
+- **`main`** — the release branch. It advances **only in lockstep with a version update**, and only ever carries commits that already exist on `dev`. `main` never receives direct feature work — it is a sequence of release checkpoints.
+
+The `pre-push` hook enforces this. A push that updates `main` is allowed only when **both**:
+
+1. every pushed commit is already contained in `origin/dev` (main is a subset of dev — release checkpoints, not new work), **and**
+2. the pushed range bumps the `"version"` field in `package.json` (the sequential version update).
+
+Pushes to `dev` and feature branches are unaffected.
+
+```bash
+# Emergency override (use sparingly):
+METABOB_ALLOW_MAIN_PUSH=1 git push origin main
+```
+
 ## What the pre-commit hook does
 
 The hook runs two layers, in order:
