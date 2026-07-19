@@ -15,6 +15,7 @@ import * as ConceptUsageStats from './concept-usage-stats.js';
 import * as ConceptSequence from './concept-sequence.js';
 import * as ConceptLink from './concept-link.js';
 import * as ConceptCreate from './concept-create.js';
+import * as ConceptRecordUsage from './concept-record-usage.js';
 import * as RunGoal from './run-goal.js';
 import * as RunGoalAsync from './run-goal-async.js';
 import * as GoalStatus from './goal-status.js';
@@ -117,6 +118,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ConceptCreate.ConceptCreateTool,
     handler: ConceptCreate.handle,
     validateInput: (i: any) => ConceptCreate.InputSchema.parse(i),
+  },
+  concept_record_usage: {
+    ...ConceptRecordUsage.ConceptRecordUsageTool,
+    handler: ConceptRecordUsage.handle,
+    validateInput: (i: any) => ConceptRecordUsage.InputSchema.parse(i),
   },
   run_goal: {
     ...RunGoal.RunGoalTool,

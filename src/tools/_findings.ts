@@ -16,6 +16,7 @@
  */
 
 import { basename } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
@@ -24,6 +25,28 @@ import { resolveServiceEndpointByShape } from '../discovery.js';
 export const FINDING_SHAPE = 'code_finding';
 /** The concept shape used for verdicts on findings (mark_complete). */
 export const VERDICT_SHAPE = 'finding_verdict';
+
+/** Prefix under which a finding's minted concept id is stashed in a seed's
+ *  `refs_json` so mark_complete can attribute a usage/relevance signal to it. */
+export const CONCEPT_REF_PREFIX = 'concept:';
+
+/** Extract the concept id a finding seed points at, or null. */
+export function conceptIdFromRefs(refsJson: string | undefined): string | null {
+  if (!refsJson) return null;
+  try {
+    const refs = JSON.parse(refsJson) as unknown;
+    if (!Array.isArray(refs)) return null;
+    for (const ref of refs) {
+      if (typeof ref === 'string' && ref.startsWith(CONCEPT_REF_PREFIX)) {
+        const id = ref.slice(CONCEPT_REF_PREFIX.length).trim();
+        if (id) return id;
+      }
+    }
+  } catch {
+    // malformed refs_json — treat as no concept
+  }
+  return null;
+}
 
 /** Basename of the active workspace root, or null if not indexed yet. */
 export function workspaceRepoName(): string | null {
@@ -92,6 +115,61 @@ export async function postConcept(
     }
     const concept = (await res.json().catch(() => ({}))) as { id?: string };
     return { ok: true, id: (concept.id ?? '').replace(/^concept:/, '') };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Outcome vocabulary accepted by concept-db's usage/relevance chokepoint. */
+export type UsageOutcome = 'success' | 'failure' | 'neutral';
+
+export interface RecordUsageResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Mint a real (non-template) trace id. concept-db refuses `{{...}}` unbound
+ * placeholders at its usage chokepoint, so MCP-originated relevance signals
+ * carry a concrete, attributable id.
+ */
+export function makeUsageTraceId(prefix = 'mcp'): string {
+  return `${prefix}:${randomUUID()}`;
+}
+
+/**
+ * Best-effort POST {conceptDbUrl}/concepts/:id/usage — the direct relevance
+ * signal. concept-db folds the outcome into the Beta-Binomial posterior mean
+ * `(times_succeeded + 1) / (times_loaded + 2)`: `success` raises relevance,
+ * `failure`/`neutral` grow the load denominator. Never throws.
+ */
+export async function recordConceptUsage(
+  conceptDbUrl: string,
+  conceptId: string,
+  outcome: UsageOutcome,
+  opts: { traceId?: string; activityId?: string; taskId?: string } = {},
+): Promise<RecordUsageResult> {
+  try {
+    const body: Record<string, unknown> = {
+      trace_id: opts.traceId ?? makeUsageTraceId(),
+      outcome,
+    };
+    if (opts.activityId) body.activity_id = opts.activityId;
+    if (opts.taskId) body.task_id = opts.taskId;
+    const res = await fetch(
+      `${conceptDbUrl}/concepts/${encodeURIComponent(conceptId)}/usage`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { ok: false, error: `${res.status} ${text.slice(0, 200)}` };
+    }
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

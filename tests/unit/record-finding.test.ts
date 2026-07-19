@@ -147,7 +147,101 @@ test('record_finding: pushes a code_finding concept when concept-db is up', asyn
   expect(String(received!['content'])).toContain('user input concatenated into query');
 });
 
+test('record_finding: stashes the minted concept id on the seed refs', async () => {
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      if (req.method === 'POST' && new URL(req.url).pathname === '/concepts') {
+        return Response.json({ id: 'concept:cf_refs1', shape: 'code_finding' });
+      }
+      return new Response('not found', { status: 404 });
+    },
+  });
+  servers.push(server);
+  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
+
+  const output = await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({
+      files: ['src/db/client.ts'], summary: 'SQL injection', severity: 'HIGH', category: 'security',
+    }),
+    mockApiClient, SESSION, localStore,
+  );
+  const id = output.match(/agf_[a-z0-9]+/)![0];
+  expect(localStore.getSeedById(id)?.refs_json).toContain('concept:cf_refs1');
+});
+
 // ===== mark_complete on agf_* ids =====
+
+test('mark_complete: endorse records a success usage on the finding concept', async () => {
+  const usageHits: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (req.method === 'POST' && url.pathname === '/concepts') {
+        return Response.json({ id: 'concept:cf_usage1', shape: 'code_finding' });
+      }
+      if (req.method === 'POST' && url.pathname === '/concepts/cf_usage1/usage') {
+        usageHits.push({ path: url.pathname, body: (await req.json()) as Record<string, unknown> });
+        return Response.json({ id: 'usage_x', outcome: 'success' }, { status: 201 });
+      }
+      return new Response('not found', { status: 404 });
+    },
+  });
+  servers.push(server);
+  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
+
+  const recordOut = await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({ files: ['src/x.ts'], summary: 'off by one', severity: 'MEDIUM', category: 'correctness' }),
+    mockApiClient, SESSION, localStore,
+  );
+  const id = recordOut.match(/agf_[a-z0-9]+/)![0];
+
+  const out = await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: id, action: 'endorse' }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  expect(usageHits.length).toBe(1);
+  expect(usageHits[0]!.body['outcome']).toBe('success');
+  expect(String(usageHits[0]!.body['trace_id'])).not.toMatch(/^\{\{/);
+  expect(out).toContain('relevance: recorded success on concept cf_usage1');
+});
+
+test('mark_complete: discard records a failure usage on the finding concept', async () => {
+  const usageHits: Array<Record<string, unknown>> = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (req.method === 'POST' && url.pathname === '/concepts') {
+        return Response.json({ id: 'concept:cf_usage2', shape: 'code_finding' });
+      }
+      if (req.method === 'POST' && url.pathname === '/concepts/cf_usage2/usage') {
+        usageHits.push((await req.json()) as Record<string, unknown>);
+        return Response.json({ id: 'usage_y', outcome: 'failure' }, { status: 201 });
+      }
+      return new Response('not found', { status: 404 });
+    },
+  });
+  servers.push(server);
+  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
+
+  const recordOut = await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({ files: ['src/y.ts'], summary: 'false alarm', severity: 'LOW', category: 'noise' }),
+    mockApiClient, SESSION, localStore,
+  );
+  const id = recordOut.match(/agf_[a-z0-9]+/)![0];
+
+  const out = await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: id, action: 'discard' }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  expect(usageHits.length).toBe(1);
+  expect(usageHits[0]!['outcome']).toBe('failure');
+  expect(out).toContain('relevance: recorded failure on concept cf_usage2');
+});
 
 test('mark_complete: endorse retires an agf_* finding from the cache', async () => {
   const recordOut = await RecordFinding.handle(

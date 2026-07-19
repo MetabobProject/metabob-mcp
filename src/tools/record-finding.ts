@@ -19,7 +19,8 @@ import { basename, isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { getLocalIndex } from '../local-index.js';
-import { FINDING_SHAPE, postConcept, resolveConceptDbUrl } from './_findings.js';
+import { CONCEPT_REF_PREFIX, FINDING_SHAPE, postConcept, resolveConceptDbUrl } from './_findings.js';
+import type { SeedRecord } from '../local-store.js';
 
 export const RecordFindingTool = {
   name: 'record_finding',
@@ -112,12 +113,13 @@ export async function handle(
 
   // ── 1. Local seeds — immediate in-session surfacing via get_problems ───────
   const ids: Array<{ file: string; id: string }> = [];
+  const seedPayloads: Array<Omit<SeedRecord, 'read_at'>> = [];
   const now = Date.now();
   let localStatus = 'local cache unavailable — finding not cached in-session';
   if (localStore) {
     for (const file of relFiles) {
       const id = generateFindingId();
-      localStore.upsertSeed({
+      const seed: Omit<SeedRecord, 'read_at'> = {
         id,
         workspace_id: workspaceId,
         file_path: file,
@@ -130,7 +132,9 @@ export async function handle(
         refs_json: '[]',
         produced_at: now,
         stale: input.status !== 'open',
-      });
+      };
+      localStore.upsertSeed(seed);
+      seedPayloads.push(seed);
       ids.push({ file, id });
     }
     localStatus = `cached locally — visible to get_problems in this session`;
@@ -168,6 +172,15 @@ export async function handle(
     conceptStatus = result.ok
       ? `shared org-wide via concept-db (concept ${result.id ?? '?'})`
       : `concept-db unreachable (${result.error}) — finding recorded locally only`;
+
+    // Stash the minted concept id on each seed so a later mark_complete can
+    // attribute a usage/relevance signal to it (see _findings.conceptIdFromRefs).
+    if (result.ok && result.id && localStore && seedPayloads.length > 0) {
+      const refs = JSON.stringify([`${CONCEPT_REF_PREFIX}${result.id}`]);
+      for (const seed of seedPayloads) {
+        localStore.upsertSeed({ ...seed, refs_json: refs });
+      }
+    }
   }
 
   // ── Output ──────────────────────────────────────────────────────────────────
