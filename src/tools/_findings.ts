@@ -188,13 +188,28 @@ export interface AgentFindingsResult {
   status: AgentFindingsStatus;
   findings: AgentFinding[];
   detail?: string;
+  /** True when the scan hit MAX_SCAN before exhausting the shape — older
+   *  concepts (below the scanned window) were not examined by the term filter. */
+  truncated?: boolean;
+  /** Concept rows scanned (across all pages) before the client-side filter. */
+  scanned?: number;
 }
+
+/** Page size for the paginated `code_finding` scan. */
+const FINDINGS_PAGE_SIZE = 50;
+/** Hard cap on concept rows scanned per recall — 6 pages. Bounds the number of
+ *  round-trips while letting the client-side term filter see a fuller set than
+ *  the top-50-by-relevance window. */
+const FINDINGS_MAX_SCAN = 300;
 
 /**
  * Fetch `code_finding` concepts from concept-db (list mode — deliberately no
  * `query=` param: semantic search is unstable on the local vessel) and filter
  * client-side to concepts whose summary/content mention any of `matchTerms`
- * (repo name, requested file paths). Never throws.
+ * (repo name, requested file paths). Pages through the relevance-DESC list via
+ * the `offset` query param (FINDINGS_PAGE_SIZE rows/page, up to FINDINGS_MAX_SCAN)
+ * so a real finding below the top-50 window is still recallable; sets
+ * `truncated` when the cap is reached with more pages likely pending. Never throws.
  */
 export async function fetchAgentFindings(
   apiClient: AnalysisAPIClient,
@@ -208,31 +223,65 @@ export async function fetchAgentFindings(
   const conceptDbUrl = await resolveConceptDbUrl(apiClient);
   if (!conceptDbUrl) return { status: 'skipped', findings: [] };
 
-  let res: Response;
-  try {
-    res = await fetch(
-      `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(FINDING_SHAPE)}&limit=50`,
-      { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
-    );
-  } catch (err) {
-    return {
-      status: 'unreachable',
-      findings: [],
-      detail: err instanceof Error ? err.message : String(err),
-    };
-  }
-  if (!res.ok) {
-    return { status: 'unreachable', findings: [], detail: `HTTP ${res.status}` };
-  }
-
   interface ConceptRow {
     id?: string;
     summary?: string | null;
     content?: string | null;
     updated_at?: string;
   }
-  const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
-  const rows = payload.concepts ?? [];
+
+  // Paginate the relevance-DESC list (offset query param) so the client-side
+  // term filter sees more than the top-50 window. Stop on a short page (shape
+  // exhausted) or at FINDINGS_MAX_SCAN (more pages likely exist -> truncated).
+  const rows: ConceptRow[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let truncated = false;
+  for (;;) {
+    let res: Response;
+    try {
+      res = await fetch(
+        `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(FINDING_SHAPE)}&limit=${FINDINGS_PAGE_SIZE}&offset=${offset}`,
+        { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
+      );
+    } catch (err) {
+      // First page unreachable is fatal to the recall; a later-page failure is
+      // best-effort — keep the pages already accumulated.
+      if (offset === 0) {
+        return {
+          status: 'unreachable',
+          findings: [],
+          detail: err instanceof Error ? err.message : String(err),
+        };
+      }
+      truncated = true; // later-page error — recall cut short, disclose it
+      break;
+    }
+    if (!res.ok) {
+      if (offset === 0) {
+        return { status: 'unreachable', findings: [], detail: `HTTP ${res.status}` };
+      }
+      truncated = true; // later-page error — recall cut short, disclose it
+      break;
+    }
+    const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
+    const page = payload.concepts ?? [];
+    // Dedup by concept id: a relevance/ordering write between offset-paged calls
+    // can shift a row across the page boundary and re-surface it. Skip repeats so
+    // the rendered recall and its "top N of M" count stay honest.
+    for (const row of page) {
+      const key = (row.id ?? '').replace(/^concept:/, '');
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      rows.push(row);
+    }
+    offset += page.length;
+    if (page.length < FINDINGS_PAGE_SIZE) break; // shape exhausted
+    if (offset >= FINDINGS_MAX_SCAN) {
+      truncated = true; // hit the cap with a full page — older rows unscanned
+      break;
+    }
+  }
 
   const findings: AgentFinding[] = [];
   for (const row of rows) {
@@ -247,7 +296,7 @@ export async function fetchAgentFindings(
       updated_at: row.updated_at,
     });
   }
-  return { status: 'ok', findings };
+  return { status: 'ok', findings, truncated, scanned: rows.length };
 }
 
 /**
@@ -269,6 +318,9 @@ export function renderFindingsSection(
     text += ` (top ${shown.length} of ${result.findings.length})`;
   }
   text += ':\n';
+  if (result.truncated) {
+    text += `  (scanned first ${result.scanned ?? shown.length} recorded findings; older ones may be omitted)\n`;
+  }
   for (const f of shown) {
     const line = f.summary || f.content.split('\n')[0] || f.id;
     text += `  • ${line}\n`;
