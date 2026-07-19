@@ -1,3 +1,29 @@
+/**
+ * Local CPG + vector index bridge.
+ *
+ * KNOWN LIMITATION — intentionally NOT persisted across launches.
+ * The index (parsed CPG nodes/edges + FAISS embeddings) is rebuilt from source
+ * each process start via repeated `init_workspace` batches. A disk cache keyed by
+ * file path + mtime/size was assessed and deliberately NOT adopted, because it
+ * cannot be invalidated correctly at file granularity:
+ *   1. CALLS edges are authored across files. vendor GraphBuilder.findCallExpressions
+ *      resolves each call by a whole-graph name lookup at parse time
+ *      (cpg.findByName(calleeName)), so the edges INTO a file are created while
+ *      OTHER files are being parsed. Invalidating one changed file therefore
+ *      requires re-resolving edges across the whole graph.
+ *   2. Secondary hazard at the co-change layer: component ids embed the start
+ *      line. generateComponentId (src/cochange-predictor.ts) is
+ *      `filePath::type::name::startLine`, so a line shift changes a file's
+ *      component ids. (Note: graph-node ids from generateNodeId are a per-file
+ *      monotonic counter — `currentFile::type-<counter>[::name]`, NOT startLine —
+ *      so they are stable under a whitespace-only shift; it is the component/
+ *      co-change layer, not the node layer, that the line-number coupling breaks.)
+ * Only all-or-nothing whole-index invalidation is safe, and that is voided by the
+ * first edit, i.e. the primary agent-editing workflow. See
+ * openspec/changes/2026-07-19-local-index-persistence/proposal.md before
+ * implementing persistence; a stale index would serve wrong analyze_impact /
+ * predict_cochanges answers, which is worse than a slower cold start.
+ */
 import { resolve } from 'node:path';
 import { CoChangePredictor } from './cpg-inference.js';
 import type { CoChangePrediction } from './cpg-inference.js';
