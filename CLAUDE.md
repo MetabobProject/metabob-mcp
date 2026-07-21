@@ -64,6 +64,8 @@ The hook rejects any push to `main` that isn't a version-bumped checkpoint alrea
 | `resolve_impulse` | Substrate | ADVANCED escape hatch: general impulse-resolve passthrough for ANY shape (memoryNote, feature_compose, `*_write`, …) instead of raw `curl /v2/impulses/resolve`. `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery; else defaults to activity-api. Prefer the dedicated tools when they fit. |
 | `concept_*` | Substrate | concept-db graph: `concept_search` / `_neighbors` / `_usage_stats` / `_sequence` / `_link` / `_create` / `_record_usage`. See the `metabob-substrate` skill. |
 | `concept_record_usage` | Substrate | The direct write into concept-db's **relevance** model — `POST /concepts/:id/usage`. Attribute an outcome to a concept you used: `success` credits it (raises relevance), `failure`/`neutral` grow the load count without credit. concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)`. Makes the agent a first-class, deliberate relevance contributor rather than relying only on passive read-loads and cross-vessel executions. |
+| `pull_assigned_work` | Resolver | The **write half of Claude-Code-as-implicit-vessel** (`goal_reasoning` is the read half): claim tasks the substrate *dispatched to you* (solicited `human_input` decisions). Durable + keyed by the stable vesselId, so work assigned in a prior session surfaces now. |
+| `submit_resolution` | Resolver | Answer a pulled task (`{task_id, outcome, answer?}`). Recorded durably, then delivered to goal-host as `solicitationResponse_write` to unblock its walk; retried on a later session if the substrate was unreachable. |
 
 **Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require a config carrying only `metabob.apiKey` + `metabob.endpoint` — everything else derives. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://localhost:18080`) auto-derives `DISCOVERY_ENDPOINT=…:18100`; a remote base endpoint (e.g. `https://ide.metabob.com`) auto-derives the path-prefixed siblings (`/discovery`, `/analysis`, `/identity`, `/conceptdb`) as served by the deployment's reverse proxy. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` (or per-service config keys) override derivation.
 
@@ -118,6 +120,7 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; overrides discovery derivation for `registry_query` / `resolve_impulse` (local default `http://localhost:18100`) |
 | `VESSEL_ID` | _(derived)_ | Discovery registration id. Defaults to a stable, unique `metabob-mcp-<hash(apiKey+workspace)>` (distinct instances disambiguate automatically). Set explicitly only for deliberate replica/failover (same value on two instances = one registry row) |
 | `VESSEL_PUBLIC_ENDPOINT` | `http://127.0.0.1:$HEALTH_PORT` | Reachable base URL advertised for inbound HTTP resolves. Override when a cross-host caller (e.g. a containerised discovery) must reach this process by a different address |
+| `METABOB_AGENT_RESOLVER` | _(on)_ | Whether this session offers itself as an agent-resolver (advertises `human_input` so the substrate can dispatch solicited decisions to it). Set `0`/`false`/`off` to disable — e.g. alongside a real human vault that should win `human_input` solicitations |
 
 ## Vessel registration (point-and-go)
 
@@ -141,6 +144,15 @@ client-only process.
   `code:impact_analysis`, `code:git_change_assignment`) are advertised only once
   a workspace is indexed (`init_workspace`); `mcp:tool_call` and
   `code:analysis_context` are always served.
+- **Agent-resolver (cross-session).** When `METABOB_AGENT_RESOLVER` is on
+  (default), the vessel also advertises `human_input` so a goal-host walk can
+  dispatch a solicited decision TO the agent. The task is durably enqueued
+  (`~/.metabob/sidecar.db`, keyed by the stable vesselId); the agent drains it
+  with `pull_assigned_work` and answers with `submit_resolution`, which delivers
+  `solicitationResponse_write` back to unblock the walk. Because the queue and
+  undelivered answers persist keyed by the vesselId, a later session in the same
+  workspace resumes coordination — pulls still-pending tasks and re-delivers
+  answers a prior session couldn't send.
 
 ## Telemetry
 

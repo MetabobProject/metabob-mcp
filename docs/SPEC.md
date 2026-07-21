@@ -324,6 +324,30 @@ provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the orac
 
 ---
 
+## Agent-resolver tools (Claude-Code-as-implicit-vessel, write half)
+
+The cockpit is not only a client that dispatches goals INTO the substrate — the
+agent can also act as a **resolver the substrate dispatches work TO**. When
+enabled (default; kill-switch `METABOB_AGENT_RESOLVER=0`), the vessel advertises
+the `human_input` shape, so a goal-host walk that exhausts its automated
+approaches solicits a decision from this agent. The vessel durably enqueues the
+task; the agent drains it with these tools. `goal_reasoning` is the read half of
+the same "Claude-Code-as-implicit-vessel" idea — this is the write half.
+
+| Tool | Behaviour |
+|------|-----------|
+| `pull_assigned_work` | Claim tasks the substrate dispatched to this agent-resolver. Returns each `task_id` + `question`. Tasks are **durable and keyed by the stable vesselId**, so work assigned while you were away in a prior session surfaces now. Params: `limit` (default 10). |
+| `submit_resolution` | Answer a task: `{ task_id, outcome: "answered"\|"declined"\|"insufficient_context", answer? }` (answer required when `answered`). The answer is recorded durably FIRST, then delivered to goal-host as `solicitationResponse_write` to unblock its parked walk. If the substrate is briefly unreachable the answer stays queued and is retried automatically on the next session's startup — the cross-session provide-info-back guarantee. |
+
+**Cross-session coordination.** Tasks and answers persist in `~/.metabob/sidecar.db`,
+partitioned by the vesselId (`metabob-mcp-<hash(apiKey+workspace)>`). A later
+session in the same workspace+key re-derives the identical id and resumes: it
+sees still-pending tasks (`pull_assigned_work`) and re-delivers any answer a
+prior session recorded but couldn't send. Loop: substrate solicits →
+`pull_assigned_work` → reason → `submit_resolution`.
+
+---
+
 ## Typical agent workflow
 
 ```
