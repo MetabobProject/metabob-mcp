@@ -26,9 +26,11 @@ import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer, resolveImpulseContent } from './vessel-server.js';
 import { VesselHeartbeat } from './vessel-heartbeat.js';
-import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
+import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME } from './vessel-identity.js';
 import { fetchBootstrapAnchors } from './bootstrap.js';
 import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
+import { computeAdvertisedShapes, startPresenceAdvertiser } from './presence-advertiser.js';
+import { getLocalIndex } from './local-index.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
@@ -157,6 +159,16 @@ let stopWatcher: (() => void) | null = null;
 let stopGitWatcher: (() => void) | null = null;
 let vesselHeartbeat: VesselHeartbeat | null = null;
 let federationNode: FederationNode | null = null;
+let stopPresenceAdvertiser: (() => void) | null = null;
+
+/** Use-time capability condition: does the local CPG hold an indexed workspace? */
+function workspaceIsIndexed(): boolean {
+  try {
+    return getLocalIndex().stats().filesIndexed > 0;
+  } catch {
+    return false;
+  }
+}
 
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
@@ -524,7 +536,9 @@ async function main() {
         vesselName: VESSEL_BASE_NAME,
         version: VESSEL_VERSION,
         endpoint: advertisedEndpoint,
-        shapes: [...SERVED_SHAPES],
+        // Advertise only currently-serviceable shapes; the presence-advertiser
+        // adds the CPG-dependent ones once a workspace is indexed (Law 1).
+        shapes: computeAdvertisedShapes(workspaceIsIndexed()),
         authService,
         // Advertise the libp2p transport row when a circuit exists; re-derived
         // each heartbeat cycle so a late reservation is picked up.
@@ -539,10 +553,16 @@ async function main() {
         },
       });
       await vesselHeartbeat.start();
+      // Keep the advertised shape-set in step with live capability.
+      stopPresenceAdvertiser = startPresenceAdvertiser({
+        heartbeat: vesselHeartbeat,
+        isIndexed: workspaceIsIndexed,
+      });
       log('info', 'Registered with discovery', {
         vesselId,
         discovery: DISCOVERY_ENDPOINT,
         transport: federationNode ? 'libp2p+http' : 'http',
+        indexed: workspaceIsIndexed(),
       });
     } else {
       log('info', 'Discovery registration skipped (no discovery endpoint / key / vesselId) — running client-only');
@@ -646,6 +666,7 @@ async function main() {
     stopGitWatcher?.();
 
     authService.stopKeyHeartbeat();
+    stopPresenceAdvertiser?.();
     vesselHeartbeat?.stop();
     await federationNode?.stop().catch(() => {});
     telemetry.destroy();
