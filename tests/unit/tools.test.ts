@@ -323,10 +323,10 @@ test('get_analysis_context: handler returns non-empty string', async () => {
 
 // ===== Tool registry =====
 
-test('TOOL_REGISTRY contains all 26 tools', async () => {
+test('TOOL_REGISTRY contains all 28 tools', async () => {
   const { TOOL_REGISTRY } = await import('../../src/tools/index');
   const names = Object.keys(TOOL_REGISTRY);
-  expect(names.length).toBe(26);
+  expect(names.length).toBe(28);
   const expected = [
     'init_workspace', 'get_problems', 'search_codebase', 'predict_cochanges',
     'analyze_impact', 'annotate_component', 'mark_complete', 'get_metrics',
@@ -335,6 +335,7 @@ test('TOOL_REGISTRY contains all 26 tools', async () => {
     'concept_sequence', 'concept_link', 'concept_create', 'concept_record_usage',
     'run_goal', 'run_goal_async', 'goal_status', 'goal_reasoning',
     'provide_feedback', 'registry_query', 'execution_trace', 'resolve_impulse',
+    'pull_assigned_work', 'submit_resolution',
   ];
   for (const name of expected) {
     expect(names).toContain(name);

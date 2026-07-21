@@ -24,6 +24,8 @@ import * as ProvideFeedback from './provide-feedback.js';
 import * as RegistryQuery from './registry-query.js';
 import * as ExecutionTrace from './execution-trace.js';
 import * as ResolveImpulse from './resolve-impulse.js';
+import * as PullAssignedWork from './pull-assigned-work.js';
+import * as SubmitResolution from './submit-resolution.js';
 
 export interface Tool {
   name: string;
@@ -163,6 +165,16 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...ResolveImpulse.ResolveImpulseTool,
     handler: ResolveImpulse.handle,
     validateInput: (i: any) => ResolveImpulse.InputSchema.parse(i),
+  },
+  pull_assigned_work: {
+    ...PullAssignedWork.PullAssignedWorkTool,
+    handler: PullAssignedWork.handle,
+    validateInput: (i: any) => PullAssignedWork.InputSchema.parse(i),
+  },
+  submit_resolution: {
+    ...SubmitResolution.SubmitResolutionTool,
+    handler: SubmitResolution.handle,
+    validateInput: (i: any) => SubmitResolution.InputSchema.parse(i),
   },
 };
 

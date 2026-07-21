@@ -31,6 +31,7 @@ import { fetchBootstrapAnchors } from './bootstrap.js';
 import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
 import { computeAdvertisedShapes, startPresenceAdvertiser } from './presence-advertiser.js';
 import { setResolverIdentity } from './resolver-identity.js';
+import { reconcileUndelivered } from './agent-delivery.js';
 import { getLocalIndex } from './local-index.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
@@ -496,6 +497,18 @@ async function main() {
     // Publish the stable coordination identity even if discovery registration is
     // skipped — the agent-resolver tools + inbound enqueue key on the vesselId.
     setResolverIdentity({ vesselId });
+
+    // Resume: deliver any answers this workspace produced in a prior session
+    // that never reached the substrate (cross-session "provide info back").
+    if (vesselId && localStore && SIDECAR_MODE) {
+      reconcileUndelivered(apiClient, localStore, vesselId)
+        .then((r) => {
+          if (r.delivered || r.abandoned || r.pending) {
+            log('info', 'Reconciled prior-session resolutions', r);
+          }
+        })
+        .catch((err) => log('warn', 'Resolution reconcile failed (will retry next session)', { error: err }));
+    }
     if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId) {
       // Best-effort reachable base URL for inbound resolves. localhost serves
       // same-host callers; VESSEL_PUBLIC_ENDPOINT overrides for cross-host
