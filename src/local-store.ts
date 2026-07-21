@@ -66,6 +66,43 @@ export interface Freshness {
   stale: boolean;
 }
 
+/**
+ * A task the substrate dispatched to this agent-resolver (a solicited
+ * `human_input` decision). Durable and partitioned by `vessel_id` (stable per
+ * apiKey+workspace) so a later session in the same workspace resumes it.
+ */
+export interface AgentTaskRecord {
+  task_id: string; // = solicitation_id from the inbound pointer
+  vessel_id: string; // cross-session partition key
+  operator_id: string; // task owner (claude-code-operator)
+  session_id: string; // ephemeral: the run that claimed it (non-authoritative)
+  shape: string; // 'human_input'
+  dispatch_id: string | null;
+  question_markdown: string;
+  respond_via_json: string; // {shape, heartbeat_shape}
+  deadline_ms: number; // now + timeout_ms
+  status: string; // 'pending' | 'claimed' | 'resolved'
+  enqueued_at: number;
+  claimed_at: number | null;
+}
+
+/**
+ * The agent's answer to an AgentTaskRecord, recorded BEFORE delivery so it
+ * survives a failed post-back / dead network and is retried on a later session
+ * (delivered=0 until the substrate confirms receipt).
+ */
+export interface AgentResolutionRecord {
+  task_id: string;
+  vessel_id: string;
+  outcome: string; // 'answered' | 'declined' | 'insufficient_context'
+  answer: string | null;
+  delivered: number; // 0 | 1
+  attempts: number;
+  last_attempt_at: number | null;
+  last_error: string | null;
+  created_at: number;
+}
+
 // ── LocalStore ────────────────────────────────────────────────────────────────
 
 const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -147,6 +184,39 @@ export class LocalStore {
         started_at   INTEGER NOT NULL,
         api_key_hash TEXT    NOT NULL DEFAULT ''
       );
+
+      CREATE TABLE IF NOT EXISTS agent_tasks (
+        task_id           TEXT    NOT NULL,
+        vessel_id         TEXT    NOT NULL,
+        operator_id       TEXT    NOT NULL,
+        session_id        TEXT    NOT NULL,
+        shape             TEXT    NOT NULL,
+        dispatch_id       TEXT,
+        question_markdown TEXT    NOT NULL,
+        respond_via_json  TEXT    NOT NULL DEFAULT '{}',
+        deadline_ms       INTEGER NOT NULL,
+        status            TEXT    NOT NULL DEFAULT 'pending',
+        enqueued_at       INTEGER NOT NULL,
+        claimed_at        INTEGER,
+        PRIMARY KEY (vessel_id, task_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS agent_tasks_vessel_status ON agent_tasks(vessel_id, status);
+
+      CREATE TABLE IF NOT EXISTS agent_resolutions (
+        task_id         TEXT    NOT NULL,
+        vessel_id       TEXT    NOT NULL,
+        outcome         TEXT    NOT NULL,
+        answer          TEXT,
+        delivered       INTEGER NOT NULL DEFAULT 0,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at INTEGER,
+        last_error      TEXT,
+        created_at      INTEGER NOT NULL,
+        PRIMARY KEY (vessel_id, task_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS agent_res_undelivered ON agent_resolutions(vessel_id, delivered);
     `);
   }
 
@@ -417,6 +487,142 @@ export class LocalStore {
          workspace_id = excluded.workspace_id,
          api_key_hash = excluded.api_key_hash`,
       [session.session_id, session.workspace_id, session.started_at, session.api_key_hash],
+    );
+  }
+
+  // ── Agent coordination (cross-session) ───────────────────────────────────────
+
+  private static mapTask(r: Record<string, unknown>): AgentTaskRecord {
+    return {
+      task_id: r['task_id'] as string,
+      vessel_id: r['vessel_id'] as string,
+      operator_id: r['operator_id'] as string,
+      session_id: r['session_id'] as string,
+      shape: r['shape'] as string,
+      dispatch_id: (r['dispatch_id'] as string | null) ?? null,
+      question_markdown: r['question_markdown'] as string,
+      respond_via_json: r['respond_via_json'] as string,
+      deadline_ms: r['deadline_ms'] as number,
+      status: r['status'] as string,
+      enqueued_at: r['enqueued_at'] as number,
+      claimed_at: (r['claimed_at'] as number | null) ?? null,
+    };
+  }
+
+  private static mapResolution(r: Record<string, unknown>): AgentResolutionRecord {
+    return {
+      task_id: r['task_id'] as string,
+      vessel_id: r['vessel_id'] as string,
+      outcome: r['outcome'] as string,
+      answer: (r['answer'] as string | null) ?? null,
+      delivered: r['delivered'] as number,
+      attempts: r['attempts'] as number,
+      last_attempt_at: (r['last_attempt_at'] as number | null) ?? null,
+      last_error: (r['last_error'] as string | null) ?? null,
+      created_at: r['created_at'] as number,
+    };
+  }
+
+  /**
+   * Durably record a task the substrate dispatched to this agent. Idempotent:
+   * re-delivery of the same solicitation (same vessel_id+task_id) is a no-op, so
+   * goal-host retrying the solicitation POST never double-enqueues.
+   */
+  enqueueAgentTask(rec: AgentTaskRecord): void {
+    this.store.run(
+      `INSERT INTO agent_tasks
+         (task_id, vessel_id, operator_id, session_id, shape, dispatch_id,
+          question_markdown, respond_via_json, deadline_ms, status, enqueued_at, claimed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(vessel_id, task_id) DO NOTHING`,
+      [
+        rec.task_id, rec.vessel_id, rec.operator_id, rec.session_id, rec.shape,
+        rec.dispatch_id, rec.question_markdown, rec.respond_via_json, rec.deadline_ms,
+        rec.status, rec.enqueued_at, rec.claimed_at,
+      ],
+    );
+  }
+
+  /** Un-resolved, un-expired tasks for a vessel, oldest first. */
+  listPendingAgentTasks(vesselId: string, limit = 20, now = Date.now()): AgentTaskRecord[] {
+    const rows = this.store.query(
+      `SELECT * FROM agent_tasks
+       WHERE vessel_id = ? AND status IN ('pending','claimed') AND deadline_ms > ?
+       ORDER BY enqueued_at ASC LIMIT ?`,
+    ).all(vesselId, now, limit) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapTask);
+  }
+
+  getAgentTask(vesselId: string, taskId: string): AgentTaskRecord | null {
+    const r = this.store.query(
+      'SELECT * FROM agent_tasks WHERE vessel_id = ? AND task_id = ? LIMIT 1',
+    ).get(vesselId, taskId) as Record<string, unknown> | null;
+    return r ? LocalStore.mapTask(r) : null;
+  }
+
+  /** Mark a task claimed by the current session and return the fresh row. */
+  claimAgentTask(vesselId: string, taskId: string, sessionId: string): AgentTaskRecord | null {
+    this.store.run(
+      `UPDATE agent_tasks SET status = 'claimed', session_id = ?, claimed_at = ?
+       WHERE vessel_id = ? AND task_id = ? AND status != 'resolved'`,
+      [sessionId, Date.now(), vesselId, taskId],
+    );
+    return this.getAgentTask(vesselId, taskId);
+  }
+
+  /**
+   * Durably record the agent's answer (delivered=0) and flip the task to
+   * resolved. Idempotent on (vessel_id, task_id).
+   */
+  recordResolution(rec: AgentResolutionRecord): void {
+    this.store.run(
+      `INSERT INTO agent_resolutions
+         (task_id, vessel_id, outcome, answer, delivered, attempts, last_attempt_at, last_error, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(vessel_id, task_id) DO UPDATE SET
+         outcome = excluded.outcome, answer = excluded.answer`,
+      [
+        rec.task_id, rec.vessel_id, rec.outcome, rec.answer, rec.delivered ? 1 : 0,
+        rec.attempts, rec.last_attempt_at, rec.last_error, rec.created_at,
+      ],
+    );
+    this.store.run(
+      `UPDATE agent_tasks SET status = 'resolved' WHERE vessel_id = ? AND task_id = ?`,
+      [rec.vessel_id, rec.task_id],
+    );
+  }
+
+  /** Answers recorded but not yet confirmed delivered to the substrate. */
+  getUndeliveredResolutions(vesselId: string): AgentResolutionRecord[] {
+    const rows = this.store.query(
+      `SELECT * FROM agent_resolutions WHERE vessel_id = ? AND delivered = 0 ORDER BY created_at ASC`,
+    ).all(vesselId) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapResolution);
+  }
+
+  markResolutionDelivered(vesselId: string, taskId: string): void {
+    this.store.run(
+      `UPDATE agent_resolutions SET delivered = 1, last_attempt_at = ? WHERE vessel_id = ? AND task_id = ?`,
+      [Date.now(), vesselId, taskId],
+    );
+  }
+
+  /** Record a failed delivery attempt (for retry visibility / backoff). */
+  bumpResolutionAttempt(vesselId: string, taskId: string, error: string): void {
+    this.store.run(
+      `UPDATE agent_resolutions
+       SET attempts = attempts + 1, last_attempt_at = ?, last_error = ?
+       WHERE vessel_id = ? AND task_id = ?`,
+      [Date.now(), error.slice(0, 500), vesselId, taskId],
+    );
+  }
+
+  /** Bound growth: resolve tasks whose deadline passed without an answer. */
+  expireStaleTasks(vesselId: string, now = Date.now()): void {
+    this.store.run(
+      `UPDATE agent_tasks SET status = 'resolved'
+       WHERE vessel_id = ? AND status != 'resolved' AND deadline_ms < ?`,
+      [vesselId, now],
     );
   }
 
