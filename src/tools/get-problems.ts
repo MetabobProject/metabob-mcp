@@ -85,12 +85,20 @@ async function handleCore(
   // ── Sidecar mode: serve from local cache when it has entries. An empty
   // cache enqueues the path for background analysis and FALLS THROUGH to the
   // live fetch below — the cache accelerates, it never gates.
-  const seeds = localStore && input.file_path ? localStore.getCachedSeeds(input.file_path) : [];
+  // Seeds surface in ALL calls (not only with file_path): record_finding's
+  // agf_* seeds rank the primary list severity-first even in the default call,
+  // so its in-session visibility claim holds. Both getters exclude stale
+  // (endorsed) seeds; discarded seeds are deleted outright.
+  const seeds = localStore
+    ? input.file_path
+      ? localStore.getCachedSeeds(input.file_path)
+      : localStore.getAllCachedSeeds()
+    : [];
   if (localStore && input.file_path && seeds.length === 0) {
     localStore.enqueue(input.file_path, 0, 'default');
   }
-  if (localStore && input.file_path && seeds.length > 0) {
-    const freshness = localStore.getFreshness(input.file_path);
+  if (localStore && seeds.length > 0) {
+    const freshness = input.file_path ? localStore.getFreshness(input.file_path) : null;
 
     // Apply filters
     let filtered = seeds;
@@ -106,8 +114,9 @@ async function handleCore(
     const total = filtered.length;
     filtered = filtered.slice(0, input.limit);
 
-    const ageSec = Math.round(freshness.age_ms / 1000);
-    const cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
+    const cacheTag = freshness
+      ? `[cache: ${Math.round(freshness.age_ms / 1000)}s old${freshness.stale ? ', stale' : ''}]`
+      : '[local cache: agent-recorded findings across all files]';
 
     if (filtered.length === 0) {
       return `No problems found (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\n${cacheTag}`;

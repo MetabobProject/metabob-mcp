@@ -293,8 +293,10 @@ test('get_problems: renders findings recorded by agents on this codebase', async
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === '/concepts/search') {
-        expect(url.searchParams.get('shape')).toBe('code_finding');
+        const shape = url.searchParams.get('shape');
+        expect(['code_finding', 'finding_verdict']).toContain(shape);
         expect(url.searchParams.get('query')).toBeNull(); // list mode only
+        if (shape === 'finding_verdict') return Response.json({ concepts: [] });
         return Response.json({
           concepts: [
             {

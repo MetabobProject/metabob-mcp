@@ -105,7 +105,7 @@ Two guarantees worth knowing:
 
 ### init_workspace
 
-Initialize the local CPG index and incrementally sync the most relevant files to the analysis server. Call repeatedly as you work — each call submits one small batch ranked by relevance to recently changed files.
+Parse and index the **whole workspace** into the local CPG in one call — local tools (`predict_cochanges`, `analyze_impact`, `assign_git_changes`) are fully usable after a single call — and incrementally sync the most relevant files to the analysis server. Call repeatedly with `sync_api:true` to continue submitting API batches ranked by relevance to recently changed files; local indexing is decoupled from batching and always covers the full workspace.
 
 Analysis is asynchronous: after submission, the server may continue processing in the background and later calls may still see `pending` or `running`. Agents should prefer async follow-up when working with Metabob.
 
@@ -115,16 +115,16 @@ Analysis is asynchronous: after submission, the server may continue processing i
 |-----------|------|---------|-------------|
 | `workspace_path` | string | `$WORKSPACE_PATH` or cwd | Absolute path to workspace root |
 | `recently_changed_files` | string[] | `[]` | Changed files — prioritised in sync batch |
-| `batch_size` | number | `5` | Files to submit per call (max 20) |
+| `batch_size` | number | `20` | Files to submit to the analysis server per call (max 20) — does not limit local indexing |
 | `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index |
 | `exclude` | string[] | `[node_modules,.git,dist,...]` | Directories to skip |
-| `sync_api` | boolean | `true` | Submit batch to analysis server |
+| `sync_api` | boolean | `true` | Submit a batch to the analysis server. `false` = pure local indexing, no API call |
 
 **Behaviour**
-1. Scans workspace and builds/updates the local CPG.
-2. Ranks files: recently changed → CPG co-change neighbours → same directory → alphabetical.
-3. Submits `batch_size` files to `POST /v2/submit`.
-4. Reports how many files remain unsynced.
+1. Scans the workspace and parses **every** eligible file into the local CPG (files over 200 KB or unreadable are skipped and reported). Local indexing is complete after one call regardless of `batch_size`.
+2. Ranks files for API submission: recently changed → CPG co-change neighbours → same directory → alphabetical.
+3. If `sync_api:true`, submits up to `batch_size` not-yet-submitted files to `POST /v2/submit`; `sync_api:false` performs no API call and no submission progress is consumed or repeated.
+4. Reports coverage honestly: `Local index: N/M files parsed` and `API sync: S/M files submitted`, plus how many files remain unsynced.
 5. Uses a longer submission timeout than ordinary API calls; if the server is slow to answer, prefer async follow-up with `get_analysis_context` or `get_problems`.
 6. Does not wait for backend analysis to finish; use `get_analysis_context` or `get_problems` to check progress later.
 
@@ -144,7 +144,7 @@ Fetch known problems for this codebase, ranked by severity: backend detections p
 | `file_path` | string | — | Substring match on file path |
 | `include_discarded` | boolean | `false` | Include dismissed false positives |
 
-**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) or falls back to backend detection (`GET /analysis` / vessel fan-out — deprecated as the primary source), then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: `GET {conceptDbUrl}/concepts/search?shape=code_finding&limit=50` (list mode, no `query=`), filtered client-side to concepts mentioning the current repo name or the requested file path. concept-db unreachable is non-fatal.
+**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) **in all calls**: with `file_path` the per-file cache, without it all non-stale seeds across files — severity-ranked either way, so `record_finding` results are visible in-session even in the default call. Endorsed (stale) and discarded (deleted) seeds are excluded. Falls back to backend detection (`GET /analysis` / vessel fan-out — deprecated as the primary source) when the cache is empty, then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: paginated `GET {conceptDbUrl}/concepts/search?shape=code_finding` (list mode, no `query=`), filtered client-side to concepts mentioning the current repo name or the requested file path. `finding_verdict` concepts are joined on the shared `agf_*` id (verdicts carry `finding: agf_*`; finding concepts carry `finding_ids:`): verdicted findings move out of the open list into a trailing **Closed findings** section tagged `[FIXED]` (endorse) or `[RETRACTED]` (discard). concept-db unreachable is non-fatal, and a failed verdict scan degrades to unverdicted rendering.
 
 ---
 
@@ -188,7 +188,7 @@ Requires `init_workspace` for component results.
 
 ### predict_cochanges
 
-Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. Git-history co-change mining is the primary signal; the embedded GCN contributes only a secondary name-similarity ranking (it sees node-name char-codes, not learned structure).
+Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. Git-history co-change mining is the primary signal (with an explicit caveat that history mining can miss files); the embedded GCN contributes only a secondary name-similarity ranking (it sees node-name char-codes, not learned structure), labelled as experimental/non-structural and rendered without percentage "confidence" figures — its scores are not probabilities.
 
 **Input**
 
@@ -204,7 +204,7 @@ Requires `init_workspace`.
 
 ### analyze_impact
 
-Analyze which components are affected by changing the given files, by traversing the local Code Property Graph.
+Analyze which components are affected by changing the given files, by traversing the local Code Property Graph. Output separates "Dependents (impacted by this change)" from "Dependencies (this file imports — NOT impacted by this change)"; the overall risk level is computed from dependents only.
 
 **Input**
 
@@ -212,7 +212,7 @@ Analyze which components are affected by changing the given files, by traversing
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Files being changed |
 | `diff` | string | — | Git diff for line-precise symbol resolution |
-| `direction` | `forward\|backward\|both` | `both` | forward=dependencies, backward=dependents |
+| `direction` | `forward\|backward\|both` | `backward` | backward=dependents (impacted by the change — default), forward=dependencies (what these files import) |
 | `max_depth` | number | `5` | Max traversal depth (max 10) |
 | `include_tests` | boolean | `true` | Include test files |
 
@@ -305,7 +305,7 @@ Three planes + a coverage set:
 | `goal_status` | ACT | Poll a `dispatchId` → the honest **`reached`** verdict (primary), executionId/template, hydrated roll-up (state signature, produced shapes, failure mode, Thompson α/β). |
 | `goal_reasoning` | REASON | The goal-host **walk decision-log** for a `dispatchId`: goal-target inference → satisfier/bridge/step decisions → reach verdict + per-task trace sequence. *Why* it reached or fell short. Renders the `walkLog` for satisfier-only reaches (no template trace). |
 | `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → records a `goal_verification_labels` oracle-corpus label (currently for offline audit, not yet consumed by an automated reach-gate recalibration path). Auto-derives goal/executionId/template from the dispatch record. |
-| `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Replaces `curl discovery`. |
+| `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Vessels mode also cross-checks `/registry/shapes` and appends a `WARNING: registry views disagree` line when the shape vocabulary and the vesselCapability rows contradict each other (best-effort; silently skipped if the shape list is unreachable). Replaces `curl discovery`. |
 | `execution_trace` | INSPECT | Durable trace by `execution_id`: status, template, chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), per-task sequence + failure_mode. Replaces raw trace curls. |
 | `resolve_impulse` | INSPECT | Advanced escape hatch: resolve/write ANY impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery. Prefer dedicated tools when they fit. |
 

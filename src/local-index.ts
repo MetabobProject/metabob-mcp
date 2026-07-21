@@ -120,6 +120,25 @@ export class LocalIndex {
     this._imports.set(this.resolvePath(filePath), [...specs]);
   }
 
+  /** Number of workspace files parsed into the local CPG this process. */
+  parsedCount(): number {
+    return this._parsedFiles.size;
+  }
+
+  /** Absolute paths of all files parsed into the local CPG this process. */
+  parsedFilePaths(): string[] {
+    return [...this._parsedFiles];
+  }
+
+  /** Coverage snapshot: files parsed locally vs total scanned, plus API-submitted count. */
+  coverage(): { parsedFiles: number; submittedFiles: number; totalFiles: number } {
+    return {
+      parsedFiles: this._parsedFiles.size,
+      submittedFiles: this._submittedFiles.size,
+      totalFiles: this._filesIndexed,
+    };
+  }
+
   isSubmitted(filePath: string): boolean {
     return this._submittedFiles.has(this.resolvePath(filePath));
   }

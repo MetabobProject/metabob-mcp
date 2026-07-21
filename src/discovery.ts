@@ -31,7 +31,32 @@ interface DiscoveryResponse {
 }
 
 const DISCOVERY_CACHE_TTL_MS = 60_000;
+const HEALTH_PROBE_TIMEOUT_MS = 1_500;
 const discoveryCache = new Map<string, { expiresAt: number; capability: DiscoveryCapability | null }>();
+
+/** Test hook: reset the module-level discovery cache between test cases. */
+export function clearDiscoveryCache(): void {
+  discoveryCache.clear();
+}
+
+/**
+ * Quick liveness probe of a discovered vessel's HTTP base URL. Any HTTP
+ * response — even a 404 from a vessel without a /health route — counts as
+ * alive; only network errors / timeouts mark the row dead. This is what lets
+ * the client walk past a stale registry row (discovery has no TTL/liveness
+ * eviction of its own) when a healthy sibling advertises the same shape.
+ */
+async function probeVesselHealth(baseUrl: string): Promise<boolean> {
+  try {
+    await fetch(`${baseUrl}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * LEGACY FALLBACK for registrations that predate `public_endpoint`.
@@ -160,12 +185,41 @@ export async function discoverFirstVesselByShape(options: {
     }
 
     const payload = (await response.json()) as DiscoveryResponse;
-    const capability = payload.content?.vessels?.[0] ?? null;
-    discoveryCache.set(cacheKey, {
-      capability,
-      expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
-    });
-    return capability;
+    const vessels = payload.content?.vessels ?? [];
+    if (vessels.length === 0) {
+      discoveryCache.set(cacheKey, {
+        capability: null,
+        expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+      });
+      return null;
+    }
+
+    // The registry can hold stale rows (no discovery-side liveness eviction),
+    // so health-check each candidate and take the first row that answers.
+    for (const candidate of vessels) {
+      const baseUrl = resolveVesselBaseUrl(candidate, discoveryEndpoint);
+      if (await probeVesselHealth(baseUrl)) {
+        discoveryCache.set(cacheKey, {
+          capability: candidate,
+          expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+        });
+        return candidate;
+      }
+      // Dead row: make sure no cached entry keeps steering callers at it.
+      discoveryCache.delete(cacheKey);
+      console.error(
+        `[metabob-mcp] discovery: vessel ${candidate.vesselId ?? candidate.vesselName ?? '(unknown)'} advertising "${options.shape}" failed health probe at ${baseUrl}; trying next registry row`
+      );
+    }
+
+    // Every row failed the probe. Return the first row anyway (the probe can
+    // false-negative, e.g. a libp2p-only vessel with no HTTP surface), but do
+    // NOT cache it — the next call should re-probe — and warn about staleness.
+    const firstRow = vessels[0] ?? null;
+    console.error(
+      `[metabob-mcp] discovery: all ${vessels.length} vessel(s) advertising "${options.shape}" failed health probes; returning possibly-stale first row ${firstRow?.vesselId ?? '(unknown)'}`
+    );
+    return firstRow;
   } catch {
     return null;
   }
