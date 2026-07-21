@@ -515,7 +515,7 @@ async function main() {
             vesselId,
             relayMultiaddr: relay,
             resolveHandler: async (pointer: any) =>
-              (await resolveImpulseContent(pointer ?? {}, apiClient, SESSION_ID)).content,
+              (await resolveImpulseContent(pointer ?? {}, apiClient, SESSION_ID, localStore)).content,
           });
           if (federationNode) {
             log('info', 'libp2p overlay ready', {
