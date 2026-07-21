@@ -25,6 +25,8 @@ import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer } from './vessel-server.js';
+import { VesselHeartbeat } from './vessel-heartbeat.js';
+import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
@@ -36,7 +38,7 @@ import { startGitWatcher } from './git-watcher.js';
 import { resolveWorkspaceId } from './workspace.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = '0.2.11';
+const MCP_VERSION = VESSEL_VERSION;
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
@@ -151,6 +153,7 @@ if (ANONYMOUS_MODE) {
 let scheduler: Scheduler | null = null;
 let stopWatcher: (() => void) | null = null;
 let stopGitWatcher: (() => void) | null = null;
+let vesselHeartbeat: VesselHeartbeat | null = null;
 
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
@@ -165,8 +168,8 @@ const vesselServer = new VesselServer({
 // Create MCP server
 const server = new Server(
   {
-    name: 'metabob-mcp',
-    version: '0.2.15',
+    name: VESSEL_BASE_NAME,
+    version: VESSEL_VERSION,
   },
   {
     capabilities: {
@@ -463,6 +466,42 @@ async function main() {
     log('warn', 'Failed to start vessel HTTP server', { error });
   }
 
+  // Register with the discovery namespace (point-and-go: needs only a discovery
+  // endpoint + a valid key). vesselId is stable+unique per instance so multiple
+  // concurrent instances disambiguate without a third required input. Fail-open:
+  // a missing discovery endpoint / key, or an unreachable discovery, degrades to
+  // an unregistered (client-only) vessel rather than blocking startup.
+  try {
+    const vesselId = await resolveVesselId({
+      explicit: process.env.VESSEL_ID,
+      apiKey: METABOB_API_KEY,
+      workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
+    });
+    if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId) {
+      // Best-effort reachable base URL for inbound resolves. localhost serves
+      // same-host callers; VESSEL_PUBLIC_ENDPOINT overrides for cross-host
+      // (e.g. a containerised discovery reaching the host). Cross-NAT inbound
+      // reachability is what the libp2p transport (a later commit) adds.
+      const advertisedEndpoint =
+        process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || `http://127.0.0.1:${HEALTH_PORT}`;
+      vesselHeartbeat = new VesselHeartbeat({
+        discoveryEndpoint: DISCOVERY_ENDPOINT,
+        vesselId,
+        vesselName: VESSEL_BASE_NAME,
+        version: VESSEL_VERSION,
+        endpoint: advertisedEndpoint,
+        shapes: [...SERVED_SHAPES],
+        authService,
+      });
+      await vesselHeartbeat.start();
+      log('info', 'Registered with discovery', { vesselId, discovery: DISCOVERY_ENDPOINT });
+    } else {
+      log('info', 'Discovery registration skipped (no discovery endpoint / key / vesselId) — running client-only');
+    }
+  } catch (error) {
+    log('warn', 'Discovery registration failed (continuing client-only)', { error });
+  }
+
   // Authenticate with ide.metabob.com (analysis API path)
   if (METABOB_API_KEY && !VESSEL_MODE) {
     try {
@@ -558,6 +597,7 @@ async function main() {
     stopGitWatcher?.();
 
     authService.stopKeyHeartbeat();
+    vesselHeartbeat?.stop();
     telemetry.destroy();
     localStore?.close();
     await apiClient.shutdown();

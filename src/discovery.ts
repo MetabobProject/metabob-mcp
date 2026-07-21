@@ -100,14 +100,17 @@ export function deriveLocalDiscoveryEndpoint(activityApiUrl?: string): string | 
     return undefined;
   }
 
+  // Local port-published substrate convention: the activity gateway ends in
+  // …080 and its siblings sit at fixed offsets in the same block (discovery
+  // …100, analysis …250, concept …260). Derive discovery = blockBase + 100 for
+  // ANY conforming port (8080, 18080, 19080, 28080, …) rather than enumerating
+  // a hardcoded pair — a bare-port allowlist silently mis-derived every other
+  // deployment's port scheme (e.g. dashboard-test's 19080 → 19100).
   const activityPort = Number(url.port || 80);
-  if (activityPort === 18080) {
-    url.port = '18100';
-  } else if (activityPort === 8080) {
-    url.port = '8100';
-  } else {
+  if (!Number.isInteger(activityPort) || activityPort % 100 !== 80) {
     return undefined;
   }
+  url.port = String(activityPort - 80 + 100);
 
   url.pathname = '';
   url.search = '';

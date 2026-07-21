@@ -8,6 +8,7 @@ const RawConfigSchema = z.object({
   metabob: z.object({
     apiKey: z.string().min(1).optional(),
     endpoint: z.string().min(1).optional(),
+    vesselId: z.string().min(1).optional(),
     discoveryEndpoint: z.string().min(1).optional(),
     analysisApiUrl: z.string().min(1).optional(),
     identityEndpoint: z.string().min(1).optional(),
@@ -21,6 +22,7 @@ const RawConfigSchema = z.object({
 
 export interface MetabobCLIConfig {
   apiKey?: string;
+  vesselId?: string;
   activityApiUrl?: string;
   discoveryEndpoint?: string;
   analysisApiUrl?: string;
@@ -223,6 +225,7 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
   }
 
   const apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
+  const vesselId = result.data.metabob?.vesselId;
   // An apiKey-only config is valid: the endpoint defaults to the public
   // deployment and every sibling service (identity included) derives from it.
   // Nothing defaults to a specialized host — all traffic routes through the
@@ -242,6 +245,7 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
 
   return {
     apiKey,
+    vesselId,
     activityApiUrl,
     discoveryEndpoint,
     analysisApiUrl,
@@ -262,6 +266,10 @@ export function applyConfigDefaults(
 
   if (!env.METABOB_API_KEY && config.apiKey) {
     env.METABOB_API_KEY = config.apiKey;
+  }
+
+  if (!env.VESSEL_ID && config.vesselId) {
+    env.VESSEL_ID = config.vesselId;
   }
 
   if (!env.ACTIVITY_API_URL && config.activityApiUrl) {

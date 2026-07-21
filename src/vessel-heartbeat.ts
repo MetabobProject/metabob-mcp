@@ -15,10 +15,16 @@ const MAX_FAILURES = 3;
 const DEFAULT_TTL_S = 300;
 
 export interface VesselHeartbeatConfig {
-  /** discovery-vessel / activity-api endpoint (e.g. https://ide.metabob.com) */
-  activityEndpoint: string;
+  /**
+   * discovery-vessel base URL. Registration posts to `${discoveryEndpoint}/register`
+   * — the compliant path (the activity-api `/v2/vessels/register` proxy is
+   * deprecated). Derived point-and-go from the join endpoint; never hardcoded.
+   */
+  discoveryEndpoint: string;
   vesselId: string;
   vesselName: string;
+  /** Vessel version, advertised in the registration row. */
+  version: string;
   /** This vessel's own reachable HTTP base URL. */
   endpoint: string;
   shapes: string[];
@@ -26,12 +32,20 @@ export interface VesselHeartbeatConfig {
   ttl?: number;
   heartbeatIntervalMs?: number;
   authService: AuthService;
+  /**
+   * Optional supplier of extra registration fields recomputed each cycle —
+   * used to advertise the libp2p transport row (protocol/peerId/multiaddr)
+   * once a circuit reservation exists. Read at register() time (use-time), so
+   * a late-arriving circuit is picked up on the next heartbeat.
+   */
+  extraFields?: () => Record<string, unknown>;
 }
 
 export class VesselHeartbeat {
-  private config: Required<Omit<VesselHeartbeatConfig, 'heartbeatIntervalMs' | 'metadata'>> & {
+  private config: Required<Omit<VesselHeartbeatConfig, 'heartbeatIntervalMs' | 'metadata' | 'extraFields'>> & {
     heartbeatIntervalMs: number;
     metadata: Record<string, unknown>;
+    extraFields?: () => Record<string, unknown>;
   };
   private intervalHandle?: Timer;
   private running = false;
@@ -46,6 +60,22 @@ export class VesselHeartbeat {
       metadata: config.metadata ?? {},
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? (ttl * 1000) / 2,
     };
+  }
+
+  /**
+   * Replace the advertised shape-set and re-register immediately so the change
+   * is visible before the next heartbeat tick. No-op if the set is unchanged.
+   * This is the actuator for shape-driven mode (Law 1): the presence-advertiser
+   * recomputes which shapes to serve from a use-time condition and calls this.
+   */
+  async setShapes(shapes: string[]): Promise<void> {
+    const next = [...shapes];
+    const changed =
+      next.length !== this.config.shapes.length ||
+      next.some((s, i) => s !== this.config.shapes[i]);
+    if (!changed) return;
+    this.config.shapes = next;
+    if (this.running) await this.register();
   }
 
   async start(): Promise<void> {
@@ -75,7 +105,7 @@ export class VesselHeartbeat {
   }
 
   async register(): Promise<boolean> {
-    const { activityEndpoint, vesselId, vesselName, endpoint, shapes, metadata, ttl, authService } =
+    const { discoveryEndpoint, vesselId, vesselName, version, endpoint, shapes, metadata, ttl, authService, extraFields } =
       this.config;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -96,6 +126,7 @@ export class VesselHeartbeat {
     const body = {
       vesselId,
       vesselName,
+      version,
       endpoint,
       shapes,
       metadata,
@@ -108,10 +139,13 @@ export class VesselHeartbeat {
       // Wave A3: auth-token-source contract
       auth_token_source: 'header',
       auth_delegation_mode: 'direct',
+      // Transport row (protocol / libp2p_peer_id / libp2p_multiaddr) when a
+      // circuit reservation exists — recomputed each cycle at use-time.
+      ...(extraFields ? extraFields() : {}),
     };
 
     try {
-      const url = `${activityEndpoint}/v2/vessels/register`;
+      const url = `${discoveryEndpoint}/register`;
       const reqInit = {
         method: 'POST',
         headers,

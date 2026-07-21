@@ -8,6 +8,7 @@ import { CircuitState } from './circuit-breaker.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import type { AuthService } from './auth-service.js';
 import type { LocalStore } from './local-store.js';
+import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
 import { ZodError } from 'zod';
 
 export interface VesselServerConfig {
@@ -27,7 +28,7 @@ export interface VesselServerConfig {
   localStore?: LocalStore | null;
 }
 
-const VERSION = '0.1.0';
+const VERSION = VESSEL_VERSION;
 
 export class VesselServer {
   private nodeServer: Server | null = null;
@@ -118,15 +119,9 @@ export class VesselServer {
 
     app.get('/v2/capabilities', (c) => {
       return c.json({
-        id: 'metabob-mcp',
+        id: VESSEL_BASE_NAME,
         version: VERSION,
-        shapes: [
-          'mcp:tool_call',
-          'code:cochange_prediction',
-          'code:impact_analysis',
-          'code:git_change_assignment',
-          'code:analysis_context',
-        ],
+        shapes: [...SERVED_SHAPES],
         protocols: ['mcp:stdio', 'http:resolver'],
         tools: getAllTools().map(t => ({ name: t.name, description: t.description })),
         resolver: { endpoint: '/v2/impulses/resolve', authScheme: 'ApiKey', timeoutMs: 30000 },
