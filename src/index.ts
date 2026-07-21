@@ -24,9 +24,11 @@ import { SessionManager } from './session-manager.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
-import { VesselServer } from './vessel-server.js';
+import { VesselServer, resolveImpulseContent } from './vessel-server.js';
 import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
+import { fetchBootstrapAnchors } from './bootstrap.js';
+import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
@@ -154,6 +156,7 @@ let scheduler: Scheduler | null = null;
 let stopWatcher: (() => void) | null = null;
 let stopGitWatcher: (() => void) | null = null;
 let vesselHeartbeat: VesselHeartbeat | null = null;
+let federationNode: FederationNode | null = null;
 
 const vesselServer = new VesselServer({
   port: HEALTH_PORT,
@@ -481,9 +484,40 @@ async function main() {
       // Best-effort reachable base URL for inbound resolves. localhost serves
       // same-host callers; VESSEL_PUBLIC_ENDPOINT overrides for cross-host
       // (e.g. a containerised discovery reaching the host). Cross-NAT inbound
-      // reachability is what the libp2p transport (a later commit) adds.
+      // reachability is what the libp2p transport (below) adds.
       const advertisedEndpoint =
         process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || `http://127.0.0.1:${HEALTH_PORT}`;
+
+      // Prefer p2p: discover a relay via /bootstrap (read at use time, never
+      // pinned). If one exists AND the optional libp2p transport is installed,
+      // stand up an overlay node serving the SAME resolve handler so peers
+      // behind NAT / a corp proxy can reach us. No relay or no transport →
+      // FederationNode is null and we advertise HTTP-only (the compliant
+      // fallback).
+      try {
+        const anchors = await fetchBootstrapAnchors(DISCOVERY_ENDPOINT);
+        const relay = anchors.relayMultiaddrs[0];
+        if (relay) {
+          log('info', 'Relay discovered — starting libp2p overlay', { relay });
+          federationNode = await startFederationNode({
+            vesselId,
+            relayMultiaddr: relay,
+            resolveHandler: async (pointer: any) =>
+              (await resolveImpulseContent(pointer ?? {}, apiClient, SESSION_ID)).content,
+          });
+          if (federationNode) {
+            log('info', 'libp2p overlay ready', {
+              peerId: federationNode.peerId,
+              circuit: federationNode.currentCircuit() || '(pending)',
+            });
+          } else {
+            log('info', 'libp2p overlay unavailable — advertising HTTP-only');
+          }
+        }
+      } catch (err) {
+        log('warn', 'Overlay setup failed — advertising HTTP-only', { error: err });
+      }
+
       vesselHeartbeat = new VesselHeartbeat({
         discoveryEndpoint: DISCOVERY_ENDPOINT,
         vesselId,
@@ -492,9 +526,24 @@ async function main() {
         endpoint: advertisedEndpoint,
         shapes: [...SERVED_SHAPES],
         authService,
+        // Advertise the libp2p transport row when a circuit exists; re-derived
+        // each heartbeat cycle so a late reservation is picked up.
+        extraFields: () => {
+          if (!federationNode) return {};
+          const circuit = federationNode.currentCircuit();
+          return {
+            protocol: 'libp2p',
+            libp2p_peer_id: federationNode.peerId,
+            libp2p_multiaddr: circuit ? [circuit] : [],
+          };
+        },
       });
       await vesselHeartbeat.start();
-      log('info', 'Registered with discovery', { vesselId, discovery: DISCOVERY_ENDPOINT });
+      log('info', 'Registered with discovery', {
+        vesselId,
+        discovery: DISCOVERY_ENDPOINT,
+        transport: federationNode ? 'libp2p+http' : 'http',
+      });
     } else {
       log('info', 'Discovery registration skipped (no discovery endpoint / key / vesselId) — running client-only');
     }
@@ -598,6 +647,7 @@ async function main() {
 
     authService.stopKeyHeartbeat();
     vesselHeartbeat?.stop();
+    await federationNode?.stop().catch(() => {});
     telemetry.destroy();
     localStore?.close();
     await apiClient.shutdown();

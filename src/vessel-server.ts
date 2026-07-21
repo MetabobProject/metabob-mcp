@@ -164,21 +164,7 @@ export class VesselServer {
           const startTime = Date.now();
 
           try {
-            const { toolName, toolInput } = resolvePointerToTool(pointer);
-            const tool = TOOL_REGISTRY[toolName];
-
-            if (!tool) {
-              return {
-                id,
-                loaded: false,
-                error: `Unknown tool: ${toolName}`,
-                metadata: { duration_ms: Date.now() - startTime },
-              };
-            }
-
-            const validatedInput = tool.validateInput(toolInput);
-            const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
-
+            const { toolName, content } = await resolveImpulseContent(pointer, apiClient, sessionId, localStore);
             return {
               id,
               loaded: true,
@@ -209,6 +195,29 @@ export class VesselServer {
 
     return app;
   }
+}
+
+/**
+ * Resolve a single impulse pointer to its tool output. Extracted so the HTTP
+ * resolver (`POST /v2/impulses/resolve`) and the libp2p transport
+ * (serveResolve / serveResolveHttp) resolve identically — same shape → same
+ * tool → same content — rather than duplicating dispatch per transport. Throws
+ * on unknown tool or validation failure; callers wrap the error per transport.
+ */
+export async function resolveImpulseContent(
+  pointer: Record<string, unknown>,
+  apiClient: AnalysisAPIClient,
+  sessionId: string,
+  localStore?: LocalStore | null,
+): Promise<{ toolName: string; content: unknown }> {
+  const { toolName, toolInput } = resolvePointerToTool(pointer);
+  const tool = TOOL_REGISTRY[toolName];
+  if (!tool) {
+    throw new Error(`Unknown tool: ${toolName}`);
+  }
+  const validatedInput = tool.validateInput(toolInput);
+  const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
+  return { toolName, content };
 }
 
 /**

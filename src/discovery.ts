@@ -9,6 +9,9 @@ export interface DiscoveryCapability {
    */
   public_endpoint?: string;
   protocol?: string;
+  /** libp2p overlay reachability (present when the vessel advertised a circuit). */
+  libp2p_peer_id?: string;
+  libp2p_multiaddr?: string[];
   confidence: number;
   lastSeen: string;
   resolve_endpoint?: string;
