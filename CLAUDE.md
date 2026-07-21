@@ -116,6 +116,31 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `METABOB_TELEMETRY` | _(unset)_ | Set to `off` to disable per-tool-call usage telemetry |
 | `MB_OPERATOR_ID` | `claude-code-operator` | Operator identity threaded onto goal dispatch (`run_goal` / `run_goal_async`) and folded into `provide_feedback` label notes |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; overrides discovery derivation for `registry_query` / `resolve_impulse` (local default `http://localhost:18100`) |
+| `VESSEL_ID` | _(derived)_ | Discovery registration id. Defaults to a stable, unique `metabob-mcp-<hash(apiKey+workspace)>` (distinct instances disambiguate automatically). Set explicitly only for deliberate replica/failover (same value on two instances = one registry row) |
+| `VESSEL_PUBLIC_ENDPOINT` | `http://127.0.0.1:$HEALTH_PORT` | Reachable base URL advertised for inbound HTTP resolves. Override when a cross-host caller (e.g. a containerised discovery) must reach this process by a different address |
+
+## Vessel registration (point-and-go)
+
+Beyond being an MCP/HTTP client, the process joins a discovery namespace as a
+conventional vessel with only `{discovery endpoint, valid key}` — everything else
+derives (namespace from the verified key; discovery/identity from the gateway;
+relay from `GET /bootstrap`, read at use time, never pinned). Registration
+fails open: no discovery/key, or an unreachable discovery, degrades to a
+client-only process.
+
+- **Disambiguation.** `VESSEL_ID` is stable+unique per instance (above), so
+  multiple concurrent instances register distinct rows; the same workspace+key
+  across restarts is a stable replica.
+- **Transport.** Prefers a libp2p circuit-relay overlay when a relay is
+  advertised via `/bootstrap` *and* the optional peer
+  `@avigopal/libp2p-federation-transport` is installed (dynamically imported,
+  never bundled); otherwise HTTP — the always-works fallback for proxied
+  networks. The overlay serves the same resolve handler as the HTTP resolver.
+- **Shape-driven advertisement (Law 1).** The advertised shape-set reflects live
+  capability: CPG-dependent shapes (`code:cochange_prediction`,
+  `code:impact_analysis`, `code:git_change_assignment`) are advertised only once
+  a workspace is indexed (`init_workspace`); `mcp:tool_call` and
+  `code:analysis_context` are always served.
 
 ## Telemetry
 
