@@ -30,6 +30,7 @@ import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME } from './vessel-iden
 import { fetchBootstrapAnchors } from './bootstrap.js';
 import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
 import { computeAdvertisedShapes, startPresenceAdvertiser } from './presence-advertiser.js';
+import { setResolverIdentity } from './resolver-identity.js';
 import { getLocalIndex } from './local-index.js';
 import { AuthService } from './auth-service.js';
 import { Telemetry, extractOutcomePayload } from './telemetry.js';
@@ -492,6 +493,9 @@ async function main() {
       apiKey: METABOB_API_KEY,
       workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
     });
+    // Publish the stable coordination identity even if discovery registration is
+    // skipped — the agent-resolver tools + inbound enqueue key on the vesselId.
+    setResolverIdentity({ vesselId });
     if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId) {
       // Best-effort reachable base URL for inbound resolves. localhost serves
       // same-host callers; VESSEL_PUBLIC_ENDPOINT overrides for cross-host
