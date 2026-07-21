@@ -26,7 +26,7 @@ import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
 import { VesselServer, resolveImpulseContent } from './vessel-server.js';
 import { VesselHeartbeat } from './vessel-heartbeat.js';
-import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME } from './vessel-identity.js';
+import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, agentResolverEnabled } from './vessel-identity.js';
 import { fetchBootstrapAnchors } from './bootstrap.js';
 import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
 import { computeAdvertisedShapes, startPresenceAdvertiser } from './presence-advertiser.js';
@@ -554,8 +554,13 @@ async function main() {
         version: VESSEL_VERSION,
         endpoint: advertisedEndpoint,
         // Advertise only currently-serviceable shapes; the presence-advertiser
-        // adds the CPG-dependent ones once a workspace is indexed (Law 1).
-        shapes: computeAdvertisedShapes(workspaceIsIndexed()),
+        // keeps this in step as conditions change (Law 1): CPG shapes once a
+        // workspace is indexed, human_input while the agent-resolver role is on.
+        shapes: computeAdvertisedShapes(workspaceIsIndexed(), agentResolverEnabled()),
+        // A generous resolve timeout when acting as an agent-resolver: goal-host
+        // uses this as the solicitation deadline (the agent needs minutes to
+        // answer, unlike the fast code:* resolves).
+        resolveTimeoutMs: agentResolverEnabled() ? 300_000 : undefined,
         authService,
         // Advertise the libp2p transport row when a circuit exists; re-derived
         // each heartbeat cycle so a late reservation is picked up.
@@ -573,7 +578,7 @@ async function main() {
       // Keep the advertised shape-set in step with live capability.
       stopPresenceAdvertiser = startPresenceAdvertiser({
         heartbeat: vesselHeartbeat,
-        isIndexed: workspaceIsIndexed,
+        desiredShapes: () => computeAdvertisedShapes(workspaceIsIndexed(), agentResolverEnabled()),
       });
       log('info', 'Registered with discovery', {
         vesselId,

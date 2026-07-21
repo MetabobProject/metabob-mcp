@@ -26,19 +26,31 @@ const CPG_DEPENDENT_SHAPES = [
 ] as const;
 
 /**
- * The shapes to advertise given whether a workspace CPG is populated. Pure and
- * deterministic so the heartbeat's change-detection is stable.
+ * Shapes the substrate dispatches TO the agent when it is available as a
+ * resolver. Advertised only when the agent-resolver role is enabled so goal-host
+ * can select this session for solicited decisions.
  */
-export function computeAdvertisedShapes(indexed: boolean): string[] {
-  return indexed ? [...ALWAYS_SHAPES, ...CPG_DEPENDENT_SHAPES] : [...ALWAYS_SHAPES];
+const AGENT_RESOLVER_SHAPES = ['human_input'] as const;
+
+/**
+ * The shapes to advertise, from two use-time conditions: whether a workspace CPG
+ * is populated (gates the code:* shapes) and whether this session is acting as
+ * an agent-resolver (gates human_input). Pure and deterministic so the
+ * heartbeat's change-detection is stable.
+ */
+export function computeAdvertisedShapes(indexed: boolean, agentResolver = false): string[] {
+  const shapes: string[] = [...ALWAYS_SHAPES];
+  if (indexed) shapes.push(...CPG_DEPENDENT_SHAPES);
+  if (agentResolver) shapes.push(...AGENT_RESOLVER_SHAPES);
+  return shapes;
 }
 
 export interface PresenceAdvertiserOptions {
   /** The heartbeat actuator — setShapes re-registers on a changed set. */
   heartbeat: { setShapes(shapes: string[]): Promise<void> };
-  /** Use-time condition: does the local CPG hold an indexed workspace? */
-  isIndexed: () => boolean;
-  /** Recompute cadence. A light poll is sufficient; the condition changes rarely. */
+  /** Recompute the shapes to advertise from current use-time conditions. */
+  desiredShapes: () => string[];
+  /** Recompute cadence. A light poll is sufficient; conditions change rarely. */
   intervalMs?: number;
 }
 
@@ -52,7 +64,7 @@ export function startPresenceAdvertiser(opts: PresenceAdvertiserOptions): () => 
   const intervalMs = opts.intervalMs ?? 30_000;
   const handle = setInterval(() => {
     void opts.heartbeat
-      .setShapes(computeAdvertisedShapes(opts.isIndexed()))
+      .setShapes(opts.desiredShapes())
       .catch((err) => {
         console.error(
           `[presence] re-advertise failed: ${err instanceof Error ? err.message : err}`,

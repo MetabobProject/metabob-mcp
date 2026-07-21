@@ -30,6 +30,8 @@ export interface VesselHeartbeatConfig {
   shapes: string[];
   metadata?: Record<string, unknown>;
   ttl?: number;
+  /** Advertised resolve timeout (ms); goal-host uses it as the solicitation deadline. Default 30s. */
+  resolveTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   authService: AuthService;
   /**
@@ -42,9 +44,10 @@ export interface VesselHeartbeatConfig {
 }
 
 export class VesselHeartbeat {
-  private config: Required<Omit<VesselHeartbeatConfig, 'heartbeatIntervalMs' | 'metadata' | 'extraFields'>> & {
+  private config: Required<Omit<VesselHeartbeatConfig, 'heartbeatIntervalMs' | 'metadata' | 'extraFields' | 'resolveTimeoutMs'>> & {
     heartbeatIntervalMs: number;
     metadata: Record<string, unknown>;
+    resolveTimeoutMs: number;
     extraFields?: () => Record<string, unknown>;
   };
   private intervalHandle?: Timer;
@@ -58,6 +61,7 @@ export class VesselHeartbeat {
       ...config,
       ttl,
       metadata: config.metadata ?? {},
+      resolveTimeoutMs: config.resolveTimeoutMs ?? 30_000,
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? (ttl * 1000) / 2,
     };
   }
@@ -105,7 +109,7 @@ export class VesselHeartbeat {
   }
 
   async register(): Promise<boolean> {
-    const { discoveryEndpoint, vesselId, vesselName, version, endpoint, shapes, metadata, ttl, authService, extraFields } =
+    const { discoveryEndpoint, vesselId, vesselName, version, endpoint, shapes, metadata, ttl, resolveTimeoutMs, authService, extraFields } =
       this.config;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -135,7 +139,7 @@ export class VesselHeartbeat {
       resolve_endpoint: '/v2/impulses/resolve',
       resolve_request_format: 'pointer',
       auth_scheme: 'ApiKey',
-      resolve_timeout_ms: 30_000,
+      resolve_timeout_ms: resolveTimeoutMs,
       // Wave A3: auth-token-source contract
       auth_token_source: 'header',
       auth_delegation_mode: 'direct',

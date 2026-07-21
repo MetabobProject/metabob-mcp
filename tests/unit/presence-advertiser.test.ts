@@ -28,6 +28,13 @@ describe('computeAdvertisedShapes', () => {
     expect(computeAdvertisedShapes(true)).toEqual(computeAdvertisedShapes(true));
     expect(computeAdvertisedShapes(false)).toEqual(computeAdvertisedShapes(false));
   });
+
+  test('agent-resolver on → advertises human_input; off → does not', () => {
+    expect(computeAdvertisedShapes(false, true)).toContain('human_input');
+    expect(computeAdvertisedShapes(true, true)).toContain('human_input');
+    expect(computeAdvertisedShapes(false, false)).not.toContain('human_input');
+    expect(computeAdvertisedShapes(true)).not.toContain('human_input'); // default off
+  });
 });
 
 describe('startPresenceAdvertiser', () => {
@@ -40,7 +47,7 @@ describe('startPresenceAdvertiser', () => {
           calls.push(shapes);
         },
       },
-      isIndexed: () => indexed,
+      desiredShapes: () => computeAdvertisedShapes(indexed),
       intervalMs: 5,
     });
 
@@ -62,7 +69,7 @@ describe('startPresenceAdvertiser', () => {
           count += 1;
         },
       },
-      isIndexed: () => false,
+      desiredShapes: () => computeAdvertisedShapes(false),
       intervalMs: 5,
     });
     await new Promise((r) => setTimeout(r, 15));
