@@ -99,17 +99,34 @@ export function deriveLocalDiscoveryEndpoint(activityApiUrl?: string): string | 
     return undefined;
   }
 
-  if (url.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(url.hostname)) {
+  if (url.protocol !== 'http:') {
     return undefined;
   }
 
-  // Local port-published substrate convention: the activity gateway ends in
-  // …080 and its siblings sit at fixed offsets in the same block (discovery
-  // …100, analysis …250, concept …260). Derive discovery = blockBase + 100 for
-  // ANY conforming port (8080, 18080, 19080, 28080, …) rather than enumerating
-  // a hardcoded pair — a bare-port allowlist silently mis-derived every other
+  // Port-published substrate convention: the activity gateway ends in …080 and
+  // its siblings sit at fixed offsets in the same block (discovery …100,
+  // analysis …250, concept …260). Derive discovery = blockBase + 100 for ANY
+  // conforming port (8080, 18080, 19080, 28080, …) rather than enumerating a
+  // hardcoded pair — a bare-port allowlist silently mis-derived every other
   // deployment's port scheme (e.g. dashboard-test's 19080 → 19100).
-  const activityPort = Number(url.port || 80);
+  //
+  // What signals this convention is the PORT, not the hostname. Gating on
+  // localhost/127.0.0.1 made every remote port-published substrate fall through
+  // to the path-splitting reverse-proxy branch in config.ts, which then handed
+  // out {endpoint}/discovery, /analysis and /conceptdb — routes that deployment
+  // has never served. It 404s the whole cockpit: registry_query, run_goal(_async)
+  // and vessel-mode resolve_impulse all report "could not find X via discovery",
+  // which reads as a dead substrate rather than a mis-derived client URL.
+  // An EXPLICIT conforming port is the evidence; that is exactly the same class
+  // of allowlist error as the bare-port one above, one level up.
+  //
+  // The reverse-proxy branch keeps everything it actually owns: bare
+  // http://host (implicit port 80) has no explicit port and still falls
+  // through to it, as does any https:// endpoint.
+  if (!url.port) {
+    return undefined;
+  }
+  const activityPort = Number(url.port);
   if (!Number.isInteger(activityPort) || activityPort % 100 !== 80) {
     return undefined;
   }

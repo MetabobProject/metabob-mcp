@@ -83,6 +83,48 @@ test('loadMetabobCLIConfig derives substrate sibling endpoints from local activi
   });
 });
 
+test('loadMetabobCLIConfig derives sibling endpoints from a REMOTE port-published substrate', () => {
+  // A remote substrate that publishes ports directly (the deploy-remote.sh /
+  // deploy-hub.sh shape) follows the same 18xxx block convention as a local one.
+  // Gating the port-offset derivation on a localhost hostname sent this case to
+  // the path-splitting reverse-proxy branch, which handed out
+  // http://host:18080/discovery — a route no port-published deployment serves.
+  // Every cockpit tool then 404s and reports the substrate as undiscoverable.
+  const path = writeConfigFile(JSON.stringify({
+    metabob: {
+      apiKey: 'mb_test_key',
+      endpoint: 'http://syzygy.host:18080',
+    },
+  }));
+
+  expect(loadMetabobCLIConfig(path)).toEqual({
+    apiKey: 'mb_test_key',
+    activityApiUrl: 'http://syzygy.host:18080',
+    discoveryEndpoint: 'http://syzygy.host:18100',
+    analysisApiUrl: 'http://syzygy.host:18250',
+    identityEndpoint: undefined,
+    conceptDbUrl: 'http://syzygy.host:18260',
+    goalHostVesselUrl: undefined,
+    sourcePath: path,
+  });
+});
+
+test('loadMetabobCLIConfig still uses path prefixes for a portless http reverse proxy', () => {
+  // The guard that keeps the fix above from swallowing the proxy branch: a bare
+  // http:// host has no explicit port, so it must NOT be read as port-published
+  // (an implicit port 80 conforms to %100===80 and would derive :100).
+  const path = writeConfigFile(JSON.stringify({
+    metabob: {
+      apiKey: 'mb_test_key',
+      endpoint: 'http://ide.metabob.com',
+    },
+  }));
+
+  const config = loadMetabobCLIConfig(path);
+  expect(config?.discoveryEndpoint).toBe('http://ide.metabob.com/discovery');
+  expect(config?.conceptDbUrl).toBe('http://ide.metabob.com/conceptdb');
+});
+
 test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived defaults', () => {
   const path = writeConfigFile(JSON.stringify({
     metabob: {
