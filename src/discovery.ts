@@ -80,11 +80,54 @@ function normalizeDiscoveredUrl(rawUrl: string, discoveryEndpoint?: string): str
  * reachable from outside the container network), and only fall back to the
  * legacy `endpoint` + port-remap heuristic when it is absent.
  */
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
+
+function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.includes(hostname);
+}
+
+/**
+ * A loopback address from a REMOTE registry cannot mean "this machine".
+ *
+ * Vessels register public_endpoint as http://127.0.0.1:<host-mapped port> — true
+ * for a client on the substrate host, and actively dangerous for anyone else. The
+ * hub advertises goal-host at http://127.0.0.1:18210, and a workstation running
+ * its own substrate publishes 18210 too. Taking that verbatim does not fail: it
+ * silently dispatches to the LOCAL substrate while the operator believes they are
+ * driving the remote one. Goals land, traces are written, verdicts come back — all
+ * from the wrong system. A 404 is recoverable; this is not, because nothing about
+ * the result looks wrong.
+ *
+ * So when discovery itself was reached at a non-loopback host, that host is the
+ * only evidence we have of where these vessels actually live — rehost to it and
+ * keep the advertised port. When discovery IS loopback, the advertisement is taken
+ * at face value: we are genuinely on the substrate host.
+ */
+function rehostLoopbackForRemoteDiscovery(rawUrl: string, discoveryEndpoint?: string): string {
+  if (!discoveryEndpoint) {
+    return rawUrl;
+  }
+  try {
+    const url = new URL(rawUrl);
+    const discoveryUrl = new URL(discoveryEndpoint);
+    if (isLoopbackHost(url.hostname) && !isLoopbackHost(discoveryUrl.hostname)) {
+      url.hostname = discoveryUrl.hostname;
+      return url.toString().replace(/\/$/, '');
+    }
+    return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
 function resolveVesselBaseUrl(capability: DiscoveryCapability, discoveryEndpoint?: string): string {
   if (typeof capability.public_endpoint === 'string' && capability.public_endpoint.trim().length > 0) {
-    return capability.public_endpoint.replace(/\/+$/, '');
+    return rehostLoopbackForRemoteDiscovery(capability.public_endpoint.replace(/\/+$/, ''), discoveryEndpoint);
   }
-  return normalizeDiscoveredUrl(capability.endpoint, discoveryEndpoint);
+  return rehostLoopbackForRemoteDiscovery(
+    normalizeDiscoveredUrl(capability.endpoint, discoveryEndpoint),
+    discoveryEndpoint,
+  );
 }
 
 export function deriveLocalDiscoveryEndpoint(activityApiUrl?: string): string | undefined {
@@ -205,7 +248,34 @@ export async function resolveServiceEndpointByShape(options: {
 export function buildResolverUrl(capability: DiscoveryCapability, discoveryEndpoint?: string): string {
   const resolveEndpoint = capability.resolve_endpoint ?? '/v2/impulses/resolve';
   if (/^https?:\/\//.test(resolveEndpoint)) {
-    return normalizeDiscoveredUrl(resolveEndpoint, discoveryEndpoint);
+    // An ABSOLUTE resolve_endpoint is advertised on the vessel's INTERNAL port
+    // (the hub publishes http://127.0.0.1:8210/resolve while public_endpoint is
+    // :18210). Rehosting it directly would keep 8210, which is not published — so
+    // for a remote registry, take only its PATH and rebuild on the vessel base
+    // URL, which resolveVesselBaseUrl has already rehosted to a reachable port.
+    // Locally this branch is unchanged: the internal port is the right one.
+    const remoteLoopback =
+      discoveryEndpoint !== undefined &&
+      (() => {
+        try {
+          return (
+            isLoopbackHost(new URL(resolveEndpoint).hostname) &&
+            !isLoopbackHost(new URL(discoveryEndpoint).hostname)
+          );
+        } catch {
+          return false;
+        }
+      })();
+
+    if (!remoteLoopback) {
+      return normalizeDiscoveredUrl(resolveEndpoint, discoveryEndpoint);
+    }
+
+    const base = new URL(resolveVesselBaseUrl(capability, discoveryEndpoint));
+    base.pathname = new URL(resolveEndpoint).pathname;
+    base.search = '';
+    base.hash = '';
+    return base.toString().replace(/\/$/, '');
   }
 
   const url = new URL(resolveVesselBaseUrl(capability, discoveryEndpoint));
