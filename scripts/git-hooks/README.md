@@ -10,7 +10,7 @@ This sets `core.hooksPath` to `scripts/git-hooks/` so updates to the hooks land 
 
 ## Philosophy
 
-metabob-mcp is an MCP server distributed via npm (`@metabob/metabob-mcp`). The repo is organised around:
+metabob-mcp is an MCP server distributed via npm (`@metabob/mcp`). The repo is organised around:
 
 - `src/` — server source (`cli.ts`, `index.ts`, tool handlers)
 - `tests/` — test suites
@@ -67,11 +67,11 @@ A commit is rejected when it adds (or renames into) a file that violates any of 
 
 1. **Files at the metabob-mcp root** are limited to a small allowlist of project metadata.
 2. **No new top-level markdown** outside `docs/`. Time-bound writeups (FIX_COMPLETE, INVESTIGATION, STATUS, SUMMARY, …) go in commit messages.
-3. **No new ad-hoc scripts at root** (`*.sh`, `*.ts`, `*.js`, `*.mjs`, `*.py`). Source goes in `src/`; operational scripts in `scripts/`. Ad-hoc `test-*.{ts,sh}`, `demo-*.sh`, and `show-*.sh` at root are explicitly rejected.
+3. **No new ad-hoc scripts at root** (`*.sh`, `*.ts`, `*.tsx`, `*.js`, `*.mjs`, `*.cjs`, `*.py`). Source goes in `src/`; operational scripts in `scripts/`. Ad-hoc `test-*.{ts,sh}`, `demo-*.sh`, and `show-*.sh` at root are explicitly rejected.
 4. **No new test files** outside `tests/` or co-located `src/<module>/__tests__/`.
-5. **No new YAML / JSON / SQL / TOML / HTML at root**. Config goes alongside what it configures.
+5. **No new YAML / JSON / SQL / SurrealQL / TOML / HTML / TXT / JSONL at root**. Config goes alongside what it configures.
 6. **No new image / video / archive files** anywhere outside `docs/assets/`.
-7. **No new top-level directories** outside the allowed set.
+7. **New files must sit under an allowed top-level directory**: `src/`, `test/`, `tests/`, `scripts/`, `docs/`, `openspec/`, `packages/`, `.github/`, `.minibob/`. This is a path check, not a directory-creation check — adding a file under an existing-but-unlisted directory (`vendor/`, `skills/`, `include/`) is rejected too. Extend `ALLOWED_TOPLEVEL_DIRS` rather than bypassing.
 
 ## Gitleaks
 
@@ -86,14 +86,6 @@ go install github.com/gitleaks/gitleaks/v8@latest
 
 If gitleaks is not on `PATH` the hook prints an install hint and lets the commit through.
 
-## Bypass
-
-```bash
-git commit --no-verify
-```
-
-Use sparingly. The rules exist to keep `git blame` readable.
-
 ## Extending the rules
 
 Edit `scripts/git-hooks/pre-commit`:
@@ -104,7 +96,4 @@ Edit `scripts/git-hooks/pre-commit`:
 
 Add a comment explaining the change so future readers understand the carve-out.
 
-## Related
 
-- The super-repo (`metabob-devbob`) has a parallel hook at `scripts/git-hooks/pre-commit`.
-- The deployment repo and other vessels (`minibob`, `metabob-analysis-api`) carry the same two-layer pattern with their own allowlists.

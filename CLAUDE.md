@@ -5,7 +5,7 @@ MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities 
 - **MCP (stdio)** — Claude Code, Cursor, Continue, and other MCP clients
 - **HTTP resolver (port 8080)** — activity system invokes tools via impulse pointers
 
-Auth: `METABOB_API_KEY` is exchanged for an opaque session token with `ide.metabob.com` on startup. The same key also resolves a tenant JWT from the identity vessel at `ide.metabob.com/identity` (used for the HTTP impulse resolver) — identity resolution routes through the single public endpoint, never a specialized host.
+Auth: `METABOB_API_KEY` authenticates each analysis request directly — there is no `POST /session` token exchange. The exchange path runs only under `METABOB_STATELESS=true`, which selects the legacy REST surface and refreshes an opaque session token on a timer. The same key also resolves a tenant JWT from the identity vessel at `ide.metabob.com/identity` (used for the HTTP impulse resolver) — identity resolution routes through the single public endpoint, never a specialized host.
 
 ## Quick reference
 
@@ -20,12 +20,7 @@ bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
 
 ## Branching
 
-Two-branch model, enforced by the `pre-push` hook (`scripts/git-hooks/pre-push`):
-
-- **`dev`** is the default/integration branch — **all development lands here** via PRs. Branch off `dev`, open PRs into `dev`.
-- **`main`** is the release branch — it advances **only with a version bump** (`package.json` `version`) and **only carries commits already on `dev`**. Never commit feature work directly to `main`; it is a sequence of release checkpoints, not a development branch.
-
-The hook rejects any push to `main` that isn't a version-bumped checkpoint already present on `dev` (emergency override: `METABOB_ALLOW_MAIN_PUSH=1`). Run `bash scripts/git-hooks/install.sh` once per clone to activate.
+Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bumped checkpoint whose commits are already on `dev`, never by direct feature work. The `pre-push` hook enforces both conditions — see `scripts/git-hooks/README.md` § Branch policy for the exact rules and the emergency override. Run `bash scripts/git-hooks/install.sh` once per clone to activate.
 
 ## Key files
 
@@ -34,8 +29,8 @@ The hook rejects any push to `main` that isn't a version-bumped checkpoint alrea
 | `src/index.ts` | Entry point — auth lifecycle, MCP server, refresh timers, shutdown |
 | `src/api-client.ts` | HTTP client to `ide.metabob.com` — session auth, file submission, analysis fetch |
 | `src/auth-service.ts` | Identity-vessel auth — tenant resolution, JWT refresh, key-issuance heartbeat |
-| `src/vessel-server.ts` | Hono HTTP server — `/health`, `/v2/capabilities`, `POST /v2/impulses/resolve`. Advertises capabilities **passively** (served on request via `/v2/capabilities` + identity tenant resolution) — there is no active discovery registration (`src/vessel-heartbeat.ts` is not started) |
-| `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor` from `cpg-inference-ts`. Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
+| `src/vessel-server.ts` | Hono HTTP server — `/health`, `/v2/capabilities`, `POST /v2/impulses/resolve`. Capabilities are also served on request via `/v2/capabilities` + identity tenant resolution |
+| `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
 | `docs/SPEC.md` | Full tool specification with input/output schemas |
 
@@ -44,27 +39,27 @@ The hook rejects any push to `main` that isn't a version-bumped checkpoint alrea
 | Tool | Tier | Key behaviour |
 |------|------|--------------|
 | `init_workspace` | Local + API | Parses workspace into CPG; submits relevance-ranked batch to `ide.metabob.com` |
-| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus a "Findings recorded by agents on this codebase" section recalled from concept-db (`code_finding` concepts, list-mode, filtered client-side to the current repo/files). Server-side LLM detection is deprecated as the primary source. |
+| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus a "Findings recorded by agents on this codebase" section recalled from concept-db (`code_finding` concepts, list-mode, filtered client-side to the current repo/files). |
 | `record_finding` | Local + Substrate | The write half of agent-side analysis: attribute an agent-noticed issue (files, summary, severity, category, optional lines/details) to code. Upserts a LocalStore seed (`agf_*` id — surfaces immediately via `get_problems`) and best-effort mints a `code_finding` concept into concept-db so other agents on this codebase recall it. concept-db unreachable = non-fatal, reported in output. |
 | `search_codebase` | Local + API | Keyword search over CPG nodes and analysis results |
-| `predict_cochanges` | **Local** | Git-history co-change mining (primary) + a GCN name-similarity ranker (secondary) — no API call; needs `init_workspace`. The bundled ONNX GCN is fed only node-name char-codes, so it ranks by name similarity, not learned structure |
+| `predict_cochanges` | **Local** | Git-history co-change mining — the only informative signal. No API call; needs `init_workspace`. The bundled ONNX GCN contributes a secondary ranking that carries **no** graph signal and should be read as noise: nodes are embedded one at a time (`src/cochange-predictor.ts:81`), so the edge index is always empty, and the sole input feature is node-name char-codes |
 | `analyze_impact` | **Local** | BFS over local CPG; shows affected components by depth |
 | `annotate_component` | API | `POST /explain` or `POST /recommend` for a problem ID |
-| `mark_complete` | API / Local | `POST /feedback/detection` — endorse (fixed) or discard (false positive). For agent findings (`agf_*` ids): endorse marks the LocalStore seed stale, discard deletes it, a `finding_verdict` concept is best-effort recorded to concept-db, and — closing the relevance loop — the verdict is folded directly into the finding concept's relevance via a usage signal (endorse→`success`, discard→`failure`) when the seed carries a linked `concept:` id. |
+| `mark_complete` | API / Local | `POST /feedback/detection` — endorse (fixed) or discard (false positive). For agent findings: endorse marks the LocalStore seed stale, discard deletes the **local seed only** (the org-wide `code_finding` concept is never retracted), a `finding_verdict` concept is best-effort recorded to concept-db, and — closing the relevance loop — the verdict is folded directly into the finding concept's relevance via a usage signal (endorse→`success`, discard→`failure`) when the seed carries a linked `concept:` id. Accepts a `concept_*` id too (the form cross-agent recall hands you) and resolves it to its `agf_*` seed via `LocalStore.getSeedByConceptRef`; with no local seed it refuses explicitly rather than reporting an endorsement that never happened — a finding can be read anywhere but only endorsed where it was recorded. |
 | `get_metrics` | API | Parallel fetch of `/metrics`, `/session/stats`, `/analysis` |
 | `assign_git_changes` | Local + API | Maps changed files → CPG components + co-change predictions |
 | `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions + compact top-5 recall of other agents' recorded findings for this codebase |
 | `run_goal` | Substrate | Dispatch a goal **synchronously** via goal-host `/resolve` (impulse shape `goal_execution`); blocks ~290s. Short, one-shot goals. |
 | `run_goal_async` | Substrate | Dispatch a goal **asynchronously** via goal-host `POST /run-goal`; returns a `dispatchId` immediately. Long goals / fire-and-forget. |
 | `goal_status` | Substrate | Poll a `dispatchId` → the honest **`reached`** verdict (primary line), then `status`/executionId/template + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). Read `reached`, not `status` — `completed`≠reached, and a satisfier reach can be `status:"failed"` yet `reached:true`. |
-| `goal_reasoning` | Substrate | The "reason plane": reconstruct the goal-host walk's decision-log for a `dispatchId` — ordered per-task walk steps (resolver + tier, shapes consumed → produced, success, failure_mode), reach verdict, Thompson α/β. Richer than `goal_status`; for satisfier-only reaches (no template ran) the trace is thin and the tool says so, rendering the goal-host `walkLog` when present. Read-only first slice of Claude-Code-as-implicit-vessel. |
-| `provide_feedback` | Substrate | The "feedback plane": record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) on a `dispatchId` → records a ground-truth label into the substrate's oracle corpus (`goal_verification_labels`) — currently for offline audit (an obsidian-vessel reach-rate note), not yet consumed by an automated reach-gate recalibration path. Auto-derives goal/executionId/template from the dispatch record. Pair with `goal_reasoning`: inspect the walk, then endorse or correct it. Measured feedback, not advice. Folds the operator id into the label notes. |
+| `goal_reasoning` | Substrate | The "reason plane": reconstruct the goal-host walk's decision-log for a `dispatchId` — ordered per-task walk steps (resolver + tier, shapes consumed → produced, success, failure_mode), reach verdict, Thompson α/β. Richer than `goal_status`; for satisfier-only reaches (no template ran) the trace is thin and the tool says so, rendering the goal-host `walkLog` when present. |
+| `provide_feedback` | Substrate | The "feedback plane": record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) on a `dispatchId` → records a ground-truth label into the substrate's oracle corpus (`goal_verification_labels`), consumed by offline audit (an obsidian-vessel reach-rate note) rather than by an automated reach-gate. Auto-derives goal/executionId/template from the dispatch record. Pair with `goal_reasoning`: inspect the walk, then endorse or correct it. Measured feedback, not advice. Folds the operator id into the label notes. |
 | `registry_query` | Substrate | Inspect discovery-vessel's registry directly (replaces `docker exec … curl discovery`). `mode:"shapes"` lists the advertised shape vocabulary (optional `shape` substring filter via `GET /registry/shapes`); `mode:"vessels"` (requires `shape`) lists vessels advertising a shape (vesselId, endpoint, protocol, resolve_endpoint) via the `vesselCapability` pointer. |
 | `execution_trace` | Substrate | Read a durable execution trace by `execution_id` from activity-api (`GET /v2/activities/execution-traces/:id`) — status, activity_template_id, composition_chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), and per-task sequence (`#N ✓/✗ resolver/tier inShapes → outShapes` + failure_mode). General trace reader `goal_reasoning` specialises. 404 (satisfier-only reach) handled gracefully. |
 | `resolve_impulse` | Substrate | ADVANCED escape hatch: general impulse-resolve passthrough for ANY shape (memoryNote, feature_compose, `*_write`, …) instead of raw `curl /v2/impulses/resolve`. `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery; else defaults to activity-api. Prefer the dedicated tools when they fit. |
 | `concept_*` | Substrate | concept-db graph: `concept_search` / `_neighbors` / `_usage_stats` / `_sequence` / `_link` / `_create` / `_record_usage`. See the `metabob-substrate` skill. |
 | `concept_record_usage` | Substrate | The direct write into concept-db's **relevance** model — `POST /concepts/:id/usage`. Attribute an outcome to a concept you used: `success` credits it (raises relevance), `failure`/`neutral` grow the load count without credit. concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)`. Makes the agent a first-class, deliberate relevance contributor rather than relying only on passive read-loads and cross-vessel executions. |
-| `pull_assigned_work` | Resolver | The **write half of Claude-Code-as-implicit-vessel** (`goal_reasoning` is the read half): claim tasks the substrate *dispatched to you* (solicited `human_input` decisions). Durable + keyed by the stable vesselId, so work assigned in a prior session surfaces now. |
+| `pull_assigned_work` | Resolver | Claim tasks the substrate *dispatched to you* (solicited `human_input` decisions). Durable + keyed by the stable vesselId, so work assigned in one session surfaces in later sessions. |
 | `submit_resolution` | Resolver | Answer a pulled task (`{task_id, outcome, answer?}`). Recorded durably, then delivered to goal-host as `solicitationResponse_write` to unblock its walk; retried on a later session if the substrate was unreachable. |
 
 **Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require a config carrying only `metabob.apiKey` + `metabob.endpoint` — everything else derives. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://localhost:18080`) auto-derives `DISCOVERY_ENDPOINT=…:18100`; a remote base endpoint (e.g. `https://ide.metabob.com`) auto-derives the path-prefixed siblings (`/discovery`, `/analysis`, `/identity`, `/conceptdb`) as served by the deployment's reverse proxy. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` (or per-service config keys) override derivation.
@@ -78,7 +73,7 @@ goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell
 provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
 ```
 
-**Plain code-change goals route to `feature_compose`.** A goal that names a real `repos/<vessel>/src/…` file (e.g. `run_goal_async({ goal: "edit repos/development-vessel/src/resolvers/gap-to-feature.ts: <change>" })`) routes through the edit-intent path to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit via mitosis cutover — the byte-exact BEFORE/AFTER trick is no longer required. `reached:true` + a `feature_compose` `selectedTemplateId` + a landed commit means it worked; then read the diff (a change can pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`).
+**Plain code-change goals route to `feature_compose`.** A goal that names a real `repos/<vessel>/src/…` file (e.g. `run_goal_async({ goal: "edit repos/development-vessel/src/resolvers/gap-to-feature.ts: <change>" })`) routes through the edit-intent path to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit via mitosis cutover. `reached:true` + a `feature_compose` `selectedTemplateId` + a landed commit means it worked; then read the diff (a change can pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`).
 
 **Goal dispatch/track contract** (goal-host-vessel, `repos/goal-host-vessel`):
 - `POST /run-goal` → `202 { dispatchId, status:"running" }` (async; the goal runs in the background).
@@ -87,15 +82,7 @@ provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the orac
 
 ## Impulse shapes resolved (HTTP)
 
-| Shape | Maps to | Notes |
-|-------|---------|-------|
-| `mcp:tool_call` | any tool by name | `pointer.tool` + `pointer.input` |
-| `code:cochange_prediction` | `predict_cochanges` | requires prior `init_workspace` |
-| `code:impact_analysis` | `analyze_impact` | requires prior `init_workspace` |
-| `code:git_change_assignment` | `assign_git_changes` | requires prior `init_workspace` |
-| `code:analysis_context` | `get_analysis_context` | — |
-
-Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METABOB_API_KEY>`
+Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METABOB_API_KEY>`. The shape → tool map lives in docs/SPEC.md § Impulse shapes (HTTP resolver).
 
 ## Environment variables
 
@@ -106,12 +93,14 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `METABOB_API_KEY` | — | API key — session token exchange with `ide.metabob.com` + identity-vessel |
 | `METABOB_ENDPOINT` | `https://ide.metabob.com` | **Gateway in the vessel** — the single endpoint everything derives from (analysis, discovery, identity, concept-db). Env-var mirror of `metabob.endpoint`; pairs with `METABOB_API_KEY` as the canonical minimal config |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
+| `METABOB_STATELESS` | _(unset)_ | Set to `true` to disable sidecar mode: no LocalStore, so `record_finding` stops surfacing locally, the `get_problems` seed cache is empty, and `pull_assigned_work` / `submit_resolution` have no durable queue. Also forces the legacy single-event telemetry path |
 | `ANALYSIS_API_URL` | _(derived from `METABOB_ENDPOINT`)_ | Advanced: analysis API base URL override |
 | `IDENTITY_ENDPOINT` | _(derived from `METABOB_ENDPOINT`)_ | Advanced: identity vessel endpoint (tenant resolution) override |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
-| `SESSION_ID` | `default-session` | Session identifier |
+| `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
+| `METABOB_STDIO_KEEPALIVE` | _(unset)_ | Set to `1` to survive stdin EOF — headless operation (HTTP resolver + discovery only). Otherwise the process exits on stdin EOF or `SIGHUP`, so an orphaned sidecar does not outlive its MCP client |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `USE_CONNECTION_SLOTS` | `false` | Enable activity-API connection slot management |
 | `USER_VESSEL_URL` | `https://ide.metabob.com` | user-vessel endpoint (legacy telemetry target) |
@@ -156,9 +145,12 @@ client-only process.
 
 ## Telemetry
 
-Every tool dispatch fires one fire-and-forget `POST` to
-`${USER_VESSEL_URL}/v2/mcp/usage` recording `tool_name`, `success`,
-`duration_ms`, and (on failure) a truncated `error_code`. Authentication
+Every tool dispatch records one fire-and-forget event carrying `tool_name`,
+`success`, `duration_ms`, and (on failure) a truncated `error_code`. Two
+transports, selected by the resolved analysis endpoint: a single `POST` to
+`${USER_VESSEL_URL}/v2/mcp/usage` when it points at `ide.metabob.com` (or
+`METABOB_STATELESS=true`), otherwise a `{ session_id, events }` batch to
+`${ANALYSIS_API_URL}/v2/events/mcp` every 5s or per 50 events. Authentication
 reuses the customer's `METABOB_API_KEY`. user-vessel upserts a per-`api_key_id`
 snapshot row keyed by the HMAC-embedded `key_id` returned by identity-vessel's
 `/v1/auth/resolve`.
@@ -166,8 +158,7 @@ snapshot row keyed by the HMAC-embedded `key_id` returned by identity-vessel's
 Telemetry is opt-out via `METABOB_TELEMETRY=off` and silently disabled when no
 API key is configured. Transport failures buffer in-memory and retry on the
 next tool call; on process exit any unsent events are dropped (acceptable for
-volume-only usage telemetry — billing is sourced from `/v2/costs`). See
-`openspec/changes/2026-05-21-mcp-usage-telemetry/` for the contract.
+volume-only usage telemetry — billing is sourced from `/v2/costs`).
 
 ## Adding a tool
 
@@ -194,5 +185,4 @@ ide.metabob.com              cpg-inference-ts              ide.metabob.com/ident
 ## Related
 
 - [docs/SPEC.md](docs/SPEC.md) — full tool specification
-- [cpg-inference-ts](../cpg-inference-ts/) — local CPG library
-- [Root CLAUDE.md](../../CLAUDE.md)
+- [vendor/cpg-inference](vendor/cpg-inference/) — vendored CPG fork (Tree-sitter parsing, ONNX embedding, vector index)

@@ -7,36 +7,28 @@
 
 ## About the build
 
-`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`onnxruntime-node`, `tree-sitter-*`, `usearch`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`.
+`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`onnxruntime-node`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. `@avigopal/libp2p-federation-transport` is also external — an optional peer, dynamically imported, never bundled.
 
-The published tarball contains only `dist/cli.js`, `README.md`, and `LICENSE`. Consumers never see the `file:../cpg-inference-ts` reference — it resolves at build time and the output is self-contained.
+The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `include/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `include/` carries the ONNX model assets and `skills/` the bundled agent skill — both are required at runtime, not incidental.
 
-## @metabob/cpg-inference dependency
+## The CPG library
 
-`package.json` references `@metabob/cpg-inference` as `file:../cpg-inference-ts`. This is intentional: the source is bundled into `dist/cli.js` at build time and is not a runtime dependency. npm accepts this because the `file:` package is not present in the published tarball's dependency tree.
+The CPG library is a git submodule at `vendor/cpg-inference`, imported by
+relative path (`src/cpg-inference.ts` re-exports `../vendor/cpg-inference/src/*`).
+There is no `@metabob/cpg-inference` entry in `package.json` and no npm
+resolution involved — it is source that gets bundled into `dist/cli.js`.
 
-If you want to publish `@metabob/cpg-inference` as a standalone package (e.g. for consumers who use the CPG library directly), it now has its own build pipeline:
+`bun run preflight` (`scripts/verify-vendor.ts`) fails the build when
+`vendor/cpg-inference/src/index.ts` or `vendor/cpg-inference/include` is
+absent; the fix is `git submodule update --init --recursive`.
 
-```bash
-cd repos/cpg-inference-ts
-bun run build   # → dist/index.js + dist/*.d.ts
-npm publish
-```
+## Preconditions
 
-After publishing, update `metabob-mcp/package.json` to use the version range:
-
-```json
-"@metabob/cpg-inference": "^0.1.0"
-```
-
-## Checklist
-
-- [ ] `bun run typecheck` passes
-- [ ] `bun run build` succeeds (`dist/cli.js` present)
-- [ ] `npm link && metabob-mcp --version` works from a different directory
-- [ ] `npm publish --dry-run` shows no warnings
-- [ ] `README.md` reflects current tools and env vars
-- [ ] `package.json` version is correct
+- `bun run typecheck` passes
+- `bun run build` succeeds (`dist/cli.js` and `dist/doctor-cli.js` present)
+- `npm link && metabob-mcp --version` works from a different directory
+- `npm publish --dry-run` shows no warnings
+- `README.md` matches the tool set in `src/tools/index.ts` and the env vars in `src/cli.ts`
 
 ## Workflow
 
@@ -49,7 +41,7 @@ bun run build
 npm pack --dry-run
 
 # 3. Bump version (patch / minor / major)
-npm version minor   # e.g. 0.2.0 → 0.3.0
+npm version minor   # patch | minor | major
 
 # 4. Dry run publish
 npm publish --dry-run
@@ -61,8 +53,9 @@ npm publish
 npm info @metabob/mcp
 npx @metabob/mcp@latest --version
 
-# 7. Push version commit + tag
-git push origin main
+# 7. Land the version commit on dev, then fast-forward main
+git push origin HEAD:dev
+git push origin main          # allowed: version bumped + commit already on dev
 git push origin --tags
 ```
 
@@ -72,7 +65,7 @@ For pre-release: `npm publish --tag beta`
 
 **Authentication** — `npm logout && npm login`
 
-**Build too large** — check `.npmignore`; `docs/`, `scripts/`, `tests/`, `src/` should all be excluded (only `dist/` and root metadata files are published).
+**Build too large** — the `files` allowlist in `package.json` is authoritative and wins over `.npmignore`; nothing outside `dist/`, `include/`, `skills/`, `README.md`, and `LICENSE` ships. Confirm with `npm pack --dry-run`.
 
 **Version conflict** — bump with `npm version patch` and republish; published versions cannot be overwritten.
 

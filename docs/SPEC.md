@@ -18,7 +18,7 @@ Agent (Claude Code / Cursor / custom)
 └─────────────────────────────────────────┘
 ```
 
-**Local tier** — runs entirely in-process via `@metabob/cpg-inference`:
+**Local tier** — runs entirely in-process via the vendored CPG library (`vendor/cpg-inference`, re-exported by `src/cpg-inference.ts`; a fork, not an installed package — it is absent from `package.json` dependencies and has diverged from upstream):
 - Tree-sitter parsing → `CodePropertyGraph`
 - GCN embeddings (109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → USearch vector index
 - BFS graph traversal
@@ -27,7 +27,6 @@ Agent (Claude Code / Cursor / custom)
 - File submission: `POST /v2/submit` (multipart)
 - Analysis results: `GET /analysis`
 - Feedback: `POST /feedback/detection`
-- Problem details: `GET /analysis`
 
 ---
 
@@ -141,10 +140,10 @@ Fetch known problems for this codebase, ranked by severity: backend detections p
 | `limit` | number | `10` | Max results (max 100) |
 | `severity` | `CRITICAL\|HIGH\|MEDIUM\|LOW\|INFO`[] | all | Filter by severity |
 | `category` | string[] | all | Filter by category slug |
-| `file_path` | string | — | Substring match on file path |
+| `file_path` | string | — | Exact file path for the local seed cache (the primary source); substring only on the legacy vessel fan-out |
 | `include_discarded` | boolean | `false` | Include dismissed false positives |
 
-**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) or falls back to backend detection (`GET /analysis` / vessel fan-out — deprecated as the primary source), then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: `GET {conceptDbUrl}/concepts/search?shape=code_finding&limit=50` (list mode, no `query=`), filtered client-side to concepts mentioning the current repo name or the requested file path. concept-db unreachable is non-fatal.
+**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) or falls back to backend detection (`GET /analysis` / vessel fan-out — a legacy secondary source; agent-recorded findings are primary), then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=` — semantic search is unstable on the local vessel), paged 50 rows at a time via `offset` up to 300 scanned rows, then filtered client-side to concepts mentioning the current repo name or the requested file path; hitting the scan cap is reported as truncated. concept-db unreachable is non-fatal.
 
 ---
 
@@ -165,7 +164,7 @@ The write half of agent-side analysis: LLM processing lives on the agent; the se
 | `line_end` | number | — | End line |
 | `status` | string | `open` | Finding status |
 
-**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, content carrying repo name, workspace-relative files, line range and details — so other agents' sessions recall it org-wide. concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
+**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, content carrying repo name, workspace-relative files, line range and details — so other agents' sessions recall it org-wide. concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
 
 ---
 
@@ -188,7 +187,7 @@ Requires `init_workspace` for component results.
 
 ### predict_cochanges
 
-Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. Git-history co-change mining is the primary signal; the embedded GCN contributes only a secondary name-similarity ranking (it sees node-name char-codes, not learned structure).
+Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. **Git-history co-change mining carries all of the signal.** The bundled GCN contributes a second list that should be treated as noise: its input features are the node name's char-codes (`src/cochange-predictor.ts:176-188`), and `infer()` is called one node at a time (`src/cochange-predictor.ts:80-81`), so the star edge index is always empty (`vendor/cpg-inference/src/embedding-model.ts:121,314-317`) and no graph structure reaches the model. Rank on the git-history section; do not act on a GCN-only suggestion.
 
 **Input**
 
@@ -232,7 +231,7 @@ Add structured notes for a detected problem using the current analysis result.
 | `mode` | `explain\|recommend` | `explain` | `explain` adds why-focused notes, `recommend` adds how-to-fix notes |
 | `context` | string | — | Additional context to include in the notes |
 
-Calls `GET /analysis`, finds the matching problem ID, and returns structured notes.
+Calls `GET /analysis`, finds the matching problem ID, and returns structured notes. An `agf_*` id is served from the LocalStore seed instead (no API call), rendering severity/category/file/refs/status plus the same why/how notes — so record → annotate → mark_complete works on agent findings.
 
 ---
 
@@ -247,7 +246,7 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 | `problem_id` | string | **required** | Problem ID from `get_problems` |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-Calls `POST /feedback/detection`. For agent-recorded findings (`agf_*` ids from `record_finding`) the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes it, and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Additionally, when the finding seed carries a linked `code_finding` concept (stashed by `record_finding` in `refs_json`), the verdict is folded straight into that concept's **relevance** via a usage signal — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`) — so operator judgment moves the Bayesian relevance score, not just a parallel verdict concept.
+Calls `POST /feedback/detection`. A `concept_*` id is also accepted — the cross-agent recall surfaces findings by concept id, so that is often the only identifier an agent holds; it is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`, and when no local seed exists the tool says so explicitly rather than reporting a verdict it never wrote (a finding recalled from concept-db can be read anywhere but only endorsed where it was recorded). For agent-recorded findings the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Additionally, when the finding seed carries a linked `code_finding` concept (stashed by `record_finding` in `refs_json`), the verdict is folded straight into that concept's **relevance** via a usage signal — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`) — so operator judgment moves the Bayesian relevance score, not just a parallel verdict concept.
 
 ---
 
@@ -288,7 +287,7 @@ Return the current analysis state: CPG index stats, open problems summary, co-ch
 |-----------|------|---------|-------------|
 | `recently_changed_files` | string[] | `[]` | Used to generate co-change predictions |
 | `problem_limit` | number | `10` | Max open problems to include |
-| `scope` | `session\|project\|org` | `session` | Problem scope |
+| `scope` | `session\|project\|org` | `session` | Accepted for compatibility; the handler does not read it |
 
 ---
 
@@ -304,23 +303,16 @@ Three planes + a coverage set:
 | `run_goal_async` | ACT | Async dispatch via goal-host `POST /run-goal` → `dispatchId` immediately. Default for non-trivial goals. **Names a `repos/<vessel>/src/…` file → routes to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit** (no byte-exact trick needed). |
 | `goal_status` | ACT | Poll a `dispatchId` → the honest **`reached`** verdict (primary), executionId/template, hydrated roll-up (state signature, produced shapes, failure mode, Thompson α/β). |
 | `goal_reasoning` | REASON | The goal-host **walk decision-log** for a `dispatchId`: goal-target inference → satisfier/bridge/step decisions → reach verdict + per-task trace sequence. *Why* it reached or fell short. Renders the `walkLog` for satisfier-only reaches (no template trace). |
-| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → records a `goal_verification_labels` oracle-corpus label (currently for offline audit, not yet consumed by an automated reach-gate recalibration path). Auto-derives goal/executionId/template from the dispatch record. |
+| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → records a `goal_verification_labels` oracle-corpus label, consumed by offline audit rather than by an automated reach-gate. Auto-derives goal/executionId/template from the dispatch record. |
 | `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Replaces `curl discovery`. |
 | `execution_trace` | INSPECT | Durable trace by `execution_id`: status, template, chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), per-task sequence + failure_mode. Replaces raw trace curls. |
 | `resolve_impulse` | INSPECT | Advanced escape hatch: resolve/write ANY impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery. Prefer dedicated tools when they fit. |
 
 **`reached`, not `status`.** `status` (`running|completed|failed`) is only the template *exit status*. **`reached`** (`yes|no`) is the goal-reach verdict and the load-bearing signal — surfaced first by `goal_status`/`goal_reasoning`. `completed`+`reached:false` (hollow) and `failed`+`reached:true` (e.g. satisfier reach) are both normal; trusting `status` mis-judges the outcome. High-stakes → also read the actual diff/output (a change can typecheck + pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`) into the trace tags.
 
-**Canonical loop:**
+**Canonical loop:** `run_goal_async` → `goal_status` → `goal_reasoning` → `provide_feedback`, annotated in CLAUDE.md § Tools.
 
-```
-run_goal_async({ goal })        → dispatchId       (name a repos/<vessel>/src file for code changes)
-goal_status({ dispatch_id })    → read `reached`, not `status`
-goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell short
-provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
-```
-
-> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill), including **`concept_record_usage`** — the direct write into concept-db's relevance model. `POST /concepts/:id/usage` with `outcome` ∈ `success|failure|neutral`; concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` (`success` credits and raises relevance; `failure`/`neutral` grow the load denominator). This makes the agent a first-class, deliberate relevance contributor rather than relying only on the passive load event `concept_search` fires and cross-vessel goal executions. `mark_complete` on an `agf_*` finding uses this same channel to fold its verdict into the finding concept's relevance. Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
+> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill), including **`concept_record_usage`** — the direct write into concept-db's relevance model. `POST /concepts/:id/usage` with `outcome` ∈ `success|failure|neutral`; concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` (`success` credits and raises relevance; `failure`/`neutral` grow the load denominator). `mark_complete` on a finding uses this same channel. Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
 
 ---
 
@@ -363,13 +355,20 @@ prior session recorded but couldn't send. Loop: substrate solicits →
 4. predict_cochanges(changed_files) / analyze_impact(changed_files)
    → local CPG queries, no API call
 
-5. annotate_component(problem_id, mode="recommend")
-   → AI fix suggestion
+5. record_finding(files, summary, severity, category)
+   → the write half: attribute what you found to the code; returns agf_* ids
+     and mints a code_finding concept other agents recall org-wide
 
-6. mark_complete(problem_id, action="endorse")
-   → record fix
+6. annotate_component(problem_id | agf_id, mode="recommend")
+   → structured why/how notes
 
-7. init_workspace(recently_changed_files=[...new files...])
+7. mark_complete(problem_id | agf_* | concept_*, action="endorse")
+   → verdict; on findings it also folds relevance into concept-db
+
+8. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
+   → answer decisions the substrate dispatched to this agent
+
+9. init_workspace(recently_changed_files=[...new files...])
    → sync next batch as work progresses
 ```
 
@@ -384,5 +383,6 @@ The vessel also accepts `POST /v2/impulses/resolve` from the activity system:
 | `code:impact_analysis` | `analyze_impact` |
 | `code:git_change_assignment` | `assign_git_changes` |
 | `code:analysis_context` | `get_analysis_context` |
+| `human_input` | queued, not resolved inline — durably enqueued for `pull_assigned_work` / `submit_resolution`; the POST ACKs immediately |
 
 Auth: `Authorization: ApiKey <METABOB_API_KEY>`

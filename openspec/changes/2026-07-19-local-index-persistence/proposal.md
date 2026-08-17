@@ -1,7 +1,6 @@
 # Local CPG index persistence across launches
 
-Status: PROPOSED (deferred — do not implement without satisfying the safety constraints below)
-Date: 2026-07-19
+Deliberately unimplemented — do not implement without satisfying the safety constraints below.
 
 ## Problem
 

@@ -23,31 +23,35 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 | Tool | Tier | Description |
 |------|------|-------------|
 | `init_workspace` | Local + API | Build local CPG index; incrementally sync relevant files to the analysis server |
-| `get_problems` | API | Fetch detected code problems, ranked by severity |
+| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus findings other agents recorded on this codebase, recalled from concept-db |
 | `search_codebase` | Local + API | Search components (CPG) and problems by keyword |
-| `predict_cochanges` | **Local** | GCN-based co-change prediction — no API call |
+| `predict_cochanges` | **Local** | Git-history co-change mining (primary) plus a GCN ranker that sees only node-name char-codes, so it ranks by name similarity, not learned structure — no API call |
 | `analyze_impact` | **Local** | CPG traversal showing what a change affects |
 | `annotate_component` | API | Add structured why/how notes for a problem using the current analysis result |
-| `mark_complete` | API | Endorse a fix or discard a false positive |
+| `mark_complete` | API / Local | Endorse a fix or discard a false positive. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by: endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
 | `get_metrics` | API | Session and project analysis health overview |
 | `assign_git_changes` | Local + API | Map changed files to CPG components + co-change predictions |
 | `get_analysis_context` | Local + API | Current analysis state snapshot for agent decision-making |
+| `record_finding` | Local + Substrate | Attribute an issue you noticed to code — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
 
-**Local-tier** tools run entirely in-process via `@metabob/cpg-inference` (Tree-sitter parse → GCN embeddings → vector search). They require `init_workspace` to have run first but make no network calls.
+**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → embeddings → vector search). They require `init_workspace` to have run first but make no network calls.
 
-**API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`. If `METABOB_API_KEY` is unset, the CLI also falls back to `~/.metabob/config.json` and reads `metabob.apiKey` (or `instance.apiKey`).
+**API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`. If `METABOB_API_KEY` is unset, the CLI reads `metabob.apiKey` (or `instance.apiKey`) from a config file, resolved directory-aware like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` in the launch directory → `~/.metabob/config.json`.
+
+**Substrate-tier** tools — `record_finding`, `concept_*` (incl. `concept_record_usage`), `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` — reach their target vessel through discovery. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `METABOB_API_KEY` | — | API key — exchanged for a session token on startup |
+| `METABOB_API_KEY` | — | API key — authenticates each request directly; the `POST /session` token exchange runs only under `METABOB_STATELESS=true` |
 | `SESSION_TOKEN` | — | Pre-obtained session token (skips key exchange) |
-| `ANALYSIS_API_URL` | `https://ide.metabob.com` | Analysis API base URL |
-| `ACTIVITY_API_URL` | `https://ide.metabob.com` | Activity API base URL; falls back to `metabob.endpoint` in `~/.metabob/config.json` |
-| `DISCOVERY_ENDPOINT` | — | Discovery-vessel base URL for substrate routing; auto-derived from local `metabob.endpoint` when it points at `http://localhost:18080` |
+| `METABOB_ENDPOINT` | `https://ide.metabob.com` | Gateway endpoint — analysis, activity, discovery, identity and concept-db all derive from it. Env mirror of `metabob.endpoint` in the config file |
+| `ANALYSIS_API_URL` | _(derived)_ | Advanced: analysis API base URL override |
+| `ACTIVITY_API_URL` | _(derived)_ | Advanced: activity API base URL override |
+| `DISCOVERY_ENDPOINT` | _(derived)_ | Advanced: discovery-vessel base URL override |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
-| `SESSION_ID` | `default-session` | Session identifier |
+| `SESSION_ID` | random UUID | Session identifier |
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
@@ -55,7 +59,7 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 
 CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
 
-When `~/.metabob/config.json` points `metabob.endpoint` at the local substrate (`http://localhost:18080`), metabob-mcp auto-derives `DISCOVERY_ENDPOINT=http://localhost:18100`. Substrate-specific tools such as `concept_*` and `run_goal` then discover their target vessels from discovery instead of assuming fixed sibling ports. Explicit `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`, or `DISCOVERY_ENDPOINT` values still win.
+Sibling services derive from the gateway: a local substrate endpoint (`http://localhost:18080`) derives by port offset (discovery `:18100`, analysis `:18250`, concept-db `:18260`), while a bare remote endpoint derives path-prefixed siblings (`/discovery`, `/analysis`, `/identity`, `/conceptdb`). Explicit `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`, or `DISCOVERY_ENDPOINT` values still win.
 
 ## Corporate proxies & SSL inspection
 
@@ -86,17 +90,16 @@ The doctor runs a battery of probes — DNS resolution, OS trust store inspectio
 
 ### Local substrate
 
-After `scripts/substrate/configure-local.sh`, the standard `~/.metabob/config.json` is enough for discovery-backed substrate tools:
+Point `metabob.endpoint` at a local substrate (`http://localhost:18080`) in a config file; no extra env vars are needed:
 
 ```bash
-cd repos/metabob-mcp
 bun install
 bun run build
 npm link
 claude mcp add metabob -- metabob-mcp
 ```
 
-`metabob-mcp` reads the local substrate API key and activity endpoint from `~/.metabob/config.json`, derives the discovery-vessel URL, and resolves registered substrate vessels from discovery.
+`metabob-mcp` reads the API key and endpoint from that config, derives the discovery-vessel URL, and resolves registered substrate vessels from discovery.
 
 ### Claude Code
 
@@ -134,7 +137,7 @@ but API-tier tools fail on first call.
 
 ### Claude Desktop
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+`~/Library/Application Support/Claude/claude_desktop_config.json` (Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {

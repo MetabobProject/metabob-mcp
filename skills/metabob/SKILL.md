@@ -11,11 +11,11 @@ sequencing and spends the tokens; the server just holds the map and the org's
 shared learning.** Nothing orchestrates you from the outside. Follow this protocol
 and any repository — substrate-compliant or not — becomes a managed codebase.
 
-Every call below is one MCP tool call. Local-tier calls (`predict_cochanges`,
-`analyze_impact`, `search_codebase` structural half) are free of API traffic;
-sync and triage calls hit the org's analysis service.
+Every call below is one MCP tool call. `predict_cochanges` and `analyze_impact`
+are local-tier — no API traffic; sync, triage, and `search_codebase` with
+`target: "problems"` hit the org's analysis service.
 
-## Phase 0 — Recall before you explore (session start, 2 calls)
+## Phase 0 — Recall before you explore (session start, 3 calls)
 
 1. `concept_search { query: "<repo name> <task area>" }` — the org's design memory.
    Another agent (or a past you) may have recorded exactly the constraint or
@@ -26,8 +26,12 @@ sync and triage calls hit the org's analysis service.
    than retrying the query.
 2. `get_analysis_context` — structure snapshot, open problems, co-change
    signals, and findings other agents recorded on this codebase.
+3. `pull_assigned_work` — decisions the substrate dispatched to this vessel,
+   including ones assigned while you were away; answer each with
+   `submit_resolution { task_id, outcome, answer }`. An unanswered task blocks
+   a goal-host walk.
 
-Only after both do you start reading files.
+Only after these do you start reading files.
 
 ## Phase 1 — Adopt or resume the codebase
 
@@ -36,8 +40,9 @@ files from `git status` + the last few commits. Then **read the output — it dr
 the loop**:
 
 ```
-Progress: 37/214 files submitted
-Status: pending (job: …) — 172 files not yet submitted (call again to continue)
+API sync
+  Status:   pending (job: …) — 177 files not yet submitted (call again to continue)
+  Progress: 37/214 files submitted
 ```
 
 - **Resuming** (progress near total): one call is enough; move on.
@@ -47,9 +52,9 @@ Status: pending (job: …) — 172 files not yet submitted (call again to contin
   **Interleave the loop with your other startup work** (reading code, planning);
   don't sit and drain it serially unless the repo is small. Do NOT wait for
   analysis results — analysis is asynchronous; results are picked up in Phase 3.
-- The CPG lives for the MCP server session. A fresh session needs a fresh
-  `init_workspace` (local re-index is fast; already-submitted files are not
-  resubmitted).
+- The CPG and the submitted-file set live in the MCP server process. A fresh
+  session needs a fresh `init_workspace`, and submission restarts from the top
+  of the relevance ranking (local re-index is fast).
 
 ## Phase 2 — Working cadence (the loop you maintain)
 
@@ -71,7 +76,8 @@ attributes your observation to the code, surfaces it via `get_problems` and
 shares it org-wide so other agents on this region see it. Don't hold findings
 in your head until close-out.
 
-**When hunting**: `search_codebase { query }` (structural, not string match) and
+**When hunting**: `search_codebase { query }` (token match over CPG component
+names, file paths and problem summaries — not semantic) and
 `concept_neighbors` / `concept_sequence` when a recalled concept is nearby.
 
 ## Phase 3 — Asynchronous triage (poll, never block)
@@ -79,8 +85,10 @@ in your head until close-out.
 Analysis lags submission by design. On a natural pause — not immediately after a
 sync — run:
 
-- `get_problems { limit, severity }` — ranked findings: backend detections plus
-  **findings recorded by other agents on this codebase** (a distinct section).
+- `get_problems { limit, severity }` — ranked findings: the local detection
+  cache plus **findings recorded by agents on this codebase** (a distinct
+  section). Agent findings are the primary source; server-side detection is
+  deprecated and may be absent.
   Treat other agents' findings as first-class — they were noticed by an LLM
   working the same region.
 - `annotate_component { problem_id }` — explanation or concrete fix for one you
@@ -93,20 +101,26 @@ Fold real findings into your work queue like any other task.
 Before committing / ending the session, in order:
 
 1. `init_workspace { recently_changed_files: <final edits> }` — last sync batch.
-2. `assign_git_changes` — maps your diff to affected components + predicted
+2. `assign_git_changes { changed_files }` — maps your diff to affected components + predicted
    co-changes. If it names a file you didn't touch, check it before committing.
 3. `record_finding` for anything you noticed but did not fix — attributed,
    open findings survive the session and reach the next agent.
 4. `mark_complete` for **every** problem you resolved (endorse) or disproved
-   (discard) — including your own and other agents' `agf_*` findings. Verdicts
-   are shared org-wide. Not optional bookkeeping.
+   (discard), including the `agf_*` findings you recorded. Verdicts are shared
+   org-wide. A verdict is written against the local seed `record_finding`
+   created, so a finding recalled from another machine (concept id only) is
+   read-only here — `mark_complete` accepts the `concept_*` id but refuses
+   explicitly when no local seed backs it. Not optional bookkeeping.
 5. `concept_create` for each non-obvious thing you learned (why an approach was
    chosen, a constraint, a gotcha). Use `source_type: "memo"` for findings,
    `"human_input"` for things the user told you. **Then `concept_link` it to
    the repo's anchor concept — not optional.** An unlinked concept is only
    findable by semantic search; a linked one is reachable from the anchor by
    any future session. You noted the anchor id in Phase 0; if none exists,
-   create it first (see below), then link.
+   create it first (see below), then link. Then `concept_record_usage
+   { concept_id, outcome }` on each Phase 0 recall that actually helped
+   (`success`) or misled you (`failure`) — the direct write into concept
+   relevance; without it recall quality never improves.
 6. If you dispatched substrate goals this session: `goal_reasoning` on each
    dispatch, then `provide_feedback { verdict, rationale }` — your verdict
    calibrates goal routing for the whole org.
