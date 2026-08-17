@@ -574,18 +574,25 @@ async function main() {
           };
         },
       });
-      await vesselHeartbeat.start();
+      const registered = await vesselHeartbeat.start();
       // Keep the advertised shape-set in step with live capability.
       stopPresenceAdvertiser = startPresenceAdvertiser({
         heartbeat: vesselHeartbeat,
         desiredShapes: () => computeAdvertisedShapes(workspaceIsIndexed(), agentResolverEnabled()),
       });
-      log('info', 'Registered with discovery', {
-        vesselId,
-        discovery: DISCOVERY_ENDPOINT,
-        transport: federationNode ? 'libp2p+http' : 'http',
-        indexed: workspaceIsIndexed(),
-      });
+      // Report what actually happened: the heartbeat keeps retrying after a
+      // rejected registration, so claiming success here hid a bad key behind
+      // an INFO line that read as though the vessel had joined the namespace.
+      log(registered ? 'info' : 'warn',
+        registered
+          ? 'Registered with discovery'
+          : 'Discovery registration rejected — not yet advertised; retrying on the heartbeat interval',
+        {
+          vesselId,
+          discovery: DISCOVERY_ENDPOINT,
+          transport: federationNode ? 'libp2p+http' : 'http',
+          indexed: workspaceIsIndexed(),
+        });
     } else {
       log('info', 'Discovery registration skipped (no discovery endpoint / key / vesselId) — running client-only');
     }

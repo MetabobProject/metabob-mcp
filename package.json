@@ -1,6 +1,6 @@
 {
   "name": "@metabob/mcp",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "description": "MCP server exposing Metabob analysis capabilities to AI agents",
   "type": "module",
   "bin": {
@@ -17,8 +17,8 @@
   ],
   "scripts": {
     "preflight": "bun run scripts/verify-vendor.ts",
-    "start": "bun run preflight && bun run src/index.ts",
-    "dev": "bun run preflight && bun --watch src/index.ts",
+    "start": "bun run preflight && bun run src/cli.ts",
+    "dev": "bun run preflight && bun --watch src/cli.ts",
     "test": "bun run preflight && bun test tests",
     "typecheck": "bun run preflight && tsc --noEmit",
     "build:model": "bun run preflight && bun run scripts/copy-model-assets.ts",

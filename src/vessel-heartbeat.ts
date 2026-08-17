@@ -82,10 +82,11 @@ export class VesselHeartbeat {
     if (this.running) await this.register();
   }
 
-  async start(): Promise<void> {
-    if (this.running) return;
+  /** Returns whether the INITIAL registration succeeded; the interval keeps retrying either way. */
+  async start(): Promise<boolean> {
+    if (this.running) return true;
 
-    await this.register();
+    const registered = await this.register();
 
     this.intervalHandle = setInterval(() => {
       this.register().catch(err => {
@@ -98,6 +99,7 @@ export class VesselHeartbeat {
       `[vessel-heartbeat] started for ${this.config.vesselId} ` +
         `(ttl=${this.config.ttl}s interval=${this.config.heartbeatIntervalMs}ms)`,
     );
+    return registered;
   }
 
   stop(): void {
