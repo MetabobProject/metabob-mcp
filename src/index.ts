@@ -680,8 +680,12 @@ async function main() {
   }
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
-  async function shutdown() {
-    log('info', 'Shutting down...');
+  let shuttingDown = false;
+  async function shutdown(reason = 'signal') {
+    // stdin EOF and a signal can arrive together; only tear down once.
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log('info', 'Shutting down...', { reason });
 
     scheduler?.stop();
     stopWatcher?.();
@@ -701,8 +705,28 @@ async function main() {
   }
 
   // Handle graceful shutdown
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  // A reparented orphan is never signalled — SIGHUP is the one that may still
+  // arrive when the controlling terminal goes away.
+  process.on('SIGHUP', () => void shutdown('SIGHUP'));
+
+  // ── Exit on stdin EOF ─────────────────────────────────────────────────────
+  // The MCP stdio contract is that the client owning stdin owns our lifetime.
+  // When a client dies without signalling us, we are reparented to init and
+  // stdin hits EOF — but the SDK's StdioServerTransport only ever listens for
+  // 'data' and 'error', so nothing surfaces that. With a 5s git poll, a 2s
+  // scheduler tick, the presence/heartbeat timers and the :8080 server all
+  // holding the event loop open, the orphan then runs forever. Watching for
+  // EOF ourselves is what makes the process mortal.
+  //
+  // Escape hatch: set METABOB_STDIO_KEEPALIVE=1 to run headless (HTTP resolver
+  // + discovery registration only) with stdin closed or /dev/null.
+  if (process.env['METABOB_STDIO_KEEPALIVE'] !== '1') {
+    const onStdinEof = () => void shutdown('stdin EOF (client closed)');
+    process.stdin.on('end', onStdinEof);
+    process.stdin.on('close', onStdinEof);
+  }
 }
 
 // Run server
