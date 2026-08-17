@@ -49,19 +49,36 @@ export async function handle(
 
   // ── Agent-recorded findings (record_finding → agf_* ids) ───────────────────
   // These live in the LocalStore + concept-db, not the legacy analysis API.
-  if (input.problem_id.startsWith('agf_')) {
+  //
+  // A `concept_*` id is accepted too: the cross-agent recall surfaces findings
+  // by concept id, so that is frequently the only identifier an agent holds.
+  // Letting one fall through to the legacy analysis path below reported
+  // "endorsed" for a write that never happened — see getSeedByConceptRef.
+  const isConceptId = input.problem_id.startsWith('concept_');
+  if (input.problem_id.startsWith('agf_') || isConceptId) {
     if (!localStore) {
       return `Finding "${input.problem_id}" cannot be updated — local store unavailable in this session.`;
     }
-    const seed = localStore.getSeedById(input.problem_id);
+    const seed = isConceptId
+      ? localStore.getSeedByConceptRef(input.problem_id)
+      : localStore.getSeedById(input.problem_id);
     if (!seed) {
-      return `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
+      return isConceptId
+        ? `Concept "${input.problem_id}" has no agent-finding seed on this machine, so no verdict was recorded.\n`
+          + `  Verdicts are written against the local seed created by record_finding; a finding recalled from\n`
+          + `  concept-db can be read anywhere but only endorsed where it was recorded.\n`
+          + `  Use get_problems to list findings with local agf_* ids.`
+        : `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
     }
 
+    // Always act on the RESOLVED seed id: with a concept id, input.problem_id
+    // matches no seed row and every mutation below would be a silent no-op.
+    const seedId = seed.id;
+
     if (input.action === 'endorse') {
-      localStore.markSeedStaleById(input.problem_id); // resolved — stop surfacing
+      localStore.markSeedStaleById(seedId); // resolved — stop surfacing
     } else {
-      localStore.deleteSeed(input.problem_id); // retracted / false positive
+      localStore.deleteSeed(seedId); // retracted / false positive
     }
 
     // Best-effort verdict into concept-db so other agents see the outcome.
@@ -73,7 +90,7 @@ export async function handle(
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept(conceptDbUrl, {
         content: [
-          `finding: ${input.problem_id}`,
+          `finding: ${seedId}`,
           `verdict: ${verdict}`,
           `repo: ${repo}`,
           `files: ${seed.file_path}`,
@@ -108,7 +125,8 @@ export async function handle(
     const verb = input.action === 'endorse'
       ? 'endorsed (finding resolved, retired from get_problems)'
       : 'discarded (finding retracted and removed)';
-    let out = `Finding ${input.problem_id} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
+    const shown = isConceptId ? `${seedId} (via ${input.problem_id})` : seedId;
+    let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
     return out;
   }

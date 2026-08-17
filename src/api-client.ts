@@ -784,7 +784,10 @@ export class AnalysisAPIClient {
           body: JSON.stringify({ session_id: sessionId, events: [event] }),
         },
       });
-      if (!res.ok && res.status >= 500) {
+      // Surface 4xx too. Swallowing them meant an unknown / wrong-shaped
+      // problem id recorded nothing and still reported "endorsed" to the
+      // agent — a silent no-op behind a success message.
+      if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`Feedback recording failed (${res.status}): ${text}`);
       }

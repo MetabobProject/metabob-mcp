@@ -374,6 +374,36 @@ export class LocalStore {
     );
   }
 
+  /**
+   * Fetch the agent-finding seed that carries a given concept id in refs_json
+   * (any workspace). `get_problems`' cross-agent recall surfaces findings by
+   * their concept id, so that is often the only identifier an agent holds;
+   * this maps it back to the `agf_*` seed the verdict path needs.
+   */
+  getSeedByConceptRef(conceptId: string): SeedRecord | null {
+    const r = this.store.query(
+      `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
+              brief, confidence, refs_json, produced_at, read_at, stale
+       FROM seeds WHERE refs_json LIKE ? ORDER BY produced_at DESC LIMIT 1`,
+    ).get(`%"concept:${conceptId}"%`) as Record<string, unknown> | null;
+    if (!r) return null;
+    return {
+      id: r['id'] as string,
+      workspace_id: r['workspace_id'] as string,
+      file_path: r['file_path'] as string,
+      line_start: r['line_start'] as number,
+      line_end: r['line_end'] as number,
+      category: r['category'] as string,
+      severity: r['severity'] as string,
+      brief: r['brief'] as string,
+      confidence: r['confidence'] as number,
+      refs_json: r['refs_json'] as string,
+      produced_at: r['produced_at'] as number,
+      read_at: r['read_at'] as number | null,
+      stale: !!(r['stale'] as number),
+    };
+  }
+
   /** Fetch a single seed by id (any workspace). */
   getSeedById(seedId: string): SeedRecord | null {
     const r = this.store.query(
