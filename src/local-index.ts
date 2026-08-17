@@ -245,3 +245,23 @@ export function getLocalIndex(): LocalIndex {
   }
   return _instance;
 }
+
+/**
+ * The workspace root to ATTRIBUTE work to — repo name on a recorded finding,
+ * the term a cross-agent recall filters on.
+ *
+ * `init_workspace` is the authority, but it only sets in-memory index state,
+ * which exists solely in the process where it ran. A tool reaching for
+ * `workspacePath()` directly therefore attributes to "unknown" whenever it
+ * runs in a process that has not indexed — a per-call spawn, or an agent
+ * reconnected to a different sidecar instance. Fall back to the SAME ladder
+ * `init_workspace` itself resolves from (init-workspace.ts), so attribution
+ * never depends on call ordering.
+ *
+ * Deliberately NOT used by `resolvePath` / component lookups: those must stay
+ * bound to the indexed workspace, or a fallback root would silently match
+ * components across repos.
+ */
+export function activeWorkspacePath(): string {
+  return getLocalIndex().workspacePath() ?? process.env['WORKSPACE_PATH'] ?? process.cwd();
+}

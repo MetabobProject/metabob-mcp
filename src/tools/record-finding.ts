@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { basename, isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
-import { getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath } from '../local-index.js';
 import { CONCEPT_REF_PREFIX, FINDING_SHAPE, postConcept, resolveConceptDbUrl } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 
@@ -102,10 +102,12 @@ export async function handle(
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
-  const localIndex = getLocalIndex();
-  const workspacePath = localIndex.workspacePath();
-  const workspaceId = workspacePath ?? 'unknown';
-  const repoName = workspacePath ? basename(workspacePath) : 'unknown';
+  // Attribution must not depend on whether init_workspace ran in THIS process —
+  // see activeWorkspacePath. Reading the index directly here is what produced
+  // `repo: unknown` on every finding recorded without a prior in-process index.
+  const workspacePath = activeWorkspacePath();
+  const workspaceId = workspacePath;
+  const repoName = basename(workspacePath) || 'unknown';
 
   const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
   const lineStart = input.line_start ?? 0;

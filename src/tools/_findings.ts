@@ -18,7 +18,7 @@
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
 
 /** The concept shape used for agent-recorded findings. */
@@ -48,10 +48,17 @@ export function conceptIdFromRefs(refsJson: string | undefined): string | null {
   return null;
 }
 
-/** Basename of the active workspace root, or null if not indexed yet. */
+/**
+ * Basename of the active workspace root.
+ *
+ * Falls back to WORKSPACE_PATH/cwd rather than returning null when the index
+ * is cold: this is the only term the cross-agent recall filters on, so a null
+ * here meant `get_problems` silently returned NO "recorded by agents" section
+ * at all before `init_workspace` — indistinguishable, to an agent, from "no
+ * one has recorded anything here".
+ */
 export function workspaceRepoName(): string | null {
-  const wp = getLocalIndex().workspacePath();
-  return wp ? basename(wp) : null;
+  return basename(activeWorkspacePath()) || null;
 }
 
 function authHeaders(): Record<string, string> {
