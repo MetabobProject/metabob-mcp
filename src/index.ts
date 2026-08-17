@@ -207,16 +207,42 @@ function log(level: string, message: string, data?: any) {
 /**
  * List all available tools
  */
+/**
+ * Optional server-side tool allowlist: METABOB_TOOLS=a,b,c.
+ *
+ * An MCP CLIENT's allowlist (Claude Code's --allowedTools) governs permission
+ * PROMPTS, not availability: every tool this server lists stays callable, so a
+ * client-side list cannot express "this agent must not have recall". That
+ * matters for two real cases — a reviewer role that may record findings but not
+ * read the org's memory, and any controlled comparison where reachability is the
+ * variable under test.
+ *
+ * Unset (the default) lists everything, so existing deployments are unchanged.
+ * Bootstrap-only: read at list time from a value frozen at process start.
+ */
+const TOOL_ALLOWLIST: ReadonlySet<string> | null = (() => {
+  const raw = process.env['METABOB_TOOLS']?.trim();
+  if (!raw) return null;
+  const names = raw.split(',').map(n => n.trim()).filter(n => n.length > 0);
+  return names.length > 0 ? new Set(names) : null;
+})();
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   log('debug', 'Listing tools');
 
-  const tools = getAllTools().map(tool => ({
+  const all = getAllTools();
+  const permitted = TOOL_ALLOWLIST === null ? all : all.filter(t => TOOL_ALLOWLIST.has(t.name));
+  const tools = permitted.map(tool => ({
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
   }));
 
-  log('info', `Registered ${tools.length} tools`);
+  if (TOOL_ALLOWLIST !== null) {
+    log('info', `Registered ${tools.length} of ${all.length} tools (METABOB_TOOLS allowlist active)`);
+  } else {
+    log('info', `Registered ${tools.length} tools`);
+  }
 
   return { tools };
 });
@@ -234,6 +260,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let validatedInput: Record<string, unknown> | undefined;
 
   try {
+    // ENFORCE the allowlist here too, not only in tools/list. A client that
+    // learned a tool name elsewhere — a cached schema, a ToolSearch, a
+    // hand-written call — can invoke a tool that was never listed, so hiding it
+    // from the listing is not a control. Refuse by name before anything runs.
+    if (TOOL_ALLOWLIST !== null && !TOOL_ALLOWLIST.has(name)) {
+      throw new McpError(
+        ErrorCode.MethodNotFound,
+        `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`,
+      );
+    }
+
     // Check rate limit
     const rateLimitAllowed = await rateLimiter.checkLimit(SESSION_ID);
     if (!rateLimitAllowed) {
