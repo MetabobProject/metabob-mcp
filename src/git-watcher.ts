@@ -5,6 +5,12 @@
  * On HEAD change (new commit): enqueues ALL tracked modified files as P1.
  * On working-tree change: enqueues changed files as P1.
  * Skips gracefully when `.git` does not exist.
+ *
+ * Lock discipline: every git invocation here is read-shaped but `status` and
+ * `diff` refresh the index, which takes `.git/index.lock` — a 5s poll then
+ * contends with the user's own commits and rebases. All calls pass
+ * `--no-optional-locks`, and the tick is skipped outright while an operation
+ * is in flight (see `gitOperationInProgress`).
  */
 
 import { execSync, spawnSync } from 'child_process';
@@ -33,9 +39,30 @@ function readHead(gitDir: string): string {
   }
 }
 
+/**
+ * True while git is mid-operation (rebase, merge, cherry-pick, bisect) or
+ * another process holds the index lock.
+ *
+ * Polling here is both useless and harmful: HEAD moves once per replayed
+ * commit, so the watcher re-enqueues the whole tracked-modified set at every
+ * step, and each poll contends for `.git/index.lock` with the operation
+ * itself. We skip the tick entirely and pick the state up once it settles.
+ */
+function gitOperationInProgress(gitDir: string): boolean {
+  return (
+    existsSync(join(gitDir, 'index.lock')) ||
+    existsSync(join(gitDir, 'rebase-merge')) ||
+    existsSync(join(gitDir, 'rebase-apply')) ||
+    existsSync(join(gitDir, 'MERGE_HEAD')) ||
+    existsSync(join(gitDir, 'CHERRY_PICK_HEAD')) ||
+    existsSync(join(gitDir, 'REVERT_HEAD')) ||
+    existsSync(join(gitDir, 'BISECT_LOG'))
+  );
+}
+
 function gitStatusFiles(workspaceRoot: string): string[] {
   try {
-    const result = execSync('git status --porcelain', {
+    const result = execSync('git --no-optional-locks status --porcelain', {
       cwd: workspaceRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -60,7 +87,7 @@ function gitStatusFiles(workspaceRoot: string): string[] {
 
 function gitTrackedModifiedFiles(workspaceRoot: string): string[] {
   try {
-    const result = execSync('git diff --name-only HEAD', {
+    const result = execSync('git --no-optional-locks diff --name-only HEAD', {
       cwd: workspaceRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -100,6 +127,9 @@ export function startGitWatcher(
 
   const interval = setInterval(() => {
     try {
+      // Never poll while git is mid-operation — see gitOperationInProgress.
+      if (gitOperationInProgress(gitDir)) return;
+
       const currentHead = readHead(gitDir);
 
       if (currentHead !== lastHead && currentHead !== '') {
