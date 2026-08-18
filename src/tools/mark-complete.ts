@@ -4,7 +4,9 @@ import type { LocalStore } from '../local-store.js';
 import {
   fetchConceptById,
   VERDICT_SHAPE,
+  attributionLines,
   conceptIdFromRefs,
+  resolveAuthorVesselId,
   postConcept,
   recordConceptUsage,
   resolveConceptDbUrl,
@@ -98,7 +100,12 @@ export async function handle(
           `repo: ${repo}`,
           `files: ${remote.files}`,
           `finding summary: ${remote.summary}`,
-          `recorded_by: remote (no local seed on this machine)`,
+          // Author, then provenance — two separate facts. This line used to be
+          // `recorded_by: remote (no local seed on this machine)`, which made
+          // one key mean both "who" and "where from"; a reader could render
+          // neither honestly. `reviewed_by` is now only ever the author.
+          ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
+          `origin: remote`,
         ].join('\n'),
         summary: `[verdict:${input.action}] ${repo}: ${remote.summary}`,
         shape: VERDICT_SHAPE,
@@ -145,6 +152,8 @@ export async function handle(
           `repo: ${repo}`,
           `files: ${seed.file_path}`,
           `finding summary: ${seed.brief}`,
+          ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
+          `origin: local`,
         ].join('\n'),
         summary: `[verdict:${input.action}] ${repo}: ${seed.brief}`,
         shape: VERDICT_SHAPE,

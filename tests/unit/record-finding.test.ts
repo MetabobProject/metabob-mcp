@@ -16,6 +16,7 @@ import * as RecordFinding from '../../src/tools/record-finding';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import * as GetProblems from '../../src/tools/get-problems';
 import * as AnnotateComponent from '../../src/tools/annotate-component';
+import { setResolverIdentity } from '../../src/resolver-identity';
 
 const SESSION = 'test-session';
 
@@ -23,6 +24,10 @@ let mockApiClient: AnalysisAPIClient;
 let localStore: LocalStore;
 let dbPath: string;
 let savedConceptDbUrl: string | undefined;
+// Author resolution reads these; a developer machine with a real key set would
+// otherwise make the "no identity → no recorded_by line" test pass vacuously.
+let savedVesselId: string | undefined;
+let savedApiKey: string | undefined;
 const servers: Array<{ stop: (force?: boolean) => void }> = [];
 
 beforeEach(() => {
@@ -40,6 +45,14 @@ beforeEach(() => {
 
   savedConceptDbUrl = process.env.CONCEPT_DB_URL;
   delete process.env.CONCEPT_DB_URL;
+
+  savedVesselId = process.env.VESSEL_ID;
+  savedApiKey = process.env.METABOB_API_KEY;
+  delete process.env.VESSEL_ID;
+  delete process.env.METABOB_API_KEY;
+  // resolver-identity is a module-global holder — clear it so an identity set
+  // by another test (or by import-time boot) cannot leak into these.
+  setResolverIdentity({ vesselId: undefined });
 });
 
 afterEach(() => {
@@ -49,6 +62,11 @@ afterEach(() => {
   }
   if (savedConceptDbUrl === undefined) delete process.env.CONCEPT_DB_URL;
   else process.env.CONCEPT_DB_URL = savedConceptDbUrl;
+  if (savedVesselId === undefined) delete process.env.VESSEL_ID;
+  else process.env.VESSEL_ID = savedVesselId;
+  if (savedApiKey === undefined) delete process.env.METABOB_API_KEY;
+  else process.env.METABOB_API_KEY = savedApiKey;
+  setResolverIdentity({ vesselId: undefined });
   for (const s of servers.splice(0)) s.stop(true);
 });
 
@@ -283,6 +301,174 @@ test('mark_complete: unknown agf_* id reports not found', async () => {
     mockApiClient, SESSION, localStore,
   );
   expect(out).toContain('not found');
+});
+
+// ===== author attribution (recorded_by / reviewed_by / origin) =====
+//
+// The author contract: the dashboard parses concept CONTENT as newline-separated
+// `key: value` lines. `recorded_by`/`reviewed_by` mean WHO wrote it and nothing
+// else; `origin` is a separate provenance note. An unresolvable identity must
+// OMIT the author line rather than write a placeholder.
+
+/** Capture every POST /concepts body; serve GET /concepts/:id from `remote`. */
+function conceptCaptureServer(opts: { remoteContent?: string; remoteSummary?: string } = {}) {
+  const posts: Array<Record<string, unknown>> = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (req.method === 'POST' && url.pathname === '/concepts') {
+        posts.push((await req.json()) as Record<string, unknown>);
+        return Response.json({ id: 'concept:cf_attr', shape: 'code_finding' });
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/concepts/') && opts.remoteContent) {
+        return Response.json({
+          id: url.pathname.slice('/concepts/'.length),
+          summary: opts.remoteSummary ?? 'recalled finding',
+          content: opts.remoteContent,
+        });
+      }
+      if (req.method === 'POST' && url.pathname.endsWith('/usage')) {
+        return Response.json({ id: 'usage_z', outcome: 'success' }, { status: 201 });
+      }
+      return new Response('not found', { status: 404 });
+    },
+  });
+  servers.push(server);
+  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
+  return posts;
+}
+
+const contentOf = (body: Record<string, unknown> | undefined): string => String(body?.['content'] ?? '');
+
+test('record_finding: stamps recorded_by (vesselId) and session on the shared concept', async () => {
+  process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
+  const posts = conceptCaptureServer();
+
+  await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({
+      files: ['src/db/client.ts'], summary: 'SQL injection', severity: 'HIGH', category: 'security',
+      details: 'user input concatenated into query',
+    }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  expect(posts.length).toBe(1);
+  const content = contentOf(posts[0]);
+  expect(content).toContain('recorded_by: metabob-mcp-aabbccddeeff');
+  expect(content).toContain(`session: ${SESSION}`);
+  // Attribution stays in the key:value header block — the free-text details
+  // body follows a blank line and is not parsed by the dashboard.
+  expect(content.indexOf('recorded_by:')).toBeLessThan(content.indexOf('user input concatenated'));
+});
+
+test('record_finding: unresolvable identity omits recorded_by entirely but keeps session', async () => {
+  // No VESSEL_ID, no METABOB_API_KEY, no boot-set resolver identity → undefined.
+  const posts = conceptCaptureServer();
+
+  await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({
+      files: ['src/db/client.ts'], summary: 'SQL injection', severity: 'HIGH', category: 'security',
+    }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  expect(posts.length).toBe(1);
+  const content = contentOf(posts[0]);
+  expect(content).not.toContain('recorded_by');
+  expect(content).toContain(`session: ${SESSION}`);
+});
+
+test('record_finding: the boot-resolved vesselId is used when no env id is set', async () => {
+  setResolverIdentity({ vesselId: 'metabob-mcp-000111222333' });
+  const posts = conceptCaptureServer();
+
+  await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({
+      files: ['src/a.ts'], summary: 'x', severity: 'LOW', category: 'correctness',
+    }),
+    mockApiClient, SESSION, localStore,
+  );
+  expect(contentOf(posts[0])).toContain('recorded_by: metabob-mcp-000111222333');
+});
+
+test('mark_complete (local-seed path): verdict carries reviewed_by, session and origin: local', async () => {
+  process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
+  const posts = conceptCaptureServer();
+
+  const recordOut = await RecordFinding.handle(
+    RecordFinding.InputSchema.parse({ files: ['src/x.ts'], summary: 'off by one', severity: 'MEDIUM', category: 'correctness' }),
+    mockApiClient, SESSION, localStore,
+  );
+  const id = recordOut.match(/agf_[a-z0-9]+/)![0];
+
+  await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: id, action: 'endorse' }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  // posts[0] is the finding; posts[1] is the verdict.
+  expect(posts.length).toBe(2);
+  const verdict = posts[1]!;
+  expect(verdict['shape']).toBe('finding_verdict');
+  const content = contentOf(verdict);
+  expect(content).toContain('reviewed_by: metabob-mcp-aabbccddeeff');
+  expect(content).toContain(`session: ${SESSION}`);
+  expect(content).toContain('origin: local');
+  // The verdict is keyed on the agf_* finding id, never the concept id.
+  expect(content).toContain(`finding: ${id}`);
+  // `recorded_by` must never appear on a verdict — it means author-of-finding.
+  expect(content).not.toContain('recorded_by');
+});
+
+test('mark_complete (remote/recalled path): verdict carries reviewed_by, session and origin: remote', async () => {
+  process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
+  const posts = conceptCaptureServer({
+    remoteSummary: '[HIGH][security] repo-x: SQL injection',
+    remoteContent: [
+      'repo: repo-x',
+      'files: src/db/client.ts',
+      'severity: HIGH',
+      'finding_ids: agf_remote01',
+      'recorded_by: metabob-mcp-ffeeddccbbaa',
+    ].join('\n'),
+  });
+
+  const out = await MarkComplete.handle(
+    // No local seed exists for this concept id — the fleet case.
+    MarkComplete.InputSchema.parse({ problem_id: 'concept_cf_remote', action: 'endorse' }),
+    mockApiClient, SESSION, localStore,
+  );
+  expect(out).toContain('verdict shared');
+
+  expect(posts.length).toBe(1);
+  const content = contentOf(posts[0]);
+  expect(posts[0]!['shape']).toBe('finding_verdict');
+  expect(content).toContain('reviewed_by: metabob-mcp-aabbccddeeff');
+  expect(content).toContain(`session: ${SESSION}`);
+  expect(content).toContain('origin: remote');
+  // Keyed on the agf_* id carried by the recalled finding, not the concept id.
+  expect(content).toContain('finding: agf_remote01');
+  expect(content).not.toContain('finding: concept_cf_remote');
+  // The old free-text locality-in-the-author line is gone.
+  expect(content).not.toContain('recorded_by');
+  expect(content).not.toContain('no local seed on this machine');
+});
+
+test('mark_complete (remote path): unresolvable identity still stamps origin: remote', async () => {
+  const posts = conceptCaptureServer({
+    remoteContent: 'repo: repo-x\nfiles: src/a.ts\nfinding_ids: agf_remote02',
+  });
+
+  await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: 'concept_cf_anon', action: 'discard' }),
+    mockApiClient, SESSION, localStore,
+  );
+
+  const content = contentOf(posts[0]);
+  expect(content).not.toContain('reviewed_by');
+  expect(content).toContain('origin: remote');
+  expect(content).toContain(`session: ${SESSION}`);
 });
 
 // ===== get_problems cross-agent findings rendering =====

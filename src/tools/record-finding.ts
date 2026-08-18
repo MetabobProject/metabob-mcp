@@ -19,7 +19,14 @@ import { basename, isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
-import { CONCEPT_REF_PREFIX, FINDING_SHAPE, postConcept, resolveConceptDbUrl } from './_findings.js';
+import {
+  CONCEPT_REF_PREFIX,
+  FINDING_SHAPE,
+  attributionLines,
+  postConcept,
+  resolveAuthorVesselId,
+  resolveConceptDbUrl,
+} from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 
 export const RecordFindingTool = {
@@ -98,7 +105,7 @@ function toWorkspaceRelative(filePath: string, workspacePath: string | null): st
 export async function handle(
   input: RecordFindingInput,
   apiClient: AnalysisAPIClient,
-  _sessionId: string,
+  sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
@@ -162,6 +169,11 @@ export async function handle(
       `status: ${input.status}`,
       `finding_ids: ${ids.map(x => x.id).join(', ') || '(not cached locally)'}`,
     );
+    // Author + session. A finding with no resolvable vessel identity carries NO
+    // recorded_by line at all — readers render that as "unattributed" rather
+    // than inheriting a guess. These must stay in the key:value header block:
+    // `details` below is free text after a blank line and is not parsed.
+    contentLines.push(...attributionLines('recorded_by', await resolveAuthorVesselId(), sessionId));
     if (input.details) contentLines.push('', input.details);
 
     const result = await postConcept(conceptDbUrl, {

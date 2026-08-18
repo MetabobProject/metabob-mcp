@@ -20,11 +20,62 @@ import { randomUUID } from 'node:crypto';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { resolveVesselId } from '../vessel-identity.js';
+import { getResolverVesselId } from '../resolver-identity.js';
 
 /** The concept shape used for agent-recorded findings. */
 export const FINDING_SHAPE = 'code_finding';
 /** The concept shape used for verdicts on findings (mark_complete). */
 export const VERDICT_SHAPE = 'finding_verdict';
+
+/**
+ * The author identity stamped onto findings and verdicts.
+ *
+ * Prefers the vesselId resolved once at boot (index.ts → setResolverIdentity),
+ * and otherwise re-derives it exactly as boot does. Both routes produce the
+ * same `metabob-mcp-<12 hex>` value by construction, so a finding recorded in a
+ * process that never registered with discovery still carries the id a later
+ * session in the same workspace+key will re-derive.
+ *
+ * Returns undefined — never a placeholder, never an empty string — when there
+ * is nothing to resolve from. Callers must then OMIT the author line entirely:
+ * an unattributed finding is honest, a fabricated author is not, and the
+ * dashboard renders the absence explicitly.
+ */
+export async function resolveAuthorVesselId(): Promise<string | undefined> {
+  const booted = getResolverVesselId();
+  if (booted) return booted;
+  try {
+    return await resolveVesselId({
+      explicit: process.env.VESSEL_ID,
+      apiKey: process.env.METABOB_API_KEY,
+      workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
+    });
+  } catch {
+    // Identity resolution must never fail a finding write.
+    return undefined;
+  }
+}
+
+/**
+ * The attribution lines carried in concept CONTENT (the dashboard parses
+ * newline-separated `key: value` lines; concept-db has no field for this and
+ * discards `pointer`).
+ *
+ * `authorKey` is `recorded_by` on a finding and `reviewed_by` on a verdict —
+ * both mean exactly one thing: WHO wrote this. Locality/provenance is a
+ * separate `origin:` line the caller adds, never folded into the author.
+ */
+export function attributionLines(
+  authorKey: 'recorded_by' | 'reviewed_by',
+  vesselId: string | undefined,
+  sessionId: string | undefined,
+): string[] {
+  const lines: string[] = [];
+  if (vesselId) lines.push(`${authorKey}: ${vesselId}`);
+  if (sessionId && sessionId.trim()) lines.push(`session: ${sessionId.trim()}`);
+  return lines;
+}
 
 /** Prefix under which a finding's minted concept id is stashed in a seed's
  *  `refs_json` so mark_complete can attribute a usage/relevance signal to it. */
