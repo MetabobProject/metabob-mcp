@@ -218,6 +218,48 @@ const FINDINGS_MAX_SCAN = 300;
  * so a real finding below the top-50 window is still recallable; sets
  * `truncated` when the cap is reached with more pages likely pending. Never throws.
  */
+/**
+ * Fetch one concept by id, for the fields a verdict needs.
+ *
+ * A finding recalled from concept-db already carries its own summary, files and
+ * repo — the same three fields the local seed supplied. Reading them back is
+ * what lets an agent endorse a finding another agent recorded, which is the
+ * normal case in a fleet where a manager assigns work someone else found.
+ */
+export async function fetchConceptById(
+  apiClient: AnalysisAPIClient,
+  conceptId: string,
+): Promise<{ summary: string; files: string; repo: string; findingId: string } | null> {
+  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
+  if (!conceptDbUrl) return null;
+  const plain = conceptId.replace(/^concept:/, '').replace(/^⟨/, '').replace(/⟩$/, '');
+  try {
+    const res = await fetch(`${conceptDbUrl}/concepts/${encodeURIComponent(plain)}`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const row = (await res.json()) as { summary?: string | null; content?: string | null };
+    const content = String(row.content ?? '');
+    const pick = (key: string): string => {
+      const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content);
+      return m?.[1]?.trim() ?? '';
+    };
+    // The agf_* id the finding was minted with. The dashboard's verdict join
+    // keys on THIS, not on the concept id — a verdict recorded against the
+    // concept id is written but invisible to every reader.
+    const findingId = (pick('finding_ids').split(',')[0] ?? '').trim();
+    return {
+      summary: String(row.summary ?? '').trim(),
+      files: pick('files'),
+      repo: pick('repo'),
+      findingId,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchAgentFindings(
   apiClient: AnalysisAPIClient,
   matchTerms: Array<string | null | undefined>,

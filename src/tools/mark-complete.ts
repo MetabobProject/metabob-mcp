@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import {
+  fetchConceptById,
   VERDICT_SHAPE,
   conceptIdFromRefs,
   postConcept,
@@ -62,13 +63,62 @@ export async function handle(
     const seed = isConceptId
       ? localStore.getSeedByConceptRef(input.problem_id)
       : localStore.getSeedById(input.problem_id);
+    // NO LOCAL SEED, CONCEPT ID: write the verdict from the concept itself.
+    //
+    // The seed only ever supplied three fields to the concept-db write —
+    // file_path, brief and the linked concept id — and a recalled concept
+    // already carries all three. Refusing here made the normal fleet case
+    // impossible: a manager assigns work one agent found, another agent fixes
+    // it, and the endorse step cannot land because the seed lives on a third
+    // machine. Measured in artifacts/fleet: mark_complete called twice, zero
+    // verdicts written.
+    //
+    // The LOCAL half (retire/delete the seed) is genuinely local and is simply
+    // skipped — stated in the output rather than pretended.
+    if (!seed && isConceptId) {
+      const remoteDbUrl = await resolveConceptDbUrl(apiClient);
+      if (!remoteDbUrl) {
+        return `Concept "${input.problem_id}" has no local seed and concept-db is not configured, so no verdict was recorded.`;
+      }
+      const remote = await fetchConceptById(apiClient, input.problem_id);
+      if (!remote) {
+        return `Concept "${input.problem_id}" could not be read from concept-db, so no verdict was recorded.\n`
+          + `  Check CONCEPT_DB_URL / discovery, or use get_problems to list findings with local agf_* ids.`;
+      }
+      const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const repo = remote.repo || workspaceRepoName() || 'unknown';
+      const posted = await postConcept(remoteDbUrl, {
+        content: [
+          // Join on the agf_* id the finding carries, exactly as the local
+          // path does. Keying on the concept id writes a verdict no reader can
+          // match — measured: the row landed in concept-db and /findings still
+          // showed "no verdict".
+          `finding: ${remote.findingId || input.problem_id}`,
+          `verdict: ${verdict}`,
+          `repo: ${repo}`,
+          `files: ${remote.files}`,
+          `finding summary: ${remote.summary}`,
+          `recorded_by: remote (no local seed on this machine)`,
+        ].join('\n'),
+        summary: `[verdict:${input.action}] ${repo}: ${remote.summary}`,
+        shape: VERDICT_SHAPE,
+        source_type: 'metabob_annotation',
+        pointer: { type: VERDICT_SHAPE },
+      });
+      const usage = await recordConceptUsage(
+        remoteDbUrl,
+        input.problem_id,
+        input.action === 'endorse' ? 'success' : 'failure',
+      );
+      return (
+        `Finding ${input.problem_id} ${input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
+        `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
+        `  relevance:  ${usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
+        `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere`
+      );
+    }
     if (!seed) {
-      return isConceptId
-        ? `Concept "${input.problem_id}" has no agent-finding seed on this machine, so no verdict was recorded.\n`
-          + `  Verdicts are written against the local seed created by record_finding; a finding recalled from\n`
-          + `  concept-db can be read anywhere but only endorsed where it was recorded.\n`
-          + `  Use get_problems to list findings with local agf_* ids.`
-        : `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
+      return `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
     }
 
     // Always act on the RESOLVED seed id: with a concept id, input.problem_id
