@@ -94,14 +94,17 @@ jobs:
           command -v mcp
           mcp --version
 
-      - name: Node fast-fail smoke — clear Bun message, not a raw ESM error
+      - name: Node smoke — the bundle runs under Node and trampolines into Bun
         shell: bash
         run: |
-          set +e
-          out=$(node "$(npm root -g)/@metabob/mcp/dist/cli.js" 2>&1)
-          set -e
-          echo "$out"
-          echo "$out" | grep -q "requires the Bun runtime"
+          # This step used to assert that `node dist/cli.js` prints "requires the Bun
+          # runtime". It no longer does when bun IS installed — which is the whole
+          # point of the trampoline: under Node it re-execs into bun and starts the
+          # server. Bun is on PATH here (setup-bun), so assert the Node-safe path
+          # instead; the missing-bun message is covered by the next step, which
+          # strips bun from PATH.
+          node "$(npm root -g)/@metabob/mcp/dist/cli.js" --version
+          node "$(npm root -g)/@metabob/mcp/dist/cli.js" --help > /dev/null
 
       - name: Conformal-entrypoint smoke — the shipped bin must start under Node
         shell: bash
