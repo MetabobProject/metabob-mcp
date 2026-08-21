@@ -20,12 +20,25 @@ if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
   // means the child starts correctly configured and does not spawn a third process.
   const skipSystemCa =
     process.env.METABOB_NO_SYSTEM_CA === '1' || process.argv.includes('--no-system-ca');
+  // Dynamic import: this block runs above the module's import statements, so take the
+  // dependency explicitly rather than relying on ESM hoisting surviving the bundler.
+  const { resolveBunLauncher, winQuote } = await import('./bun-launcher.js');
+  const bun = resolveBunLauncher();
+  if (!bun) {
+    printBunRequired();
+    process.exit(1);
+  }
   const { spawn } = await import('node:child_process');
+  const bunArgs = [...(skipSystemCa ? [] : ['--use-system-ca']), ...process.argv.slice(1)];
   await new Promise<void>(() => {
     const child = spawn(
-      'bun',
-      [...(skipSystemCa ? [] : ['--use-system-ca']), ...process.argv.slice(1)],
-      { stdio: 'inherit', env: { ...process.env, __METABOB_SYSTEM_CA_REEXEC: '1' } },
+      bun.shell ? winQuote([bun.command, ...bunArgs]) : bun.command,
+      bun.shell ? [] : bunArgs,
+      {
+        stdio: 'inherit',
+        shell: bun.shell,
+        env: { ...process.env, __METABOB_SYSTEM_CA_REEXEC: '1' },
+      },
     );
     // An MCP client that kills this process must not orphan the Bun child.
     for (const sig of ['SIGTERM', 'SIGINT'] as const) {

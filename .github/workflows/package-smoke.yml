@@ -114,15 +114,19 @@ jobs:
           head -1 "$(npm root -g)/@metabob/mcp/dist/cli.js" | grep -qx '#!/usr/bin/env node'
 
       - name: Node-only smoke — bin works, and fails helpfully, with Bun off PATH
-        if: runner.os != 'Windows'
         shell: bash
         run: |
-          # Reconstruct a PATH with no bun on it, then prove the two halves of the
+          # Runs on every OS including Windows, where the bin is reached through
+          # npm's generated shim rather than a shebang — the shim path has its own
+          # failure modes and is exactly what `npx @metabob/mcp` hits there.
+          # Reconstruct a PATH with no bun on it, then prove both halves of the
           # contract: Node-safe commands still work, and a server invocation exits 1
           # with the actionable message rather than a raw exec failure.
           bun_dir=$(dirname "$(command -v bun)")
           clean_path=$(echo "$PATH" | tr ':' '\n' | grep -vFx "$bun_dir" | paste -sd: -)
-          env PATH="$clean_path" bash -c 'command -v bun && exit 1 || true'
+          if env PATH="$clean_path" command -v bun; then
+            echo "could not strip bun from PATH; adjust this step"; exit 1
+          fi
           env PATH="$clean_path" metabob-mcp --version
           env PATH="$clean_path" metabob-mcp --help > /dev/null
           set +e
@@ -131,6 +135,24 @@ jobs:
           echo "$out"
           [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
           echo "$out" | grep -q "requires the Bun runtime"
+
+      - name: Windows shim smoke — the generated .cmd shim must dispatch to node
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # On Windows npm does not use the shebang directly: it generates
+          # metabob-mcp.cmd / .ps1 from it. A bun shebang made those shims invoke a
+          # `bun` that need not exist; the node shebang makes them invoke node, which
+          # npm itself guarantees. Assert the shim exists, names node, and works.
+          $shim = Join-Path (npm root -g | Split-Path -Parent) "metabob-mcp.cmd"
+          if (-not (Test-Path $shim)) { throw "no metabob-mcp.cmd shim generated at $shim" }
+          $body = Get-Content $shim -Raw
+          Write-Host $body
+          if ($body -notmatch 'node') { throw "shim does not dispatch to node" }
+          & $shim --version
+          if ($LASTEXITCODE -ne 0) { throw "shim --version exited $LASTEXITCODE" }
+          & cmd /c "metabob-mcp --version"
+          if ($LASTEXITCODE -ne 0) { throw "cmd.exe invocation exited $LASTEXITCODE" }
 
       - name: Server smoke — reaches MCP-ready
         shell: bash
