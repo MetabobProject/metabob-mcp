@@ -4,6 +4,45 @@
  * Provides command-line argument parsing for npx usage
  */
 
+// Conformal npm entrypoint. This bin ships with the `#!/usr/bin/env node` shebang it
+// is written with (scripts/finalize-cli.ts deliberately leaves it alone), so
+// `npx @metabob/mcp` starts under Node like every other npm package. The MCP server
+// itself needs Bun — bun:sqlite backs the local seed store — so a server invocation
+// that lands here under Node re-execs into Bun, and prints an actionable install
+// message when Bun is absent. --help, --version and `doctor` are Node-safe and stay
+// in-process; they must keep working on a machine that has never seen Bun.
+const NODE_SAFE_FLAGS = new Set(['--help', '-h', '--version', '-v']);
+const isNodeSafeInvocation =
+  process.argv[2] === 'doctor' || process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
+
+if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
+  // Same opt-out conditions as the Bun-side re-exec below; passing the flag here
+  // means the child starts correctly configured and does not spawn a third process.
+  const skipSystemCa =
+    process.env.METABOB_NO_SYSTEM_CA === '1' || process.argv.includes('--no-system-ca');
+  const { spawn } = await import('node:child_process');
+  await new Promise<void>(() => {
+    const child = spawn(
+      'bun',
+      [...(skipSystemCa ? [] : ['--use-system-ca']), ...process.argv.slice(1)],
+      { stdio: 'inherit', env: { ...process.env, __METABOB_SYSTEM_CA_REEXEC: '1' } },
+    );
+    // An MCP client that kills this process must not orphan the Bun child.
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+      process.on(sig, () => child.kill(sig));
+    }
+    child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') {
+        printBunRequired();
+        process.exit(1);
+      }
+      console.error(`[metabob-mcp] could not start Bun (${err.message})`);
+      process.exit(1);
+    });
+  });
+}
+
 // Re-exec under Bun with the OS trust store enabled, before any network I/O.
 // The shipped bin runs under Bun (see scripts/finalize-cli.ts), and Bun 1.3.x
 // ignores NODE_EXTRA_CA_CERTS (oven-sh/bun#23735). Behind a TLS-inspecting
@@ -41,18 +80,9 @@ if (
   });
 }
 
-// Re-exec under Node.js with an expanded heap before loading ONNX / Tree-sitter.
-// Bun manages its own memory, so this guard is Node-only.
-if (!process.versions.bun && !process.env.__METABOB_HEAP_EXPANDED) {
-  const { spawn } = await import('node:child_process');
-  const child = spawn(
-    process.execPath,
-    ['--max-old-space-size=4096', ...process.argv.slice(1)],
-    { stdio: 'inherit', env: { ...process.env, __METABOB_HEAP_EXPANDED: '1' } },
-  );
-  child.on('exit', (code) => process.exit(code ?? 0));
-  await new Promise(() => {}); // wait for child to call process.exit
-}
+// (The Node heap-expansion re-exec that used to live here is gone: ONNX / Tree-sitter
+// load only inside the server, the server only runs under Bun, and Bun manages its own
+// memory. Under Node this file now reaches nothing heavier than --help or the doctor.)
 
 import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
@@ -226,6 +256,17 @@ function showVersion() {
   }
 }
 
+// Hoisted so the trampoline at the top of the module can call it before any import.
+function printBunRequired() {
+  console.error(
+    '[metabob-mcp] The MCP server requires the Bun runtime (https://bun.sh) — ' +
+      'it uses bun:sqlite for the local analysis cache.\n' +
+      '  Install: curl -fsSL https://bun.sh/install | bash   (Windows: powershell -c "irm bun.sh/install.ps1 | iex")\n' +
+      '  Then re-run — this command re-execs into bun automatically once it is on PATH.\n' +
+      '  Note: Bun has no Windows ARM64 build — Windows on ARM is unsupported.',
+  );
+}
+
 function parseCliArgs(): CLIOptions {
   try {
     const { values } = parseArgs({
@@ -338,6 +379,12 @@ async function main() {
   // METABOB_NO_SYSTEM_CA=1.
   const noSystemCa = options.noSystemCa === true || process.env.METABOB_NO_SYSTEM_CA === '1';
   installSystemTrustStoreSync({ disabled: noSystemCa });
+  // src/index.ts installs the trust store too, gated only on the env var — export the
+  // flag so --no-system-ca actually suppresses it there as well (it is documented as
+  // equivalent to METABOB_NO_SYSTEM_CA=1, and the trampoline above reads it the same way).
+  if (noSystemCa) {
+    process.env.METABOB_NO_SYSTEM_CA = '1';
+  }
 
   // The two derivation-participating flags (--endpoint, --api-key) must land in
   // the environment BEFORE the config loaders run, so the gateway derivation in
@@ -387,18 +434,11 @@ async function main() {
     process.env.MAX_REQUESTS_PER_MINUTE = options.maxRequestsPerMinute.toString();
   }
 
-  // The server requires the Bun runtime (bun:sqlite in the local seed store).
-  // Under Node the import below would die with an opaque
-  // ERR_UNSUPPORTED_ESM_URL_SCHEME — fail fast with an actionable message
-  // instead. --help, --version, and the doctor subcommand still run under Node.
+  // Belt-and-braces: the trampoline at the top of this file already re-execs into Bun
+  // (or exits with the same message) for every server invocation, so reaching here
+  // under Node means someone imported this module directly.
   if (!process.versions.bun) {
-    console.error(
-      '[metabob-mcp] The MCP server requires the Bun runtime (https://bun.sh) — ' +
-        'it uses bun:sqlite for the local analysis cache.\n' +
-        '  Install: curl -fsSL https://bun.sh/install | bash   (Windows: powershell -c "irm bun.sh/install.ps1 | iex")\n' +
-        '  Then re-run; the npx/npm bin shim invokes bun automatically once it is on PATH.\n' +
-        '  Note: Bun has no Windows ARM64 build — Windows on ARM is unsupported.',
-    );
+    printBunRequired();
     process.exit(1);
   }
 

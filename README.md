@@ -10,9 +10,16 @@ npx @metabob/mcp@latest --api-key=mb_your_api_key_here
 
 Get an API key from [app.metabob.com/settings/api-keys](https://app.metabob.com/settings/api-keys).
 
-**Runtime**: the MCP server runs on [Bun](https://bun.sh) (≥1.1) — the installed
-bin shim invokes `bun` automatically, so it just needs to be on PATH. Node.js is
-only sufficient for `--help`, `--version`, and the `doctor` subcommand.
+**Runtime**: the bin starts under Node like any npm package, and the MCP server
+itself runs on [Bun](https://bun.sh) (≥1.1) — it uses `bun:sqlite` for the local
+analysis cache. A server invocation re-execs into `bun` automatically when it is on
+PATH, and prints an install instruction when it is not. `--help`, `--version`, and
+the `doctor` subcommand run under Node alone, so you can always inspect the install
+and diagnose connectivity without Bun.
+
+On a host that has Bun but *no* Node at all, use `bunx @metabob/mcp` (the
+node-shebanged bin cannot be exec'd without a `node` on PATH).
+
 Supported platforms: Linux, macOS, and Windows x64. Windows ARM64 is
 unsupported (no Bun ARM64 build, no tree-sitter win32-arm64 prebuilds).
 
@@ -80,7 +87,7 @@ If you're behind a proxy and the mitigations above don't fully restore connectiv
 
 ```bash
 npx @metabob/mcp doctor
-# or, if the main binary can't load (e.g. bun not available):
+# or, as a standalone bin (identical report):
 npx -p @metabob/mcp metabob-mcp-doctor
 ```
 

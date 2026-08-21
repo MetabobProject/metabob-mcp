@@ -103,6 +103,35 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "requires the Bun runtime"
 
+      - name: Conformal-entrypoint smoke — the shipped bin must start under Node
+        shell: bash
+        run: |
+          # `npx @metabob/mcp` is the primary documented entrypoint and npx only
+          # guarantees Node. dist/cli.js therefore MUST keep its node shebang and
+          # trampoline into bun itself; a bun shebang makes every documented command
+          # die with `/usr/bin/env: 'bun': No such file or directory` (exit 127)
+          # before any JS runs, so the in-bundle "install bun" guidance never prints.
+          head -1 "$(npm root -g)/@metabob/mcp/dist/cli.js" | grep -qx '#!/usr/bin/env node'
+
+      - name: Node-only smoke — bin works, and fails helpfully, with Bun off PATH
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Reconstruct a PATH with no bun on it, then prove the two halves of the
+          # contract: Node-safe commands still work, and a server invocation exits 1
+          # with the actionable message rather than a raw exec failure.
+          bun_dir=$(dirname "$(command -v bun)")
+          clean_path=$(echo "$PATH" | tr ':' '\n' | grep -vFx "$bun_dir" | paste -sd: -)
+          env PATH="$clean_path" bash -c 'command -v bun && exit 1 || true'
+          env PATH="$clean_path" metabob-mcp --version
+          env PATH="$clean_path" metabob-mcp --help > /dev/null
+          set +e
+          out=$(env PATH="$clean_path" metabob-mcp --api-key=smoke-key 2>&1); code=$?
+          set -e
+          echo "$out"
+          [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
+          echo "$out" | grep -q "requires the Bun runtime"
+
       - name: Server smoke — reaches MCP-ready
         shell: bash
         env:
