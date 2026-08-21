@@ -157,7 +157,42 @@ jobs:
           & cmd /c "metabob-mcp --version"
           if ($LASTEXITCODE -ne 0) { throw "cmd.exe invocation exited $LASTEXITCODE" }
 
-      - name: Server smoke — reaches MCP-ready
+      - name: MCP protocol smoke (anonymous) — the packaged bin speaks JSON-RPC
+        shell: bash
+        env:
+          LOG_LEVEL: debug
+        run: |
+          # The authenticated smoke below is secret-gated and skips on forks and on
+          # any repo without METABOB_TEST_API_KEY — which meant NO step ever started
+          # the packaged server. This one needs no key: anonymous startup is a
+          # supported path, and it exercises the whole installed chain end to end —
+          # bin shim -> node -> trampoline -> bun -> MCP server -> JSON-RPC reply.
+          # On Windows that chain is the only place the trampoline's success branch
+          # (spawning bun.exe from Node) actually runs.
+          #
+          # stdin is held open past the request because the server exits on EOF by
+          # design; closing it is also how the step terminates without a kill.
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-smoke","version":"1"}}}'
+          { printf '%s\n' "$init"; sleep 15; } | metabob-mcp --health-port=8199 > mcp-out.json 2> mcp-err.log || true
+
+          echo "--- stdout ---"; cat mcp-out.json
+          echo "--- stderr (tail) ---"; tail -20 mcp-err.log
+
+          # 1. The server came up.
+          grep -q "MCP server ready" mcp-err.log
+          # 2. It answered the handshake, and reported its real version.
+          grep -q '"serverInfo"' mcp-out.json
+          # Read the version from the checkout, not from `npm root -g`: that path is
+          # a backslash Windows path and would be mangled inside a JS string literal.
+          grep -q "$(node -p "require('./package.json').version")" mcp-out.json
+          # 3. stdout carried ONLY JSON-RPC. For MCP stdio, stdout is the framing
+          #    channel: one stray log line corrupts the stream for a strict client.
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            printf '%s' "$line" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{JSON.parse(s)}catch(e){console.error("NON-JSON ON STDOUT >>> "+s.slice(0,200));process.exit(3)}})'
+          done < mcp-out.json
+
+      - name: Authenticated server smoke — reaches MCP-ready
         shell: bash
         env:
           METABOB_API_KEY: ${{ secrets.METABOB_TEST_API_KEY }}
