@@ -1,15 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
+import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
 import { deliverResolution, reconcileUndelivered } from '../../src/agent-delivery';
 import { LocalStore, type AgentResolutionRecord } from '../../src/local-store';
 import { setResolverIdentity } from '../../src/resolver-identity';
 import * as PullAssignedWork from '../../src/tools/pull-assigned-work';
 import * as SubmitResolution from '../../src/tools/submit-resolution';
 
-const dirs: string[] = [];
 const realFetch = globalThis.fetch;
 const prevGoalHost = process.env.GOAL_HOST_VESSEL_URL;
 
@@ -20,15 +17,11 @@ afterEach(() => {
   globalThis.fetch = realFetch;
   if (prevGoalHost === undefined) delete process.env.GOAL_HOST_VESSEL_URL;
   else process.env.GOAL_HOST_VESSEL_URL = prevGoalHost;
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  cleanupTempStores();
 });
 
 function freshStore(): LocalStore {
-  const dir = mkdtempSync(join(tmpdir(), 'mcp-deliv-'));
-  dirs.push(dir);
-  const s = new LocalStore(join(dir, 'sidecar.db'));
-  s.init();
-  return s;
+  return makeTempStore('mcp-deliv-').store;
 }
 
 function stubFetch(status: number, body: unknown): void {

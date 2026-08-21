@@ -1,21 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { LocalStore, type AgentTaskRecord } from '../../src/local-store';
+import { cleanupTempStores, makeTempStore, trackStore } from '../helpers/temp-store';
 
-const dirs: string[] = [];
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-});
+afterEach(cleanupTempStores);
 
 function freshStore(): { store: LocalStore; dbPath: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'mcp-coord-'));
-  dirs.push(dir);
-  const dbPath = join(dir, 'sidecar.db');
-  const store = new LocalStore(dbPath);
-  store.init();
+  const { store, dbPath } = makeTempStore('mcp-coord-');
   return { store, dbPath };
 }
 
@@ -123,7 +114,7 @@ describe('cross-session durability', () => {
     store.close();
 
     // Simulate a NEW session/process: same on-disk DB, same vesselId.
-    const next = new LocalStore(dbPath);
+    const next = trackStore(new LocalStore(dbPath));
     next.init();
     const undelivered = next.getUndeliveredResolutions('metabob-mcp-aaa');
     expect(undelivered.length).toBe(1);

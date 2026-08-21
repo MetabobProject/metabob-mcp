@@ -1,23 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 import { resolveImpulseContent, isAgentTaskShape } from '../../src/vessel-server';
 import { LocalStore } from '../../src/local-store';
 import { setResolverIdentity } from '../../src/resolver-identity';
+import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
 
-const dirs: string[] = [];
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-});
+afterEach(cleanupTempStores);
 
 function freshStore(): LocalStore {
-  const dir = mkdtempSync(join(tmpdir(), 'mcp-inbound-'));
-  dirs.push(dir);
-  const s = new LocalStore(join(dir, 'sidecar.db'));
-  s.init();
-  return s;
+  return makeTempStore('mcp-inbound-').store;
 }
 
 describe('isAgentTaskShape', () => {
