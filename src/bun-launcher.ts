@@ -29,9 +29,11 @@ export interface ResolveEnv {
  * POSIX: a bare `bun` is enough — execvp searches PATH.
  *
  * Windows: it is not. Bun arrives either as a real `bun.exe` (the bun.sh installer,
- * scoop, winget) or as a `bun.cmd` shim (`npm i -g bun`), and Node refuses to spawn
- * .cmd/.bat without a shell (CVE-2024-27980). Resolve the file first, prefer the
- * .exe because it needs no shell, and report when a shim forces one.
+ * scoop, winget) or as a `bun.cmd` shim (`npm i -g bun`). Since the CVE-2024-27980
+ * fix (Node 18.20.2 / 20.12.2 / 21.7.3 and later) spawning a .bat or .cmd without
+ * `shell` fails with EINVAL — note EINVAL, not ENOENT, so it would not even reach
+ * the missing-bun branch. Resolve the file first, prefer the .exe because it needs
+ * no shell, and report when a shim forces one.
  *
  * Returns null when bun is not on PATH at all, which the caller turns into the
  * "install bun" message rather than an opaque spawn failure.
