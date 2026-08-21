@@ -1,6 +1,6 @@
 {
   "name": "metabob",
-  "version": "0.2.15",
+  "version": "0.2.20",
   "description": "Metabob code intelligence: CPG structure, impact analysis, co-change prediction, cross-agent findings, and org-wide design memory. Bundles the metabob MCP server and the sequencing skill. Setup: after installing, add your API key to ~/.metabob/config.json ({\"metabob\":{\"apiKey\":\"mb_...\"}}) or export METABOB_API_KEY.",
   "author": {
     "name": "Metabob",
