@@ -121,12 +121,12 @@ export class LocalStore {
     // Ensure ~/.metabob/ exists
     mkdirSync(dirname(this.dbPath), { recursive: true });
 
-    // Abrupt process kills leave a corrupted WAL state: sidecar.db-wal is
-    // zero bytes but sidecar.db-shm is non-empty. Bun's SQLite cannot open
-    // this. Detect the pattern and delete all three files to start fresh.
-    // Both halves of the pattern must hold. A zero-byte -wal on its own is an
-    // ordinary post-checkpoint state, and deleting the database on sight of it
-    // discards every recorded finding and queued task the store exists to keep.
+    // Abrupt process kills leave a corrupted WAL state that Bun's SQLite cannot
+    // open: sidecar.db-wal is zero bytes AND sidecar.db-shm is non-empty. Both
+    // halves are load-bearing. A zero-byte -wal on its own is an ordinary
+    // post-checkpoint state, so treating it alone as corruption deletes healthy
+    // databases — every recorded finding and queued task the store exists to
+    // keep. On a real match, all three files go so the store reopens fresh.
     try {
       const { statSync } = require('fs') as typeof import('fs');
       const walSize = statSync(this.dbPath + '-wal').size;
