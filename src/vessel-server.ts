@@ -25,6 +25,33 @@ export function isAgentTaskShape(shape?: string): boolean {
   return !!shape && QUEUED_SHAPES.has(shape);
 }
 
+/** Parse METABOB_TOOLS. `null` = no allowlist configured (everything permitted). */
+export function parseToolAllowlist(raw: string | undefined): ReadonlySet<string> | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const names = trimmed.split(',').map(n => n.trim()).filter(n => n.length > 0);
+  return names.length > 0 ? new Set(names) : null;
+}
+
+let allowlistMemo: { value: ReadonlySet<string> | null } | null = null;
+
+/**
+ * The METABOB_TOOLS allowlist applies to EVERY plane this process serves, not
+ * just stdio MCP: the HTTP resolver and the libp2p overlay both dispatch through
+ * resolveImpulseContent, so an allowlist enforced only in the MCP handlers is a
+ * control on one of three doors. Memoised on first call — the env is frozen at
+ * process start in production, but a memo (unlike a module const) is resettable,
+ * and unassertable enforcement is exactly how this drifted for two releases.
+ */
+export function isToolPermitted(name: string): boolean {
+  if (!allowlistMemo) allowlistMemo = { value: parseToolAllowlist(process.env['METABOB_TOOLS']) };
+  return allowlistMemo.value === null || allowlistMemo.value.has(name);
+}
+
+export function __resetToolAllowlistForTests(): void {
+  allowlistMemo = null;
+}
+
 /**
  * Accept a dispatched agent task: durably enqueue it (keyed by the stable
  * vesselId so a later session resumes it) and return the synchronous ACK.
@@ -155,7 +182,8 @@ export class VesselServer {
     });
   }
 
-  private buildApp(): Hono {
+  /** Public so the resolver can be driven via `app.fetch(new Request(...))` without binding a socket. */
+  buildApp(): Hono {
     const app = new Hono();
     const { apiClient, circuitBreaker, sessionId, apiKey, authService, localStore } = this.config;
 
@@ -198,16 +226,27 @@ export class VesselServer {
       // Auth check — accept either the ide.metabob.com key (METABOB_API_KEY)
       // or the identity.metabob.com key (IDENTITY_API_KEY) during the
       // interim period where both backends are in use.
+      //
+      // FAIL CLOSED when neither is configured (anonymous mode). This gate used
+      // to be nested inside `if (apiKey || identityKey)`, which served EVERY
+      // resolve unauthenticated on 0.0.0.0 while /v2/capabilities advertised
+      // authScheme:ApiKey — and this surface dispatches init_workspace,
+      // search_codebase, record_finding and resolve_impulse. Under the
+      // advertised scheme an anonymous caller has no credential it could ever
+      // present, and discovery registration is itself gated on METABOB_API_KEY,
+      // so no legitimate inbound caller is lost. Resolved per-request, never at
+      // build time: the identity key arrives asynchronously after start.
       const identityKey = authService.getIdentityApiKey();
-      if (apiKey || identityKey) {
-        const auth = c.req.header('authorization') ?? '';
-        const provided = auth.startsWith('ApiKey ') ? auth.slice(7)
-          : auth.startsWith('Bearer ') ? auth.slice(7)
-          : auth;
-        const validKeys = new Set([apiKey, identityKey].filter(Boolean) as string[]);
-        if (!validKeys.has(provided)) {
-          return c.json({ error: 'Unauthorized' }, 401);
-        }
+      const validKeys = new Set([apiKey, identityKey].filter(Boolean) as string[]);
+      if (validKeys.size === 0) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      const auth = c.req.header('authorization') ?? '';
+      const provided = auth.startsWith('ApiKey ') ? auth.slice(7)
+        : auth.startsWith('Bearer ') ? auth.slice(7)
+        : auth;
+      if (!validKeys.has(provided)) {
+        return c.json({ error: 'Unauthorized' }, 401);
       }
 
       let body: { impulses?: unknown[]; pointer?: unknown; type?: unknown };
@@ -290,6 +329,12 @@ export async function resolveImpulseContent(
   }
 
   const { toolName, toolInput } = resolvePointerToTool(pointer);
+  // Gate AFTER shape→tool mapping so every shape is covered, not just
+  // mcp:tool_call, and here rather than in the Hono route so the libp2p overlay
+  // (which calls this function directly) is gated by the same line.
+  if (!isToolPermitted(toolName)) {
+    throw new Error(`Tool "${toolName}" is not enabled for this vessel (METABOB_TOOLS allowlist).`);
+  }
   const tool = TOOL_REGISTRY[toolName];
   if (!tool) {
     throw new Error(`Unknown tool: ${toolName}`);
