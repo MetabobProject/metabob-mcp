@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: [dev]
+  # Feature work lands via PRs into dev (see CLAUDE.md § Branching), and main
+  # only ever receives commits already merged there. Testing PRs into main alone
+  # therefore ran CI strictly after the decision it exists to inform. Include
+  # dev so a branch is checked while it is still under review.
   pull_request:
-    branches: [main]
+    branches: [dev, main]
 
 jobs:
   test:
