@@ -13,7 +13,7 @@
  * P2 guard: at most 1 P2 per 10 sends; P2 paused when localSpend > $4.50.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { readFileSync, statSync } from 'fs';
 import { extname, isAbsolute, join, relative } from 'path';
@@ -105,10 +105,17 @@ function readExcerpt(filePath: string): string {
   }
 }
 
-function readRecentCommits(filePath: string, workspaceRoot: string): RecentCommit[] {
+/**
+ * Exported for tests. argv form, never a shell string: `rel` is an arbitrary
+ * workspace filename, so `git log ... -- "${rel}"` let a file named
+ * `a$(touch PWNED).ts` run commands when the watcher enqueued it. The argv form
+ * is also strictly more correct — a shell rewrites such a path before git sees
+ * it, silently losing that file's history.
+ */
+export function readRecentCommits(filePath: string, workspaceRoot: string): RecentCommit[] {
   try {
     const rel = relative(workspaceRoot, filePath);
-    const output = execSync(`git log --oneline -3 -- "${rel}"`, {
+    const output = execFileSync('git', ['log', '--oneline', '-3', '--', rel], {
       cwd: workspaceRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
