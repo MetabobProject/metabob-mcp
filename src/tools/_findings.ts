@@ -292,18 +292,14 @@ export async function fetchConceptById(
     if (!res.ok) return null;
     const row = (await res.json()) as { summary?: string | null; content?: string | null };
     const content = String(row.content ?? '');
-    const pick = (key: string): string => {
-      const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content);
-      return m?.[1]?.trim() ?? '';
-    };
     // The agf_* id the finding was minted with. The dashboard's verdict join
     // keys on THIS, not on the concept id — a verdict recorded against the
     // concept id is written but invisible to every reader.
-    const findingId = (pick('finding_ids').split(',')[0] ?? '').trim();
+    const findingId = (headerLine(content, 'finding_ids').split(',')[0] ?? '').trim();
     return {
       summary: String(row.summary ?? '').trim(),
-      files: pick('files'),
-      repo: pick('repo'),
+      files: headerLine(content, 'files'),
+      repo: headerLine(content, 'repo'),
       findingId,
     };
   } catch {
