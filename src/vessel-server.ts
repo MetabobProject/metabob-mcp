@@ -48,6 +48,17 @@ export function isToolPermitted(name: string): boolean {
   return allowlistMemo.value === null || allowlistMemo.value.has(name);
 }
 
+/** True when an allowlist is configured at all — for reporting, not enforcement. */
+export function toolAllowlistActive(): boolean {
+  if (!allowlistMemo) allowlistMemo = { value: parseToolAllowlist(process.env['METABOB_TOOLS']) };
+  return allowlistMemo.value !== null;
+}
+
+/** The refusal every plane gives, so a caller cannot tell them apart by wording. */
+export function toolNotEnabledMessage(name: string): string {
+  return `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`;
+}
+
 export function __resetToolAllowlistForTests(): void {
   allowlistMemo = null;
 }
@@ -333,7 +344,7 @@ export async function resolveImpulseContent(
   // mcp:tool_call, and here rather than in the Hono route so the libp2p overlay
   // (which calls this function directly) is gated by the same line.
   if (!isToolPermitted(toolName)) {
-    throw new Error(`Tool "${toolName}" is not enabled for this vessel (METABOB_TOOLS allowlist).`);
+    throw new Error(toolNotEnabledMessage(toolName));
   }
   const tool = TOOL_REGISTRY[toolName];
   if (!tool) {
