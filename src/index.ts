@@ -23,7 +23,7 @@ import { AnalysisAPIClient } from './api-client.js';
 import { SessionManager } from './session-manager.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
-import { CircuitBreaker, CircuitState } from './circuit-breaker.js';
+import { CircuitBreaker, CircuitState, shouldTripBreaker } from './circuit-breaker.js';
 import { VesselServer, resolveImpulseContent } from './vessel-server.js';
 import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, agentResolverEnabled } from './vessel-identity.js';
@@ -293,7 +293,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ErrorCode.InternalError,
         `Analysis API is temporarily unavailable due to repeated failures. Circuit breaker is open. Try again in ${Math.ceil(resetTime / 1000)}s.`,
         {
-          code: 'SERVICE_UNAVAILABLE',
+          // Distinct from api-client's SERVICE_UNAVAILABLE (a real 5xx): this
+          // is the breaker's own rejection, and counting it as an upstream
+          // failure would keep resetting lastFailureTime so the circuit could
+          // never half-open under sustained traffic.
+          code: 'CIRCUIT_OPEN',
           circuitState: circuitBreaker.getState(),
           resetTimeMs: resetTime,
         }
@@ -418,12 +422,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       });
     }
 
-    // Record circuit breaker failure for API errors
-    if (error && typeof error === 'object' && 'code' in error) {
-      const errorObj = error as any;
-      if (errorObj.code !== 'RATE_LIMIT_EXCEEDED') {
-        circuitBreaker.recordFailure();
-      }
+    // Only genuine upstream failures may open the circuit — a client-side
+    // error says nothing about the analysis API's health, and counting them
+    // let five bad arguments lock out every tool, local ones included.
+    if (shouldTripBreaker(error)) {
+      circuitBreaker.recordFailure();
     }
 
     log('error', `Tool ${name} failed after ${duration}ms`, { error });
