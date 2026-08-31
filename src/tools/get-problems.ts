@@ -69,7 +69,10 @@ export async function handle(
     const msg = err instanceof Error ? err.message : String(err);
     core = `Backend detection unavailable (${msg.slice(0, 200)}) — server-side detection is deprecated; agent-recorded findings (record_finding) are the primary source.`;
   }
-  const recall = await fetchAgentFindings(apiClient, [workspaceRepoName(), input.file_path]);
+  const recall = await fetchAgentFindings(apiClient, {
+    repo: workspaceRepoName(),
+    filePath: input.file_path,
+  });
   const section = renderFindingsSection(recall, { max: 10 });
   return section ? `${core}\n\n${section}` : core;
 }

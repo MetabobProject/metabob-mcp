@@ -504,16 +504,27 @@ test('get_problems: renders findings recorded by agents on this codebase', async
   });
   servers.push(server);
   process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
-
-  const out = await GetProblems.handle(
-    GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
-    mockApiClient, SESSION, null,
-  );
-  expect(out).toContain('Findings recorded by agents on this codebase');
-  expect(out).toContain('SQL injection via string interpolation');
-  expect(out).toContain('cf_match');
-  // Non-matching repo's finding is filtered out
-  expect(out).not.toContain('naming drift');
+  // Pin the workspace so "this codebase" is repo-x deterministically, rather
+  // than whatever directory the suite happens to run from. Recall is scoped by
+  // repo first: a finding is shown because it is about THIS repository, and the
+  // file path only narrows within it — a matching path in another repository
+  // must not pull that repository's findings in.
+  const savedWorkspace = process.env.WORKSPACE_PATH;
+  process.env.WORKSPACE_PATH = join(tmpdir(), 'repo-x');
+  try {
+    const out = await GetProblems.handle(
+      GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
+      mockApiClient, SESSION, null,
+    );
+    expect(out).toContain('Findings recorded by agents on this codebase');
+    expect(out).toContain('SQL injection via string interpolation');
+    expect(out).toContain('cf_match');
+    // Another repository's finding is filtered out
+    expect(out).not.toContain('naming drift');
+  } finally {
+    if (savedWorkspace === undefined) delete process.env.WORKSPACE_PATH;
+    else process.env.WORKSPACE_PATH = savedWorkspace;
+  }
 });
 
 test('get_problems: concept-db unreachable is non-fatal', async () => {
