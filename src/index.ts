@@ -24,7 +24,13 @@ import { SessionManager } from './session-manager.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, CircuitState, shouldTripBreaker } from './circuit-breaker.js';
-import { VesselServer, resolveImpulseContent } from './vessel-server.js';
+import {
+  VesselServer,
+  resolveImpulseContent,
+  isToolPermitted,
+  toolAllowlistActive,
+  toolNotEnabledMessage,
+} from './vessel-server.js';
 import { VesselHeartbeat } from './vessel-heartbeat.js';
 import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, agentResolverEnabled } from './vessel-identity.js';
 import { fetchBootstrapAnchors } from './bootstrap.js';
@@ -218,27 +224,24 @@ function log(level: string, message: string, data?: any) {
  * variable under test.
  *
  * Unset (the default) lists everything, so existing deployments are unchanged.
- * Bootstrap-only: read at list time from a value frozen at process start.
+ * The rule itself lives in vessel-server.ts and is shared with the HTTP and
+ * libp2p planes: one grammar, one authority. A second copy here is how the
+ * enforcement split that a9bf3c7 fixed would grow back — silently, and with the
+ * tests still green, because only one copy would be covered.
  */
-const TOOL_ALLOWLIST: ReadonlySet<string> | null = (() => {
-  const raw = process.env['METABOB_TOOLS']?.trim();
-  if (!raw) return null;
-  const names = raw.split(',').map(n => n.trim()).filter(n => n.length > 0);
-  return names.length > 0 ? new Set(names) : null;
-})();
-
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   log('debug', 'Listing tools');
 
   const all = getAllTools();
-  const permitted = TOOL_ALLOWLIST === null ? all : all.filter(t => TOOL_ALLOWLIST.has(t.name));
-  const tools = permitted.map(tool => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-  }));
+  const tools = all
+    .filter(tool => isToolPermitted(tool.name))
+    .map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
 
-  if (TOOL_ALLOWLIST !== null) {
+  if (toolAllowlistActive()) {
     log('info', `Registered ${tools.length} of ${all.length} tools (METABOB_TOOLS allowlist active)`);
   } else {
     log('info', `Registered ${tools.length} tools`);
@@ -264,11 +267,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // learned a tool name elsewhere — a cached schema, a ToolSearch, a
     // hand-written call — can invoke a tool that was never listed, so hiding it
     // from the listing is not a control. Refuse by name before anything runs.
-    if (TOOL_ALLOWLIST !== null && !TOOL_ALLOWLIST.has(name)) {
-      throw new McpError(
-        ErrorCode.MethodNotFound,
-        `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`,
-      );
+    if (!isToolPermitted(name)) {
+      throw new McpError(ErrorCode.MethodNotFound, toolNotEnabledMessage(name));
     }
 
     // Check rate limit
