@@ -14,6 +14,42 @@ export enum CircuitState {
   HALF_OPEN = 'HALF_OPEN', // Testing if service recovered
 }
 
+/**
+ * Error codes that mean the ANALYSIS API is unhealthy. Everything else — bad
+ * arguments, an unknown tool name, an allowlist refusal, a rate-limit rejection,
+ * the breaker's own CIRCUIT_OPEN sentinel — says nothing about upstream and must
+ * never open the circuit, or a caller passing five bad arguments locks itself
+ * out of purely local tools too.
+ */
+const UPSTREAM_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'SERVICE_UNAVAILABLE',
+  'API_TIMEOUT',
+  'INTERNAL_ERROR',
+  'TLS_INTERCEPTED',
+]);
+
+/**
+ * Should this thrown error count as an upstream failure?
+ *
+ * Allowlist, not denylist: under-counting an unrecognised code is a far cheaper
+ * mistake than the self-lockout it replaces. Discriminates on `typeof code`
+ * rather than `instanceof McpError` — duplicate copies of the MCP SDK can
+ * resolve in one process and instanceof does not survive that.
+ */
+export function shouldTripBreaker(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  // MCP-shaped: McpError.code is the numeric ErrorCode enum, so the meaningful
+  // sentinel lives in the third constructor argument, `data.code`.
+  if (typeof code === 'number') {
+    const dataCode = (error as { data?: { code?: unknown } }).data?.code;
+    return typeof dataCode === 'string' && UPSTREAM_FAILURE_CODES.has(dataCode);
+  }
+  // api-client MCPError (see mapStatusToMCPCode).
+  if (typeof code === 'string') return UPSTREAM_FAILURE_CODES.has(code);
+  return false;
+}
+
 export class CircuitBreaker {
   private state: CircuitState = CircuitState.CLOSED;
   private failureCount = 0;
