@@ -15,6 +15,7 @@ import { LocalStore } from '../../src/local-store';
 import * as RecordFinding from '../../src/tools/record-finding';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import * as GetProblems from '../../src/tools/get-problems';
+import { workspaceRepoName } from '../../src/tools/_findings';
 import * as AnnotateComponent from '../../src/tools/annotate-component';
 import { setResolverIdentity } from '../../src/resolver-identity';
 
@@ -474,6 +475,15 @@ test('mark_complete (remote path): unresolvable identity still stamps origin: re
 // ===== get_problems cross-agent findings rendering =====
 
 test('get_problems: renders findings recorded by agents on this codebase', async () => {
+  // Recall is scoped by repo first: a finding shows because it is about THIS
+  // repository, and file_path only narrows within it — a matching path in
+  // another repository must not pull that repository's findings in.
+  //
+  // Ask for the repo name rather than pinning WORKSPACE_PATH: activeWorkspacePath()
+  // prefers the LocalIndex singleton over the env var, so any earlier test in the
+  // process that indexed a workspace would silently win and make this order-dependent.
+  const thisRepo = workspaceRepoName() ?? 'unknown-repo';
+
   const server = Bun.serve({
     port: 0,
     fetch(req) {
@@ -486,15 +496,17 @@ test('get_problems: renders findings recorded by agents on this codebase', async
             {
               id: 'concept:cf_match',
               shape: 'code_finding',
-              summary: '[HIGH][security] repo-x: SQL injection via string interpolation',
-              content: 'repo: repo-x\nfiles: src/db/client.ts\nseverity: HIGH',
+              summary: `[HIGH][security] ${thisRepo}: SQL injection via string interpolation`,
+              content: `repo: ${thisRepo}\nfiles: src/db/client.ts\nseverity: HIGH`,
               updated_at: '2026-07-16T00:00:00Z',
             },
             {
               id: 'concept:cf_other',
               shape: 'code_finding',
               summary: '[LOW][style] other-repo: naming drift',
-              content: 'repo: other-repo\nfiles: lib/naming.ts',
+              // Same file path as the match above, a different repository. Under
+              // the pre-fix filter the path alone was enough to surface this.
+              content: 'repo: other-repo\nfiles: src/db/client.ts',
             },
           ],
         });
@@ -504,27 +516,17 @@ test('get_problems: renders findings recorded by agents on this codebase', async
   });
   servers.push(server);
   process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
-  // Pin the workspace so "this codebase" is repo-x deterministically, rather
-  // than whatever directory the suite happens to run from. Recall is scoped by
-  // repo first: a finding is shown because it is about THIS repository, and the
-  // file path only narrows within it — a matching path in another repository
-  // must not pull that repository's findings in.
-  const savedWorkspace = process.env.WORKSPACE_PATH;
-  process.env.WORKSPACE_PATH = join(tmpdir(), 'repo-x');
-  try {
-    const out = await GetProblems.handle(
-      GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
-      mockApiClient, SESSION, null,
-    );
-    expect(out).toContain('Findings recorded by agents on this codebase');
-    expect(out).toContain('SQL injection via string interpolation');
-    expect(out).toContain('cf_match');
-    // Another repository's finding is filtered out
-    expect(out).not.toContain('naming drift');
-  } finally {
-    if (savedWorkspace === undefined) delete process.env.WORKSPACE_PATH;
-    else process.env.WORKSPACE_PATH = savedWorkspace;
-  }
+
+  const out = await GetProblems.handle(
+    GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
+    mockApiClient, SESSION, null,
+  );
+  expect(out).toContain('Findings recorded by agents on this codebase');
+  expect(out).toContain('SQL injection via string interpolation');
+  expect(out).toContain('cf_match');
+  // Another repository's finding is filtered out even though its files: line
+  // matches the requested path exactly.
+  expect(out).not.toContain('naming drift');
 });
 
 test('get_problems: concept-db unreachable is non-fatal', async () => {
