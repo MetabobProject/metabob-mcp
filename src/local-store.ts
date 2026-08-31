@@ -124,15 +124,19 @@ export class LocalStore {
     // Abrupt process kills leave a corrupted WAL state: sidecar.db-wal is
     // zero bytes but sidecar.db-shm is non-empty. Bun's SQLite cannot open
     // this. Detect the pattern and delete all three files to start fresh.
+    // Both halves of the pattern must hold. A zero-byte -wal on its own is an
+    // ordinary post-checkpoint state, and deleting the database on sight of it
+    // discards every recorded finding and queued task the store exists to keep.
     try {
       const { statSync } = require('fs') as typeof import('fs');
       const walSize = statSync(this.dbPath + '-wal').size;
-      if (walSize === 0) {
+      const shmSize = statSync(this.dbPath + '-shm').size;
+      if (walSize === 0 && shmSize > 0) {
         for (const p of [this.dbPath, this.dbPath + '-wal', this.dbPath + '-shm']) {
           try { unlinkSync(p); } catch { /* already gone */ }
         }
       }
-    } catch { /* -wal file doesn't exist — clean state */ }
+    } catch { /* -wal or -shm absent — clean state */ }
 
     const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     this.db = new Database(this.dbPath, { create: true });
