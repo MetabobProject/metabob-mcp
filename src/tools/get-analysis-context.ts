@@ -151,10 +151,9 @@ export async function handle(
   // ── Cross-agent findings recall (concept-db, best-effort, compact) ────────
   // Phase-0 orientation sees other agents' recorded findings without an extra
   // call. Non-fatal: unreachable concept-db renders a one-line note.
-  const recall = await fetchAgentFindings(apiClient, [
-    workspaceRepoName(),
-    ...(input.recently_changed_files ?? []),
-  ]);
+  // Scoped by repo only: this is an orientation snapshot, so a finding about
+  // any part of this codebase is relevant, not just the files touched so far.
+  const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepoName() });
   const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
 
   const duration = Date.now() - startTime;

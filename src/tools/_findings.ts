@@ -311,14 +311,68 @@ export async function fetchConceptById(
   }
 }
 
+/** Read one `key: value` header line out of a concept body. */
+function headerLine(content: string, key: string): string {
+  const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content);
+  return m?.[1]?.trim() ?? '';
+}
+
+/**
+ * Attribution keys carry a vessel id (`metabob-mcp-<hash>`) and a session uuid.
+ * They say WHO recorded a finding, never WHAT it is about, so they must not be
+ * visible to the scope match: the vessel id embeds this package's own name, so
+ * matching against it makes every finding any metabob-mcp instance ever recorded
+ * — for any repository — look like a finding about the caller's repository.
+ */
+const ATTRIBUTION_KEYS = ['recorded_by', 'reviewed_by', 'session', 'operator'];
+
+function withoutAttribution(text: string): string {
+  return text
+    .split('\n')
+    .filter(l => !ATTRIBUTION_KEYS.some(k => l.startsWith(`${k}: `)))
+    .join('\n');
+}
+
+/**
+ * Does this concept describe the given repository?
+ *
+ * The `repo:` header is authoritative when present — an exact match, not a
+ * substring, so `metabob-mcp` never claims `metabob-mcp-sandbox`. Concepts
+ * minted before that header existed have no declared repo; those fall back to a
+ * substring scan of the body with attribution stripped, which keeps them
+ * recallable without reintroducing the vessel-id match.
+ */
+function conceptIsAboutRepo(summary: string, content: string, repo: string): boolean {
+  const declared = headerLine(content, 'repo').toLowerCase();
+  if (declared) return declared === repo;
+  const workspace = headerLine(content, 'workspace').toLowerCase();
+  if (workspace) return basename(workspace) === repo;
+  return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(repo);
+}
+
+/** Does this concept touch the requested path? Prefers the `files:` header. */
+function conceptTouchesFile(summary: string, content: string, filePath: string): boolean {
+  const files = headerLine(content, 'files').toLowerCase();
+  if (files) return files.includes(filePath);
+  return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(filePath);
+}
+
+export interface FindingsScope {
+  /** Repository the caller is working in — the required scope gate. */
+  repo: string | null | undefined;
+  /** Optional narrowing to findings touching this path. */
+  filePath?: string | null | undefined;
+}
+
 export async function fetchAgentFindings(
   apiClient: AnalysisAPIClient,
-  matchTerms: Array<string | null | undefined>,
+  scope: FindingsScope,
 ): Promise<AgentFindingsResult> {
-  const terms = matchTerms
-    .map(t => (t ?? '').trim().toLowerCase())
-    .filter(t => t.length > 0);
-  if (terms.length === 0) return { status: 'skipped', findings: [] };
+  const repo = (scope.repo ?? '').trim().toLowerCase();
+  const filePath = (scope.filePath ?? '').trim().toLowerCase();
+  // No resolvable repo means no scope; a global recall over every repository's
+  // findings is worse than none, so decline rather than return the whole corpus.
+  if (!repo) return { status: 'skipped', findings: [] };
 
   const conceptDbUrl = await resolveConceptDbUrl(apiClient);
   if (!conceptDbUrl) return { status: 'skipped', findings: [] };
@@ -387,8 +441,8 @@ export async function fetchAgentFindings(
   for (const row of rows) {
     const summary = row.summary ?? '';
     const content = row.content ?? '';
-    const hay = `${summary}\n${content}`.toLowerCase();
-    if (!terms.some(t => hay.includes(t))) continue;
+    if (!conceptIsAboutRepo(summary, content, repo)) continue;
+    if (filePath && !conceptTouchesFile(summary, content, filePath)) continue;
     findings.push({
       id: (row.id ?? '').replace(/^concept:/, ''),
       summary,
