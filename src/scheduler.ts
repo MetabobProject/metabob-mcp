@@ -17,7 +17,7 @@ import { execFileSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { readFileSync, statSync } from 'fs';
 import { extname, isAbsolute, join, relative } from 'path';
-import type { LocalStore } from './local-store.js';
+import type { LocalStore, QueueItem } from './local-store.js';
 import { fetchWithBearerFallback } from './auth-header.js';
 import type { Telemetry } from './telemetry.js';
 
@@ -180,8 +180,27 @@ interface AnalysisRunResponse {
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────
 
+/**
+ * How long a claimed row stays spoken-for if its send never settles. Well past
+ * the 30s send ceiling, so it only ever fires on a wedged promise — re-delivery
+ * is deliberate, never the default.
+ */
+const CLAIM_LEASE_MS = 120_000;
+
 export class Scheduler {
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Claimed queue rows: id → lease expiry. `dequeue()` does not claim — it
+   * selects `WHERE processing = 0` and nothing writes 1 — and the row is
+   * deleted only after the send completes, so a 7s analysis against a 2s tick
+   * re-selected the same row and POSTed the same bundle three times. The claim
+   * lives here rather than in the `processing` column because LocalStore owns
+   * its handle; that makes this a per-process claim, which is exactly the
+   * scope of the bug (one scheduler, many ticks).
+   */
+  private readonly claimed = new Map<string, number>();
+  private ticking = false;
   private pausedUntil = 0;                  // epoch ms — all sends paused
   private p1PausedUntil = 0;               // P1+P2 sends paused (reduce-event / reactive-only)
   private p2PausedUntil = 0;              // P2 sends paused (reduce-proactive)
@@ -224,12 +243,45 @@ export class Scheduler {
 
   // ── Internal ────────────────────────────────────────────────────────────────
 
+  /** Rows nothing is currently sending, expired leases swept. */
+  private unclaimed(items: QueueItem[]): QueueItem[] {
+    const now = Date.now();
+    for (const [id, expiry] of this.claimed) {
+      if (expiry <= now) this.claimed.delete(id);
+    }
+    return items.filter(i => !this.claimed.has(i.id));
+  }
+
+  /**
+   * Take ownership, synchronously and before any await: a concurrent drainP0
+   * must never see a row between selection and claim. Only rows we are about
+   * to send are marked — a row the pause filters drop stays free for the tick
+   * that can actually send it.
+   */
+  private claim(items: QueueItem[]): QueueItem[] {
+    const expiry = Date.now() + CLAIM_LEASE_MS;
+    for (const i of items) this.claimed.set(i.id, expiry);
+    return items;
+  }
+
   private async tick(): Promise<void> {
+    // A send slower than the tick must not be re-entered two seconds later.
+    if (this.ticking) return;
+    this.ticking = true;
+    try {
+      await this.runTick();
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async runTick(): Promise<void> {
     const now = Date.now();
     if (this.pausedUntil > now) return;
 
-    // Dequeue up to 3 items respecting pauses
-    const items = this.store.dequeue(10); // fetch more, filter below
+    // Dequeue up to 3 items respecting pauses. Rows already in flight are
+    // dropped before the slice so they cannot eat the per-tick budget.
+    const items = this.unclaimed(this.store.dequeue(10)); // fetch more, filter below
     const toProcess = items
       .filter(item => {
         if (item.priority === 0) return true; // P0 always
@@ -246,19 +298,29 @@ export class Scheduler {
       })
       .slice(0, 3);
 
-    for (const item of toProcess) {
+    for (const item of this.claim(toProcess)) {
       await this.processItem(item.file_path, item.id, item.priority);
     }
   }
 
   private async drainP0(): Promise<void> {
-    const items = this.store.dequeue(50).filter(i => i.priority === 0);
+    const items = this.claim(this.unclaimed(this.store.dequeue(50)).filter(i => i.priority === 0));
     for (const item of items) {
       await this.processItem(item.file_path, item.id, item.priority);
     }
   }
 
   private async processItem(filePath: string, queueId: string, priority: number): Promise<void> {
+    try {
+      await this.sendItem(filePath, queueId, priority);
+    } finally {
+      // Release the claim however this ended. A 429 leaves the row queued on
+      // purpose; the next unpaused tick is then free to pick it up again.
+      this.claimed.delete(queueId);
+    }
+  }
+
+  private async sendItem(filePath: string, queueId: string, priority: number): Promise<void> {
     let bundle: Bundle;
     try {
       bundle = await buildBundle(this.store, filePath, this.workspaceRoot, this.workspaceId);
