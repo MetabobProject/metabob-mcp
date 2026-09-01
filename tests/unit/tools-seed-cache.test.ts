@@ -131,8 +131,10 @@ test('analyze_impact: cached seeds supplement the traversal instead of replacing
   );
 
   // The traversal ran: the importer is reported as an affected component.
+  // Match on the basename: the tool renders the platform's own separator, and
+  // asserting a POSIX path here fails on Windows, which CI builds.
   expect(out).toContain('Impact Analysis');
-  expect(out).toContain('src/consumer.ts');
+  expect(out).toContain('consumer.ts');
   expect(out).not.toContain('Impact Analysis (cached)');
   // …and the seed rode along rather than displacing it.
   expect(out).toContain('unchecked cast in core()');
@@ -170,7 +172,8 @@ test('analyze_impact: an empty cache leaves the traversal untouched and enqueues
     mockApiClient, SESSION, store,
   );
 
-  expect(out).toContain('src/consumer.ts');
+  // Basename, not a POSIX path — see the note on the assertion above.
+  expect(out).toContain('consumer.ts');
   expect(out).not.toContain('Known problems in changed files');
   expect(store.dequeue(10).some(q => q.file_path.includes('core.ts'))).toBe(true);
 });
