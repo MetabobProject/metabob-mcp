@@ -22,9 +22,10 @@ export const AnalyzeImpactTool = {
       },
       direction: {
         type: 'string',
-        description: 'Traversal direction: forward=dependencies, backward=dependents, both (default: both)',
+        description:
+          'Traversal direction: backward=dependents (what this change impacts — default), forward=dependencies (what these files import), both',
         enum: ['forward', 'backward', 'both'],
-        default: 'both',
+        default: 'backward',
       },
       max_depth: {
         type: 'number',
@@ -44,7 +45,7 @@ export const AnalyzeImpactTool = {
 export const InputSchema = z.object({
   changed_files: z.array(z.string()).min(1),
   diff: z.string().optional(),
-  direction: z.enum(['forward', 'backward', 'both']).default('both'),
+  direction: z.enum(['forward', 'backward', 'both']).default('backward'),
   max_depth: z.number().int().min(1).max(10).default(5),
   include_tests: z.boolean().default(true),
 });
@@ -158,6 +159,7 @@ async function impactReport(
   sessionId: string,
 ): Promise<string> {
   const startTime = Date.now();
+
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {
@@ -173,43 +175,53 @@ async function impactReport(
   }
 
   if (changedComponentIds.length === 0) {
+    const stats = localIndex.stats();
     return (
-      `No indexed components found for:\n` +
+      `Files not in the local index:\n` +
       input.changed_files.map(f => `  - ${f}`).join('\n') +
-      `\n\nRun init_workspace again after saving the files.`
+      `\n\nIndex coverage: ${stats.filesIndexed} files, ${stats.componentsIndexed} components indexed.` +
+      `\nThese files are not yet indexed — run init_workspace.`
     );
   }
 
-  // Collect impacted components via BFS
-  const reachable = new Map<string, { node: CPGNode; depth: number }>();
+  // Collect reachable components via BFS — dependents (backward: who calls us)
+  // and dependencies (forward: what we call) are kept STRICTLY separate. Only
+  // dependents are impacted by a change; dependencies are what these files use.
+  const dependentNodes = new Map<string, { node: CPGNode; depth: number }>();
+  const dependencyNodes = new Map<string, { node: CPGNode; depth: number }>();
 
   if (input.direction === 'backward' || input.direction === 'both') {
     for (const [id, v] of collectReachable(cpg, changedComponentIds, 'backward', input.max_depth)) {
-      if (!changedComponentIds.includes(id)) reachable.set(id, v);
+      if (!changedComponentIds.includes(id)) dependentNodes.set(id, v);
     }
   }
   if (input.direction === 'forward' || input.direction === 'both') {
     for (const [id, v] of collectReachable(cpg, changedComponentIds, 'forward', input.max_depth)) {
-      if (!changedComponentIds.includes(id)) {
-        const existing = reachable.get(id);
-        if (!existing || v.depth < existing.depth) reachable.set(id, v);
-      }
+      if (!changedComponentIds.includes(id)) dependencyNodes.set(id, v);
     }
   }
 
-  const allImpacted: ImpactedComponent[] = [];
-  for (const [id, { node, depth }] of reachable) {
-    const filePath = (node as any).filePath as string ?? '';
-    if (!input.include_tests && isTestFile(filePath)) continue;
-    allImpacted.push({
-      component_id: id,
-      component_name: node.name,
-      file_path: filePath,
-      start_line: node.startLine,
-      depth,
-      risk: riskLevel(depth, reachable.size),
-    });
-  }
+  const toComponents = (
+    source: Map<string, { node: CPGNode; depth: number }>,
+  ): ImpactedComponent[] => {
+    const out: ImpactedComponent[] = [];
+    for (const [id, { node, depth }] of source) {
+      const filePath = (node as any).filePath as string ?? '';
+      if (!input.include_tests && isTestFile(filePath)) continue;
+      out.push({
+        component_id: id,
+        component_name: node.name,
+        file_path: filePath,
+        start_line: node.startLine,
+        depth,
+        risk: riskLevel(depth, source.size),
+      });
+    }
+    return out;
+  };
+
+  const allDependents: ImpactedComponent[] = toComponents(dependentNodes);
+  const allDependencies: ImpactedComponent[] = toComponents(dependencyNodes);
 
   // ── File-level import graph — CALLS edges miss module dependencies, so a
   // schema/config file with no callers still has importers that break when it
@@ -223,44 +235,60 @@ async function impactReport(
     }
   }
   const changedAbs = input.changed_files.map(f => localIndex.resolvePath(f));
-  const seenFiles = new Map<string, number>();
-  let frontier = changedAbs.filter(f => importGraph.has(f));
-  for (let depth = 1; depth <= input.max_depth && frontier.length > 0; depth++) {
-    const next: string[] = [];
-    for (const file of frontier) {
-      const neighbors = [
-        ...(input.direction !== 'forward' ? reverseImports.get(file) ?? [] : []),
-        ...(input.direction !== 'backward' ? importGraph.get(file) ?? [] : []),
-      ];
-      for (const n of neighbors) {
-        if (changedAbs.includes(n) || seenFiles.has(n)) continue;
-        seenFiles.set(n, depth);
-        next.push(n);
+
+  // Two separate BFS passes so importers (dependents) never mix with imports
+  // (dependencies).
+  const bfsFiles = (edges: Map<string, Set<string>>): Map<string, number> => {
+    const seen = new Map<string, number>();
+    let frontier = changedAbs.filter(f => importGraph.has(f) || reverseImports.has(f));
+    for (let depth = 1; depth <= input.max_depth && frontier.length > 0; depth++) {
+      const next: string[] = [];
+      for (const file of frontier) {
+        for (const n of edges.get(file) ?? []) {
+          if (changedAbs.includes(n) || seen.has(n)) continue;
+          seen.set(n, depth);
+          next.push(n);
+        }
       }
+      frontier = next;
     }
-    frontier = next;
+    return seen;
+  };
+
+  const mergeFileHits = (target: ImpactedComponent[], seenFiles: Map<string, number>): void => {
+    const coveredFiles = new Set(target.map(c => c.file_path));
+    for (const [file, depth] of seenFiles) {
+      if (coveredFiles.has(file)) continue;
+      if (!input.include_tests && isTestFile(file)) continue;
+      target.push({
+        component_id: `${file}::file`,
+        component_name: file.split(/[\\/]/).pop() ?? file,
+        file_path: file,
+        start_line: 0,
+        depth,
+        risk: riskLevel(depth, seenFiles.size),
+      });
+    }
+  };
+
+  if (input.direction !== 'forward') {
+    mergeFileHits(allDependents, bfsFiles(reverseImports));
   }
-  const coveredFiles = new Set(allImpacted.map(c => c.file_path));
-  for (const [file, depth] of seenFiles) {
-    if (coveredFiles.has(file)) continue;
-    if (!input.include_tests && isTestFile(file)) continue;
-    allImpacted.push({
-      component_id: `${file}::file`,
-      component_name: file.split(/[\\/]/).pop() ?? file,
-      file_path: file,
-      start_line: 0,
-      depth,
-      risk: riskLevel(depth, seenFiles.size),
-    });
+  if (input.direction !== 'backward') {
+    mergeFileHits(allDependencies, bfsFiles(importGraph));
   }
 
-  allImpacted.sort((a, b) => a.depth - b.depth || b.risk.localeCompare(a.risk));
+  const byDepth = (a: ImpactedComponent, b: ImpactedComponent) =>
+    a.depth - b.depth || b.risk.localeCompare(a.risk);
+  allDependents.sort(byDepth);
+  allDependencies.sort(byDepth);
 
-  const direct = allImpacted.filter(c => c.depth === 1);
-  const indirect = allImpacted.filter(c => c.depth > 1 && !isTestFile(c.file_path));
-  const tests = allImpacted.filter(c => isTestFile(c.file_path));
+  const direct = allDependents.filter(c => c.depth === 1 && !isTestFile(c.file_path));
+  const indirect = allDependents.filter(c => c.depth > 1 && !isTestFile(c.file_path));
+  const tests = allDependents.filter(c => isTestFile(c.file_path));
 
-  const totalImpact = allImpacted.length;
+  // Risk reflects DEPENDENTS only — dependencies are not impacted by this change.
+  const totalImpact = allDependents.length;
   const overallRisk =
     totalImpact > 20 ? 'critical' : totalImpact > 5 ? 'high' : totalImpact > 1 ? 'medium' : 'low';
 
@@ -278,7 +306,12 @@ async function impactReport(
   text += `═══════════════\n\n`;
   text += `Changed files:\n`;
   for (const f of input.changed_files) text += `  - ${f}\n`;
-  text += `\nOverall risk: ${overallRisk.toUpperCase()}   Total impacted: ${totalImpact}\n\n`;
+  text += `\nOverall risk: ${overallRisk.toUpperCase()}   Dependents impacted: ${totalImpact}`;
+  text += ` (risk is computed from dependents only)\n\n`;
+
+  if (totalImpact > 0) {
+    text += `Dependents (impacted by this change):\n\n`;
+  }
 
   if (direct.length > 0) {
     text += `Direct dependents (${direct.length}):\n`;
@@ -307,8 +340,18 @@ async function impactReport(
     text += '\n';
   }
 
-  if (totalImpact === 0) {
-    text += 'No dependents found — these files can be changed in isolation.\n';
+  if (totalImpact === 0 && input.direction !== 'forward') {
+    text += 'No dependents found — these files can be changed in isolation.\n\n';
+  }
+
+  if (input.direction !== 'backward' && allDependencies.length > 0) {
+    const shown = allDependencies.slice(0, 15);
+    text += `Dependencies (this file imports — NOT impacted by this change) (${allDependencies.length}):\n`;
+    for (const c of shown) {
+      text += `  • ${c.component_name}  ${c.file_path}:${c.start_line}  depth=${c.depth}\n`;
+    }
+    if (allDependencies.length > 15) text += `  … and ${allDependencies.length - 15} more\n`;
+    text += '\n';
   }
 
   text += `\nAnalysis completed in ${duration}ms${apiNote}`;
