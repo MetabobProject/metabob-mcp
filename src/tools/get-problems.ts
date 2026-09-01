@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
+import { extractProblemDetectionPayload } from '../api-client.js';
 import type { LocalStore, SeedRecord } from '../local-store.js';
 import { getLocalIndex } from '../local-index.js';
 import { fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
@@ -216,15 +217,10 @@ async function handleRemote(
       const msg = err instanceof Error ? err.message : String(err);
       return `Backend detection unavailable (${msg.slice(0, 200)}) — server-side detection is deprecated; agent-recorded findings (record_finding) are the primary source.`;
     }
-    // Support both legacy { problems, files_analyzed } and analysis-api { resolved: [{ content, metadata }] } formats
-    type LegacyPayload = { problems?: Array<Record<string, unknown>>; files_analyzed?: number; error?: string };
-    type NewPayload = { resolved?: Array<{ content?: Array<Record<string, unknown>>; metadata?: { files_analyzed?: number } }> };
-    const asNew = raw as NewPayload;
-    const asLegacy = raw as LegacyPayload;
-    const firstResolved = asNew.resolved?.[0];
-    const payload: LegacyPayload = firstResolved
-      ? { problems: firstResolved.content ?? [], files_analyzed: firstResolved.metadata?.files_analyzed }
-      : asLegacy;
+    // Supports both legacy { problems, files_analyzed } and analysis-api
+    // { resolved: [{ content, metadata }] } formats. The unwrapper lives in
+    // api-client so submitFiles reads the same shape the same way.
+    const payload = extractProblemDetectionPayload(raw);
     if (payload.error) {
       return `analysis-vessel error: ${payload.error}`;
     }

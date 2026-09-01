@@ -36,13 +36,19 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-const SEED = {
-  id: 'seed_1',
-  category: 'correctness',
+/**
+ * One `problem_detection` finding, in the shape the analysis-vessel returns.
+ * The vessel branch submits over the shape protocol (POST /resolve) — see
+ * api-client-vessel-submit-shape.test.ts for the wire assertions. The
+ * accounting asserted BELOW is unchanged by that move, which is the point.
+ */
+const PROBLEM = {
+  file: 'ok.ts',
+  line: 1,
+  column: 0,
   severity: 'high',
-  brief: 'a real detection',
-  line_start: 1,
-  line_end: 2,
+  category: 'correctness',
+  message: 'a real detection',
 };
 
 function vesselClient(): AnalysisAPIClient {
@@ -68,7 +74,7 @@ test('submitFiles: a batch where every POST was rejected reports failed, not com
     expect(res.status).toBe('failed'); // HEAD: 'complete'
     expect(res.submitted).toBe(0);
     expect(res.failed).toBe(2);
-    expect(res.failures).toEqual([
+    expect(res.failures?.map(f => ({ path: f.path, status: f.status }))).toEqual([
       { path: 'a.ts', status: 500 },
       { path: 'b.ts', status: 500 },
     ]);
@@ -80,7 +86,7 @@ test('submitFiles: a batch where every POST was rejected reports failed, not com
 
 test('submitFiles: a partial rejection stays complete but is distinguishable from a clean run', async () => {
   const calls = stubFetch((i) =>
-    i === 0 ? json({ seeds: [SEED] }, 200) : json({ error: 'boom' }, 500),
+    i === 0 ? json({ problems: [PROBLEM], files_analyzed: 1 }, 200) : json({ error: 'boom' }, 500),
   );
   try {
     const res = await vesselClient().submitFiles(
@@ -94,7 +100,9 @@ test('submitFiles: a partial rejection stays complete but is distinguishable fro
     expect(res.status).toBe('complete');
     expect(res.submitted).toBe(1);
     expect(res.failed).toBe(1);
-    expect(res.failures).toEqual([{ path: 'bad.ts', status: 500 }]);
+    expect(res.failures?.map(f => ({ path: f.path, status: f.status }))).toEqual([
+      { path: 'bad.ts', status: 500 },
+    ]);
     expect(res.results?.length).toBe(1);
     expect(res.results?.[0]?.path).toBe('ok.ts');
   } finally {
@@ -111,14 +119,16 @@ test('submitFiles: a 429 soft-skip is counted, not silently dropped', async () =
     // same lie as the 500 case, only quieter — there is not even a stderr line.
     expect(res.status).toBe('failed');
     expect(res.failed).toBe(1);
-    expect(res.failures).toEqual([{ path: 'a.ts', status: 429 }]);
+    expect(res.failures?.map(f => ({ path: f.path, status: f.status }))).toEqual([
+      { path: 'a.ts', status: 429 },
+    ]);
   } finally {
     globalThis.fetch = realFetch;
   }
 });
 
 test('submitFiles: a fully successful batch reports no failures', async () => {
-  stubFetch(() => json({ seeds: [SEED] }, 200));
+  stubFetch(() => json({ problems: [PROBLEM], files_analyzed: 1 }, 200));
   try {
     const res = await vesselClient().submitFiles([{ path: 'a.ts', content: 'x' }], 'sess');
 
