@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
-import type { LocalStore } from '../local-store.js';
+import type { LocalStore, SeedRecord } from '../local-store.js';
 import { getLocalIndex } from '../local-index.js';
 import { fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
 
@@ -77,6 +77,28 @@ export async function handle(
   return section ? `${core}\n\n${section}` : core;
 }
 
+/**
+ * Age the cache header. Per file the store knows when that file was last
+ * analyzed; workspace-wide it does not, so date the block from its oldest
+ * seed. A file carrying an agent finding the backend never analyzed has no
+ * file record at all — `age_ms` is Infinity there, which used to render as
+ * "Infinitys old, stale"; fall back to the seeds' own timestamps instead.
+ */
+function renderCacheTag(
+  localStore: LocalStore,
+  filePath: string | undefined,
+  seeds: SeedRecord[],
+): string {
+  if (filePath) {
+    const freshness = localStore.getFreshness(filePath);
+    if (Number.isFinite(freshness.age_ms)) {
+      return `[cache: ${Math.round(freshness.age_ms / 1000)}s old${freshness.stale ? ', stale' : ''}]`;
+    }
+  }
+  const oldest = Math.min(...seeds.map(s => s.produced_at));
+  return `[cache: ${Math.round((Date.now() - oldest) / 1000)}s old]`;
+}
+
 async function handleCore(
   input: GetProblemsInput,
   apiClient: AnalysisAPIClient,
@@ -88,13 +110,18 @@ async function handleCore(
   // ── Sidecar mode: serve from local cache when it has entries. An empty
   // cache enqueues the path for background analysis and FALLS THROUGH to the
   // live fetch below — the cache accelerates, it never gates.
-  const seeds = localStore && input.file_path ? localStore.getCachedSeeds(input.file_path) : [];
+  //
+  // With no file_path — the default, argument-less triage call — this reads the
+  // WHOLE workspace cache. It used to read nothing at all, which made the
+  // agent-recorded findings this tool calls its primary source (below)
+  // invisible to every caller who did not already know the exact stored path.
+  const seeds = localStore
+    ? (input.file_path ? localStore.getCachedSeeds(input.file_path) : localStore.getAllCachedSeeds())
+    : [];
   if (localStore && input.file_path && seeds.length === 0) {
     localStore.enqueue(input.file_path, 0, 'default');
   }
-  if (localStore && input.file_path && seeds.length > 0) {
-    const freshness = localStore.getFreshness(input.file_path);
-
+  if (localStore && seeds.length > 0) {
     // Apply filters
     let filtered = seeds;
     if (input.severity?.length) {
@@ -109,8 +136,7 @@ async function handleCore(
     const total = filtered.length;
     filtered = filtered.slice(0, input.limit);
 
-    const ageSec = Math.round(freshness.age_ms / 1000);
-    const cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
+    const cacheTag = renderCacheTag(localStore, input.file_path, seeds);
 
     if (filtered.length === 0) {
       return `No problems found (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\n${cacheTag}`;
