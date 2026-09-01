@@ -20,6 +20,7 @@ import { getLocalIndex } from '../../src/local-index';
 
 import * as AnalyzeImpact from '../../src/tools/analyze-impact';
 import * as GetProblems from '../../src/tools/get-problems';
+import * as SearchCodebase from '../../src/tools/search-codebase';
 
 const SESSION = 'test-session';
 
@@ -140,7 +141,10 @@ test('analyze_impact: cached seeds supplement the traversal instead of replacing
   expect(out).toContain('unchecked cast in core()');
   expect(out).toContain('Known problems in changed files');
   // Ordering is the whole point: analysis first, seeds appended after it.
-  expect(out.indexOf('src/consumer.ts')).toBeLessThan(out.indexOf('unchecked cast in core()'));
+  // Basename again — a POSIX path indexOf's to -1 on Windows, which is less
+  // than everything, so this would have passed there without asserting anything.
+  expect(out.indexOf('consumer.ts')).toBeGreaterThan(-1);
+  expect(out.indexOf('consumer.ts')).toBeLessThan(out.indexOf('unchecked cast in core()'));
 });
 
 test('analyze_impact: seeds still ride along when the file is not in the graph', async () => {
@@ -202,8 +206,12 @@ test('get_problems: the argument-less call reads the whole workspace seed cache'
   // analysis record exists for the file (this used to render "Infinitys old").
   expect(out).toContain('[cache:');
   expect(out).not.toContain('Infinity');
-  // A cache hit short-circuits the legacy fetch.
-  expect(mockApiClient.getAnalysis).not.toHaveBeenCalled();
+  // …and it SUPPLEMENTS backend detection rather than replacing it. Returning
+  // early here would mean one stale seed anywhere in the workspace silenced
+  // detection for the whole codebase — a gate, on the one call that could not
+  // reach the cache at all before. Named-file lookups still short-circuit;
+  // that is the documented sidecar bargain and is asserted separately.
+  expect(mockApiClient.getAnalysis).toHaveBeenCalled();
 });
 
 test('get_problems: filters and limit still apply to the workspace-wide read', async () => {
@@ -255,4 +263,43 @@ test('get_problems: another workspace\'s seeds are not served here', async () =>
 
   expect(out).not.toContain('someone else repo finding');
   expect(out).toContain('No problems found');
+});
+
+// ── search_codebase (audit 16, the half the tranche claimed and did not close) ──
+
+test('search_codebase searches the whole workspace cache when no file_filter is given', async () => {
+  // `file_filter` NARROWS the seed search. It used to gate it: with no filter
+  // the loop ran over an empty array, so `target: "problems"` could only ever
+  // return backend detections and never an agent-recorded finding — the plain
+  // form of the call, and the one an agent reaches for first.
+  const ws = makeWorkspace({ 'src/core.ts': 'export const a = 1;\n' });
+  store.setWorkspaceScope(ws);
+  await indexWorkspace(ws, ['src/core.ts']);
+  store.upsertSeed(seed({ id: 'agf_unfiltered', file_path: 'src/core.ts', brief: 'race in the retry loop' }));
+
+  const out = await SearchCodebase.handle(
+    SearchCodebase.InputSchema.parse({ query: 'race', target: 'problems' }),
+    mockApiClient, SESSION, store,
+  );
+
+  expect(out).toContain('race in the retry loop');
+  expect(out).toContain('agf_unfiltered');
+});
+
+test('search_codebase still narrows to file_filter when one is given', async () => {
+  // The inverse: a filter that matched nothing would satisfy the test above by
+  // accident if the filter had simply been dropped.
+  const ws = makeWorkspace({ 'src/core.ts': 'export const a = 1;\n' });
+  store.setWorkspaceScope(ws);
+  await indexWorkspace(ws, ['src/core.ts']);
+  store.upsertSeed(seed({ id: 'agf_here', file_path: 'src/core.ts', brief: 'race in the retry loop' }));
+  store.upsertSeed(seed({ id: 'agf_elsewhere', file_path: 'src/other.ts', brief: 'race in the other loop' }));
+
+  const out = await SearchCodebase.handle(
+    SearchCodebase.InputSchema.parse({ query: 'race', target: 'problems', file_filter: ['src/core.ts'] }),
+    mockApiClient, SESSION, store,
+  );
+
+  expect(out).toContain('agf_here');
+  expect(out).not.toContain('agf_elsewhere');
 });

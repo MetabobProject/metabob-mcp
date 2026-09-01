@@ -107,62 +107,92 @@ async function handleCore(
 ): Promise<string> {
   const startTime = Date.now();
 
-  // ── Sidecar mode: serve from local cache when it has entries. An empty
-  // cache enqueues the path for background analysis and FALLS THROUGH to the
-  // live fetch below — the cache accelerates, it never gates.
+  // ── Sidecar mode: the local cache.
   //
-  // With no file_path — the default, argument-less triage call — this reads the
-  // WHOLE workspace cache. It used to read nothing at all, which made the
-  // agent-recorded findings this tool calls its primary source (below)
-  // invisible to every caller who did not already know the exact stored path.
+  // For a NAMED file the cache is served in place of the live fetch. That is
+  // the documented sidecar bargain — a specific file, answered without a round
+  // trip — and an empty cache enqueues the path and falls through.
+  //
+  // For the argument-less triage call it is NOT served in place of anything.
+  // Reading the whole workspace cache here is what makes agent-recorded
+  // findings (this tool's primary source) visible without knowing the exact
+  // stored path, but returning early on a cache hit would mean one stale seed
+  // anywhere in the workspace suppressed backend detection for the whole
+  // codebase — a gate, on the one call that previously could not reach the
+  // cache at all. So the workspace-wide block is APPENDED to the core result,
+  // the same treatment analyze_impact gives its seeds.
   const seeds = localStore
     ? (input.file_path ? localStore.getCachedSeeds(input.file_path) : localStore.getAllCachedSeeds())
     : [];
   if (localStore && input.file_path && seeds.length === 0) {
     localStore.enqueue(input.file_path, 0, 'default');
   }
+  if (localStore && !input.file_path && seeds.length > 0) {
+    const block = renderSeedBlock(localStore, input, seeds, startTime);
+    const core = await handleRemote(input, apiClient, sessionId, startTime);
+    return `${core}\n\n${block}`;
+  }
   if (localStore && seeds.length > 0) {
-    // Apply filters
-    let filtered = seeds;
-    if (input.severity?.length) {
-      const sevSet = new Set<string>(input.severity);
-      filtered = filtered.filter(s => sevSet.has(s.severity.toUpperCase()));
-    }
-    if (input.category?.length) {
-      const catSet = new Set(input.category.map(c => c.toLowerCase()));
-      filtered = filtered.filter(s => catSet.has(s.category.toLowerCase()));
-    }
-
-    const total = filtered.length;
-    filtered = filtered.slice(0, input.limit);
-
-    const cacheTag = renderCacheTag(localStore, input.file_path, seeds);
-
-    if (filtered.length === 0) {
-      return `No problems found (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\n${cacheTag}`;
-    }
-
-    let text = `${filtered.length} problem${filtered.length === 1 ? '' : 's'}`;
-    if (total > filtered.length) text += ` (${total} total after filters)`;
-    text += '\n\n';
-
-    for (let i = 0; i < filtered.length; i++) {
-      const s = filtered[i]!;
-      // Mark seed as read
-      localStore.markSeedRead(s.id);
-      text += `${i + 1}. [${s.severity}] ${s.category}\n`;
-      text += `   File:    ${s.file_path}:${s.line_start}–${s.line_end}\n`;
-      text += `   Summary: ${s.brief}\n`;
-      if (s.confidence < 0.8) {
-        text += `   Confidence: ${(s.confidence * 100).toFixed(0)}%\n`;
-      }
-      text += `   ID:      ${s.id}\n\n`;
-    }
-
-    text += `Query completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
-    return text;
+    return renderSeedBlock(localStore, input, seeds, startTime);
   }
 
+  return handleRemote(input, apiClient, sessionId, startTime);
+}
+
+/** The cached-seed listing. One implementation, so the served and the appended
+ *  forms cannot drift apart. */
+function renderSeedBlock(
+  localStore: LocalStore,
+  input: GetProblemsInput,
+  seeds: SeedRecord[],
+  startTime: number,
+): string {
+  let filtered = seeds;
+  if (input.severity?.length) {
+    const sevSet = new Set<string>(input.severity);
+    filtered = filtered.filter(s => sevSet.has(s.severity.toUpperCase()));
+  }
+  if (input.category?.length) {
+    const catSet = new Set(input.category.map(c => c.toLowerCase()));
+    filtered = filtered.filter(s => catSet.has(s.category.toLowerCase()));
+  }
+
+  const total = filtered.length;
+  filtered = filtered.slice(0, input.limit);
+
+  const cacheTag = renderCacheTag(localStore, input.file_path, seeds);
+
+  if (filtered.length === 0) {
+    return `No problems found (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).\n\n${cacheTag}`;
+  }
+
+  let text = `${filtered.length} problem${filtered.length === 1 ? '' : 's'}`;
+  if (total > filtered.length) text += ` (${total} total after filters)`;
+  text += '\n\n';
+
+  for (let i = 0; i < filtered.length; i++) {
+    const s = filtered[i]!;
+    localStore.markSeedRead(s.id);
+    text += `${i + 1}. [${s.severity}] ${s.category}\n`;
+    text += `   File:    ${s.file_path}:${s.line_start}–${s.line_end}\n`;
+    text += `   Summary: ${s.brief}\n`;
+    if (s.confidence < 0.8) {
+      text += `   Confidence: ${(s.confidence * 100).toFixed(0)}%\n`;
+    }
+    text += `   ID:      ${s.id}\n\n`;
+  }
+
+  text += `Query completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
+  return text;
+}
+
+/** Backend detection: the vessel fan-out, else the legacy analysis fetch. */
+async function handleRemote(
+  input: GetProblemsInput,
+  apiClient: AnalysisAPIClient,
+  sessionId: string,
+  startTime: number,
+): Promise<string> {
   // ── Vessel mode: fan out problem_detection across the local CPG file list ─
   if (apiClient.isVesselMode()) {
     const index = getLocalIndex();
