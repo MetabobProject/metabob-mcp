@@ -289,10 +289,24 @@ export async function handle(
             }
           }
 
+          // A bare "failed" / "complete" is what made the vessel-submit
+          // protocol mismatch read as a backend outage for months. The
+          // per-file counts and the first reason are the only evidence the
+          // agent can see — stderr is invisible to an MCP client.
+          const failedCount = result.failed ?? 0;
+          const attempted = (result.submitted ?? 0) + failedCount;
+          const firstFailure = result.failures?.[0];
+          const reason = firstFailure
+            ? (firstFailure.reason ?? `HTTP ${firstFailure.status}`).slice(0, 160)
+            : '';
           if (result.status === 'complete') {
-            syncStatus = 'complete';
+            syncStatus = failedCount > 0
+              ? `complete — ${failedCount}/${attempted} file${failedCount === 1 ? '' : 's'} not analyzed: ${reason}`
+              : 'complete';
           } else if (result.jobId) {
             syncStatus = `pending (job: ${result.jobId})`;
+          } else if (result.status === 'failed' && failedCount > 0) {
+            syncStatus = `failed — none of the ${attempted} submitted file${attempted === 1 ? '' : 's'} were analyzed: ${reason}`;
           } else {
             syncStatus = result.status;
           }
