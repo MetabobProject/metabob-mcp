@@ -99,7 +99,10 @@ export async function handle(
     return 'concept_record_usage could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
   }
 
-  const conceptId = input.concept_id.replace(/^concept:/, '');
+  // Same normalisation as fetchConceptById and mark_complete: concept-db hands
+  // back ids wrapped in ⟨⟩, and an unstripped id resolves to nothing while the
+  // call still reports success.
+  const conceptId = input.concept_id.replace(/^concept:/, '').replace(/^⟨/, '').replace(/⟩$/, '');
   const traceId = input.trace_id ?? makeUsageTraceId();
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
