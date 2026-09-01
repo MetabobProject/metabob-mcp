@@ -11,8 +11,15 @@
 import type { AuthService } from './auth-service.js';
 import { fetchWithBearerFallback } from './auth-header.js';
 
+/** Consecutive failures after which the retry cadence widens — never stops. */
 const MAX_FAILURES = 3;
 const DEFAULT_TTL_S = 300;
+/**
+ * Ceiling on the backoff gap. Capped by the TTL too: backing off longer than
+ * the registration lives only extends the window in which the vessel is
+ * invisible after discovery has already come back.
+ */
+const MAX_RETRY_BACKOFF_MS = 300_000;
 
 export interface VesselHeartbeatConfig {
   /**
@@ -53,6 +60,10 @@ export class VesselHeartbeat {
   private intervalHandle?: Timer;
   private running = false;
   private failures = 0;
+  /** Epoch ms before which interval ticks are skipped (failure backoff). */
+  private nextAttemptAt = 0;
+  /** The shape-set discovery last ACCEPTED — not the one we last wanted. */
+  private advertisedShapes: string[] = [];
   lastRegistered?: Date;
 
   constructor(config: VesselHeartbeatConfig) {
@@ -74,21 +85,32 @@ export class VesselHeartbeat {
    */
   async setShapes(shapes: string[]): Promise<void> {
     const next = [...shapes];
+    // Compare against what discovery accepted, not against what we last
+    // wanted: recording the desire before a register that failed made every
+    // later reconcile short-circuit as "unchanged", so a shape-set that lost
+    // one race was never advertised again.
     const changed =
-      next.length !== this.config.shapes.length ||
-      next.some((s, i) => s !== this.config.shapes[i]);
+      next.length !== this.advertisedShapes.length ||
+      next.some((s, i) => s !== this.advertisedShapes[i]);
     if (!changed) return;
     this.config.shapes = next;
-    if (this.running) await this.register();
+    // Respect the failure backoff — the heartbeat interval carries the new set
+    // on its next attempt either way.
+    if (this.running && Date.now() >= this.nextAttemptAt) await this.register();
   }
 
   /** Returns whether the INITIAL registration succeeded; the interval keeps retrying either way. */
   async start(): Promise<boolean> {
     if (this.running) return true;
 
+    // A restart must not inherit a stale backoff gate from the previous run.
+    this.failures = 0;
+    this.nextAttemptAt = 0;
+
     const registered = await this.register();
 
     this.intervalHandle = setInterval(() => {
+      if (Date.now() < this.nextAttemptAt) return; // backed off after repeated failures
       this.register().catch(err => {
         console.error(`[vessel-heartbeat] interval error: ${err instanceof Error ? err.message : err}`);
       });
@@ -175,6 +197,8 @@ export class VesselHeartbeat {
 
       this.lastRegistered = new Date();
       this.failures = 0;
+      this.nextAttemptAt = 0;
+      this.advertisedShapes = [...shapes];
       console.error(`[vessel-heartbeat] registered ${vesselId} shapes=[${shapes.join(', ')}]`);
       return true;
     } catch (err) {
@@ -186,10 +210,21 @@ export class VesselHeartbeat {
 
   private onFailure(): void {
     this.failures++;
-    if (this.failures >= MAX_FAILURES) {
-      console.error(`[vessel-heartbeat] ${MAX_FAILURES} consecutive failures — stopping`);
-      this.stop();
-    }
+    if (this.failures < MAX_FAILURES) return;
+    // Stopping here made the log a lie — index.ts announces "retrying on the
+    // heartbeat interval" — and it killed the Law-1 actuator with it, since
+    // setShapes() re-registers only while running. A discovery-vessel down for
+    // three cycles cost the vessel its registry row for the whole process.
+    // Keep retrying; only widen the gap so a long outage is not hammered.
+    const backoff = Math.min(
+      this.config.heartbeatIntervalMs * 2 ** (this.failures - MAX_FAILURES + 1),
+      this.config.ttl * 1000,
+      MAX_RETRY_BACKOFF_MS,
+    );
+    this.nextAttemptAt = Date.now() + backoff;
+    console.error(
+      `[vessel-heartbeat] ${this.failures} consecutive failures — retrying in ${backoff}ms`,
+    );
   }
 
   status() {
