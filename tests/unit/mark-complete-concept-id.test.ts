@@ -18,6 +18,7 @@ import { test, expect, afterEach, beforeEach } from 'bun:test';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { LocalStore, SeedRecord } from '../../src/local-store';
+import { plainConceptId } from '../../src/tools/_concept-content';
 
 const realFetch = globalThis.fetch;
 const realConceptDbUrl = process.env.CONCEPT_DB_URL;
@@ -70,7 +71,12 @@ function storeSpy(byRef: Record<string, SeedRecord>): StoreSpy {
   spy.store = {
     getSeedByConceptRef: (id: string) => {
       spy.refLookups.push(id);
-      return byRef[id] ?? null;
+      // Mirror the real store, which normalises the id and matches BOTH stored
+      // forms. A double that only matched the exact string was asserting which
+      // argument mark_complete passes, not whether the seed is found — so it
+      // went red the moment the normalisation moved into the store, where every
+      // caller gets it, even though the behaviour under test improved.
+      return byRef[plainConceptId(id)] ?? byRef[id] ?? null;
     },
     getSeedById: () => null,
     markSeedStaleById: (id: string) => { spy.staled.push(id); },
