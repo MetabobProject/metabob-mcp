@@ -532,15 +532,38 @@ export class LocalStore {
       .replace(/^⟨/, '')
       .replace(/⟩$/, '')
       .replace(/^concept:/, '');
-    const r = this.store.query(
+    return this.seedsByConceptRef(plain)[0] ?? null;
+  }
+
+  /**
+   * EVERY seed carrying this concept id.
+   *
+   * record_finding writes one seed per file but a single concept listing all of
+   * their `agf_*` ids, so a verdict on any one of them closes the whole finding
+   * org-wide. mark_complete must therefore retire the siblings too, or the
+   * finding reads closed in cross-agent recall while still sitting in the local
+   * problem list — the same finding both done and not done.
+   */
+  getSeedsByConceptRef(conceptId: string): SeedRecord[] {
+    const plain = conceptId
+      .trim()
+      .replace(/^concept:/, '')
+      .replace(/^⟨/, '')
+      .replace(/⟩$/, '')
+      .replace(/^concept:/, '');
+    return this.seedsByConceptRef(plain);
+  }
+
+  private seedsByConceptRef(plain: string): SeedRecord[] {
+    const rows = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
        FROM seeds
        WHERE refs_json LIKE '%"concept:' || ? || '"%'
           OR refs_json LIKE '%"concept:⟨' || ? || '⟩"%'
-       ORDER BY produced_at DESC LIMIT 1`,
-    ).get(plain, plain) as Record<string, unknown> | null;
-    return r ? LocalStore.mapSeed(r) : null;
+       ORDER BY produced_at DESC`,
+    ).all(plain, plain) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapSeed);
   }
 
   /** Fetch a single seed by its globally-unique id (any workspace — see above). */

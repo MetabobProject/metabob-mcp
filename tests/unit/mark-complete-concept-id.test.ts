@@ -78,6 +78,13 @@ function storeSpy(byRef: Record<string, SeedRecord>): StoreSpy {
       // caller gets it, even though the behaviour under test improved.
       return byRef[plainConceptId(id)] ?? byRef[id] ?? null;
     },
+    // Mirrors the real store: a verdict retires every seed sharing the finding's
+    // concept, so mark_complete asks for the whole set. This double holds one
+    // seed per ref, so the set is that seed.
+    getSeedsByConceptRef: (id: string) => {
+      const hit = byRef[plainConceptId(id)] ?? byRef[id];
+      return hit ? [hit] : [];
+    },
     getSeedById: () => null,
     markSeedStaleById: (id: string) => { spy.staled.push(id); },
     deleteSeed: (id: string) => { spy.deleted.push(id); },

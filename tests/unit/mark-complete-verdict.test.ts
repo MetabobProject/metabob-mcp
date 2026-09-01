@@ -194,3 +194,89 @@ test('SKILL.md does not tell agents the concept-only call is refused', async () 
   expect(step).toMatch(/no local seed/i);
   expect(step).toMatch(/nothing local was retired/i);
 });
+
+// ===== A multi-file finding is ONE finding =====
+
+test('a verdict retires every seed sharing the finding, not just the one named', async () => {
+  // record_finding writes one seed per file but a SINGLE concept listing all of
+  // their ids, and cross-agent recall closes the whole finding on a verdict
+  // against any one of them. Retiring only the named seed left the finding
+  // closed org-wide and still open locally — the same finding both done and
+  // not done, with the leftovers unreachable by any id an agent would think to use.
+  const { store } = makeTempStore('mark-complete-siblings-');
+  store.setWorkspaceScope(process.cwd());
+
+  const refs = JSON.stringify(['concept:cf_shared']);
+  const base = {
+    workspace_id: 'default',
+    line_start: 1, line_end: 2,
+    category: 'correctness', severity: 'HIGH',
+    brief: 'one finding across three files',
+    confidence: 1, refs_json: refs,
+    produced_at: Date.now(), stale: false,
+  };
+  store.upsertSeed({ ...base, id: 'agf_f1', file_path: 'src/a.ts' });
+  store.upsertSeed({ ...base, id: 'agf_f2', file_path: 'src/b.ts' });
+  store.upsertSeed({ ...base, id: 'agf_f3', file_path: 'src/c.ts' });
+  expect(store.getAllCachedSeeds()).toHaveLength(3);
+
+  await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: 'agf_f2', action: 'endorse' }),
+    makeApiClient(), SESSION, store,
+  );
+
+  // Endorse marks stale: none of the three should still be served.
+  expect(store.getAllCachedSeeds()).toHaveLength(0);
+  expect(store.getSeedById('agf_f1')?.stale).toBe(true);
+  expect(store.getSeedById('agf_f3')?.stale).toBe(true);
+});
+
+test('discard removes every seed sharing the finding', async () => {
+  const { store } = makeTempStore('mark-complete-siblings-discard-');
+  store.setWorkspaceScope(process.cwd());
+
+  const refs = JSON.stringify(['concept:cf_bogus']);
+  const base = {
+    workspace_id: 'default',
+    line_start: 1, line_end: 2,
+    category: 'style', severity: 'LOW',
+    brief: 'a false positive across two files',
+    confidence: 1, refs_json: refs,
+    produced_at: Date.now(), stale: false,
+  };
+  store.upsertSeed({ ...base, id: 'agf_x1', file_path: 'src/x.ts' });
+  store.upsertSeed({ ...base, id: 'agf_x2', file_path: 'src/y.ts' });
+
+  await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: 'agf_x1', action: 'discard' }),
+    makeApiClient(), SESSION, store,
+  );
+
+  expect(store.getSeedById('agf_x1')).toBeNull();
+  expect(store.getSeedById('agf_x2')).toBeNull();
+});
+
+test('a finding with no linked concept retires only itself', async () => {
+  // The inverse: sibling retirement must key on the shared concept, not fire
+  // for every seed in the workspace.
+  const { store } = makeTempStore('mark-complete-siblings-solo-');
+  store.setWorkspaceScope(process.cwd());
+
+  const base = {
+    workspace_id: 'default',
+    line_start: 1, line_end: 2,
+    category: 'correctness', severity: 'HIGH',
+    brief: 'unrelated', confidence: 1, refs_json: '[]',
+    produced_at: Date.now(), stale: false,
+  };
+  store.upsertSeed({ ...base, id: 'agf_solo', file_path: 'src/solo.ts' });
+  store.upsertSeed({ ...base, id: 'agf_other', file_path: 'src/other.ts' });
+
+  await MarkComplete.handle(
+    MarkComplete.InputSchema.parse({ problem_id: 'agf_solo', action: 'discard' }),
+    makeApiClient(), SESSION, store,
+  );
+
+  expect(store.getSeedById('agf_solo')).toBeNull();
+  expect(store.getSeedById('agf_other')).not.toBeNull();
+});
