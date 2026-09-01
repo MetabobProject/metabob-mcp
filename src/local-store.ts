@@ -516,11 +516,25 @@ export class LocalStore {
    * being served as another's.
    */
   getSeedByConceptRef(conceptId: string): SeedRecord | null {
+    // Normalise here rather than in each caller: concept-db returns the same id
+    // bare in one response and ⟨⟩-wrapped in the next, so BOTH forms are on disk
+    // in refs_json and both are handed to agents. Matching only the form the
+    // caller happened to receive meant an agent holding the bare id against a
+    // wrapped row found nothing — and mark_complete then reported that no local
+    // seed existed while leaving the seed live, so get_problems kept surfacing a
+    // finding the agent had just closed.
+    const plain = conceptId
+      .replace(/^concept:/, '')
+      .replace(/^⟨/, '')
+      .replace(/⟩$/, '');
     const r = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
-       FROM seeds WHERE refs_json LIKE ? ORDER BY produced_at DESC LIMIT 1`,
-    ).get(`%"concept:${conceptId}"%`) as Record<string, unknown> | null;
+       FROM seeds
+       WHERE refs_json LIKE '%"concept:' || ? || '"%'
+          OR refs_json LIKE '%"concept:⟨' || ? || '⟩"%'
+       ORDER BY produced_at DESC LIMIT 1`,
+    ).get(plain, plain) as Record<string, unknown> | null;
     return r ? LocalStore.mapSeed(r) : null;
   }
 

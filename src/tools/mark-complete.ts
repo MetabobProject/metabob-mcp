@@ -70,10 +70,10 @@ export async function handle(
       return `Finding "${input.problem_id}" cannot be updated — local store unavailable in this session.`;
     }
     const seed = isConceptId
-      // refs_json can hold either form (postConcept strips only `concept:`), so
-      // a miss on the canonical id is retried against the id as given.
-      ? localStore.getSeedByConceptRef(plainId)
-        ?? (plainId !== input.problem_id ? localStore.getSeedByConceptRef(input.problem_id) : null)
+      // Either stored form matches: getSeedByConceptRef normalises the id and
+      // queries both, so a bare id finds a wrapped row and vice versa. The
+      // retry that used to live here only covered wrapped-id-against-bare-row.
+      ? localStore.getSeedByConceptRef(input.problem_id)
       : localStore.getSeedById(input.problem_id);
     // NO LOCAL SEED, CONCEPT ID: write the verdict from the concept itself.
     //
