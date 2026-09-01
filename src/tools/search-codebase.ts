@@ -77,28 +77,30 @@ export async function handle(
   // ── Sidecar mode: seed (problem) search from local SQLite cache ───────────
   let cacheTag: string | null = null;
   if (localStore && input.target !== 'components') {
-    // We search by file_filter first; fall through if no matches.
+    // file_filter NARROWS the seed search; its absence must not skip it. Without
+    // a filter this searched zero seeds, so `search_codebase({ query,
+    // target: "problems" })` — the plain form — could never return an
+    // agent-recorded finding, only backend detections from getAnalysis().
     const filesToSearch = input.file_filter ?? [];
-    const seedResults: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
+    const candidateSeeds = filesToSearch.length > 0
+      ? filesToSearch.flatMap(f => localStore.getCachedSeeds(f))
+      : localStore.getAllCachedSeeds();
 
-    if (filesToSearch.length > 0) {
-      for (const f of filesToSearch) {
-        for (const s of localStore.getCachedSeeds(f)) {
-          if (
-            matchesQuery(s.brief, queryTokens) ||
-            matchesQuery(s.category, queryTokens) ||
-            matchesQuery(s.file_path, queryTokens)
-          ) {
-            seedResults.push({
-              severity: s.severity,
-              category: s.category,
-              file_path: s.file_path,
-              line_start: s.line_start,
-              brief: s.brief,
-              id: s.id,
-            });
-          }
-        }
+    const seedResults: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
+    for (const s of candidateSeeds) {
+      if (
+        matchesQuery(s.brief, queryTokens) ||
+        matchesQuery(s.category, queryTokens) ||
+        matchesQuery(s.file_path, queryTokens)
+      ) {
+        seedResults.push({
+          severity: s.severity,
+          category: s.category,
+          file_path: s.file_path,
+          line_start: s.line_start,
+          brief: s.brief,
+          id: s.id,
+        });
       }
     }
 
