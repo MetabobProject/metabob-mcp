@@ -159,7 +159,11 @@ test('analyze_impact: seeds still ride along when the file is not in the graph',
     mockApiClient, SESSION, store,
   );
 
-  expect(out).toContain('No indexed components found');
+  // The not-indexed path now names the files and reports coverage rather than
+  // saying only "none found" — but the point of this test is unchanged: the
+  // seed block must ride along on an early return, not be lost with it.
+  expect(out).toContain('not in the local index');
+  expect(out).toContain('Index coverage:');
   expect(out).toContain('finding on an unindexed file');
 });
 
