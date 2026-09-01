@@ -12,6 +12,7 @@ import {
   resolveConceptDbUrl,
   workspaceRepoName,
 } from './_findings.js';
+import { plainConceptId } from './_concept-content.js';
 
 export const MarkCompleteTool = {
   name: 'mark_complete',
@@ -57,13 +58,22 @@ export async function handle(
   // by concept id, so that is frequently the only identifier an agent holds.
   // Letting one fall through to the legacy analysis path below reported
   // "endorsed" for a write that never happened — see getSeedByConceptRef.
-  const isConceptId = input.problem_id.startsWith('concept_');
+  //
+  // Normalise FIRST: concept-db hands back the same id both bare and
+  // ⟨⟩-wrapped (sometimes in one response), and the id get_problems prints
+  // keeps the wrapper. Gating on the raw string sent every wrapped id down the
+  // legacy path — the very fall-through this comment says was fixed.
+  const plainId = plainConceptId(input.problem_id);
+  const isConceptId = plainId.startsWith('concept_');
   if (input.problem_id.startsWith('agf_') || isConceptId) {
     if (!localStore) {
       return `Finding "${input.problem_id}" cannot be updated — local store unavailable in this session.`;
     }
     const seed = isConceptId
-      ? localStore.getSeedByConceptRef(input.problem_id)
+      // refs_json can hold either form (postConcept strips only `concept:`), so
+      // a miss on the canonical id is retried against the id as given.
+      ? localStore.getSeedByConceptRef(plainId)
+        ?? (plainId !== input.problem_id ? localStore.getSeedByConceptRef(input.problem_id) : null)
       : localStore.getSeedById(input.problem_id);
     // NO LOCAL SEED, CONCEPT ID: write the verdict from the concept itself.
     //
@@ -82,20 +92,24 @@ export async function handle(
       if (!remoteDbUrl) {
         return `Concept "${input.problem_id}" has no local seed and concept-db is not configured, so no verdict was recorded.`;
       }
-      const remote = await fetchConceptById(apiClient, input.problem_id);
+      const remote = await fetchConceptById(apiClient, plainId);
       if (!remote) {
         return `Concept "${input.problem_id}" could not be read from concept-db, so no verdict was recorded.\n`
           + `  Check CONCEPT_DB_URL / discovery, or use get_problems to list findings with local agf_* ids.`;
       }
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const repo = remote.repo || workspaceRepoName() || 'unknown';
+      // Join on the agf_* id the finding carries, exactly as the local path
+      // does. Keying on the concept id writes a verdict no reader can match —
+      // measured: the row landed in concept-db and /findings still showed "no
+      // verdict". The `||` fallback could never fire, though: record_finding
+      // writes the literal "(not cached locally)" into `finding_ids:` when it
+      // had no LocalStore, and a truthy placeholder collides EVERY stateless
+      // finding's verdict onto one shared key. Require the real shape.
+      const findingKey = /^agf_/.test(remote.findingId) ? remote.findingId : plainId;
       const posted = await postConcept(remoteDbUrl, {
         content: [
-          // Join on the agf_* id the finding carries, exactly as the local
-          // path does. Keying on the concept id writes a verdict no reader can
-          // match — measured: the row landed in concept-db and /findings still
-          // showed "no verdict".
-          `finding: ${remote.findingId || input.problem_id}`,
+          `finding: ${findingKey}`,
           `verdict: ${verdict}`,
           `repo: ${repo}`,
           `files: ${remote.files}`,
@@ -114,14 +128,21 @@ export async function handle(
       });
       const usage = await recordConceptUsage(
         remoteDbUrl,
-        input.problem_id,
+        plainId,
         input.action === 'endorse' ? 'success' : 'failure',
       );
+      // Say which key the verdict landed under when it is not the finding id —
+      // a verdict readers cannot join is worth reporting as such, not as a
+      // bare "verdict shared".
+      const keyedNote = findingKey === plainId
+        ? `\n  keyed on:   the concept id — this finding carries no agf_* id (recorded with no local store), so finding-id joins will not surface this verdict`
+        : '';
       return (
         `Finding ${input.problem_id} ${input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         `  relevance:  ${usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
-        `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere`
+        `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
+        keyedNote
       );
     }
     if (!seed) {
@@ -168,7 +189,10 @@ export async function handle(
       // endorsed finding proved useful (success), a discarded one was a false
       // positive (failure). This is what makes the operator's judgment move
       // relevance instead of only leaving a parallel verdict concept.
-      const conceptId = conceptIdFromRefs(seed.refs_json);
+      // Same wrapper hazard on the way out: a ⟨⟩-wrapped ref percent-encodes
+      // into a 404 at the usage chokepoint, silently skipping the relevance fold.
+      const linkedRef = conceptIdFromRefs(seed.refs_json);
+      const conceptId = linkedRef ? plainConceptId(linkedRef) : null;
       if (conceptId) {
         const outcome = input.action === 'endorse' ? 'success' : 'failure';
         const usage = await recordConceptUsage(conceptDbUrl, conceptId, outcome);

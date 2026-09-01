@@ -78,6 +78,16 @@ export interface AnalysisResponse {
   jobId?: string | null;
   status: 'complete' | 'pending' | 'running' | 'failed';
   results?: AnalysisResult[] | null;
+  /**
+   * Per-file submission outcome (vessel mode, where each file is POSTed on its
+   * own). A batch in which every file was rejected reports `status: 'failed'`;
+   * a PARTIAL rejection still reports 'complete' and is distinguishable from a
+   * clean run only through these counts — an empty `results` alone cannot tell
+   * "nothing found" from "nothing was accepted".
+   */
+  submitted?: number;
+  failed?: number;
+  failures?: Array<{ path: string; status: number }>;
 }
 
 export interface JobStatus {
@@ -658,6 +668,7 @@ export class AnalysisAPIClient {
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const allResults: AnalysisResult[] = [];
+        const failures: Array<{ path: string; status: number }> = [];
         for (const f of files) {
           const ext = f.path.split('.').pop()?.toLowerCase() ?? '';
           const language =
@@ -680,8 +691,13 @@ export class AnalysisAPIClient {
             init: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal },
           });
           if (!res.ok) {
-            if (res.status === 429) continue; // budget exhausted — soft skip
-            console.error(`[api-client] submitFiles vessel: ${f.path} → ${res.status}`);
+            // Every rejection is counted, 429 included: a "soft skip" is still a
+            // file the backend never analyzed, and stderr is invisible to an MCP
+            // client — the count is the only channel the caller can read.
+            failures.push({ path: f.path, status: res.status });
+            if (res.status !== 429) { // budget exhausted is expected, not an error
+              console.error(`[api-client] submitFiles vessel: ${f.path} → ${res.status}`);
+            }
             continue;
           }
           const data = await res.json() as { seeds?: Array<{ id: string; category: string; severity: string; brief: string; line_start: number; line_end: number; confidence?: number; refs?: string[] }> };
@@ -697,7 +713,16 @@ export class AnalysisAPIClient {
           }
         }
         clearTimeout(timeoutId);
-        return { status: 'complete', results: allResults };
+        // Reporting 'complete' after every POST was rejected is this repo's
+        // signature bug (cf. d9f71ea, postFeedback): the agent sees no stderr, so
+        // an empty result set reads as an analyzed, clean workspace.
+        return {
+          status: failures.length === files.length ? 'failed' : 'complete',
+          results: allResults,
+          submitted: files.length - failures.length,
+          failed: failures.length,
+          failures,
+        };
       } catch (error) {
         clearTimeout(timeoutId);
         throw this.handleError(error);
@@ -969,6 +994,26 @@ export class AnalysisAPIClient {
   }
 
   /**
+   * HTTP status carried by a thrown error, in whichever shape it arrived.
+   *
+   * `transformAPIError` throws a plain MCPError OBJECT LITERAL — not an `Error`
+   * instance — and parks the status at `details.status`. The old guard tested
+   * `error instanceof Error && 'status' in error`, so both conjuncts failed and
+   * every 4xx was retried like a 503.
+   */
+  private statusOf(error: unknown): number | undefined {
+    if (!error || typeof error !== 'object') return undefined;
+    const direct = (error as { status?: unknown }).status;
+    if (typeof direct === 'number') return direct;
+    const details = (error as { details?: unknown }).details;
+    if (details && typeof details === 'object') {
+      const nested = (details as { status?: unknown }).status;
+      if (typeof nested === 'number') return nested;
+    }
+    return undefined;
+  }
+
+  /**
    * Retry with exponential backoff
    */
   private async retry<T>(fn: () => Promise<T>): Promise<T> {
@@ -980,12 +1025,12 @@ export class AnalysisAPIClient {
       } catch (error) {
         lastError = error as Error;
 
-        // Don't retry on client errors (4xx)
-        if (error instanceof Error && 'status' in error) {
-          const status = (error as any).status;
-          if (status >= 400 && status < 500) {
-            throw error;
-          }
+        // Don't retry on client errors (4xx) — a replay cannot succeed, and
+        // postFeedback (a non-idempotent write) goes through here, so a 400 was
+        // being POSTed three times.
+        const status = this.statusOf(error);
+        if (status !== undefined && status >= 400 && status < 500) {
+          throw error;
         }
 
         // Wait before retrying (exponential backoff)
