@@ -162,6 +162,15 @@ export async function handle(
 
   await localIndex.setWorkspace(workspacePath, allPaths.size);
 
+  // Bind the store to the SAME root the index just adopted. Without this the
+  // store falls back to WORKSPACE_PATH/cwd while record_finding stamps seeds
+  // with activeWorkspacePath() — the root set on the line above. Whenever the
+  // two differ (init_workspace({workspace_path: …}), the documented way to
+  // point at a repo other than the launch directory) every seed is written
+  // under one workspace and read under another, so get_problems returns
+  // nothing and the finding is silently unrecallable.
+  localStore?.setWorkspaceScope(workspacePath);
+
   // Resolve against the workspace root — a relative path left as-is would be
   // read against the SERVER's cwd and index a different repo's file into this
   // workspace's graph.
