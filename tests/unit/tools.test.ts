@@ -65,7 +65,10 @@ test('init_workspace: schema accepts valid input', () => {
 
 test('init_workspace: schema uses defaults', () => {
   const result = InitWorkspace.InputSchema.parse({});
-  expect(result.batch_size).toBe(5);
+  // 20 (the schema cap): local indexing now covers the whole workspace in one
+  // call regardless, so batch_size only paces API submission — a small default
+  // just made the sync loop longer for no benefit.
+  expect(result.batch_size).toBe(20);
 });
 
 // init_workspace.handle() triggers ONNX runtime + Tree-sitter grammars (native,
