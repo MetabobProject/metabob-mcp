@@ -153,10 +153,21 @@ export async function handle(
     // matches no seed row and every mutation below would be a silent no-op.
     const seedId = seed.id;
 
-    if (input.action === 'endorse') {
-      localStore.markSeedStaleById(seedId); // resolved — stop surfacing
-    } else {
-      localStore.deleteSeed(seedId); // retracted / false positive
+    // A finding recorded across N files is N seeds but ONE concept, and the
+    // concept lists every seed id — so cross-agent recall closes the whole
+    // finding on a verdict against any one of them. Retire the siblings with it,
+    // or the finding reads closed org-wide while still sitting in this machine's
+    // problem list: the same finding both done and not done.
+    const conceptRef = conceptIdFromRefs(seed.refs_json);
+    const siblings = conceptRef ? localStore.getSeedsByConceptRef(conceptRef) : [];
+    const toRetire = siblings.length > 0 ? siblings.map(s => s.id) : [seedId];
+
+    for (const id of toRetire) {
+      if (input.action === 'endorse') {
+        localStore.markSeedStaleById(id); // resolved — stop surfacing
+      } else {
+        localStore.deleteSeed(id); // retracted / false positive
+      }
     }
 
     // Best-effort verdict into concept-db so other agents see the outcome.
