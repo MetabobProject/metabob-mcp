@@ -5,7 +5,10 @@
  * and MCP session metadata. Used by sidecar-mode tool handlers to serve
  * cache-first responses without blocking on the remote analysis API.
  *
- * Database location: ~/.metabob/sidecar.db
+ * Database location: ~/.metabob/sidecar.db — ONE file shared by every workspace
+ * on the machine, so listing reads are partitioned by the workspace this store
+ * is bound to (see WorkspaceScope) and file paths are normalised into that
+ * workspace's path space on both write and query.
  *
  * All writes are synchronous (Bun's SQLite runs synchronously by design);
  * the async wrappers exist only for API symmetry with async callers.
@@ -17,7 +20,9 @@
 import type { Database } from 'bun:sqlite';
 import { homedir } from 'os';
 import { mkdirSync, unlinkSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
+import { createHash } from 'crypto';
+import { execSync } from 'child_process';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +108,71 @@ export interface AgentResolutionRecord {
   created_at: number;
 }
 
+// ── Workspace scope ───────────────────────────────────────────────────────────
+
+/**
+ * The identity of the one workspace a store instance serves.
+ *
+ * `~/.metabob/sidecar.db` is shared by every workspace on the machine, so a read
+ * that does not filter on workspace_id serves repo A's findings as repo B's —
+ * and, because the cache short-circuits the live fetch, suppresses B's real
+ * result. Writers disagree on the id format (record_finding and init_workspace
+ * write the absolute workspace path, the scheduler and watchers write
+ * resolveWorkspaceId()'s hash, tool-layer enqueues wrote the sentinel
+ * 'default'), so the scope carries every alias that means "here" and reads
+ * filter on the whole set. New writes are normalised to `id`; the aliases exist
+ * for rows already on disk.
+ */
+export interface WorkspaceScope {
+  /** Canonical partition key — resolveWorkspaceId()'s hash of the resolved root. */
+  id: string;
+  /** Absolute workspace root: the path space file_path is normalised into. */
+  root: string;
+  /** Every workspace_id value that denotes this workspace. */
+  aliases: string[];
+}
+
+/**
+ * Mirror of resolveWorkspaceId() in src/workspace.ts. Duplicated rather than
+ * imported because that helper is async and every store read is synchronous;
+ * tests/unit/local-store-workspace-scope.test.ts asserts the two agree, so the
+ * copy cannot drift silently.
+ */
+function workspaceIdHash(rootPath: string): string {
+  let firstCommit = '';
+  try {
+    firstCommit = execSync('git rev-list --max-parents=0 HEAD', {
+      cwd: rootPath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    // Not a git repo or git not available — path alone identifies the workspace.
+  }
+  return createHash('sha256').update(rootPath + firstCommit).digest('hex');
+}
+
+// Memoised per raw root: deriving forks git, and a test file opens dozens of stores.
+const scopeCache = new Map<string, WorkspaceScope>();
+
+function deriveScope(rawRoot: string): WorkspaceScope {
+  const cached = scopeCache.get(rawRoot);
+  if (cached) return cached;
+
+  const root = resolve(rawRoot);
+  const id = workspaceIdHash(root);
+  const aliases = new Set<string>([id, root, rawRoot, workspaceIdHash(rawRoot)]);
+  // 'default' / '' were never a real partition — the tool layer passes them to
+  // enqueue() for the workspace this process is already serving. Accepted on
+  // read so rows written before this fix stay visible; never written any more.
+  aliases.add('default');
+  aliases.add('');
+
+  const scope: WorkspaceScope = { id, root, aliases: [...aliases] };
+  scopeCache.set(rawRoot, scope);
+  return scope;
+}
+
 // ── LocalStore ────────────────────────────────────────────────────────────────
 
 const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -110,6 +180,7 @@ const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 export class LocalStore {
   private db: Database | null = null;
   private dbPath: string;
+  private scope: WorkspaceScope | null = null;
 
   constructor(dbPath?: string) {
     const metabobDir = join(homedir(), '.metabob');
@@ -229,6 +300,73 @@ export class LocalStore {
     return this.db;
   }
 
+  // ── Workspace scope ─────────────────────────────────────────────────────────
+
+  /**
+   * Bind this store to a workspace root. Optional: the scope is otherwise
+   * derived on first use from WORKSPACE_PATH/cwd, which is how index.ts picks
+   * the root it hands the watchers and scheduler. Call this when the served
+   * workspace is not the launch directory (tests; a future init_workspace
+   * retarget).
+   */
+  setWorkspaceScope(root: string): void {
+    this.scope = deriveScope(root);
+  }
+
+  /** The workspace this store partitions on. */
+  workspaceScope(): WorkspaceScope {
+    if (!this.scope) this.scope = deriveScope(process.env['WORKSPACE_PATH'] ?? process.cwd());
+    return this.scope;
+  }
+
+  /** `workspace_id IN (…)` fragment + its bind params, for every scoped read. */
+  private scopeFilter(): { sql: string; params: string[] } {
+    const aliases = this.workspaceScope().aliases;
+    return { sql: `workspace_id IN (${aliases.map(() => '?').join(',')})`, params: aliases };
+  }
+
+  /**
+   * The one workspace_id new rows carry. Callers that pass the historical
+   * sentinel (or nothing meaningful) mean "the workspace this process serves";
+   * anything else is a deliberate partition and is stored verbatim.
+   */
+  private writeScopeId(given: string): string {
+    return given === 'default' || given === '' ? this.workspaceScope().id : given;
+  }
+
+  /**
+   * One path space: workspace-relative, forward slashes. Writers disagree —
+   * record_finding stores relative paths, init_workspace stores whatever the
+   * index returned, tool callers query with absolute paths — so a query silently
+   * missed rows it named. Normalising both sides is what makes the two meet.
+   * Paths outside the workspace stay absolute: they are genuinely other files.
+   */
+  private normalizePath(p: string): string {
+    let s = p.replace(/\\/g, '/').trim();
+    const root = this.workspaceScope().root.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (root && (s === root || s.startsWith(root + '/'))) s = s.slice(root.length + 1);
+    while (s.startsWith('./')) s = s.slice(2);
+    return s;
+  }
+
+  private static mapSeed(r: Record<string, unknown>): SeedRecord {
+    return {
+      id: r['id'] as string,
+      workspace_id: r['workspace_id'] as string,
+      file_path: r['file_path'] as string,
+      line_start: r['line_start'] as number,
+      line_end: r['line_end'] as number,
+      category: r['category'] as string,
+      severity: r['severity'] as string,
+      brief: r['brief'] as string,
+      confidence: r['confidence'] as number,
+      refs_json: r['refs_json'] as string,
+      produced_at: r['produced_at'] as number,
+      read_at: r['read_at'] as number | null,
+      stale: !!(r['stale'] as number),
+    };
+  }
+
   // ── File records ────────────────────────────────────────────────────────────
 
   upsertFile(path: string, workspaceId: string, contentHash: string): void {
@@ -238,14 +376,16 @@ export class LocalStore {
        ON CONFLICT(path, workspace_id) DO UPDATE SET
          content_hash = excluded.content_hash,
          indexed_at   = excluded.indexed_at`,
-      [path, workspaceId, contentHash, Date.now()],
+      [this.normalizePath(path), this.writeScopeId(workspaceId), contentHash, Date.now()],
     );
   }
 
   getFile(path: string): FileRecord | null {
+    const scope = this.scopeFilter();
     return (this.store.query(
-      'SELECT path, workspace_id, content_hash, indexed_at FROM files WHERE path = ? LIMIT 1',
-    ).get(path) as FileRecord | null) ?? null;
+      `SELECT path, workspace_id, content_hash, indexed_at FROM files
+       WHERE path = ? AND ${scope.sql} LIMIT 1`,
+    ).get(this.normalizePath(path), ...scope.params) as FileRecord | null) ?? null;
   }
 
   // ── Seed records ────────────────────────────────────────────────────────────
@@ -269,8 +409,8 @@ export class LocalStore {
          stale       = excluded.stale`,
       [
         seed.id,
-        seed.workspace_id,
-        seed.file_path,
+        this.writeScopeId(seed.workspace_id),
+        this.normalizePath(seed.file_path),
         seed.line_start,
         seed.line_end,
         seed.category,
@@ -285,36 +425,35 @@ export class LocalStore {
     );
   }
 
+  /** Seeds for exactly one file (both stale and fresh), in line order. */
   getSeedsForFile(filePath: string): SeedRecord[] {
+    const scope = this.scopeFilter();
     const rows = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
-       FROM seeds WHERE file_path = ? ORDER BY line_start`,
-    ).all(filePath) as Array<Record<string, unknown>>;
-    return rows.map(r => ({
-      id: r['id'] as string,
-      workspace_id: r['workspace_id'] as string,
-      file_path: r['file_path'] as string,
-      line_start: r['line_start'] as number,
-      line_end: r['line_end'] as number,
-      category: r['category'] as string,
-      severity: r['severity'] as string,
-      brief: r['brief'] as string,
-      confidence: r['confidence'] as number,
-      refs_json: r['refs_json'] as string,
-      produced_at: r['produced_at'] as number,
-      read_at: r['read_at'] as number | null,
-      stale: !!(r['stale'] as number),
-    }));
+       FROM seeds WHERE file_path = ? AND ${scope.sql} ORDER BY line_start`,
+    ).all(this.normalizePath(filePath), ...scope.params) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapSeed);
   }
 
-  /** Return non-stale seeds for a file, ordered by severity. */
+  /**
+   * Non-stale seeds for a file, ordered by severity.
+   *
+   * The match is a SUBSTRING match, which is what get_problems' `file_path`
+   * input has always documented; an exact compare made that description false
+   * and — because the two sides store different path spaces — made a relative
+   * query against an absolute-stored row return nothing at all. An empty query
+   * selects nothing rather than everything: "no filter" is the caller's job.
+   */
   getCachedSeeds(filePath: string): SeedRecord[] {
+    const needle = this.normalizePath(filePath);
+    if (needle === '') return [];
+    const scope = this.scopeFilter();
     const rows = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
        FROM seeds
-       WHERE file_path = ? AND stale = 0
+       WHERE instr(file_path, ?) > 0 AND stale = 0 AND ${scope.sql}
        ORDER BY
          CASE severity
            WHEN 'CRITICAL' THEN 0
@@ -324,57 +463,32 @@ export class LocalStore {
            ELSE 4
          END,
          line_start`,
-    ).all(filePath) as Array<Record<string, unknown>>;
-    return rows.map(r => ({
-      id: r['id'] as string,
-      workspace_id: r['workspace_id'] as string,
-      file_path: r['file_path'] as string,
-      line_start: r['line_start'] as number,
-      line_end: r['line_end'] as number,
-      category: r['category'] as string,
-      severity: r['severity'] as string,
-      brief: r['brief'] as string,
-      confidence: r['confidence'] as number,
-      refs_json: r['refs_json'] as string,
-      produced_at: r['produced_at'] as number,
-      read_at: r['read_at'] as number | null,
-      stale: !!(r['stale'] as number),
-    }));
+    ).all(needle, ...scope.params) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapSeed);
   }
 
-  /** Return all non-stale seeds across all files, ordered by severity. */
+  /** Return all non-stale seeds for this workspace, ordered by severity. */
   getAllCachedSeeds(): SeedRecord[] {
+    const scope = this.scopeFilter();
     const rows = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
-       FROM seeds WHERE stale = 0
+       FROM seeds WHERE stale = 0 AND ${scope.sql}
        ORDER BY
          CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END,
          file_path, line_start`,
-    ).all() as Array<Record<string, unknown>>;
-    return rows.map(r => ({
-      id: r['id'] as string,
-      workspace_id: r['workspace_id'] as string,
-      file_path: r['file_path'] as string,
-      line_start: r['line_start'] as number,
-      line_end: r['line_end'] as number,
-      category: r['category'] as string,
-      severity: r['severity'] as string,
-      brief: r['brief'] as string,
-      confidence: r['confidence'] as number,
-      refs_json: r['refs_json'] as string,
-      produced_at: r['produced_at'] as number,
-      read_at: r['read_at'] as number | null,
-      stale: false,
-    }));
+    ).all(...scope.params) as Array<Record<string, unknown>>;
+    return rows.map(LocalStore.mapSeed);
   }
 
   markSeedsStale(filePaths: string[]): void {
     if (filePaths.length === 0) return;
-    const placeholders = filePaths.map(() => '?').join(',');
+    const paths = filePaths.map(p => this.normalizePath(p));
+    const scope = this.scopeFilter();
     this.store.run(
-      `UPDATE seeds SET stale = 1 WHERE file_path IN (${placeholders})`,
-      filePaths,
+      `UPDATE seeds SET stale = 1
+       WHERE file_path IN (${paths.map(() => '?').join(',')}) AND ${scope.sql}`,
+      [...paths, ...scope.params],
     );
   }
 
@@ -383,6 +497,12 @@ export class LocalStore {
    * (any workspace). `get_problems`' cross-agent recall surfaces findings by
    * their concept id, so that is often the only identifier an agent holds;
    * this maps it back to the `agf_*` seed the verdict path needs.
+   *
+   * Deliberately NOT workspace-scoped, unlike the listing reads: an agent
+   * recalls a finding by an id that is globally unique, and mark_complete is
+   * documented to accept one recorded from anywhere. Scoping here would refuse
+   * ids that exist; scoping a listing read is what stops one repo's problems
+   * being served as another's.
    */
   getSeedByConceptRef(conceptId: string): SeedRecord | null {
     const r = this.store.query(
@@ -390,47 +510,17 @@ export class LocalStore {
               brief, confidence, refs_json, produced_at, read_at, stale
        FROM seeds WHERE refs_json LIKE ? ORDER BY produced_at DESC LIMIT 1`,
     ).get(`%"concept:${conceptId}"%`) as Record<string, unknown> | null;
-    if (!r) return null;
-    return {
-      id: r['id'] as string,
-      workspace_id: r['workspace_id'] as string,
-      file_path: r['file_path'] as string,
-      line_start: r['line_start'] as number,
-      line_end: r['line_end'] as number,
-      category: r['category'] as string,
-      severity: r['severity'] as string,
-      brief: r['brief'] as string,
-      confidence: r['confidence'] as number,
-      refs_json: r['refs_json'] as string,
-      produced_at: r['produced_at'] as number,
-      read_at: r['read_at'] as number | null,
-      stale: !!(r['stale'] as number),
-    };
+    return r ? LocalStore.mapSeed(r) : null;
   }
 
-  /** Fetch a single seed by id (any workspace). */
+  /** Fetch a single seed by its globally-unique id (any workspace — see above). */
   getSeedById(seedId: string): SeedRecord | null {
     const r = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale
        FROM seeds WHERE id = ? LIMIT 1`,
     ).get(seedId) as Record<string, unknown> | null;
-    if (!r) return null;
-    return {
-      id: r['id'] as string,
-      workspace_id: r['workspace_id'] as string,
-      file_path: r['file_path'] as string,
-      line_start: r['line_start'] as number,
-      line_end: r['line_end'] as number,
-      category: r['category'] as string,
-      severity: r['severity'] as string,
-      brief: r['brief'] as string,
-      confidence: r['confidence'] as number,
-      refs_json: r['refs_json'] as string,
-      produced_at: r['produced_at'] as number,
-      read_at: r['read_at'] as number | null,
-      stale: !!(r['stale'] as number),
-    };
+    return r ? LocalStore.mapSeed(r) : null;
   }
 
   /** Mark a single seed stale by id (resolved — stops surfacing in get_problems). */
@@ -453,7 +543,9 @@ export class LocalStore {
   // ── Schedule queue ──────────────────────────────────────────────────────────
 
   enqueue(filePath: string, priority: number, workspaceId: string): void {
-    const id = `${workspaceId}::${filePath}`;
+    const scopedId = this.writeScopeId(workspaceId);
+    filePath = this.normalizePath(filePath);
+    const id = `${scopedId}::${filePath}`;
     this.store.run(
       `INSERT INTO schedule_queue (id, file_path, priority, enqueued_at, processing, workspace_id)
        VALUES (?, ?, ?, ?, 0, ?)
@@ -461,7 +553,7 @@ export class LocalStore {
          priority    = MAX(excluded.priority, schedule_queue.priority),
          enqueued_at = MIN(excluded.enqueued_at, schedule_queue.enqueued_at),
          processing  = 0`,
-      [id, filePath, priority, Date.now(), workspaceId],
+      [id, filePath, priority, Date.now(), scopedId],
     );
   }
 
@@ -470,14 +562,16 @@ export class LocalStore {
     this.store.run('DELETE FROM schedule_queue WHERE id = ?', [id]);
   }
 
+  /** Ready queue items for THIS workspace — another repo's files are not ours to analyse. */
   dequeue(limit: number): QueueItem[] {
+    const scope = this.scopeFilter();
     const rows = this.store.query(
       `SELECT id, file_path, priority, enqueued_at, processing, workspace_id
        FROM schedule_queue
-       WHERE processing = 0
+       WHERE processing = 0 AND ${scope.sql}
        ORDER BY priority DESC, enqueued_at ASC
        LIMIT ?`,
-    ).all(limit) as Array<Record<string, unknown>>;
+    ).all(...scope.params, limit) as Array<Record<string, unknown>>;
     return rows.map(r => ({
       id: r['id'] as string,
       file_path: r['file_path'] as string,
@@ -491,9 +585,11 @@ export class LocalStore {
   // ── Freshness ───────────────────────────────────────────────────────────────
 
   getFreshness(filePath: string): Freshness {
+    const path = this.normalizePath(filePath);
+    const scope = this.scopeFilter();
     const row = this.store.query(
-      'SELECT indexed_at FROM files WHERE path = ? LIMIT 1',
-    ).get(filePath) as { indexed_at: number } | null;
+      `SELECT indexed_at FROM files WHERE path = ? AND ${scope.sql} LIMIT 1`,
+    ).get(path, ...scope.params) as { indexed_at: number } | null;
 
     if (!row) {
       return { fresh: false, age_ms: Infinity, stale: true };
@@ -501,8 +597,8 @@ export class LocalStore {
 
     const age_ms = Date.now() - row.indexed_at;
     const hasStaleSeeds = !!(this.store.query(
-      'SELECT 1 FROM seeds WHERE file_path = ? AND stale = 1 LIMIT 1',
-    ).get(filePath));
+      `SELECT 1 FROM seeds WHERE file_path = ? AND stale = 1 AND ${scope.sql} LIMIT 1`,
+    ).get(path, ...scope.params));
 
     return {
       fresh: age_ms <= FRESH_WINDOW_MS && !hasStaleSeeds,
