@@ -100,56 +100,64 @@ function collectReachable(
   return visited;
 }
 
+/**
+ * Cached problem seeds for the changed files, rendered as a supplementary
+ * block — or '' when there are none (in which case the files are enqueued for
+ * background analysis). Same shape as predict_cochanges' seed suffix.
+ */
+function cachedSeedBlock(localStore: LocalStore, changedFiles: string[]): string {
+  const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
+  let hasAnyCache = false;
+  let oldestAgeMs = 0;
+  let anyStale = false;
+
+  for (const f of changedFiles) {
+    const seeds = localStore.getCachedSeeds(f);
+    const freshness = localStore.getFreshness(f);
+    if (seeds.length > 0 || freshness.age_ms !== Infinity) hasAnyCache = true;
+    if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
+      oldestAgeMs = freshness.age_ms;
+    }
+    if (freshness.stale) anyStale = true;
+    allSeeds.push(...seeds);
+  }
+
+  if (!hasAnyCache) {
+    for (const f of changedFiles) localStore.enqueue(f, 0 /* P0 */, 'default');
+  }
+  if (allSeeds.length === 0) return '';
+
+  const ageSec = Math.round(oldestAgeMs / 1000);
+  let text = `\n\nKnown problems in changed files (cached, ${ageSec}s old${anyStale ? ', stale' : ''}):\n`;
+  for (const s of allSeeds.slice(0, 20)) {
+    text += `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}–${s.line_end} — ${s.brief}\n`;
+    text += `    id: ${s.id}\n`;
+  }
+  if (allSeeds.length > 20) text += `  … and ${allSeeds.length - 20} more\n`;
+  return text;
+}
+
 export async function handle(
   input: AnalyzeImpactInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
+  // A cached problem detection is not an impact analysis — they are disjoint
+  // data. Returning the seeds *instead of* the traversal silently deleted this
+  // tool's entire documented behaviour for any file that happened to carry a
+  // seed. Seeds are appended as supplementary context, never substituted, and
+  // the block rides along on the early returns too so nothing is lost.
+  const seedBlock = localStore ? cachedSeedBlock(localStore, input.changed_files) : '';
+  return (await impactReport(input, apiClient, sessionId)) + seedBlock;
+}
+
+async function impactReport(
+  input: AnalyzeImpactInput,
+  apiClient: AnalysisAPIClient,
+  sessionId: string,
+): Promise<string> {
   const startTime = Date.now();
-
-  // ── Sidecar mode: serve cached seeds for changed files ─────────────────────
-  if (localStore && input.changed_files.length > 0) {
-    const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
-    let hasAnyCache = false;
-    let oldestAgeMs = 0;
-    let anyStale = false;
-
-    for (const f of input.changed_files) {
-      const seeds = localStore.getCachedSeeds(f);
-      const freshness = localStore.getFreshness(f);
-      if (seeds.length > 0 || freshness.age_ms !== Infinity) hasAnyCache = true;
-      if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
-        oldestAgeMs = freshness.age_ms;
-      }
-      if (freshness.stale) anyStale = true;
-      allSeeds.push(...seeds);
-    }
-
-    if (!hasAnyCache) {
-      // No cache at all — enqueue and fall through to local CPG
-      for (const f of input.changed_files) {
-        localStore.enqueue(f, 0 /* P0 */, 'default');
-      }
-    } else if (allSeeds.length > 0) {
-      const ageSec = Math.round(oldestAgeMs / 1000);
-      const cacheTag = `[cache: ${ageSec}s old${anyStale ? ', stale' : ''}]`;
-
-      let text = `Impact Analysis (cached)\n`;
-      text += `════════════════════════\n\n`;
-      text += `Changed files:\n`;
-      for (const f of input.changed_files) text += `  - ${f}\n`;
-      text += `\nCached problems for changed files (${allSeeds.length}):\n\n`;
-      for (const s of allSeeds.slice(0, 20)) {
-        text += `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}–${s.line_end}\n`;
-        text += `    ${s.brief}\n`;
-      }
-      if (allSeeds.length > 20) text += `  … and ${allSeeds.length - 20} more\n`;
-      text += `\nQuery completed in ${Date.now() - startTime}ms\n\n${cacheTag}`;
-      return text;
-    }
-  }
-
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {
