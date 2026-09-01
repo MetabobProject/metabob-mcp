@@ -66,11 +66,12 @@ export async function handle(
       )
     : [];
 
-  // ── Secondary signal: GCN embedding similarity (structural) ───────────────
+  // ── Secondary signal: GCN name-similarity ranking (NOT structural) ────────
   const componentIds: string[] = [];
   for (const file of input.changed_files) {
     componentIds.push(...localIndex.componentIdsForFile(file));
   }
+  const filesNotIndexed = componentIds.length === 0;
   const gcnPredictions =
     componentIds.length > 0
       ? (await localIndex.predictor.predictCochanges(componentIds, input.limit)).filter(
@@ -80,11 +81,22 @@ export async function handle(
 
   const duration = Date.now() - startTime;
 
+  if (filesNotIndexed && gitPredictions.length === 0) {
+    return (
+      `Files not in the local index:\n` +
+      input.changed_files.map(f => `  - ${f}`).join('\n') +
+      `\n\nIndex coverage: ${stats.filesIndexed} files, ${stats.componentsIndexed} components indexed.` +
+      `\nThese files are not yet indexed — run init_workspace.` +
+      `\n(Git-history mining also found no co-changes above the threshold.)`
+    );
+  }
+
   if (gitPredictions.length === 0 && gcnPredictions.length === 0) {
     return (
       `No co-change predictions above ${(input.confidence_threshold * 100).toFixed(0)}% confidence for:\n` +
       input.changed_files.map(f => `  - ${f}`).join('\n') +
-      `\n\nThese files can likely be changed independently.`
+      `\n\nThese files can likely be changed independently.` +
+      `\n(Caveat: git-history mining can miss files — verify with a grep of the changed symbol.)`
     );
   }
 
@@ -92,26 +104,30 @@ export async function handle(
   for (const f of input.changed_files) text += `  - ${f}\n`;
 
   if (gitPredictions.length > 0) {
-    text += `\nFrom git history (files that change together with these):\n\n`;
+    text += `\nFrom git history (files that change together with these — PRIMARY signal):\n\n`;
     for (let i = 0; i < gitPredictions.length; i++) {
       const p = gitPredictions[i]!;
       text += `${i + 1}. ${p.filePath}\n`;
       text += `   Confidence: ${(p.confidence * 100).toFixed(0)}% (co-changed in ${p.cooccurrences} commit${p.cooccurrences === 1 ? '' : 's'})\n`;
     }
+    text += `\nCaveat: history mining can miss files (known false negatives) — verify with a grep of the changed symbol.\n`;
+  }
+
+  if (filesNotIndexed) {
+    text += `\nNote: none of the changed files are in the local index (${stats.filesIndexed} files, ${stats.componentsIndexed} components indexed) — not yet indexed; run init_workspace. Name-similarity ranking skipped.\n`;
   }
 
   if (gcnPredictions.length > 0) {
-    text += `\nFrom name similarity (embedded GCN):\n\n`;
+    text += `\nName-similarity ranking (experimental; NOT structural evidence — the GCN sees only component-name characters, and its scores are not probabilities):\n\n`;
     for (let i = 0; i < gcnPredictions.length; i++) {
       const p = gcnPredictions[i]!;
       text += `${i + 1}. ${p.componentName} (${p.componentType})\n`;
-      text += `   File:       ${p.filePath}:${p.startLine}\n`;
-      text += `   Confidence: ${(p.similarityScore * 100).toFixed(1)}%\n`;
-      text += `   ID:         ${p.componentId}\n`;
+      text += `   File: ${p.filePath}:${p.startLine}\n`;
+      text += `   ID:   ${p.componentId}\n`;
     }
   }
 
-  text += `\nSignals: git history (${gitPredictions.length}) + GCN similarity (${gcnPredictions.length}, ${stats.componentsIndexed} components indexed)\n`;
+  text += `\nSignals: git history (${gitPredictions.length}) + name-similarity (${gcnPredictions.length}, ${stats.componentsIndexed} components indexed)\n`;
   text += `Query completed in ${duration}ms`;
 
   // ── Sidecar mode: append cached problem seeds as supplementary context.

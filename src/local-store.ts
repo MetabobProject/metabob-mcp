@@ -523,10 +523,15 @@ export class LocalStore {
     // wrapped row found nothing — and mark_complete then reported that no local
     // seed existed while leaving the seed live, so get_problems kept surfacing a
     // finding the agent had just closed.
+    // Order matters — `⟨concept:X⟩` needs the brackets off before the prefix,
+    // `concept:⟨X⟩` the reverse. Mirrors plainConceptId in tools/_concept-content;
+    // duplicated because the store must not import from the tool layer.
     const plain = conceptId
+      .trim()
       .replace(/^concept:/, '')
       .replace(/^⟨/, '')
-      .replace(/⟩$/, '');
+      .replace(/⟩$/, '')
+      .replace(/^concept:/, '');
     const r = this.store.query(
       `SELECT id, workspace_id, file_path, line_start, line_end, category, severity,
               brief, confidence, refs_json, produced_at, read_at, stale

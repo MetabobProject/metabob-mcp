@@ -8,9 +8,11 @@ import type { LocalStore } from '../local-store.js';
 export const InitWorkspaceTool = {
   name: 'init_workspace',
   description:
-    'Initialize the local CPG index and incrementally sync the most relevant files to the analysis server. ' +
+    'Parse and index the WHOLE workspace into the local CPG in one call (local tools like predict_cochanges, ' +
+    'analyze_impact and assign_git_changes work immediately after), and incrementally sync the most relevant ' +
+    'files to the analysis server (one batch per call). ' +
     'Pass recently_changed_files to prioritise those files and their co-change neighbours in the sync batch. ' +
-    'Call repeatedly as you work to keep the server up to date — each call submits one small batch. ' +
+    'Call repeatedly with sync_api:true to continue submitting API batches; local coverage is complete after the first call. ' +
     'Analysis may remain pending for a while after submission, so agents should prefer async follow-up when working with Metabob.',
   inputSchema: {
     type: 'object' as const,
@@ -26,8 +28,8 @@ export const InitWorkspaceTool = {
       },
       batch_size: {
         type: 'number',
-        description: 'Number of files to submit to the analysis server per call (default: 5, max: 20)',
-        default: 5,
+        description: 'Number of files to submit to the analysis server per call (default: 20, max: 20). Local indexing always covers the whole workspace regardless.',
+        default: 20,
       },
       include: {
         type: 'array',
@@ -41,7 +43,7 @@ export const InitWorkspaceTool = {
       },
       sync_api: {
         type: 'boolean',
-        description: 'Sync a batch with the analysis server (default: true)',
+        description: 'Sync a batch with the analysis server (default: true). false = pure local indexing, no API call.',
       },
     },
   },
@@ -50,7 +52,7 @@ export const InitWorkspaceTool = {
 export const InputSchema = z.object({
   workspace_path: z.string().optional(),
   recently_changed_files: z.array(z.string()).optional(),
-  batch_size: z.number().int().min(1).max(20).default(5),
+  batch_size: z.number().int().min(1).max(20).default(20),
   include: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
   sync_api: z.boolean().default(true),
@@ -160,35 +162,38 @@ export async function handle(
 
   await localIndex.setWorkspace(workspacePath, allPaths.size);
 
-  // Bind the store to the SAME root the index just adopted. Without this the
-  // store falls back to WORKSPACE_PATH/cwd while record_finding stamps seeds
-  // with activeWorkspacePath() — the root set on the line above. Whenever the
-  // two differ (init_workspace({workspace_path: …}), the documented way to
-  // point at a repo other than the launch directory) every seed is written
-  // under one workspace and read under another, so get_problems returns
-  // nothing and the finding is silently unrecallable.
-  localStore?.setWorkspaceScope(workspacePath);
-
   // Resolve against the workspace root — a relative path left as-is would be
   // read against the SERVER's cwd and index a different repo's file into this
   // workspace's graph.
   const recentlyChanged = (input.recently_changed_files ?? []).map(f => resolve(workspacePath, f));
 
-  // ── Ensure recently-changed files are parsed so co-change ranking works ──────
+  // ── Parse + index the WHOLE workspace locally — decoupled from API batching ──
+  // Tree-sitter parsing is cheap; one call fully populates the local CPG so the
+  // local tools (predict_cochanges, analyze_impact, assign_git_changes) never
+  // operate on a partial index. API submission below stays incremental.
+  let newComponents = 0;
+  const languages = new Set<string>();
+
+  for (const path of allPaths) {
+    const ext = extname(path).toLowerCase();
+    if (['.ts', '.tsx'].includes(ext)) languages.add('typescript');
+    else if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext)) languages.add('javascript');
+    else if (ext === '.py') languages.add('python');
+
+    if (localIndex.isParsed(path)) continue;
+    const content = await readSourceFile(path);
+    if (content === null) continue; // too large / unreadable — reported via coverage below
+    try {
+      const r = await localIndex.predictor.addFile(path, content);
+      newComponents += r.componentsAdded;
+    } catch { /* skip unparseable */ }
+    localIndex.recordImports(path, content);
+    localIndex.markParsed(path);
+  }
+
+  // ── Co-change ranking for API prioritisation (index is already complete) ─────
   const cochangePaths = new Set<string>();
   if (recentlyChanged.length > 0) {
-    for (const f of recentlyChanged) {
-      if (!localIndex.isParsed(f)) {
-        const content = await readSourceFile(f);
-        if (content !== null) {
-          try {
-            await localIndex.predictor.addFile(f, content);
-          } catch { /* skip unparseable */ }
-          localIndex.recordImports(f, content);
-          localIndex.markParsed(f);
-        }
-      }
-    }
     const allIds: string[] = [];
     for (const f of recentlyChanged) allIds.push(...localIndex.componentIdsForFile(f));
     if (allIds.length > 0) {
@@ -199,53 +204,26 @@ export async function handle(
     }
   }
 
-  // ── Pick batch: rank → filter submitted → slice ───────────────────────────────
-  const ranked = rankByRelevance(allPaths, recentlyChanged, cochangePaths);
-  const unsubmitted = ranked.filter(p => !localIndex.isSubmitted(p));
-  const batch = unsubmitted.slice(0, input.batch_size);
-  const remaining = unsubmitted.length - batch.length;
-
-  // ── Parse + index only the batch files — O(batch_size) of CPG work ───────────
-  let newComponents = 0;
-  const languages = new Set<string>();
-  const batchContents = new Map<string, string>();
-
-  for (const path of batch) {
-    const ext = extname(path).toLowerCase();
-    if (['.ts', '.tsx'].includes(ext)) languages.add('typescript');
-    else if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext)) languages.add('javascript');
-    else if (ext === '.py') languages.add('python');
-
-    if (!localIndex.isParsed(path)) {
-      const content = await readSourceFile(path);
-      if (content !== null) {
-        batchContents.set(path, content);
-        try {
-          const r = await localIndex.predictor.addFile(path, content);
-          newComponents += r.componentsAdded;
-        } catch { /* skip unparseable */ }
-        localIndex.recordImports(path, content);
-        localIndex.markParsed(path);
-      }
-    } else {
-      // Already in CPG — still need content for API submission
-      const content = await readSourceFile(path);
-      if (content !== null) batchContents.set(path, content);
-    }
-  }
-
-  // ── API sync ──────────────────────────────────────────────────────────────────
+  // ── API sync: pick batch (rank → filter submitted → slice) and submit ────────
   let submitted: string[] = [];
-  let syncStatus = 'skipped';
+  let syncStatus = 'skipped (sync_api:false — local index only)';
+  let remaining = 0;
 
   if (input.sync_api) {
+    const ranked = rankByRelevance(allPaths, recentlyChanged, cochangePaths);
+    const unsubmitted = ranked.filter(p => !localIndex.isSubmitted(p));
+    const batch = unsubmitted.slice(0, input.batch_size);
+    remaining = unsubmitted.length - batch.length;
+
     if (batch.length === 0) {
       syncStatus = `all ${localIndex.submittedCount()} files already submitted`;
     } else {
       try {
-        const fileList = batch
-          .filter(p => batchContents.has(p))
-          .map(p => ({ path: p, content: batchContents.get(p)! }));
+        const fileList: Array<{ path: string; content: string }> = [];
+        for (const p of batch) {
+          const content = await readSourceFile(p);
+          if (content !== null) fileList.push({ path: p, content });
+        }
 
         if (fileList.length > 0) {
           const result = await apiClient.submitFiles(fileList, sessionId);
@@ -308,16 +286,25 @@ export async function handle(
   const duration = Date.now() - startTime;
   const totalSubmitted = localIndex.submittedCount();
 
+  // Honest coverage: how much of THIS workspace is actually in the local CPG.
+  let parsedCount = 0;
+  for (const p of allPaths) {
+    if (localIndex.isParsed(p)) parsedCount++;
+  }
+
   let text = `Workspace: ${workspacePath}\n\n`;
-  text += `Files scanned: ${allPaths.size}`;
+  text += `Local index: ${parsedCount}/${allPaths.size} files parsed`;
   if (languages.size > 0) text += ` (${[...languages].join(', ')})`;
   text += `\n`;
-  if (newComponents > 0) text += `New CPG components: ${newComponents}\n`;
+  if (parsedCount < allPaths.size) {
+    text += `  ${allPaths.size - parsedCount} file${allPaths.size - parsedCount === 1 ? '' : 's'} skipped (too large or unreadable)\n`;
+  }
+  if (newComponents > 0) text += `  New CPG components: ${newComponents}\n`;
+  text += `  Total CPG components: ${localIndex.stats().componentsIndexed}\n`;
   text += `\n`;
 
-  text += `API sync\n`;
-  text += `  Status:   ${syncStatus}\n`;
-  text += `  Progress: ${totalSubmitted}/${allPaths.size} files submitted\n`;
+  text += `API sync: ${totalSubmitted}/${allPaths.size} files submitted\n`;
+  text += `  Status: ${syncStatus}\n`;
   if (submitted.length > 0 && remaining > 0) {
     text += `  This batch: ${submitted.map(p => p.replace(workspacePath + '/', '')).join(', ')}\n`;
   }

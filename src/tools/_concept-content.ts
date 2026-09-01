@@ -34,10 +34,16 @@ export type ContentMode = 'preview' | 'full' | 'none';
  * accepts, and the form `fetchConceptById` already normalises to.
  */
 export function plainConceptId(id: string | null | undefined): string {
+  // Order matters, and all three nestings occur: `concept:⟨X⟩`, `⟨concept:X⟩`
+  // and `⟨X⟩`. Stripping the prefix first leaves `concept:X` for the second
+  // form, which then reaches concept-db as a literal id and 404s — so peel the
+  // prefix, then the brackets, then the prefix again.
   return String(id ?? '')
+    .trim()
     .replace(/^concept:/, '')
     .replace(/^⟨/, '')
-    .replace(/⟩$/, '');
+    .replace(/⟩$/, '')
+    .replace(/^concept:/, '');
 }
 
 /** Per-concept verbatim prefix budget in the default 'preview' mode. */
