@@ -326,12 +326,23 @@ export class LocalStore {
   }
 
   /**
-   * The one workspace_id new rows carry. Callers that pass the historical
-   * sentinel (or nothing meaningful) mean "the workspace this process serves";
-   * anything else is a deliberate partition and is stored verbatim.
+   * The workspace_id a new row carries.
+   *
+   * The sentinels and any alias of this store's own workspace collapse to the
+   * canonical id — a writer naming this workspace by its path and a reader
+   * filtering by its hash must meet. A value that is genuinely another
+   * workspace is stored verbatim, which is what lets a caller (and the
+   * isolation tests) write a row this store deliberately cannot read.
+   *
+   * It does NOT rescue a writer that names a workspace this store does not
+   * serve: such a row is written, reported as saved, and then invisible here.
+   * Callers holding a store must take the workspace from it — see
+   * src/tools/record-finding.ts, which used to take it from the LocalIndex and
+   * silently lost every finding whenever the two disagreed.
    */
   private writeScopeId(given: string): string {
-    return given === 'default' || given === '' ? this.workspaceScope().id : given;
+    const scope = this.workspaceScope();
+    return scope.aliases.includes(given) ? scope.id : given;
   }
 
   /**

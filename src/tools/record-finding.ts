@@ -113,7 +113,13 @@ export async function handle(
   // see activeWorkspacePath. Reading the index directly here is what produced
   // `repo: unknown` on every finding recorded without a prior in-process index.
   const workspacePath = activeWorkspacePath();
-  const workspaceId = workspacePath;
+  // Attribution (repo name, relative paths) comes from the index; the PARTITION
+  // must come from the store that will have to read the row back. The two are
+  // usually the same root, and when they were not — a store bound to one
+  // workspace, an index pointed at another — the seed was written under a
+  // workspace_id this store never queries, so record_finding reported success
+  // and get_problems returned nothing.
+  const workspaceId = localStore ? localStore.workspaceScope().id : workspacePath;
   const repoName = basename(workspacePath) || 'unknown';
 
   const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
