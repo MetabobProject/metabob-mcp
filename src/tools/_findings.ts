@@ -22,6 +22,7 @@ import { activeWorkspacePath } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
+import { plainConceptId } from './_concept-content.js';
 
 /** The concept shape used for agent-recorded findings. */
 export const FINDING_SHAPE = 'code_finding';
@@ -233,11 +234,18 @@ export async function recordConceptUsage(
   }
 }
 
+/** Verdict a `finding_verdict` concept records against a finding:
+ *  `fixed` (endorsed/resolved) or `retracted` (discarded/false positive). */
+export type FindingVerdict = 'fixed' | 'retracted';
+
 export interface AgentFinding {
   id: string;
   summary: string;
   content: string;
   updated_at?: string;
+  /** Set when a `finding_verdict` concept joined on a shared `agf_*` id closed
+   *  this finding. Absent means open — no verdict was recorded, not "unknown". */
+  verdict?: FindingVerdict;
 }
 
 export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable';
@@ -307,6 +315,107 @@ export async function fetchConceptById(
   }
 }
 
+interface ConceptRow {
+  id?: string;
+  summary?: string | null;
+  content?: string | null;
+  updated_at?: string;
+}
+
+type ConceptScan =
+  | { ok: true; rows: ConceptRow[]; truncated: boolean }
+  | { ok: false; detail: string };
+
+/**
+ * Page one concept shape out of concept-db in list mode.
+ *
+ * Paginates the relevance-DESC list via `offset` so a client-side filter sees
+ * more than the top-50 window; stops on a short page (shape exhausted) or at
+ * FINDINGS_MAX_SCAN, which sets `truncated`. A first-page failure is fatal to
+ * the caller; a later-page failure keeps what was already read and discloses it.
+ *
+ * Shared by the finding scan and the verdict scan so the two cannot disagree
+ * about paging, deduplication or how far back they look — a verdict the finding
+ * scan can see but the verdict scan cannot would silently render a closed
+ * finding as open.
+ */
+async function scanConceptShape(conceptDbUrl: string, shape: string): Promise<ConceptScan> {
+  const rows: ConceptRow[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let truncated = false;
+  for (;;) {
+    let res: Response;
+    try {
+      res = await fetch(
+        `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(shape)}&limit=${FINDINGS_PAGE_SIZE}&offset=${offset}`,
+        { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
+      );
+    } catch (err) {
+      if (offset === 0) return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+      truncated = true;
+      break;
+    }
+    if (!res.ok) {
+      if (offset === 0) return { ok: false, detail: `HTTP ${res.status}` };
+      truncated = true;
+      break;
+    }
+    const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
+    const page = payload.concepts ?? [];
+    // Dedup by concept id: a relevance/ordering write between offset-paged calls
+    // can shift a row across the page boundary and re-surface it. Skip repeats so
+    // the rendered recall and its "top N of M" count stay honest.
+    for (const row of page) {
+      const key = (row.id ?? '').replace(/^concept:/, '');
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      rows.push(row);
+    }
+    offset += page.length;
+    if (page.length < FINDINGS_PAGE_SIZE) break;
+    if (offset >= FINDINGS_MAX_SCAN) {
+      truncated = true;
+      break;
+    }
+  }
+  return { ok: true, rows, truncated };
+}
+
+/**
+ * Extract the `agf_*` ids a `code_finding` concept carries on its
+ * `finding_ids:` content line (record_finding's write format).
+ */
+export function parseFindingIds(content: string): string[] {
+  const m = /^finding_ids:\s*(.+)$/m.exec(content);
+  if (!m) return [];
+  return m[1]!
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => s.startsWith('agf_'));
+}
+
+/**
+ * Parse a `finding_verdict` concept (mark_complete's write format: content
+ * lines `finding: agf_*` + `verdict: endorsed (resolved) | discarded
+ * (retracted)`, summary `[verdict:endorse|discard] …`). Returns the joined
+ * `agf_*` id and the verdict, or null when either half is missing.
+ */
+export function parseVerdictConcept(
+  content: string,
+  summary: string,
+): { findingId: string; verdict: FindingVerdict } | null {
+  const idMatch = /^finding:\s*(agf_\S+)/m.exec(content);
+  if (!idMatch) return null;
+  let verdict: FindingVerdict | null = null;
+  const v = /^verdict:\s*(endorsed|discarded)/m.exec(content);
+  if (v) verdict = v[1] === 'endorsed' ? 'fixed' : 'retracted';
+  else if (summary.includes('[verdict:endorse]')) verdict = 'fixed';
+  else if (summary.includes('[verdict:discard]')) verdict = 'retracted';
+  if (!verdict) return null;
+  return { findingId: idMatch[1]!, verdict };
+}
+
 /** Read one `key: value` header line out of a concept body. */
 function headerLine(content: string, key: string): string {
   const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content);
@@ -373,80 +482,60 @@ export async function fetchAgentFindings(
   const conceptDbUrl = await resolveConceptDbUrl(apiClient);
   if (!conceptDbUrl) return { status: 'skipped', findings: [] };
 
-  interface ConceptRow {
-    id?: string;
-    summary?: string | null;
-    content?: string | null;
-    updated_at?: string;
-  }
-
-  // Paginate the relevance-DESC list (offset query param) so the client-side
-  // term filter sees more than the top-50 window. Stop on a short page (shape
-  // exhausted) or at FINDINGS_MAX_SCAN (more pages likely exist -> truncated).
-  const rows: ConceptRow[] = [];
-  const seen = new Set<string>();
-  let offset = 0;
-  let truncated = false;
-  for (;;) {
-    let res: Response;
-    try {
-      res = await fetch(
-        `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(FINDING_SHAPE)}&limit=${FINDINGS_PAGE_SIZE}&offset=${offset}`,
-        { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
-      );
-    } catch (err) {
-      // First page unreachable is fatal to the recall; a later-page failure is
-      // best-effort — keep the pages already accumulated.
-      if (offset === 0) {
-        return {
-          status: 'unreachable',
-          findings: [],
-          detail: err instanceof Error ? err.message : String(err),
-        };
-      }
-      truncated = true; // later-page error — recall cut short, disclose it
-      break;
-    }
-    if (!res.ok) {
-      if (offset === 0) {
-        return { status: 'unreachable', findings: [], detail: `HTTP ${res.status}` };
-      }
-      truncated = true; // later-page error — recall cut short, disclose it
-      break;
-    }
-    const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
-    const page = payload.concepts ?? [];
-    // Dedup by concept id: a relevance/ordering write between offset-paged calls
-    // can shift a row across the page boundary and re-surface it. Skip repeats so
-    // the rendered recall and its "top N of M" count stay honest.
-    for (const row of page) {
-      const key = (row.id ?? '').replace(/^concept:/, '');
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      rows.push(row);
-    }
-    offset += page.length;
-    if (page.length < FINDINGS_PAGE_SIZE) break; // shape exhausted
-    if (offset >= FINDINGS_MAX_SCAN) {
-      truncated = true; // hit the cap with a full page — older rows unscanned
-      break;
-    }
-  }
+  const scan = await scanConceptShape(conceptDbUrl, FINDING_SHAPE);
+  if (!scan.ok) return { status: 'unreachable', findings: [], detail: scan.detail };
 
   const findings: AgentFinding[] = [];
-  for (const row of rows) {
+  for (const row of scan.rows) {
     const summary = row.summary ?? '';
     const content = row.content ?? '';
     if (!conceptIsAboutRepo(summary, content, repo)) continue;
     if (filePath && !conceptTouchesFile(summary, content, filePath)) continue;
     findings.push({
-      id: (row.id ?? '').replace(/^concept:/, ''),
+      // Plain form only. This id is what an agent pastes back into
+      // mark_complete and concept_record_usage, and concept-db returns the same
+      // id bare in one response and ⟨⟩-wrapped in the next — handing the
+      // wrapped form to an agent makes it the agent's problem.
+      id: plainConceptId(row.id),
       summary,
       content,
       updated_at: row.updated_at,
     });
   }
-  return { status: 'ok', findings, truncated, scanned: rows.length };
+
+  // ── Verdict join (best-effort) ────────────────────────────────────────────
+  // A finding whose verdict was recorded is closed, but concept-db never
+  // retracts the `code_finding` concept — mark_complete retires the LOCAL seed
+  // and writes a separate `finding_verdict`. Without this join every finding
+  // ever recorded renders as open forever, so an agent is handed work that was
+  // finished, sometimes by itself, minutes earlier.
+  //
+  // Only worth a round-trip when something matched, and a failed verdict scan
+  // degrades to unverdicted rendering rather than failing the whole recall.
+  if (findings.length > 0) {
+    const verdictScan = await scanConceptShape(conceptDbUrl, VERDICT_SHAPE);
+    if (verdictScan.ok) {
+      const verdictById = new Map<string, FindingVerdict>();
+      for (const row of verdictScan.rows) {
+        const parsed = parseVerdictConcept(row.content ?? '', row.summary ?? '');
+        if (!parsed) continue;
+        // A retraction wins over an endorse when both were recorded for the
+        // same id — a known false positive must never re-render as open/fixed.
+        if (verdictById.get(parsed.findingId) !== 'retracted') {
+          verdictById.set(parsed.findingId, parsed.verdict);
+        }
+      }
+      for (const f of findings) {
+        const verdicts = parseFindingIds(f.content)
+          .map(id => verdictById.get(id))
+          .filter((v): v is FindingVerdict => v !== undefined);
+        if (verdicts.length === 0) continue;
+        f.verdict = verdicts.includes('retracted') ? 'retracted' : 'fixed';
+      }
+    }
+  }
+
+  return { status: 'ok', findings, truncated: scan.truncated, scanned: scan.rows.length };
 }
 
 /**
@@ -462,22 +551,51 @@ export function renderFindingsSection(
   }
   if (result.status === 'skipped' || result.findings.length === 0) return '';
 
-  const shown = result.findings.slice(0, opts.max);
+  // A verdicted finding is closed work. Ranking it alongside open problems is
+  // how an agent gets handed a task it already finished — so closed findings
+  // leave the open list entirely and are summarised after it, still visible
+  // (the verdict is itself information) but never mistakable for work to do.
+  const open = result.findings.filter(f => !f.verdict);
+  const closed = result.findings.filter(f => f.verdict);
+
   let text = `Findings recorded by agents on this codebase`;
-  if (result.findings.length > shown.length) {
-    text += ` (top ${shown.length} of ${result.findings.length})`;
+  if (open.length === 0) {
+    text += ': none open\n';
+  } else {
+    const shown = open.slice(0, opts.max);
+    if (open.length > shown.length) {
+      text += ` (top ${shown.length} of ${open.length} open)`;
+    }
+    text += ':\n';
+    if (result.truncated) {
+      text += `  (scanned first ${result.scanned ?? shown.length} recorded findings; older ones may be omitted)\n`;
+    }
+    for (const f of shown) {
+      const line = f.summary || f.content.split('\n')[0] || f.id;
+      text += `  • ${line}\n`;
+      if (!opts.compact) {
+        const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
+        if (fileLine) text += `    ${fileLine}\n`;
+        text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
+      }
+    }
   }
-  text += ':\n';
-  if (result.truncated) {
-    text += `  (scanned first ${result.scanned ?? shown.length} recorded findings; older ones may be omitted)\n`;
-  }
-  for (const f of shown) {
-    const line = f.summary || f.content.split('\n')[0] || f.id;
-    text += `  • ${line}\n`;
-    if (!opts.compact) {
-      const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
-      if (fileLine) text += `    ${fileLine}\n`;
-      text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
+
+  if (closed.length > 0) {
+    const fixed = closed.filter(f => f.verdict === 'fixed').length;
+    const retracted = closed.length - fixed;
+    if (opts.compact) {
+      text += `  (${closed.length} closed finding${closed.length === 1 ? '' : 's'} suppressed: ${fixed} [FIXED], ${retracted} [RETRACTED])\n`;
+    } else {
+      text += `Closed findings (verdict recorded — not open issues):\n`;
+      for (const f of closed.slice(0, opts.max)) {
+        const tag = f.verdict === 'fixed' ? '[FIXED]' : '[RETRACTED]';
+        const line = f.summary || f.content.split('\n')[0] || f.id;
+        text += `  • ${tag} ${line} (concept: ${f.id})\n`;
+      }
+      if (closed.length > opts.max) {
+        text += `  … and ${closed.length - opts.max} more closed\n`;
+      }
     }
   }
   return text.trimEnd();

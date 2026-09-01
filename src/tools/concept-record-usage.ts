@@ -22,6 +22,7 @@
  */
 
 import { z } from 'zod';
+import { plainConceptId } from './_concept-content.js';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
 import { makeUsageTraceId } from './_findings.js';
@@ -102,7 +103,7 @@ export async function handle(
   // Same normalisation as fetchConceptById and mark_complete: concept-db hands
   // back ids wrapped in ⟨⟩, and an unstripped id resolves to nothing while the
   // call still reports success.
-  const conceptId = input.concept_id.replace(/^concept:/, '').replace(/^⟨/, '').replace(/⟩$/, '');
+  const conceptId = plainConceptId(input.concept_id);
   const traceId = input.trace_id ?? makeUsageTraceId();
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

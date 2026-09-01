@@ -489,8 +489,13 @@ test('get_problems: renders findings recorded by agents on this codebase', async
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === '/concepts/search') {
-        expect(url.searchParams.get('shape')).toBe('code_finding');
         expect(url.searchParams.get('query')).toBeNull(); // list mode only
+        // Recall scans two shapes: the findings, then the verdicts that close
+        // them. No verdicts here, so every finding below stays open.
+        if (url.searchParams.get('shape') === 'finding_verdict') {
+          return Response.json({ concepts: [] });
+        }
+        expect(url.searchParams.get('shape')).toBe('code_finding');
         return Response.json({
           concepts: [
             {

@@ -87,6 +87,37 @@ interface DiscoveryResolveResponse {
   };
 }
 
+// Accept a few payload shapes: bare array, { shapes: [...] }, or { content: { shapes } }.
+function parseShapesPayload(payload: any): string[] {
+  if (Array.isArray(payload)) return payload.map(String);
+  if (Array.isArray(payload?.shapes)) return payload.shapes.map(String);
+  if (Array.isArray(payload?.content?.shapes)) return payload.content.shapes.map(String);
+  if (payload && typeof payload === 'object') {
+    // Fallback: keys of a { shape: count } map.
+    return Object.keys(payload).map(String);
+  }
+  return [];
+}
+
+/**
+ * Best-effort fetch of the /registry/shapes vocabulary. Returns null when the
+ * list cannot be obtained (unreachable / non-2xx / unparseable) — callers use
+ * it only for the cross-view consistency check and must not fail on null.
+ */
+async function fetchShapeList(discovery: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${discovery}/registry/shapes`, {
+      method: 'GET',
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return parseShapesPayload(await res.json());
+  } catch {
+    return null;
+  }
+}
+
 async function queryShapes(discovery: string, filter?: string): Promise<string> {
   const url = `${discovery}/registry/shapes`;
   let res: Response;
@@ -110,15 +141,7 @@ async function queryShapes(discovery: string, filter?: string): Promise<string> 
     return `registry_query: unparseable body from ${url}`;
   }
 
-  // Accept a few shapes: bare array, { shapes: [...] }, or { content: { shapes } }.
-  let shapes: string[] = [];
-  if (Array.isArray(payload)) shapes = payload.map(String);
-  else if (Array.isArray(payload?.shapes)) shapes = payload.shapes.map(String);
-  else if (Array.isArray(payload?.content?.shapes)) shapes = payload.content.shapes.map(String);
-  else if (payload && typeof payload === 'object') {
-    // Fallback: keys of a { shape: count } map.
-    shapes = Object.keys(payload).map(String);
-  }
+  const shapes = parseShapesPayload(payload);
 
   const needle = filter?.toLowerCase();
   const filtered = needle ? shapes.filter((s) => s.toLowerCase().includes(needle)) : shapes;
@@ -158,8 +181,25 @@ async function queryVessels(discovery: string, shape: string): Promise<string> {
   }
 
   const vessels = payload.content?.vessels ?? [];
+
+  // Cross-check the vesselCapability view against the /registry/shapes view.
+  // The two views disagreeing (shape listed but no vessels, or vessels
+  // advertising a shape absent from the vocabulary) was the diagnostic key for
+  // the stale-row incident — flag it instead of making operators diff by hand.
+  const shapeList = await fetchShapeList(discovery);
+  let crossCheck: string | undefined;
+  if (shapeList !== null) {
+    const inShapeList = shapeList.includes(shape);
+    if (vessels.length > 0 && !inShapeList) {
+      crossCheck = `WARNING: registry views disagree — ${vessels.length} vessel(s) advertise "${shape}" via vesselCapability, but /registry/shapes does not list it. One view is stale; treat these rows as suspect.`;
+    } else if (vessels.length === 0 && inShapeList) {
+      crossCheck = `WARNING: registry views disagree — /registry/shapes lists "${shape}", but no vesselCapability rows advertise it. One view is stale.`;
+    }
+  }
+
   if (!vessels.length) {
-    return `No vessels advertise shape "${shape}".`;
+    const base = `No vessels advertise shape "${shape}".`;
+    return crossCheck ? `${base}\n${crossCheck}` : base;
   }
 
   const lines = [`Vessels serving "${shape}" (${vessels.length}):`];
@@ -170,6 +210,7 @@ async function queryVessels(discovery: string, shape: string): Promise<string> {
     if (v.protocol) lines.push(`      protocol:         ${v.protocol}`);
     lines.push(`      resolve_endpoint: ${v.resolve_endpoint ?? '/v2/impulses/resolve'}`);
   });
+  if (crossCheck) lines.push(crossCheck);
   return lines.join('\n');
 }
 
