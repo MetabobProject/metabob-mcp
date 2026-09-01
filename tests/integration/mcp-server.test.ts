@@ -3,8 +3,11 @@
  * Tests end-to-end MCP protocol communication against the current 10-tool surface
  */
 
-import { test, expect } from 'bun:test';
-import { spawn } from 'child_process';
+import { test, expect, afterAll } from 'bun:test';
+import { spawn, type ChildProcess } from 'child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 interface MCPRequest {
   jsonrpc: '2.0';
@@ -266,3 +269,197 @@ test('tools/list responds within 5 seconds', async () => {
   await sendMCPRequest({ jsonrpc: '2.0', id: 17, method: 'tools/list', params: {} });
   expect(Date.now() - start).toBeLessThan(5000);
 });
+
+// ===== The success branch =====
+//
+// Everything above this line asserts an ERROR. Unknown-tool and Invalid-parameters
+// both throw before the handler runs, so the whole success path — the
+// `{ content: [{ type: 'text', text }] }` envelope, recordSuccess, trackUsage,
+// telemetry — was reachable by zero assertions: change the envelope to
+// `{ content: result }` and the entire suite stayed green while every MCP client
+// got a protocol-invalid result for all 28 tools.
+//
+// sendMCPRequest above also spawns a fresh child per request and kills it on the
+// first parse, so nothing that lives ACROSS calls in one process — the in-memory
+// CPG index above all — is observable through it. The session harness below keeps
+// one process and drives a sequence through it, which is the only way to prove
+// that call N+1 sees what call N built.
+
+const tempDirs: string[] = [];
+
+afterAll(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+/** A two-file TypeScript workspace where beta.ts demonstrably depends on alpha.ts. */
+function makeWorkspace(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mcp-server-ws-'));
+  tempDirs.push(dir);
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src', 'alpha.ts'),
+    'export function alphaCompute(x: number): number {\n  return x * 2;\n}\n',
+    'utf-8',
+  );
+  writeFileSync(
+    join(dir, 'src', 'beta.ts'),
+    "import { alphaCompute } from './alpha';\n\nexport function betaRun(): number {\n  return alphaCompute(21);\n}\n",
+    'utf-8',
+  );
+  return dir;
+}
+
+/**
+ * Drive a sequence of requests through ONE server process, in order.
+ *
+ * Same shape as tests/unit/tool-allowlist-stdio.test.ts: persistent child,
+ * line-buffered stdout, kill in a finally.
+ */
+async function driveSession(
+  env: Record<string, string>,
+  requests: MCPRequest[],
+): Promise<MCPResponse[]> {
+  // A temp HOME keeps LocalStore off the developer's real ~/.metabob/sidecar.db,
+  // and an absent METABOB_CONFIG_PATH keeps the spawned server off whatever
+  // backend ./.metabob/config.json in this checkout happens to point at.
+  const home = mkdtempSync(join(tmpdir(), 'mcp-server-home-'));
+  tempDirs.push(home);
+
+  const runtime = process.execPath;
+  const args = process.versions.bun ? ['run', 'src/index.ts'] : ['src/index.ts'];
+  const child: ChildProcess = spawn(runtime, args, {
+    stdio: ['pipe', 'pipe', 'ignore'],
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home, // os.homedir() reads this one on Windows
+      METABOB_CONFIG_PATH: join(home, 'no-such-config.json'),
+      METABOB_API_KEY: '',
+      SESSION_ID: 'integration-success-session',
+      ANALYSIS_API_URL: 'http://localhost:8081',
+      HEALTH_PORT: String(19800 + Math.floor(Math.random() * 90)),
+      METABOB_TELEMETRY: 'off',
+      METABOB_AGENT_RESOLVER: '0',
+      LOG_LEVEL: 'error',
+      ...env,
+    },
+    cwd: import.meta.dir + '/../..',
+  });
+
+  const responses = new Map<number, MCPResponse>();
+  let buffer = '';
+  child.stdout!.on('data', (data: Buffer) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim().startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.jsonrpc === '2.0' && typeof parsed.id === 'number') responses.set(parsed.id, parsed);
+      } catch {
+        // partial / non-JSON line — ignore
+      }
+    }
+  });
+
+  try {
+    const out: MCPResponse[] = [];
+    for (const req of requests) {
+      child.stdin!.write(JSON.stringify(req) + '\n');
+      const deadline = Date.now() + 30000;
+      while (!responses.has(req.id)) {
+        if (Date.now() > deadline) throw new Error(`Timed out waiting for response id=${req.id}`);
+        await new Promise(r => setTimeout(r, 25));
+      }
+      out.push(responses.get(req.id)!);
+    }
+    return out;
+  } finally {
+    child.kill();
+  }
+}
+
+const INITIALIZE: MCPRequest = {
+  jsonrpc: '2.0',
+  id: 100,
+  method: 'initialize',
+  params: {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'mcp-server-integration-test', version: '0' },
+  },
+};
+
+/** The MCP content envelope, asserted structurally rather than by shape of the text. */
+function expectTextResult(response: MCPResponse): string {
+  expect(response.error).toBeUndefined();
+  expect(response.result).toBeDefined();
+  expect(response.result.content).toBeArray();
+  expect(response.result.content.length).toBeGreaterThan(0);
+  const block = response.result.content[0];
+  expect(block.type).toBe('text');
+  expect(typeof block.text).toBe('string');
+  expect(block.text.length).toBeGreaterThan(0);
+  return block.text as string;
+}
+
+test('a successful tools/call returns the MCP text envelope, not just an error', async () => {
+  const workspace = makeWorkspace();
+  const [, init] = await driveSession({ WORKSPACE_PATH: workspace }, [
+    INITIALIZE,
+    {
+      jsonrpc: '2.0', id: 101, method: 'tools/call',
+      params: { name: 'init_workspace', arguments: { workspace_path: workspace } },
+    },
+  ]);
+
+  const text = expectTextResult(init!);
+  // Not merely non-empty: the text has to describe THIS workspace, so a handler
+  // stubbed to return a constant cannot satisfy it.
+  expect(text).toContain(workspace);
+  expect(text).toContain('Files scanned: 2');
+  // The analysis API is a dead port here. The local half still succeeds and the
+  // remote half is reported as failed IN the result — a tool call that did real
+  // local work is not an MCP-level error.
+  expect(text).toMatch(/API sync/);
+}, 60000);
+
+test('a later tools/call in the same process sees the index an earlier one built', async () => {
+  // The per-request harness at the top of this file cannot express this: it kills
+  // the server after every response, so the CPG built by init_workspace never
+  // outlives the call that built it.
+  const workspace = makeWorkspace();
+  const [, , search, impact] = await driveSession({ WORKSPACE_PATH: workspace }, [
+    INITIALIZE,
+    {
+      jsonrpc: '2.0', id: 102, method: 'tools/call',
+      params: { name: 'init_workspace', arguments: { workspace_path: workspace } },
+    },
+    {
+      jsonrpc: '2.0', id: 103, method: 'tools/call',
+      params: { name: 'search_codebase', arguments: { query: 'alphaCompute' } },
+    },
+    {
+      jsonrpc: '2.0', id: 104, method: 'tools/call',
+      params: {
+        name: 'analyze_impact',
+        arguments: { changed_files: ['src/alpha.ts'], direction: 'backward' },
+      },
+    },
+  ]);
+
+  // Content parsed out of a file written by this test moments ago — reachable
+  // only through state the previous call left in the process.
+  const searchText = expectTextResult(search!);
+  expect(searchText).toContain('alphaCompute');
+  expect(searchText).toContain('alpha.ts');
+
+  // beta.ts imports alpha.ts, so a backward walk from alpha.ts must name it.
+  // This is the graph answering, not the seed cache: the temp HOME has no seeds.
+  const impactText = expectTextResult(impact!);
+  expect(impactText).toContain('beta.ts');
+  expect(impactText).not.toContain('Workspace not indexed');
+}, 60000);

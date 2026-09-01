@@ -107,10 +107,12 @@ Before committing / ending the session, in order:
    open findings survive the session and reach the next agent.
 4. `mark_complete` for **every** problem you resolved (endorse) or disproved
    (discard), including the `agf_*` findings you recorded. Verdicts are shared
-   org-wide. A verdict is written against the local seed `record_finding`
-   created, so a finding recalled from another machine (concept id only) is
-   read-only here — `mark_complete` accepts the `concept_*` id but refuses
-   explicitly when no local seed backs it. Not optional bookkeeping.
+   org-wide. Pass the `concept_*` id when that is all you hold — a finding
+   recalled from another machine is **not** read-only here: with no local seed
+   the verdict is written from the recalled concept itself (keyed on the
+   finding's `agf_*` id), and the output says plainly that nothing local was
+   retired. That is the fleet case the call exists for — one agent records, a
+   second fixes — so do not skip it. Not optional bookkeeping.
 5. `concept_create` for each non-obvious thing you learned (why an approach was
    chosen, a constraint, a gotcha). Use `source_type: "memo"` for findings,
    `"human_input"` for things the user told you. **Then `concept_link` it to
