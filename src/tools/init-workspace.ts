@@ -60,6 +60,17 @@ export const InputSchema = z.object({
 
 export type InitWorkspaceInput = z.infer<typeof InputSchema>;
 
+/**
+ * Wall-clock budget for local parsing in ONE call.
+ *
+ * Sized so an ordinary repository finishes in a single call — this one (101
+ * files) takes ~2.3s, and 500 real source files take ~14.6s — while a monorepo
+ * large enough to hang the call instead stops, reports, and resumes on the next
+ * one. A time budget rather than a file count because per-file cost grows with
+ * the graph, so N files is not a fixed amount of work.
+ */
+const PARSE_BUDGET_MS = 20_000;
+
 const DEFAULT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
 const DEFAULT_EXCLUDE = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.nuxt',
@@ -176,12 +187,23 @@ export async function handle(
   // workspace's graph.
   const recentlyChanged = (input.recently_changed_files ?? []).map(f => resolve(workspacePath, f));
 
-  // ── Parse + index the WHOLE workspace locally — decoupled from API batching ──
-  // Tree-sitter parsing is cheap; one call fully populates the local CPG so the
-  // local tools (predict_cochanges, analyze_impact, assign_git_changes) never
-  // operate on a partial index. API submission below stays incremental.
+  // ── Parse + index the workspace locally — decoupled from API batching ───────
+  // One call covers the whole workspace for any ordinary repository, so the
+  // local tools (predict_cochanges, analyze_impact, assign_git_changes) stop
+  // operating on a partial index.
+  //
+  // Bounded by wall clock, not by faith. Parsing is NOT flatly cheap: addFile
+  // scans the accumulated node set, so per-file cost grows with the graph.
+  // Measured on real sources: 100 files 2.3s, 250 files 5.3s, 500 files 14.6s —
+  // 2x the files for 2.75x the time. Unbounded, a large monorepo would hang the
+  // first call of every session, and the index is not persisted across them.
+  // So parse until the budget is spent, then stop and SAY so; the next call
+  // resumes where this one stopped (isParsed skips what is already done),
+  // exactly as API submission is already resumable.
   let newComponents = 0;
   const languages = new Set<string>();
+  const parseDeadline = Date.now() + PARSE_BUDGET_MS;
+  let parseBudgetSpent = false;
 
   for (const path of allPaths) {
     const ext = extname(path).toLowerCase();
@@ -190,6 +212,7 @@ export async function handle(
     else if (ext === '.py') languages.add('python');
 
     if (localIndex.isParsed(path)) continue;
+    if (Date.now() >= parseDeadline) { parseBudgetSpent = true; break; }
     const content = await readSourceFile(path);
     if (content === null) continue; // too large / unreadable — reported via coverage below
     try {
@@ -305,8 +328,13 @@ export async function handle(
   text += `Local index: ${parsedCount}/${allPaths.size} files parsed`;
   if (languages.size > 0) text += ` (${[...languages].join(', ')})`;
   text += `\n`;
-  if (parsedCount < allPaths.size) {
-    text += `  ${allPaths.size - parsedCount} file${allPaths.size - parsedCount === 1 ? '' : 's'} skipped (too large or unreadable)\n`;
+  const unparsed = allPaths.size - parsedCount;
+  if (unparsed > 0 && parseBudgetSpent) {
+    // Distinguish "ran out of time" from "cannot be parsed at all" — the first
+    // is resumable and the caller must know to call again, the second is not.
+    text += `  ${unparsed} file${unparsed === 1 ? '' : 's'} not yet parsed — parse budget reached, call again to continue\n`;
+  } else if (unparsed > 0) {
+    text += `  ${unparsed} file${unparsed === 1 ? '' : 's'} skipped (too large or unreadable)\n`;
   }
   if (newComponents > 0) text += `  New CPG components: ${newComponents}\n`;
   text += `  Total CPG components: ${localIndex.stats().componentsIndexed}\n`;
