@@ -1,9 +1,22 @@
 import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
+import { createHash } from 'crypto';
 import { join, extname, dirname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
+
+/**
+ * Content hash of a source file, for staleness detection.
+ *
+ * Content ONLY — never path or mtime. mtime moves on a checkout without the
+ * bytes changing, which would flag every finding on every clone as suspect;
+ * the point of the hash is to fire exactly when the code a finding refers to
+ * actually changed.
+ */
+function contentHash(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 
 export const InitWorkspaceTool = {
   name: 'init_workspace',
@@ -221,6 +234,13 @@ export async function handle(
     } catch { /* skip unparseable */ }
     localIndex.recordImports(path, content);
     localIndex.markParsed(path);
+    // Record the file version we parsed. The `files` table was never populated
+    // before this — its only writer was a deprecated path passing an empty
+    // string — so getFreshness had nothing to read and staleness could not be
+    // detected at all. Store a real content hash keyed to the workspace this
+    // store serves; a later re-index compares against it to flag findings whose
+    // file has since changed.
+    localStore?.upsertFile(path, workspacePath, contentHash(content));
   }
 
   // ── Co-change ranking for API prioritisation (index is already complete) ─────
