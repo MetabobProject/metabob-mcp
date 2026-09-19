@@ -58,6 +58,8 @@ interface DispatchRecordResponse {
   reached?: boolean | null;
   /** Operator identity attributed to this dispatch, if any. */
   operator?: string | null;
+  /** Live walk decision log — populated WHILE the walk runs, not only at terminal. */
+  walkLog?: string[];
 }
 
 /** Render the honest reach verdict as the primary outcome line. */
@@ -206,7 +208,18 @@ export async function handle(
     if (hydrated) lines.push(...hydrated);
     else lines.push('', '  (trace hydration unavailable — query activity-api directly)');
   } else if (record.status === 'running') {
-    lines.push('', '  Still running — poll again for the hydrated trace.');
+    // The dispatch record carries the live walk log while running — render it.
+    // A blank "poll again" over a walk that is visibly deciding things was the
+    // cockpit-blindness defect (gap-cockpit-blind-while-goal-runs): the server
+    // sent walkLog on every poll and this tool discarded it.
+    const wl = Array.isArray(record.walkLog) ? record.walkLog.filter((x) => typeof x === 'string') : [];
+    if (wl.length > 0) {
+      lines.push('', `  Live walk (${wl.length} step${wl.length === 1 ? '' : 's'} so far, last ${Math.min(wl.length, 6)}):`);
+      for (const step of wl.slice(-6)) lines.push(`    • ${step.slice(0, 200)}`);
+      lines.push('', '  Still running — poll again for newer steps / the hydrated trace.');
+    } else {
+      lines.push('', '  Still running (no walk steps recorded yet) — poll again.');
+    }
   }
 
   return lines.join('\n');
