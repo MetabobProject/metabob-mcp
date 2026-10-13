@@ -107,6 +107,10 @@
       "Node.js"
     ],
     "reviewed": {
+      "docs/CONFORMANCE.md": {
+        "at": "d1142dd",
+        "why": "src/index.ts changes are the scheduler/watcher removal and stdout-to-stderr routing; no requirement's status changes (none concerns uploads or logging)"
+      },
       "docs/SPEC.md": {
         "at": "3c86708",
         "why": "src/config.ts gained only a CONFORMANCE citation in a comment; SPEC § Endpoint derivation still matches deriveSubstrateDefaults"
