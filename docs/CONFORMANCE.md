@@ -13,7 +13,8 @@ implements a requirement cites it as `CONFORMANCE §<section>`; the rules for th
 [DOCLINKS.md](DOCLINKS.md).
 
 The vessel has one configuration: an API key and an endpoint, from which the substrate URLs derive
-(user ruling 2026-10-13: one configuration, not two). It is a client of the substrate: it makes no
+(user ruling 2026-10-13: one configuration, not two), and it proves the key against the substrate's
+identity before any other keyed call (C3). It is a client of the substrate: it makes no
 discovery registration, runs no libp2p node, and serves its HTTP resolver on loopback for local
 callers only.
 
@@ -63,9 +64,23 @@ the vessel's own network namespace.
 - Met — the vessel's own resolver (`POST /v2/impulses/resolve`, `src/vessel-server.ts@VesselServer`)
   fails closed with 401 when no key matches, and the substrate tools send
   `Authorization: ApiKey <key>` on their requests.
-- Not yet met — the vessel does not check that its key belongs to the namespace of the discovery it
-  resolves through: there is no `orgId` check against the anchor's identity endpoint, so a foreign
-  key surfaces only as individual tool calls failing.
+- Met — the org check. Before any other keyed call, `src/attachment.ts@attach` proves the key
+  against the identity endpoint the anchor names: `POST {identity}/v1/auth/resolve` with
+  `Authorization: ApiKey <key>` (`src/auth-service.ts@org-check`) must return the tenant's
+  `org_id`. A captive portal cannot forge that answer without the key, and a key from a foreign
+  namespace is refused there (401 → `key_rejected`). Whichever address identity selection chose —
+  explicit, advertised, or rehosted (C4) — the check runs against that address; selection only picks
+  it. Until the check passes, every substrate tool passes one gate on both dispatch planes
+  (`src/tools/index.ts@substrateToolRefusal`) and answers with the named cause in one line, the
+  substrate half of the mixed tools and answer delivery check the same attachment
+  (`src/tools/_findings.ts@resolveConceptDbUrl`, `src/agent-delivery.ts@deliverResolution`), and the
+  local tools work. Evidence: `tests/unit/attachment.test.ts` (a rehosted address that rejects the key
+  → `key_rejected`, with the org check the only keyed call); `tests/workflows/w3-attachment.test.ts`
+  (a foreign key: discovery sees only `GET /bootstrap`, identity only `/health` and the org check, and
+  every substrate tool answers `key_rejected: …` in one line).
+- Not yet met — cross-node calls do not go through the local egress: the substrate tools send the key
+  directly to the vessels discovery names (concept-db, goal-host-vessel) and to activity-api, rather
+  than resolving through discovery so the key travels as `_fedAuth` (C11).
 
 **Accepted risk, not conformance: cleartext key on plain-http anchors.** The vessel sends its key to
 whatever anchor it is configured with, including non-loopback plain-http anchors such as a hub's
@@ -93,12 +108,25 @@ accepted, and does not count as meeting C3.
   siblings only for a port-published endpoint and nothing for a remote one, and
   `src/config.ts@withoutEndpoints` keeps a config file's endpoints from mixing with an explicit
   `METABOB_ENDPOINT`.
-- Not yet met — identity is not learned from `/bootstrap`: nothing reads `GET /bootstrap`, and tenant
-  resolution runs only against an explicit `IDENTITY_ENDPOINT` (`src/index.ts@IDENTITY_ENDPOINT`);
-  without one it is skipped.
-- Not yet met — the inputs are more than two. The anchor is `METABOB_ENDPOINT` (from which discovery
-  and concept-db derive at port offsets, census class H1) rather than the discovery endpoint, and
-  `DISCOVERY_ENDPOINT`, `ACTIVITY_API_URL`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL` and
+- Met — identity is learned from `/bootstrap`: `src/attachment.ts@attach` reads `identity_endpoint`
+  from `GET {discovery}/bootstrap` and uses it when it answers; an explicit `IDENTITY_ENDPOINT` /
+  `metabob.identityEndpoint` overrides it. Each candidate address is contacted at most once, and the
+  attachment state records what was advertised and what was tried.
+- Interim debt (census class H1) — a live substrate's `/bootstrap` advertises its identity at a
+  container-internal address the host cannot dial (node1 `http://127.0.0.1:8101`, compose2
+  `http://substrate-live:8101`). When that address is loopback or a single-label host on an 8xxx port
+  and does not answer, `src/attachment.ts@rehost-h1` maps it onto the discovery host at discovery's
+  published-port offset, logs a WARN naming the advertised value, and records
+  `identity.source: "rehosted-h1"`; the org check (C3) still decides whether it is trusted. It goes
+  when the substrate installer writes a host-visible identity endpoint, or `/bootstrap` answers per
+  vantage.
+- Interim debt (census class H1) — discovery itself may still be derived from `metabob.endpoint` at
+  the published-port offset (…080 → …100). The server logs a WARN once when it is
+  (`src/config.ts@derivedDiscoveryWarning`) and the attachment state records `anchor.source:
+  "derived-h1"`; `metabob.discoveryEndpoint` / `DISCOVERY_ENDPOINT` is the explicit form. It goes
+  when the installer writes the discovery endpoint into the client config.
+- Not yet met — the inputs are more than two. `METABOB_ENDPOINT` still feeds activity-api and the
+  concept-db derivation, and `ACTIVITY_API_URL`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL` and
   `IDENTITY_ENDPOINT` each still feed routing when set.
 
 ## C5 — What breaks under enforcement
@@ -171,10 +199,20 @@ names the `code:*` family, which would have to become concrete shape names befor
 
 **Status: met.** The vessel writes no row, so it has no endpoint that can be unreachable and nothing
 to heartbeat or leave behind in the registry (`src/index.ts@main`). The attachment state it does have
-is reported, never dropped: `/health` carries it (`src/vessel-server.ts@health-attachment`: attached,
-or the missing input; advertised: none), the startup log states a missing key or endpoint once
-(`src/config.ts@unattachedMessage`), and `doctor` reports the same message and the substrate URLs it
-probed (`src/doctor.ts@resolveSubstrateTargets`).
+is reported, never dropped. It is one typed object (`src/attachment.ts@AttachmentState`):
+- the anchor and how it was obtained (`explicit` or `derived-h1`);
+- the `/bootstrap` result (`ok`, `unreachable`, `not_substrate`);
+- the identity endpoint and its source, with the advertised value and every address tried;
+- the org check (`authenticated` with its `orgId`, `key_rejected`, `identity_unreachable`,
+  `not_configured`);
+- the named cause, and timestamps.
+
+`/health` carries it (`src/vessel-server.ts@health-attachment`), with `attached` and the reason;
+`doctor` runs the same sequence once and prints it (`src/doctor.ts@probeAttachment`); a refusal and
+each H1 fallback are logged once at WARN; and the startup log states a missing key or endpoint once
+(`src/config.ts@unattachedMessage`). Evidence: `tests/unit/attachment.test.ts` (`/health` for the
+authenticated, `key_rejected`, `identity_unreachable` and pending states) and
+`tests/workflows/w3-attachment.test.ts`.
 
 ## C10 — One registrant per key and workspace
 

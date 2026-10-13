@@ -5,12 +5,13 @@ import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { AnalysisAPIClient } from './api-client.js';
 import type { CircuitBreaker } from './circuit-breaker.js';
 import { CircuitState } from './circuit-breaker.js';
-import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
+import { TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
 import type { AuthService } from './auth-service.js';
 import type { LocalStore, AgentTaskRecord } from './local-store.js';
 import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
 import { getResolverVesselId, getResolverOperatorId } from './resolver-identity.js';
 import { unattachedMessage } from './config.js';
+import { getAttachment } from './attachment.js';
 import { ZodError } from 'zod';
 
 /**
@@ -215,13 +216,22 @@ export class VesselServer {
 
     // CONFORMANCE §c9-fail-visibly
     // @anchor health-attachment
-    // The attachment state is reported, never dropped: a missing key or
-    // endpoint, and that the process advertises nothing.
+    // The attachment state is reported, never dropped: the anchor and how it
+    // was obtained, the /bootstrap result, the identity chosen (advertised and
+    // tried), the org check, the one named cause, and that the process
+    // advertises nothing. `attached` is true only once the key is proven.
     const attachment = () => {
       const missing = unattachedMessage();
-      return missing
-        ? { attached: false, reason: missing, advertised: 'none' }
-        : { attached: true, advertised: 'none (client-only)' };
+      const current = getAttachment();
+      if (!current) {
+        return missing
+          ? { attached: false, reason: missing, advertised: 'none' as const }
+          : { attached: false, reason: 'the attachment has not started', advertised: 'none (client-only)' as const };
+      }
+      const state = current.state();
+      const attached = state.auth.status === 'authenticated' && state.cause === null;
+      const reason = attached ? undefined : state.message ?? (state.auth.status === 'pending' ? 'attaching' : missing ?? undefined);
+      return { attached, ...(reason ? { reason } : {}), ...state };
     };
 
     app.get('/health', (c) => {
@@ -366,6 +376,11 @@ export async function resolveImpulseContent(
     throw new Error(`Unknown tool: ${toolName}`);
   }
   const validatedInput = tool.validateInput(toolInput);
+  // The attachment gate, as on stdio: a substrate tool refuses with the named cause.
+  const refusal = await substrateToolRefusal(toolName);
+  if (refusal) {
+    throw new Error(refusal);
+  }
   const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
   return { toolName, content };
 }

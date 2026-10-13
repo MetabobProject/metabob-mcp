@@ -11,6 +11,7 @@ import {
   postConcept,
   recordConceptUsage,
   resolveConceptDbUrl,
+  conceptDbUnavailable,
   workspaceRepoName,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
@@ -89,7 +90,7 @@ export async function handle(
     if (!seed && isConceptId) {
       const remoteDbUrl = await resolveConceptDbUrl(apiClient);
       if (!remoteDbUrl) {
-        return `Concept "${input.problem_id}" has no local seed and concept-db is not configured, so no verdict was recorded.`;
+        return `Concept "${input.problem_id}" has no local seed and concept-db is unavailable (${await conceptDbUnavailable()}), so no verdict was recorded.`;
       }
       const remote = await fetchConceptById(apiClient, plainId);
       if (!remote) {
@@ -173,7 +174,9 @@ export async function handle(
     let conceptStatus = 'concept-db not configured — verdict recorded locally only';
     let relevanceStatus = '';
     const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-    if (conceptDbUrl) {
+    if (!conceptDbUrl) {
+      conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
+    } else {
       const repo = workspaceRepoName() ?? seed.workspace_id;
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept(conceptDbUrl, {

@@ -1,15 +1,19 @@
 /**
- * Identity-vessel authentication: POST /v1/auth/resolve with the impulse form
- * resolves the key's orgId/userId and captures an inline JWT.
+ * Identity-vessel authentication: the org check.
  *
- * It runs only against an explicit identity endpoint (IDENTITY_ENDPOINT or
- * metabob.identityEndpoint); there is no default host, and without one tenant
- * resolution is skipped. CONFORMANCE §c4-anchoring
+ * `resolveTenant` is the one call: POST {identity}/v1/auth/resolve with
+ * `Authorization: ApiKey <key>` (identity-vessel's flat header form), which
+ * answers `{ valid, org_id, user_id, key_id, jwt, jwt_expires_at }`, or 401 for a
+ * key outside its namespace. The identity endpoint is the attachment's
+ * (`src/attachment.ts` — explicit, or learned from /bootstrap); this module never
+ * reads one from the environment. CONFORMANCE §c3-identity
+ *
+ * AuthService holds the resolved tenant for the process and runs the periodic
+ * key-issuance heartbeat against that same identity.
  *
  * Env vars:
  *   METABOB_API_KEY   — the substrate key
- *   IDENTITY_API_KEY  — a separate identity key; falls back to METABOB_API_KEY
- *   IDENTITY_ENDPOINT — the identity vessel (no default)
+ *   IDENTITY_API_KEY  — an extra key the loopback resolver accepts from local callers
  */
 
 const RESOLVE_TIMEOUT_MS = 5_000;
@@ -18,133 +22,124 @@ const BEARER_REFRESH_MARGIN_MS = 60_000;
 export interface TenantIdentity {
   orgId: string;
   userId?: string;
+  keyId?: string;
   /** Inline JWT from identity-vessel for vessel-to-vessel Bearer auth. */
   bearerToken?: string;
   bearerExpiresAt?: number;
 }
 
-type AuthState =
-  | { status: 'unauthenticated' }
-  | { status: 'resolved'; identity: TenantIdentity; apiKey: string }
-  | { status: 'key_only'; apiKey: string };
+/** The classified outcome of one org check. */
+export type TenantResolution =
+  | ({ kind: 'authenticated' } & TenantIdentity)
+  | { kind: 'key_rejected'; status: number }
+  /** Non-JSON or HTML: something other than identity-vessel answered. */
+  | { kind: 'not_identity'; detail: string }
+  /** No connection, a timeout, or a non-auth HTTP failure. */
+  | { kind: 'unreachable'; detail: string };
+
+// @anchor org-check
+/** One org check against `endpoint` with `apiKey`. Never throws. */
+export async function resolveTenant(
+  endpoint: string,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TenantResolution> {
+  let res: Response;
+  try {
+    res = await fetchImpl(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${apiKey}` },
+      body: '{}',
+      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { kind: 'unreachable', detail: /abort|timeout|timed out/i.test(msg) ? `timed out after ${RESOLVE_TIMEOUT_MS}ms` : msg };
+  }
+
+  const text = await res.text().catch(() => '');
+  const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+  let payload: Record<string, unknown> | null = null;
+  if (!contentType.includes('text/html') && !text.trimStart().startsWith('<')) {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (parsed && typeof parsed === 'object') payload = parsed as Record<string, unknown>;
+    } catch {
+      payload = null;
+    }
+  }
+  if (!payload) {
+    return { kind: 'not_identity', detail: `HTTP ${res.status}, ${contentType || 'no content-type'}` };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { kind: 'key_rejected', status: res.status };
+  }
+  if (!res.ok) {
+    return { kind: 'unreachable', detail: `HTTP ${res.status}` };
+  }
+
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const orgId = str(payload.org_id);
+  if (payload.valid !== true || !orgId) {
+    return { kind: 'not_identity', detail: 'the response carries no org_id' };
+  }
+  let bearerToken: string | undefined;
+  let bearerExpiresAt: number | undefined;
+  const jwt = str(payload.jwt);
+  const expires = str(payload.jwt_expires_at);
+  if (jwt && expires && !Number.isNaN(Date.parse(expires))) {
+    bearerToken = jwt;
+    bearerExpiresAt = Date.parse(expires);
+  }
+  return {
+    kind: 'authenticated',
+    orgId,
+    userId: str(payload.user_id),
+    keyId: str(payload.key_id),
+    bearerToken,
+    bearerExpiresAt,
+  };
+}
 
 export class AuthService {
-  private state: AuthState = { status: 'unauthenticated' };
+  private identity: TenantIdentity | null = null;
+  private apiKey: string | undefined;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
 
-  /** Set the identity API key and mark as key_only until tenant resolves. */
+  /** The key accepted by the loopback resolver alongside METABOB_API_KEY. */
   setApiKey(apiKey: string): void {
-    this.state = { status: 'key_only', apiKey };
+    this.apiKey = apiKey;
   }
 
-  /**
-   * Resolve tenant from identity-vessel.
-   * Non-fatal — on failure the service stays in key_only state.
-   */
-  async resolveTenant(endpoint?: string): Promise<void> {
-    const apiKey = this.getIdentityApiKey();
-    const base = endpoint ?? process.env.IDENTITY_ENDPOINT;
-    if (!apiKey || !base) return;
-
-    const url = `${base}/v1/auth/resolve`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          impulse: {
-            type: 'authentication',
-            pointer: { type: 'apiKey', apiKey },
-          },
-        }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        console.error(`[auth-service] identity-vessel returned HTTP ${res.status}`);
-        return;
-      }
-
-      const payload = await res.json().catch(() => null) as {
-        success?: boolean;
-        data?: {
-          authenticated?: boolean;
-          orgId?: string; org_id?: string;
-          userId?: string; user_id?: string;
-          jwt?: string;
-          jwt_expires_at?: string; jwtExpiresAt?: string;
-        };
-      } | null;
-
-      const data = payload?.data;
-      if (!data?.authenticated) {
-        console.error('[auth-service] identity-vessel: not authenticated');
-        return;
-      }
-
-      const orgId = data.orgId ?? data.org_id;
-      const userId = data.userId ?? data.user_id;
-      if (!orgId) {
-        console.error('[auth-service] identity-vessel: no orgId in response');
-        return;
-      }
-
-      let bearerToken: string | undefined;
-      let bearerExpiresAt: number | undefined;
-      const jwtExpiresIso = data.jwt_expires_at ?? data.jwtExpiresAt;
-      if (data.jwt && jwtExpiresIso) {
-        const parsed = Date.parse(jwtExpiresIso);
-        if (!Number.isNaN(parsed)) {
-          bearerToken = data.jwt;
-          bearerExpiresAt = parsed;
-        }
-      }
-
-      this.state = {
-        status: 'resolved',
-        apiKey,
-        identity: { orgId, userId, bearerToken, bearerExpiresAt },
-      };
-
-      console.error(
-        `[auth-service] tenant resolved: orgId=${orgId}${userId ? ` userId=${userId}` : ''}${bearerToken ? ' (inline JWT captured)' : ''}`,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('abort') || msg.includes('AbortError')) {
-        console.error(`[auth-service] tenant resolution timed out after ${RESOLVE_TIMEOUT_MS}ms`);
-      } else {
-        console.error(`[auth-service] tenant resolution failed: ${msg}`);
-      }
-    } finally {
-      clearTimeout(timer);
+  /** Run one org check and hold its tenant when it authenticates. */
+  async resolveTenant(endpoint: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<TenantResolution> {
+    const r = await resolveTenant(endpoint, apiKey, fetchImpl);
+    if (r.kind === 'authenticated') {
+      const { kind: _kind, ...identity } = r;
+      this.identity = identity;
+    } else if (r.kind === 'key_rejected') {
+      this.identity = null;
     }
-  }
-
-  async refreshTenant(endpoint?: string): Promise<void> {
-    return this.resolveTenant(endpoint);
+    return r;
   }
 
   /**
-   * Start a periodic re-resolve loop against identity-vessel.
-   *
-   * Each call to /v1/auth/resolve is the key-issuance heartbeat that
-   * identity-vessel uses to monitor metabob-mcp usage during the interim
-   * period. Cadence is independent of the JWT TTL.
+   * The periodic key-issuance heartbeat: re-resolve against the attachment's
+   * identity. Each call to /v1/auth/resolve is what identity-vessel uses to
+   * monitor this key's usage. Cadence is independent of the JWT TTL.
    */
-  startKeyHeartbeat(intervalMs = 5 * 60_000, endpoint?: string): void {
+  startKeyHeartbeat(
+    intervalMs: number,
+    endpoint: string,
+    apiKey: string,
+    onResult: (r: TenantResolution) => void = () => {},
+    fetchImpl: typeof fetch = fetch,
+  ): void {
     this.stopKeyHeartbeat();
     this.heartbeatTimer = setInterval(() => {
-      this.resolveTenant(endpoint).catch(() => {
-        // resolveTenant logs its own errors
-      });
+      void this.resolveTenant(endpoint, apiKey, fetchImpl).then(onResult);
     }, intervalMs);
-    if (typeof (this.heartbeatTimer as { unref?: () => void }).unref === 'function') {
-      (this.heartbeatTimer as { unref: () => void }).unref();
-    }
+    (this.heartbeatTimer as { unref?: () => void }).unref?.();
   }
 
   stopKeyHeartbeat(): void {
@@ -154,50 +149,23 @@ export class AuthService {
     }
   }
 
-  /** API key to use against the identity vessel. */
+  /** API key the loopback resolver accepts besides METABOB_API_KEY. */
   getIdentityApiKey(): string | undefined {
-    const key = process.env.IDENTITY_API_KEY ?? process.env.METABOB_API_KEY;
-    if (key) return key;
-    if (this.state.status !== 'unauthenticated') return this.state.apiKey;
-    return undefined;
+    return process.env.IDENTITY_API_KEY ?? process.env.METABOB_API_KEY ?? this.apiKey;
   }
 
   /** Bearer JWT for vessel-to-vessel calls. */
   getBearerToken(): string | undefined {
-    if (this.state.status !== 'resolved') return undefined;
-    const { bearerToken, bearerExpiresAt } = this.state.identity;
-    if (!bearerToken || !bearerExpiresAt) return undefined;
-    if (Date.now() >= bearerExpiresAt - BEARER_REFRESH_MARGIN_MS) return undefined;
-    return bearerToken;
-  }
-
-  bearerTokenIsStale(): boolean {
-    if (this.state.status !== 'resolved') return false;
-    const { bearerToken, bearerExpiresAt } = this.state.identity;
-    if (!bearerToken || !bearerExpiresAt) return false;
-    return Date.now() >= bearerExpiresAt - BEARER_REFRESH_MARGIN_MS;
+    if (!this.identity?.bearerToken || !this.identity.bearerExpiresAt) return undefined;
+    if (Date.now() >= this.identity.bearerExpiresAt - BEARER_REFRESH_MARGIN_MS) return undefined;
+    return this.identity.bearerToken;
   }
 
   getOrgId(): string | undefined {
-    return this.state.status === 'resolved' ? this.state.identity.orgId : undefined;
-  }
-
-  getUserId(): string | undefined {
-    return this.state.status === 'resolved' ? this.state.identity.userId : undefined;
+    return this.identity?.orgId;
   }
 
   isResolved(): boolean {
-    return this.state.status === 'resolved';
+    return this.identity !== null;
   }
-
-  hasKey(): boolean {
-    return this.state.status !== 'unauthenticated';
-  }
-}
-
-let _instance: AuthService | null = null;
-
-export function getAuthService(): AuthService {
-  if (!_instance) _instance = new AuthService();
-  return _instance;
 }

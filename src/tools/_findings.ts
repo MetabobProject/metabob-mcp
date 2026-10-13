@@ -21,6 +21,7 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore, SeedRecord } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { substrateRefusal } from '../attachment.js';
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
@@ -135,6 +136,9 @@ function authHeaders(): Record<string, string> {
  * discovery fails — callers treat null as "concept-db not configured".
  */
 export async function resolveConceptDbUrl(apiClient: AnalysisAPIClient): Promise<string | null> {
+  // The substrate half of a mixed tool makes no keyed call until the key is
+  // proven (CONFORMANCE §c3-identity); conceptDbUnavailable names why.
+  if (await substrateRefusal()) return null;
   try {
     const client = apiClient as unknown as {
       hasDiscovery?: () => boolean;
@@ -153,6 +157,14 @@ export async function resolveConceptDbUrl(apiClient: AnalysisAPIClient): Promise
   } catch {
     return null;
   }
+}
+
+/**
+ * Why concept-db is unavailable, for a mixed tool's output: the attachment's
+ * named cause when it refuses keyed calls, else "concept-db not configured".
+ */
+export async function conceptDbUnavailable(): Promise<string> {
+  return (await substrateRefusal()) ?? 'concept-db not configured';
 }
 
 export interface PostConceptResult {
@@ -257,7 +269,7 @@ export interface AgentFinding {
   verdict?: FindingVerdict;
 }
 
-export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable';
+export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable' | 'refused';
 
 export interface AgentFindingsResult {
   status: AgentFindingsStatus;
@@ -489,7 +501,10 @@ export async function fetchAgentFindings(
   if (!repo) return { status: 'skipped', findings: [] };
 
   const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-  if (!conceptDbUrl) return { status: 'skipped', findings: [] };
+  if (!conceptDbUrl) {
+    const refusal = await substrateRefusal();
+    return refusal ? { status: 'refused', findings: [], detail: refusal } : { status: 'skipped', findings: [] };
+  }
 
   const scan = await scanConceptShape(conceptDbUrl, FINDING_SHAPE);
   if (!scan.ok) return { status: 'unreachable', findings: [], detail: scan.detail };
@@ -593,6 +608,9 @@ export function renderFindingsSection(
 ): string {
   if (result.status === 'unreachable') {
     return `Findings recorded by agents on this codebase: (concept-db unreachable — ${result.detail ?? 'no detail'})`;
+  }
+  if (result.status === 'refused') {
+    return `Findings recorded by agents on this codebase: (not recalled — ${result.detail})`;
   }
   if (result.status === 'skipped' || result.findings.length === 0) return '';
 

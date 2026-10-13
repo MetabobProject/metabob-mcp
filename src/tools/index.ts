@@ -26,6 +26,7 @@ import * as ExecutionTrace from './execution-trace.js';
 import * as ResolveImpulse from './resolve-impulse.js';
 import * as PullAssignedWork from './pull-assigned-work.js';
 import * as SubmitResolution from './submit-resolution.js';
+import { substrateRefusal } from '../attachment.js';
 
 export interface Tool {
   name: string;
@@ -184,4 +185,38 @@ export function getAllTools(): Tool[] {
 
 export function getTool(name: string): Tool | undefined {
   return TOOL_REGISTRY[name];
+}
+
+/**
+ * Tools whose whole job is a keyed substrate call (SPEC §substrate-goal-tools,
+ * SPEC §concept-graph-tools). The mixed tools (get_problems, record_finding,
+ * mark_complete, get_analysis_context) keep their local half and check the
+ * attachment only for their substrate half (_findings.ts resolveConceptDbUrl).
+ */
+export const SUBSTRATE_TOOLS: ReadonlySet<string> = new Set([
+  'run_goal',
+  'run_goal_async',
+  'goal_status',
+  'goal_reasoning',
+  'provide_feedback',
+  'registry_query',
+  'execution_trace',
+  'resolve_impulse',
+  'concept_search',
+  'concept_neighbors',
+  'concept_usage_stats',
+  'concept_sequence',
+  'concept_link',
+  'concept_create',
+  'concept_record_usage',
+]);
+
+/**
+ * The one check both dispatch planes (MCP stdio and the loopback resolver) run
+ * before a substrate tool: null to proceed, else the attachment's one-line
+ * named cause, returned in place of the tool's output. The key is proven
+ * before any keyed call (CONFORMANCE §c3-identity).
+ */
+export async function substrateToolRefusal(name: string): Promise<string | null> {
+  return SUBSTRATE_TOOLS.has(name) ? substrateRefusal() : null;
 }

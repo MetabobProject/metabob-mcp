@@ -24,6 +24,8 @@ export interface MetabobCLIConfig {
   vesselId?: string;
   activityApiUrl?: string;
   discoveryEndpoint?: string;
+  /** True when `discoveryEndpoint` was derived from the endpoint (census class H1) rather than given. */
+  discoveryDerived?: boolean;
   identityEndpoint?: string;
   conceptDbUrl?: string;
   goalHostVesselUrl?: string;
@@ -118,6 +120,7 @@ export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): Meta
     apiKey,
     activityApiUrl,
     discoveryEndpoint: derived.discoveryEndpoint,
+    discoveryDerived: Boolean(derived.discoveryEndpoint),
     identityEndpoint: undefined,
     conceptDbUrl: derived.conceptDbUrl,
     goalHostVesselUrl: undefined,
@@ -153,7 +156,8 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
   // any substrate (see unattachedMessage).
   const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '');
   const derived = deriveSubstrateDefaults(activityApiUrl);
-  const discoveryEndpoint = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '') ?? derived.discoveryEndpoint;
+  const explicitDiscovery = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '');
+  const discoveryEndpoint = explicitDiscovery ?? derived.discoveryEndpoint;
   const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '');
   const conceptDbUrl = normalizeUrl(result.data.metabob?.conceptDbUrl ?? '') ?? derived.conceptDbUrl;
   const goalHostVesselUrl = normalizeUrl(result.data.metabob?.goalHostVesselUrl ?? '');
@@ -167,6 +171,7 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
     vesselId,
     activityApiUrl,
     discoveryEndpoint,
+    discoveryDerived: !explicitDiscovery && Boolean(discoveryEndpoint),
     identityEndpoint,
     conceptDbUrl,
     goalHostVesselUrl,
@@ -186,6 +191,34 @@ export function withoutEndpoints(config: MetabobCLIConfig | null): MetabobCLICon
     return null;
   }
   return { apiKey: config.apiKey, vesselId: config.vesselId, sourcePath: config.sourcePath };
+}
+
+/** Per environment: the discovery URL applyConfigDefaults filled from a derivation. */
+const derivedDiscoveryEndpoints = new WeakMap<NodeJS.ProcessEnv, string>();
+
+/**
+ * How the discovery URL in `env` was obtained: `explicit` (DISCOVERY_ENDPOINT
+ * or metabob.discoveryEndpoint), `derived-h1` (port-offset derivation from the
+ * endpoint, census class H1 — forbidden by CONFORMANCE §c4-anchoring and kept
+ * only until the substrate installer writes the discovery endpoint), or `none`.
+ */
+export function discoveryEndpointSource(env: NodeJS.ProcessEnv = process.env): 'explicit' | 'derived-h1' | 'none' {
+  const value = env.DISCOVERY_ENDPOINT?.trim();
+  if (!value) return 'none';
+  return derivedDiscoveryEndpoints.get(env) === value ? 'derived-h1' : 'explicit';
+}
+
+/**
+ * The one WARN for a derived discovery URL, or null when it is explicit.
+ * CONFORMANCE §c4-anchoring
+ */
+export function derivedDiscoveryWarning(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (discoveryEndpointSource(env) !== 'derived-h1') return null;
+  return (
+    `The discovery endpoint ${env.DISCOVERY_ENDPOINT} is derived from the substrate endpoint by the ` +
+    'published-port convention (…080 → …100), census class H1, which CONFORMANCE §c4-anchoring forbids. ' +
+    'It is interim debt: the substrate installer will write metabob.discoveryEndpoint into the client config.'
+  );
 }
 
 /** Fill only variables that are still unset, so the first loader applied wins — SPEC §precedence. */
@@ -211,6 +244,7 @@ export function applyConfigDefaults(
 
   if (!env.DISCOVERY_ENDPOINT && config.discoveryEndpoint) {
     env.DISCOVERY_ENDPOINT = config.discoveryEndpoint;
+    if (config.discoveryDerived) derivedDiscoveryEndpoints.set(env, config.discoveryEndpoint);
   }
 
   if (!env.IDENTITY_ENDPOINT && config.identityEndpoint) {

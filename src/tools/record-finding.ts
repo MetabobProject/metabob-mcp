@@ -27,6 +27,7 @@ import {
   postConcept,
   resolveAuthorVesselId,
   resolveConceptDbUrl,
+  conceptDbUnavailable,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 
@@ -160,7 +161,7 @@ export async function handle(
   let conceptStatus: string;
   const conceptDbUrl = await resolveConceptDbUrl(apiClient);
   if (!conceptDbUrl) {
-    conceptStatus = 'concept-db not configured — finding recorded locally only';
+    conceptStatus = `${await conceptDbUnavailable()} — finding recorded locally only`;
   } else {
     const contentLines = [
       `repo: ${repoName}`,

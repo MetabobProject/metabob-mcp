@@ -10,8 +10,11 @@ MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities 
 **One configuration: the attachment.** An API key and an endpoint, nothing defaulted (§ Environment variables).
 Every substrate request carries `Authorization: ApiKey <METABOB_API_KEY>`. The server is a **client** of the
 substrate: it makes no discovery registration or heartbeat, runs no libp2p node, and binds its HTTP
-resolver to `127.0.0.1` ([docs/CONFORMANCE.md](docs/CONFORMANCE.md) C1, C2, C11). Tenant resolution with the
-identity vessel runs only against an explicit `IDENTITY_ENDPOINT`.
+resolver to `127.0.0.1` ([docs/CONFORMANCE.md](docs/CONFORMANCE.md) C1, C2, C11). The key is proven before
+any other keyed call: `src/attachment.ts@attach` reads the identity endpoint from discovery's `GET /bootstrap`
+(or an explicit `IDENTITY_ENDPOINT`) and runs the org check, `POST /v1/auth/resolve` → `orgId`; until it
+passes, every substrate tool answers with one line naming the cause (`key_rejected`, `identity_unreachable`,
+…) and local tools work as usual (docs/SPEC.md § Attachment).
 
 ## Quick reference
 
@@ -33,10 +36,11 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point — the one "not attached" message, tenant resolution, MCP server, loopback resolver, shutdown |
+| `src/index.ts` | Entry point — the one "not attached" message, starts the attachment, MCP server (with the substrate-tool gate), loopback resolver, shutdown |
+| `src/attachment.ts` | The attachment: `{discovery, key}` → `/bootstrap` → identity selection → org check; its typed state for `/health` and `doctor`; `resolve(pointer)` through discovery `POST /resolve`; the gate keyed calls pass |
 | `src/api-client.ts` | Substrate routing context for the tools (discovery endpoint, activity-api base); makes no requests of its own |
-| `src/config.ts` | Config loading: env, then the config file; sibling derivation; `unattachedMessage` |
-| `src/auth-service.ts` | Identity-vessel auth — tenant resolution and its periodic re-resolve, only with an explicit `IDENTITY_ENDPOINT` |
+| `src/config.ts` | Config loading: env, then the config file; sibling derivation and whether discovery was derived (H1); `unattachedMessage` |
+| `src/auth-service.ts` | Identity-vessel org check (`POST /v1/auth/resolve`, classified) and the key-issuance heartbeat, against the attachment's identity |
 | `src/vessel-server.ts` | Hono HTTP server on `127.0.0.1` — `/health` (with the attachment state), `/v2/capabilities`, `POST /v2/impulses/resolve`, for local callers |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
@@ -108,9 +112,9 @@ overrides — each wins over its derived value only when set explicitly.
 | `METABOB_API_KEY` | — | API key — sent as `Authorization: ApiKey` on every substrate request; validates calls to the loopback resolver |
 | `METABOB_ENDPOINT` | — | Substrate endpoint (its activity-api). A local `http://…:18080` derives discovery `:18100` and concept-db `:18260`; a remote one derives nothing. Env-var mirror of `metabob.endpoint` |
 | `METABOB_CONFIG_PATH` | — | Config file to read instead of `./.metabob/config.json` → `~/.metabob/config.json` |
-| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; required with a remote endpoint |
+| `DISCOVERY_ENDPOINT` | _(derived)_ | The anchor: discovery-vessel base URL (also `metabob.discoveryEndpoint`, the preferred form). Required with a remote endpoint; derived from a local one with a WARN naming census class H1 |
 | `ACTIVITY_API_URL` | _(the endpoint)_ | Advanced: activity-api base (traces, oracle labels) |
-| `IDENTITY_ENDPOINT` | _(unset → tenant resolution skipped)_ | Advanced: identity vessel for tenant resolution |
+| `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Advanced: identity vessel for the org check, overriding the `identity_endpoint` discovery's `/bootstrap` advertises |
 | `CONCEPT_DB_URL` | _(derived, else discovered)_ | Advanced: concept-db base URL |
 | `GOAL_HOST_VESSEL_URL` | _(discovered)_ | Advanced: goal-host-vessel base URL |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
@@ -135,8 +139,8 @@ from an outside vantage, and none exists for host vessels, so it offers nothing:
 - **No overlay node.** It runs no libp2p peer; it reaches the substrate as a client of the endpoints it is
   configured with.
 - **Loopback resolver.** `/health`, `/v2/capabilities` and `POST /v2/impulses/resolve` bind `127.0.0.1`
-  for local callers. `/health` reports the attachment state (attached, or the missing input; advertised:
-  none).
+  for local callers. `/health` reports the attachment state: anchor and its source, `/bootstrap` result,
+  identity (chosen, advertised, tried), the org check (`orgId`), the named cause, and advertised: none.
 - **Agent-task queue.** A `human_input` impulse that reaches the loopback resolver is durably enqueued
   (`~/.metabob/sidecar.db`, keyed by the stable vesselId); the agent drains it with `pull_assigned_work`
   and answers with `submit_resolution`, which delivers `solicitationResponse_write` to goal-host. Undelivered
@@ -181,7 +185,8 @@ Agent (Claude Code / Cursor / custom)
    ▼                                      ▼                                  ▼
 the configured substrate             cpg-inference-ts                 127.0.0.1 resolver
 (discovery, goal-host, concept-db,   (Tree-sitter, GCN,               (/health, /v2/capabilities,
- activity-api; identity if set)       vector search)                   /v2/impulses/resolve)
+ activity-api; identity from         vector search)                   /v2/impulses/resolve)
+ /bootstrap, org check first)
 ```
 
 ## Related

@@ -30,7 +30,7 @@ import {
 
 import { AnalysisAPIClient } from './api-client.js';
 import { SessionManager } from './session-manager.js';
-import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
+import { TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
 import { CircuitBreaker, shouldTripBreaker } from './circuit-breaker.js';
 import {
@@ -46,7 +46,8 @@ import { AuthService } from './auth-service.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
 import { getLastTrustSummary } from './tls-trust.js';
 import { LocalStore } from './local-store.js';
-import { configuredSubstrateUrls, unattachedMessage } from './config.js';
+import { configuredSubstrateUrls, derivedDiscoveryWarning, discoveryEndpointSource, unattachedMessage } from './config.js';
+import { attach, setAttachment, type Attachment } from './attachment.js';
 import { translateTlsError } from './tls-error.js';
 import { ZodError } from 'zod';
 
@@ -67,8 +68,8 @@ const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 6
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 0;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 
-// Identity (tenant resolution) runs only against an explicit IDENTITY_ENDPOINT;
-// there is no public default. CONFORMANCE §c4-anchoring
+// An explicit identity endpoint wins over the one /bootstrap advertises; there
+// is no public default. CONFORMANCE §c4-anchoring
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || undefined;
 
 // Substrate routing context for the tools.
@@ -259,6 +260,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw error;
     }
 
+    // The attachment gate: a substrate tool makes no keyed call until the key
+    // is proven, and otherwise answers with the one named cause.
+    // CONFORMANCE §c3-identity
+    const refusal = await substrateToolRefusal(name);
+    if (refusal) {
+      await sessionManager.trackUsage(SESSION_ID, name, Date.now() - startTime, false);
+      log('info', `Tool ${name} refused: ${refusal}`);
+      return { content: [{ type: 'text', text: refusal }], isError: true };
+    }
+
     // Execute tool — pass localStore as fourth arg for cache-aware handlers
     const result = await (tool.handler as (
       input: any,
@@ -334,6 +345,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 /**
  * Start server
  */
+let attachment: Attachment | null = null;
+
 async function main() {
   log('info', 'Starting metabob-mcp', {
     discovery: DISCOVERY_ENDPOINT ?? null,
@@ -372,19 +385,25 @@ async function main() {
     log('debug', 'Cert fingerprint probe setup failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // Resolve the tenant with the identity vessel (non-fatal; populates orgId).
-  if (authService.hasKey() && IDENTITY_ENDPOINT) {
-    log('info', `Resolving tenant with identity-vessel (${IDENTITY_ENDPOINT})...`);
-    await authService.resolveTenant(IDENTITY_ENDPOINT);
-    if (authService.isResolved()) {
-      log('info', `Tenant resolved: orgId=${authService.getOrgId()}`);
-    } else {
-      log('warn', 'Tenant resolution incomplete — substrate calls use raw ApiKey auth');
-    }
-    // Periodic re-resolve = key-issuance heartbeat the identity vessel uses to
-    // monitor metabob-mcp usage.
-    authService.startKeyHeartbeat(5 * 60_000, IDENTITY_ENDPOINT);
+  // CONFORMANCE §c4-anchoring: a discovery URL derived from the endpoint is
+  // census class H1, kept only until the installer writes it; say so once.
+  const derivedWarning = derivedDiscoveryWarning();
+  if (derivedWarning) {
+    log('warn', derivedWarning);
   }
+
+  // The attachment: /bootstrap → identity → org check, in the background.
+  // Startup and local tools never wait on it; a substrate tool waits for it to
+  // settle and then proceeds or answers with the named cause (SPEC §attachment).
+  attachment = attach({
+    discovery: DISCOVERY_ENDPOINT,
+    discoverySource: discoveryEndpointSource(),
+    key: METABOB_API_KEY,
+    identityOverride: IDENTITY_ENDPOINT,
+    authService,
+    log: (level, message) => log(level, message),
+  });
+  setAttachment(attachment);
 
   // The vessel HTTP server (health + capabilities + impulse resolver) serves
   // local callers only: it binds 127.0.0.1, and nothing advertises it. The
@@ -414,10 +433,13 @@ async function main() {
 
     // Resume: deliver any answers this workspace produced in a prior session
     // that never reached the substrate (cross-session "provide info back").
-    if (vesselId && localStore && !notAttached) {
-      reconcileUndelivered(apiClient, localStore, vesselId)
+    // Keyed, so it waits for the org check and runs only once the key is proven.
+    if (vesselId && localStore && !notAttached && attachment) {
+      const store = localStore;
+      void attachment.settled()
+        .then((state) => (state.cause === null ? reconcileUndelivered(apiClient, store, vesselId) : null))
         .then((r) => {
-          if (r.delivered || r.abandoned || r.pending) {
+          if (r && (r.delivered || r.abandoned || r.pending)) {
             log('info', 'Reconciled prior-session resolutions', r);
           }
         })
@@ -441,7 +463,7 @@ async function main() {
     shuttingDown = true;
     log('info', 'Shutting down...', { reason });
 
-    authService.stopKeyHeartbeat();
+    attachment?.stop();
     localStore?.close();
     await vesselServer.stop();
     sessionManager.stop();

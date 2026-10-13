@@ -14,6 +14,7 @@ import type { AnalysisAPIClient } from './api-client.js';
 import type { LocalStore, AgentResolutionRecord } from './local-store.js';
 import { discoverFirstVesselByShape, buildResolverUrl } from './discovery.js';
 import { operatorId } from './operator-id.js';
+import { substrateRefusal } from './attachment.js';
 
 const DELIVERY_TIMEOUT_MS = 20_000;
 
@@ -44,6 +45,11 @@ export async function deliverResolution(
   apiClient: AnalysisAPIClient,
   res: AgentResolutionRecord,
 ): Promise<DeliveryOutcome> {
+  // Keyed: nothing is sent until the key is proven. Not terminal — a later
+  // session with a working attachment re-delivers. CONFORMANCE §c3-identity
+  const refusal = await substrateRefusal();
+  if (refusal) return { ok: false, error: refusal };
+
   const url = await goalHostResolveUrl(apiClient);
   if (!url) return { ok: false, error: 'goal-host not found (no discovery / GOAL_HOST_VESSEL_URL)' };
 

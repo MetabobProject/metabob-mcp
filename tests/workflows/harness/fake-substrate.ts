@@ -1,7 +1,8 @@
 /**
  * An in-process fake of the substrate the MCP server talks to: discovery,
- * goal-host, activity-api (which also stands in for the analysis endpoint) and
- * concept-db, each a Bun.serve on 127.0.0.1 with an OS-assigned port.
+ * identity, goal-host, activity-api and concept-db, each a Bun.serve on
+ * 127.0.0.1 with an OS-assigned port (or a chosen one, for scenarios whose
+ * arithmetic depends on it).
  *
  * Every operation is ONE handler keyed by operation name (`OPERATIONS`). The
  * HTTP surface the server calls is a separate routing table (`ROUTES`) that
@@ -14,7 +15,9 @@
  * was called and what never was (`/register`, workspace content).
  */
 
-export type Service = 'discovery' | 'goalHost' | 'activity' | 'conceptDb';
+export type Service = 'discovery' | 'identity' | 'goalHost' | 'activity' | 'conceptDb';
+
+const SERVICES: readonly Service[] = ['discovery', 'identity', 'goalHost', 'activity', 'conceptDb'];
 
 export interface RecordedRequest {
   service: Service;
@@ -38,6 +41,8 @@ export interface OpRequest {
 export interface OpResult {
   status?: number;
   body?: unknown;
+  /** Answer with this HTML instead of JSON (a captive portal / block page). */
+  html?: string;
 }
 
 /** A scripted dispatch: each `goalWalkState` read returns the next frame; the last one repeats. */
@@ -100,12 +105,16 @@ export const OPERATIONS: Record<string, Handler> = {
     return { body: { content: { shape, found: true, vessels: [vessel] } } };
   },
   bootstrap(_s, _req, fake) {
+    if (fake.bootstrapHtml) {
+      return { html: '<!doctype html><html><body>Sign in to continue</body></html>' };
+    }
     return {
       body: {
         relay_multiaddrs: [],
-        identity_endpoint: null,
-        discovery_endpoint: fake.url('discovery'),
-        prefer_transport: 'http',
+        // Empty strings mean absent, as on a live substrate.
+        identity_endpoint: fake.bootstrapIdentity ?? fake.url('identity'),
+        discovery_endpoint: '',
+        prefer_transport: 'libp2p',
       },
     };
   },
@@ -115,6 +124,22 @@ export const OPERATIONS: Record<string, Handler> = {
   },
   registryShapes(_s, _req, fake) {
     return { body: { shapes: Object.keys(fake.shapeOwners).map(shape => ({ shape })) } };
+  },
+
+  // ── identity ──────────────────────────────────────────────────────────────
+  identityHealth() {
+    return { body: { status: 'ok', service: 'identity-vessel' } };
+  },
+  /** The org check: the flat header form, as identity-vessel answers it. */
+  authResolve(_s, req, fake) {
+    const auth = req.headers.get('authorization') ?? '';
+    const key = auth.startsWith('ApiKey ') ? auth.slice('ApiKey '.length) : '';
+    if (!fake.validKeys.has(key)) {
+      return { status: 401, body: { valid: false, error: 'Invalid API key' } };
+    }
+    return {
+      body: { valid: true, org_id: fake.orgId, user_id: 'user_fake', key_id: 'key_fake', role: 'member' },
+    };
   },
 
   // ── goal-host ─────────────────────────────────────────────────────────────
@@ -236,6 +261,9 @@ export const ROUTES: Route[] = [
   { service: 'discovery', method: 'POST', path: '/register', operation: 'register' },
   { service: 'discovery', method: 'GET', path: '/registry/shapes', operation: 'registryShapes' },
 
+  { service: 'identity', method: 'GET', path: '/health', operation: 'identityHealth' },
+  { service: 'identity', method: 'POST', path: '/v1/auth/resolve', operation: 'authResolve' },
+
   { service: 'goalHost', method: 'POST', path: '/run-goal', operation: 'goalDispatchAsync' },
   { service: 'goalHost', method: 'GET', path: '/executions/:id', operation: 'goalWalkState' },
   { service: 'goalHost', method: 'POST', path: '/resolve', operation: byPointerType({ solicitationResponse_write: 'solicitationResponseWrite' }) },
@@ -288,14 +316,22 @@ export class FakeSubstrate {
     goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
   };
+  /** Keys identity accepts; any other key is a foreign one (401). */
+  readonly validKeys = new Set(['mb_test_workflow_key']);
+  readonly orgId = 'org_fake_substrate';
+  /** The identity_endpoint /bootstrap advertises; unset → the fake identity's URL. */
+  bootstrapIdentity: string | undefined;
+  /** When true, /bootstrap answers with an HTML page. */
+  bootstrapHtml = false;
   private servers = new Map<Service, ReturnType<typeof Bun.serve>>();
 
-  static async start(): Promise<FakeSubstrate> {
+  /** Start every service; `ports` pins a service to a port (0 or absent → OS-assigned). */
+  static async start(options: { ports?: Partial<Record<Service, number>> } = {}): Promise<FakeSubstrate> {
     const fake = new FakeSubstrate();
-    for (const service of ['discovery', 'goalHost', 'activity', 'conceptDb'] as const) {
+    for (const service of SERVICES) {
       fake.servers.set(service, Bun.serve({
         hostname: '127.0.0.1',
-        port: 0,
+        port: options.ports?.[service] ?? 0,
         fetch: (req) => fake.handle(service, req),
       }));
     }
@@ -359,6 +395,9 @@ export class FakeSubstrate {
       record.operation = operation;
       const result = await handler(this.state, opReq, this);
       record.status = result.status ?? 200;
+      if (result.html !== undefined) {
+        return new Response(result.html, { status: record.status, headers: { 'content-type': 'text/html' } });
+      }
       return Response.json(result.body ?? {}, { status: record.status });
     }
     return Response.json({ error: `fake substrate: no operation for ${service} ${req.method} ${url.pathname}` }, { status: 404 });

@@ -28,9 +28,11 @@ import { fileURLToPath } from 'node:url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getProxyForUrl } from 'proxy-from-env';
 import { readKnownHosts } from './cert-fingerprint.js';
+import { attach, type AttachmentState } from './attachment.js';
 import {
   applyConfigDefaults,
   configuredSubstrateUrls,
+  discoveryEndpointSource,
   getDefaultConfigPath,
   loadMetabobCLIConfig,
   loadMetabobEnvConfig,
@@ -71,6 +73,8 @@ export interface DoctorReport {
   httpsProbes: Record<string, HttpsProbeResult>;
   /** The configured substrate URLs probed, and the one message when none is configured. */
   substrate: SubstrateTargets;
+  /** One run of the attachment sequence: anchor, /bootstrap, identity, org check (SPEC §attachment). */
+  attachment: AttachmentState;
   config: ConfigSnapshot;
   diagnosis: Diagnosis;
 }
@@ -1416,6 +1420,26 @@ export function renderReport(report: DoctorReport): string {
   }
   lines.push('');
 
+  // Attachment
+  const a = report.attachment;
+  if (a) {
+    lines.push(c('Attachment', 'bold'));
+    lines.push(`  anchor:    ${a.anchor.discovery ?? 'none'} (${a.anchor.source})`);
+    if (a.anchor.source === 'derived-h1') {
+      lines.push(`  ${warn} discovery is derived from the endpoint (census class H1, CONFORMANCE §c4-anchoring)`);
+    }
+    lines.push(`  bootstrap: ${a.bootstrap.status}${a.bootstrap.detail ? ` (${a.bootstrap.detail})` : ''}`);
+    lines.push(`  identity:  ${a.identity.endpoint ?? 'none'} (${a.identity.source}); advertised=${a.identity.advertised ?? 'none'} tried=[${a.identity.tried.join(', ')}]`);
+    if (a.identity.source === 'rehosted-h1') {
+      lines.push(`  ${warn} identity rehosted from the advertised ${a.identity.advertised} (census class H1)`);
+    }
+    lines.push(a.auth.status === 'authenticated'
+      ? `  ${check} auth: authenticated orgId=${a.auth.orgId}`
+      : `  ${cross} auth: ${a.auth.status}`);
+    if (a.message) lines.push(`  ${cross} ${a.message}`);
+    lines.push('');
+  }
+
   // Config
   lines.push(c('Configuration', 'bold'));
   if (report.config.configExists) {
@@ -1493,7 +1517,7 @@ export function renderReport(report: DoctorReport): string {
  * The substrate the server would attach to, read with the server's own
  * loaders (env first, then the config file) without changing process.env.
  */
-function resolveSubstrateTargets(): SubstrateTargets & { tlsPorts: Record<string, number> } {
+function resolveSubstrateTargets(): SubstrateTargets & { tlsPorts: Record<string, number>; env: NodeJS.ProcessEnv } {
   const env: NodeJS.ProcessEnv = { ...process.env };
   const envConfig = loadMetabobEnvConfig(env);
   applyConfigDefaults(env, envConfig);
@@ -1519,7 +1543,23 @@ function resolveSubstrateTargets(): SubstrateTargets & { tlsPorts: Record<string
       // A malformed URL is the server's to report; doctor skips it.
     }
   }
-  return { urls, tlsHosts, tlsPorts, plainHttpUrls, unattached: unattachedMessage(env) };
+  return { urls, tlsHosts, tlsPorts, plainHttpUrls, unattached: unattachedMessage(env), env };
+}
+
+/**
+ * The attachment sequence, run once as the server runs it, without a heartbeat.
+ * It sends the key only to the identity endpoint, as the org check.
+ * CONFORMANCE §c9-fail-visibly
+ */
+async function probeAttachment(env: NodeJS.ProcessEnv): Promise<AttachmentState> {
+  return attach({
+    discovery: env.DISCOVERY_ENDPOINT,
+    discoverySource: discoveryEndpointSource(env),
+    key: env.METABOB_API_KEY,
+    identityOverride: env.IDENTITY_ENDPOINT,
+    heartbeatMs: 0,
+    log: () => {},
+  }).settled();
 }
 
 export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
@@ -1567,6 +1607,7 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
   const httpsMap: Record<string, HttpsProbeResult> = Object.fromEntries(httpsEntries);
 
   const config = snapshotConfig();
+  const attachment = await probeAttachment(substrate.env);
 
   const diagnosis = synthesizeDiagnosis({
     dns: dnsMap,
@@ -1596,6 +1637,7 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
       plainHttpUrls: substrate.plainHttpUrls,
       unattached: substrate.unattached,
     },
+    attachment,
     config,
     diagnosis,
   };
@@ -1630,7 +1672,7 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
     const p = httpsMap[h];
     return !p || (p.statusDefault === null && p.statusOsTrust === null);
   });
-  const exitCode = anyHttpsUnreachable || (substrate.unattached && !options.hosts) ? 1 : 0;
+  const exitCode = anyHttpsUnreachable || ((substrate.unattached || attachment.cause) && !options.hosts) ? 1 : 0;
 
   return { report, exitCode, artifactPath };
 }

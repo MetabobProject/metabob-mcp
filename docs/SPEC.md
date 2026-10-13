@@ -38,8 +38,9 @@ in-process CPG. Nothing submits files, excerpts or file lists for analysis, and 
 workspace in the background, so there is no server-side analysis and no backend detections: problems
 are what agents record (`record_finding`), held in the local store and recalled from concept-db.
 
-**Substrate tier** — requires the attachment: `METABOB_API_KEY` and an endpoint (§ Configuration).
-Every substrate request carries `Authorization: ApiKey <key>`. The process is a client of the
+**Substrate tier** — requires the attachment: `METABOB_API_KEY` and a discovery endpoint, given or
+derived from the endpoint (§ Configuration). The key is proven against the substrate's identity before
+any other keyed call (§ Attachment), and every substrate request carries `Authorization: ApiKey <key>`. The process is a client of the
 substrate only: it makes no discovery registration, runs no libp2p node, and serves its HTTP resolver
 (§ Impulse shapes) on `127.0.0.1` for local callers (`src/vessel-server.ts@loopback-bind`). It sends
 no usage telemetry.
@@ -83,6 +84,9 @@ With the key or the endpoint missing, the server still starts — the local tool
 message naming the missing input and this lookup order (`src/config.ts@unattachedMessage`); `/health`
 and `doctor` report the same.
 
+`metabob.discoveryEndpoint` (or `DISCOVERY_ENDPOINT`) is the preferred, explicit form of the anchor.
+`metabob.endpoint` stays: the installer writes it, and a local one derives discovery (below).
+
 ### Endpoint derivation
 
 `endpoint` / `METABOB_ENDPOINT` is the substrate endpoint (its activity-api) from
@@ -91,9 +95,13 @@ which the sibling services are derived (`src/config.ts@deriveSubstrateDefaults`)
 - **Local substrate** — an `http:` URL whose explicit port ends in `80` (`8080`,
   `18080`, `28080`, …; `src/discovery.ts@deriveLocalDiscoveryEndpoint`) derives
   port-offset siblings: discovery `+20`, concept-db `+180` (so
-  `http://127.0.0.1:18080` gives `:18100` and `:18260`). No identity endpoint
-  is derived; without an explicit `IDENTITY_ENDPOINT`, tenant resolution is
-  skipped.
+  `http://127.0.0.1:18080` gives `:18100` and `:18260`). Deriving discovery
+  this way is census class H1, which CONFORMANCE §c4-anchoring forbids; it is
+  kept as interim debt until the substrate installer writes the discovery
+  endpoint, and the server logs one WARN saying so whenever discovery was
+  derived rather than given (`src/config.ts@derivedDiscoveryWarning`). The
+  identity endpoint is never derived from the endpoint: it comes from
+  `/bootstrap` (§ Attachment).
 - **Remote gateway** — any other endpoint derives nothing: no path-prefixed
   siblings are assumed, so a remote substrate is anchored by an explicit
   `discoveryEndpoint` / `DISCOVERY_ENDPOINT`.
@@ -109,8 +117,8 @@ All keys are optional.
 | `metabob.apiKey` | API key (also accepted at `instance.apiKey`) |
 | `metabob.endpoint` | Substrate endpoint — the derived siblings above come from it |
 | `metabob.vesselId` | Pins `VESSEL_ID` (the agent-task queue key and finding author) |
-| `metabob.discoveryEndpoint` | Advanced: pin discovery-vessel explicitly |
-| `metabob.identityEndpoint` | Advanced: pin identity (tenant resolution) explicitly |
+| `metabob.discoveryEndpoint` | The anchor, explicitly: discovery-vessel's URL. Preferred over deriving it from `endpoint` |
+| `metabob.identityEndpoint` | Advanced: pin the identity endpoint, overriding the one `/bootstrap` advertises |
 | `metabob.conceptDbUrl` | Advanced: pin concept-db explicitly |
 | `metabob.goalHostVesselUrl` | Advanced: pin goal-host-vessel explicitly |
 
@@ -133,6 +141,67 @@ There is no built-in default after these. Consequences worth knowing:
 - An explicit `METABOB_ENDPOINT` chooses the substrate: the config file's
   endpoints never fill a sibling it left underived, so activity and discovery
   cannot split across two substrates.
+
+### Attachment
+
+`src/attachment.ts@attach` runs once at startup, in the background: startup and the local tools never
+wait on it. It takes the anchor `{discovery, key}` and, in one pass that contacts each address at most
+once:
+
+1. `GET {discovery}/bootstrap` — public and keyless — reads `identity_endpoint` (an empty string means
+   absent).
+2. Chooses the identity endpoint, in this order:
+   1. an explicit `IDENTITY_ENDPOINT` / `metabob.identityEndpoint`, used as given;
+   2. the `/bootstrap` `identity_endpoint`, when a quick `GET /health` (2 s) answers;
+   3. when that address is loopback or a single-label container name on an 8xxx port and does not
+      answer, the same port on the discovery URL's host at discovery's published-port offset:
+      `port + (discoveryPort − 8100)` (node1 `http://127.0.0.1:8101` → `:18101`; a compose fleet's
+      `http://substrate-live:8101` with discovery on `:26100` → `:26101`). This rehost is census class
+      H1 interim debt (`src/attachment.ts@rehost-h1`): it logs a WARN naming the advertised value and
+      records `identity.source: "rehosted-h1"`;
+   4. otherwise none: `identity_unreachable(advertised=…, tried=[…])`.
+3. Proves the key: `POST {identity}/v1/auth/resolve` with `Authorization: ApiKey <key>`
+   (`src/auth-service.ts@org-check`), which answers the tenant (`org_id`, `key_id`). Whichever
+   address step 2 chose, this check against it is what makes it trusted; for a rehosted address it is
+   also the dial. A 401/403 is `key_rejected` — the key belongs to another namespace.
+
+Once authenticated, the same identity is re-resolved every 5 minutes (the key-issuance heartbeat,
+`src/auth-service.ts@AuthService`); a key revoked meanwhile turns the attachment to `key_rejected`.
+
+**State** — one typed object (`src/attachment.ts@AttachmentState`), reported by `doctor` and in the
+loopback `GET /health` as its `attachment` field (`src/vessel-server.ts@health-attachment`), together
+with `attached` (true only once the key is proven) and, when not attached, `reason` (the cause line,
+the missing input, or `attaching` while pending). Neither carries the key.
+
+| field | values |
+|---|---|
+| `anchor` | `{ discovery, source }` — `explicit`, `derived-h1`, or `none` |
+| `bootstrap` | `{ status, identityEndpoint?, detail? }` — `ok`, `unreachable`, `not_substrate` (non-JSON or HTML), or `skipped` (no anchor) |
+| `identity` | `{ endpoint, source, advertised, tried }` — source `explicit`, `bootstrap`, `rehosted-h1`, or `none`; `tried` lists every address contacted, in order |
+| `auth` | `{ status, orgId?, keyId?, detail? }` — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
+| `cause` | the named cause keyed calls are refused with, or `null` |
+| `message` | that cause as the one line a substrate tool returns |
+| `advertised` | `none (client-only)` |
+| `startedAt`, `settledAt`, `lastCheckedAt` | timestamps; `lastCheckedAt` moves with each org check, the heartbeat's included |
+
+**Named causes** — `not_configured` (no key, or neither a discovery endpoint nor an explicit identity),
+`anchor_unreachable` (discovery does not answer `/bootstrap`), `blocked_by_portal` (`/bootstrap` or
+the org check answers non-JSON or HTML — a captive portal or block page), `identity_unreachable`, and
+`key_rejected`.
+
+**The gate.** Every substrate tool passes one check before it runs, on both dispatch planes — MCP
+stdio (`src/index.ts`) and the loopback resolver (`src/vessel-server.ts@resolveImpulseContent`):
+`src/tools/index.ts@substrateToolRefusal`. It waits for a pending attachment to settle, then lets the
+tool run when authenticated and otherwise returns the cause as one line (`isError: true`), for example
+`key_rejected: the substrate's identity (http://127.0.0.1:18101) rejected the API key (HTTP 401);
+substrate tools are unavailable; local tools still work.` The substrate half of the mixed tools
+(`get_problems`, `get_analysis_context`, `record_finding`, `mark_complete`) and answer delivery
+(`submit_resolution`) check the same attachment and report the cause in place of their concept-db or
+goal-host output; their local half runs regardless.
+
+`resolve(pointer)` on the attachment posts `{ pointer }` to discovery `POST /resolve` with
+`Authorization: ApiKey <key>`, and refuses with the named cause (`AttachmentRefusedError`) when the
+attachment is not authenticated.
 
 ---
 
