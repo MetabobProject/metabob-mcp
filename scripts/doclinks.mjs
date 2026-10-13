@@ -54,9 +54,10 @@ const posixBase = p => posix.basename(p);
 // ---------------------------------------------------------------------------------------------------
 export function gitRepo(root = ROOT) {
   const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  // Tracked plus nonignored untracked files, so new docs and code are checked before staging. Ignored
-  // captures stay outside the view; deleted tracked paths are absent from the current tree.
-  const files = [...new Set(git('ls-files', '--cached', '--others', '--exclude-standard', '-z')
+  // The index: tracked files plus files staged for the next commit. Untracked files stay outside the
+  // view — a local scratch doc never enters `derived` — so a new doc or code file joins it on `git add`.
+  // Deleted tracked paths are absent from the current tree.
+  const files = [...new Set(git('ls-files', '--cached', '-z')
     .split('\0').filter(Boolean))].filter(f => existsSync(join(root, f)));
   const cache = new Map(), times = new Map();
   return {
@@ -78,6 +79,7 @@ export function gitRepo(root = ROOT) {
       for (let i = 0; i < out.length; i++) {
         const e = out[i]; const code = e.slice(0, 2);
         if (code[0] === 'R' || code[0] === 'C') i++;            // the rename's source rides the next entry
+        if (code === '??') continue;                            // untracked: outside the view
         paths.push(e.slice(3));
       }
       return paths;

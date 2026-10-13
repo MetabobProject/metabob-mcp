@@ -4,8 +4,10 @@
 code cite each other. It tells you — and any agent working here — which docs a change affects, and
 which code a doc change affects. It runs under `node` and `bun`, with Node built-ins and git only.
 
-The tree it sees is tracked files plus nonignored untracked files, so a new doc, citation or coverage
-rule is checked before staging. Ignored files (`dist/`, `include/`) are outside it.
+The tree it sees is the git index: tracked files plus files staged for the next commit. A new doc,
+citation or coverage rule joins it on `git add`; untracked files (local scratch notes, audits) never
+enter `derived`, so a `build` in a working checkout matches a clean clone. Ignored files (`dist/`,
+`include/`) are outside it.
 
 ## The database
 

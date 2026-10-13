@@ -246,6 +246,26 @@ describe.skipIf(process.platform === 'win32')('doclinks: CLI and hooks in a real
     return { root, git };
   };
 
+  test('an untracked doc or code file never enters derived; staging it does', () => {
+    const { root, git } = setup();
+    try {
+      const before = build(gitRepo(root), loadDb(gitRepo(root)));
+      writeFileSync(join(root, 'docs/NOTES.md'), '# Notes\n\nSee `src/x.ts@handle` and `src/x.ts@door`.\n');
+      writeFileSync(join(root, 'src/scratch.ts'), '// SPEC §get_y\nexport const s = 1;\n');
+      const untracked = gitRepo(root);
+      expect(untracked.files).not.toContain('docs/NOTES.md');
+      expect(build(untracked, loadDb(untracked))).toEqual(before);
+      expect(run(root, ['check']).stdout + run(root, ['check']).stderr).not.toContain('stale');
+      expect(untracked.changed()).not.toContain('docs/NOTES.md');
+
+      git('add', 'docs/NOTES.md', 'src/scratch.ts');
+      const staged = gitRepo(root);
+      const after = build(staged, loadDb(staged));
+      expect(JSON.stringify(after)).toContain('docs/NOTES.md');
+      expect(JSON.stringify(after)).toContain('src/scratch.ts');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('check, impacted, hook-post, hook-stop, precommit, reviewed', () => {
     const { root, git } = setup();
     try {
