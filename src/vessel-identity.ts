@@ -53,14 +53,15 @@ export const VESSEL_VERSION = readVersion();
 
 /**
  * Whether this session offers itself as an agent-resolver (advertises
- * human_input so the substrate can dispatch solicited decisions to it). On by
- * default; kill-switch METABOB_AGENT_RESOLVER=0 for deployments that must not
- * let the agent intercept solicitations (e.g. alongside a real human vault).
+ * human_input so the substrate can dispatch solicited decisions to it). OFF by
+ * default: human_input already has producers (the human surface is the user's
+ * interaction point), and a producer is added only where data locality
+ * justifies it — opt in with METABOB_AGENT_RESOLVER=1|true|on.
  * Bootstrap-only (identity class): frozen at process start.
  */
 export function agentResolverEnabled(): boolean {
   const v = process.env['METABOB_AGENT_RESOLVER']?.trim().toLowerCase();
-  return v !== '0' && v !== 'false' && v !== 'off';
+  return v === '1' || v === 'true' || v === 'on';
 }
 
 export interface VesselIdInputs {

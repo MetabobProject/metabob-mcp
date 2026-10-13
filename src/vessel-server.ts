@@ -145,7 +145,13 @@ export class VesselServer {
     const { port } = this.config;
 
     this.nodeServer = await this.startNodeServer(app, port);
-    console.error(`[${new Date().toISOString()}] [INFO] Vessel server listening on port ${port}`);
+    console.error(`[${new Date().toISOString()}] [INFO] Vessel server listening on port ${this.boundPort ?? port}`);
+  }
+
+  /** The port actually bound (resolves an ephemeral port 0), or null when not listening. */
+  get boundPort(): number | null {
+    const addr = this.nodeServer?.address();
+    return addr && typeof addr === 'object' ? addr.port : null;
   }
 
   async stop(): Promise<void> {

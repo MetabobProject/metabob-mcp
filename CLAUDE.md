@@ -62,7 +62,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `pull_assigned_work` | Resolver | Claim tasks the substrate *dispatched to you* (solicited `human_input` decisions). Durable + keyed by the stable vesselId, so work assigned in one session surfaces in later sessions. |
 | `submit_resolution` | Resolver | Answer a pulled task (`{task_id, outcome, answer?}`). Recorded durably, then delivered to goal-host as `solicitationResponse_write` to unblock its walk; retried on a later session if the substrate was unreachable. |
 
-**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require a config carrying only `metabob.apiKey` + `metabob.endpoint` — everything else derives. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://localhost:18080`) auto-derives `DISCOVERY_ENDPOINT=…:18100`; a remote base endpoint (e.g. `https://ide.metabob.com`) auto-derives the path-prefixed siblings (`/discovery`, `/analysis`, `/identity`, `/conceptdb`) as served by the deployment's reverse proxy. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` (or per-service config keys) override derivation.
+**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`) discover their target vessel through discovery-vessel (`vesselCapability` shape) and host-remap the internal port, rather than assuming a fixed sibling URL. They require a config carrying only `metabob.apiKey` + `metabob.endpoint` — everything else derives. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://127.0.0.1:18080`) auto-derives `DISCOVERY_ENDPOINT=…:18100`; a remote base endpoint derives **nothing** — no path-prefixed siblings are assumed (no live node serves them), so a remote substrate needs an explicit `DISCOVERY_ENDPOINT` / `metabob.discoveryEndpoint`. An explicit `METABOB_ENDPOINT` takes only the credentials from a config file, never its endpoints, so the two can't split across substrates. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` (or per-service config keys) override derivation.
 
 **The surface is a complete operator cockpit — no host access needed.** Three planes + a coverage set: ACT (`run_goal*`), TRACK (`goal_status`), REASON (`goal_reasoning`), FEEDBACK (`provide_feedback`), INSPECT (`registry_query` / `execution_trace` / `resolve_impulse`). The last three replace `docker exec` / `journalctl` / raw `curl` for reading the running substrate. Canonical loop:
 
@@ -98,7 +98,7 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `IDENTITY_ENDPOINT` | _(derived from `METABOB_ENDPOINT`)_ | Advanced: identity vessel endpoint (tenant resolution) override |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier |
-| `HEALTH_PORT` | `8080` | Vessel HTTP server port |
+| `HEALTH_PORT` | _(ephemeral)_ | Vessel HTTP server port. No fixed default: concurrent instances would collide, and 8000–8999 are substrate container ports (8080 is activity-api; discovery rewrites `127.0.0.1:8xxx` rows to +10000). Warns if set in that range |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `METABOB_STDIO_KEEPALIVE` | _(unset)_ | Set to `1` to survive stdin EOF — headless operation (HTTP resolver + discovery only). Otherwise the process exits on stdin EOF or `SIGHUP`, so an orphaned sidecar does not outlive its MCP client |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
@@ -106,10 +106,10 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 | `USER_VESSEL_URL` | `https://ide.metabob.com` | user-vessel endpoint (legacy telemetry target) |
 | `METABOB_TELEMETRY` | _(unset)_ | Set to `off` to disable per-tool-call usage telemetry |
 | `MB_OPERATOR_ID` | `claude-code-operator` | Operator identity threaded onto goal dispatch (`run_goal` / `run_goal_async`) and folded into `provide_feedback` label notes |
-| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; overrides discovery derivation for `registry_query` / `resolve_impulse` (local default `http://localhost:18100`) |
+| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; overrides discovery derivation for `registry_query` / `resolve_impulse` (local default `http://127.0.0.1:18100`) |
 | `VESSEL_ID` | _(derived)_ | Discovery registration id. Defaults to a stable, unique `metabob-mcp-<hash(apiKey+workspace)>` (distinct instances disambiguate automatically). Set explicitly only for deliberate replica/failover (same value on two instances = one registry row) |
-| `VESSEL_PUBLIC_ENDPOINT` | `http://127.0.0.1:$HEALTH_PORT` | Reachable base URL advertised for inbound HTTP resolves. Override when a cross-host caller (e.g. a containerised discovery) must reach this process by a different address |
-| `METABOB_AGENT_RESOLVER` | _(on)_ | Whether this session offers itself as an agent-resolver (advertises `human_input` so the substrate can dispatch solicited decisions to it). Set `0`/`false`/`off` to disable — e.g. alongside a real human vault that should win `human_input` solicitations |
+| `VESSEL_PUBLIC_ENDPOINT` | _(unset → no registration)_ | Base URL advertised for inbound HTTP resolves. Required for registration — set it only to an address the row's readers can actually dial (loopback works only within the same network namespace) |
+| `METABOB_AGENT_RESOLVER` | _(off)_ | Whether this session offers itself as an agent-resolver (advertises `human_input` so the substrate can dispatch solicited decisions to it). Opt in with `1`/`true`/`on` only where a human is at that terminal; `human_input` already has producers (the human surface is the user's interaction point) |
 
 ## Vessel registration (point-and-go)
 
@@ -118,7 +118,11 @@ conventional vessel with only `{discovery endpoint, valid key}` — everything e
 derives (namespace from the verified key; discovery/identity from the gateway;
 relay from `GET /bootstrap`, read at use time, never pinned). Registration
 fails open: no discovery/key, or an unreachable discovery, degrades to a
-client-only process.
+client-only process. Registration additionally requires the HTTP server to have
+**bound** and an explicit `VESSEL_PUBLIC_ENDPOINT` — a vessel never advertises
+an endpoint it doesn't serve, and there is no loopback default (the host's
+`127.0.0.1` is not a container's, so such a row is undialable from the
+substrate).
 
 - **Disambiguation.** `VESSEL_ID` is stable+unique per instance (above), so
   multiple concurrent instances register distinct rows; the same workspace+key
@@ -133,8 +137,8 @@ client-only process.
   `code:impact_analysis`, `code:git_change_assignment`) are advertised only once
   a workspace is indexed (`init_workspace`); `mcp:tool_call` and
   `code:analysis_context` are always served.
-- **Agent-resolver (cross-session).** When `METABOB_AGENT_RESOLVER` is on
-  (default), the vessel also advertises `human_input` so a goal-host walk can
+- **Agent-resolver (cross-session).** When `METABOB_AGENT_RESOLVER=1` (opt-in;
+  off by default — the human surface is the user's interaction point), the vessel also advertises `human_input` so a goal-host walk can
   dispatch a solicited decision TO the agent. The task is durably enqueued
   (`~/.metabob/sidecar.db`, keyed by the stable vesselId); the agent drains it
   with `pull_assigned_work` and answers with `submit_resolution`, which delivers

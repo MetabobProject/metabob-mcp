@@ -71,7 +71,10 @@ const SIDECAR_MODE = process.env.METABOB_STATELESS !== 'true';
 const SESSION_ID = process.env.SESSION_ID || crypto.randomUUID();
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
-const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 8080;
+// No fixed default port: a fixed default collides across concurrent instances,
+// and 8000–8999 belong to substrate containers (8080 is activity-api; discovery
+// rewrites 127.0.0.1:8xxx rows to +10000). Unset → ephemeral, client-local only.
+const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 0;
 const SUBMIT_TIMEOUT_MS = Number(process.env.SUBMIT_TIMEOUT_MS) || 120000;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 /** Pre-obtained session token (skips the key-exchange step). */
@@ -469,7 +472,7 @@ async function main() {
     logLevel: LOG_LEVEL,
     auth: authMethod,
     connectionSlots: USE_CONNECTION_SLOTS,
-    protocols: ['mcp:stdio', `http:resolver(port=${HEALTH_PORT})`],
+    protocols: ['mcp:stdio', `http:resolver(port=${HEALTH_PORT || 'ephemeral'})`],
   });
 
   // Fire-and-forget TLS fingerprint self-probe. Records first-seen
@@ -516,11 +519,18 @@ async function main() {
     log('info', 'Discovery-only substrate mode: skipping identity-vessel auto-resolution without an explicit IDENTITY_ENDPOINT');
   }
 
-  // Start vessel HTTP server (health + capabilities + impulse resolver)
+  // Start vessel HTTP server (health + capabilities + impulse resolver).
+  // Registration below is gated on this succeeding: a vessel that failed to bind
+  // must not advertise an endpoint it does not serve.
+  let httpServerBound = false;
   try {
     await vesselServer.start();
+    httpServerBound = true;
   } catch (error) {
-    log('warn', 'Failed to start vessel HTTP server', { error });
+    log('warn', 'Failed to start vessel HTTP server — will not register with discovery', { error });
+  }
+  if (HEALTH_PORT >= 8000 && HEALTH_PORT <= 8999) {
+    log('warn', 'HEALTH_PORT is in 8000–8999, which collides with substrate container ports', { port: HEALTH_PORT });
   }
 
   // Register with the discovery namespace (point-and-go: needs only a discovery
@@ -549,13 +559,21 @@ async function main() {
         })
         .catch((err) => log('warn', 'Resolution reconcile failed (will retry next session)', { error: err }));
     }
-    if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId) {
-      // Best-effort reachable base URL for inbound resolves. localhost serves
-      // same-host callers; VESSEL_PUBLIC_ENDPOINT overrides for cross-host
-      // (e.g. a containerised discovery reaching the host). Cross-NAT inbound
-      // reachability is what the libp2p transport (below) adds.
-      const advertisedEndpoint =
-        process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || `http://127.0.0.1:${HEALTH_PORT}`;
+    // Advertise only an endpoint the reader of the row can dial. Loopback is
+    // valid only inside the caller's own network namespace (the host's
+    // 127.0.0.1 is not a container's), so there is no default: registration
+    // needs an explicit VESSEL_PUBLIC_ENDPOINT and a bound HTTP server.
+    const advertisedEndpoint = process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || undefined;
+    if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !httpServerBound) {
+      log('warn', 'Discovery registration skipped — HTTP server not bound; running client-only', { port: HEALTH_PORT });
+    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !advertisedEndpoint) {
+      log('info', 'Discovery registration skipped — no VESSEL_PUBLIC_ENDPOINT set; running client-only');
+    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !HEALTH_PORT) {
+      // An ephemeral port can't be what VESSEL_PUBLIC_ENDPOINT names (the operator
+      // chose the endpoint before the port existed), so the row would point at
+      // nothing. Pinning HEALTH_PORT is required; a sidecar may still remap it.
+      log('warn', 'Discovery registration skipped — VESSEL_PUBLIC_ENDPOINT needs an explicit HEALTH_PORT; running client-only', { advertisedEndpoint });
+    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && advertisedEndpoint) {
 
       // Prefer p2p: discover a relay via /bootstrap (read at use time, never
       // pinned). If one exists AND the optional libp2p transport is installed,

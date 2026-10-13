@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from '../../src/config';
+import { applyConfigDefaults, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig, withoutEndpoints} from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -33,10 +33,10 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
     activityApiUrl: 'https://activity.metabob.com',
-    discoveryEndpoint: 'https://activity.metabob.com/discovery',
-    analysisApiUrl: 'https://activity.metabob.com/analysis',
-    identityEndpoint: 'https://activity.metabob.com/identity',
-    conceptDbUrl: 'https://activity.metabob.com/conceptdb',
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
     sourcePath: path,
   });
@@ -49,15 +49,15 @@ test('loadMetabobCLIConfig falls back to instance api key and defaults the endpo
     },
   }));
 
-  // An apiKey-only config routes everything through the single public
-  // endpoint — identity included, never a specialized host.
+  // An apiKey-only config defaults the endpoint but derives no siblings: no
+  // path-prefixed layout is assumed for a remote gateway.
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_instance_key',
     activityApiUrl: 'https://ide.metabob.com',
-    discoveryEndpoint: 'https://ide.metabob.com/discovery',
-    analysisApiUrl: 'https://ide.metabob.com/analysis',
-    identityEndpoint: 'https://ide.metabob.com/identity',
-    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
     sourcePath: path,
   });
@@ -109,10 +109,10 @@ test('loadMetabobCLIConfig derives sibling endpoints from a REMOTE port-publishe
   });
 });
 
-test('loadMetabobCLIConfig still uses path prefixes for a portless http reverse proxy', () => {
-  // The guard that keeps the fix above from swallowing the proxy branch: a bare
-  // http:// host has no explicit port, so it must NOT be read as port-published
-  // (an implicit port 80 conforms to %100===80 and would derive :100).
+test('loadMetabobCLIConfig derives nothing for a portless http endpoint', () => {
+  // A bare http:// host has no explicit port, so it must NOT be read as
+  // port-published (an implicit port 80 conforms to %100===80 and would derive
+  // :100) — and no path-prefixed siblings are assumed either.
   const path = writeConfigFile(JSON.stringify({
     metabob: {
       apiKey: 'mb_test_key',
@@ -121,8 +121,8 @@ test('loadMetabobCLIConfig still uses path prefixes for a portless http reverse 
   }));
 
   const config = loadMetabobCLIConfig(path);
-  expect(config?.discoveryEndpoint).toBe('http://ide.metabob.com/discovery');
-  expect(config?.conceptDbUrl).toBe('http://ide.metabob.com/conceptdb');
+  expect(config?.discoveryEndpoint).toBeUndefined();
+  expect(config?.conceptDbUrl).toBeUndefined();
 });
 
 test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived defaults', () => {
@@ -158,10 +158,10 @@ test('loadMetabobEnvConfig treats METABOB_ENDPOINT as the gateway and derives si
   expect(config).toEqual({
     apiKey: 'mb_env_key',
     activityApiUrl: 'https://ide.metabob.com',
-    discoveryEndpoint: 'https://ide.metabob.com/discovery',
-    analysisApiUrl: 'https://ide.metabob.com/analysis',
-    identityEndpoint: 'https://ide.metabob.com/identity',
-    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
     sourcePath: '<env:METABOB_ENDPOINT>',
   });
@@ -174,10 +174,10 @@ test('loadMetabobDefaultConfig defaults the endpoint to ide.metabob.com — api 
   expect(config).toEqual({
     apiKey: 'mb_env_key',
     activityApiUrl: 'https://ide.metabob.com',
-    discoveryEndpoint: 'https://ide.metabob.com/discovery',
-    analysisApiUrl: 'https://ide.metabob.com/analysis',
-    identityEndpoint: 'https://ide.metabob.com/identity',
-    conceptDbUrl: 'https://ide.metabob.com/conceptdb',
+    discoveryEndpoint: undefined,
+    analysisApiUrl: undefined,
+    identityEndpoint: undefined,
+    conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
     sourcePath: '<env:default-endpoint>',
   });
@@ -246,8 +246,8 @@ test('explicit ANALYSIS_API_URL still wins over the METABOB_ENDPOINT-derived val
   applyConfigDefaults(env, loadMetabobEnvConfig(env));
 
   expect(env.ANALYSIS_API_URL).toBe('https://custom.example/analysis');
-  // …but the untouched siblings still derive from the gateway.
-  expect(env.DISCOVERY_ENDPOINT).toBe('https://ide.metabob.com/discovery');
+  // …and a remote gateway derives no path-prefixed siblings.
+  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
 });
 
 test('loadMetabobCLIConfig returns null for invalid json', () => {
@@ -317,12 +317,16 @@ test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
     METABOB_API_KEY: 'mb_env_key',
     METABOB_ENDPOINT: 'https://ide.metabob.com',
   };
-  applyConfigDefaults(env, loadMetabobEnvConfig(env));
-  applyConfigDefaults(env, loadMetabobCLIConfig(path));
+  const envConfig = loadMetabobEnvConfig(env);              // cli.ts order
+  applyConfigDefaults(env, envConfig);
+  applyConfigDefaults(env, envConfig ? withoutEndpoints(loadMetabobCLIConfig(path)) : loadMetabobCLIConfig(path));
   applyConfigDefaults(env, loadMetabobDefaultConfig(env));
 
   expect(env.ACTIVITY_API_URL).toBe('https://ide.metabob.com');
-  expect(env.DISCOVERY_ENDPOINT).toBe('https://ide.metabob.com/discovery');
+  // The file's local discovery must not fill the gap the remote gateway
+  // leaves — that would split activity and discovery across two substrates.
+  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
+  expect(env.CONCEPT_DB_URL).toBeUndefined();
 });
 
 // ===== project-local config resolution (directory-aware, like git) =====

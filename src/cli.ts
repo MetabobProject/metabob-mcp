@@ -101,7 +101,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig } from './config.js';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig, withoutEndpoints } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -140,7 +140,7 @@ OPTIONS:
   --session-id <ID>            Session identifier (default: default-session)
   --session-token <TOKEN>      Pre-obtained session token (advanced)
   --log-level <LEVEL>          Logging level: debug, info, warn, error (default: info)
-  --health-port <PORT>         HTTP port for health checks (default: 8080)
+  --health-port <PORT>         HTTP port for health checks (default: ephemeral)
   --max-requests-per-minute <N> Rate limit per session (default: 60)
   --no-system-ca               Skip loading OS root CAs at startup (advanced;
                                for users who hit a system-ca read bug). Without
@@ -215,9 +215,9 @@ CONFIGURATION FILE:
     }
   }
   All keys optional; unknown keys ignored. endpoint is the gateway everything
-  derives from: a remote base derives path-prefixed siblings (/analysis,
-  /discovery, /identity, /conceptdb); a local substrate endpoint
-  (http://localhost:18080) derives port-offset siblings (discovery :18100,
+  derives from: a remote base derives nothing — set discoveryEndpoint
+  explicitly (no path-prefixed siblings are assumed); a local substrate endpoint
+  (http://127.0.0.1:18080) derives port-offset siblings (discovery :18100,
   analysis :18250, concept-db :18260), and substrate tools then resolve
   concept-db / goal-host-vessel through discovery.
 
@@ -421,8 +421,12 @@ async function main() {
   //      be silently redirected to ide.metabob.com).
   // The canonical minimal setup remains METABOB_API_KEY alone; METABOB_ENDPOINT
   // is the gateway everything else derives from when set.
-  applyConfigDefaults(process.env, loadMetabobEnvConfig());
-  applyConfigDefaults(process.env, loadMetabobCLIConfig());
+  // An explicit METABOB_ENDPOINT chose the substrate, so only the file's
+  // credentials still apply — never its endpoints (see withoutEndpoints).
+  const envConfig = loadMetabobEnvConfig();
+  applyConfigDefaults(process.env, envConfig);
+  const fileConfig = loadMetabobCLIConfig();
+  applyConfigDefaults(process.env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
   applyConfigDefaults(process.env, loadMetabobDefaultConfig());
 
   // Remaining CLI options are raw overrides that beat any derived/file value.

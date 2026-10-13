@@ -58,10 +58,10 @@ from (MCP clients spawn stdio servers with cwd = project root). Lookup order:
 `METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`.
 
 `endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the single
-URL from which every sibling service is derived. A remote base endpoint
-derives path-prefixed siblings (`/analysis`, `/discovery`, `/identity`,
-`/conceptdb`); a local substrate endpoint (`http://localhost:18080`) derives
-the port-offset siblings (discovery `:18100`, analysis `:18250`,
+URL from which sibling services are derived. A remote base endpoint derives
+**nothing** — no path-prefixed siblings are assumed — so a remote substrate
+needs an explicit `discoveryEndpoint`; a local substrate endpoint
+(`http://127.0.0.1:18080`) derives the port-offset siblings (discovery `:18100`, analysis `:18250`,
 concept-db `:18260`).
 
 ### Config-file schema (all keys optional)
@@ -320,7 +320,7 @@ Three planes + a coverage set:
 
 The cockpit is not only a client that dispatches goals INTO the substrate — the
 agent can also act as a **resolver the substrate dispatches work TO**. When
-enabled (default; kill-switch `METABOB_AGENT_RESOLVER=0`), the vessel advertises
+enabled (opt-in `METABOB_AGENT_RESOLVER=1`; off by default), the vessel advertises
 the `human_input` shape, so a goal-host walk that exhausts its automated
 approaches solicits a decision from this agent. The vessel durably enqueues the
 task; the agent drains it with these tools. `goal_reasoning` is the read half of

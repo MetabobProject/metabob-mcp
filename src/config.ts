@@ -82,17 +82,11 @@ function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
     };
   }
 
-  // Remote substrate behind a path-splitting reverse proxy: sibling services
-  // live under conventional path prefixes of the same base endpoint.
-  if (activityApiUrl && /^https?:\/\/[^/]+$/.test(activityApiUrl)) {
-    return {
-      discoveryEndpoint: `${activityApiUrl}/discovery`,
-      analysisApiUrl: `${activityApiUrl}/analysis`,
-      identityEndpoint: `${activityApiUrl}/identity`,
-      conceptDbUrl: `${activityApiUrl}/conceptdb`,
-    };
-  }
-
+  // No path-prefix derivation for remote endpoints: no live node serves
+  // {endpoint}/discovery, /identity, /conceptdb or /analysis, and encoding a
+  // reverse-proxy layout is a pinned-topology assumption. A remote substrate is
+  // anchored by an explicit discoveryEndpoint (DISCOVERY_ENDPOINT) plus the key;
+  // everything else is learned from /bootstrap and discovery.
   return {};
 }
 
@@ -254,6 +248,20 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
     goalHostVesselUrl,
     sourcePath: configPath,
   };
+}
+
+/**
+ * The credential half of a config (apiKey, vesselId) without its endpoints.
+ * Used when an explicit METABOB_ENDPOINT already chose the substrate: the file's
+ * endpoints describe a different substrate and must not fill the gaps the
+ * explicit gateway left (a remote gateway derives no siblings), or discovery
+ * and activity would split across two substrates.
+ */
+export function withoutEndpoints(config: MetabobCLIConfig | null): MetabobCLIConfig | null {
+  if (!config) {
+    return null;
+  }
+  return { apiKey: config.apiKey, vesselId: config.vesselId, sourcePath: config.sourcePath };
 }
 
 export function applyConfigDefaults(
