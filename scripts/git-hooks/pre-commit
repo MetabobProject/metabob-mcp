@@ -11,7 +11,8 @@
 #   1. Placement check — rejects newly-added or renamed-into entries that
 #      violate the placement rules (only ADDED files are checked; modifying
 #      existing tracked files is never blocked).
-#   2. Secrets scan — gitleaks protect --staged.
+#   2. Secrets scan — gitleaks protect --staged, on every commit (modify-only
+#      commits included).
 #
 # Bypass: `git commit --no-verify` (use sparingly).
 #
@@ -97,11 +98,9 @@ if command -v node >/dev/null 2>&1; then
   node "$REPO_ROOT/scripts/doclinks.mjs" precommit || true
 fi
 
+# Placement applies to added/renamed entries only; an empty list skips it but
+# never skips the secrets scan below, which covers every staged change.
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=AR)
-
-if [[ ${#STAGED[@]} -eq 0 ]]; then
-  exit 0
-fi
 
 violations=()
 

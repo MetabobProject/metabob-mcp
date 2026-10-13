@@ -57,8 +57,8 @@ METABOB_ALLOW_MAIN_PUSH=1 git push origin main
 The hook runs three layers, in order:
 
 1. **Doc links** (`node scripts/doclinks.mjs precommit`) — runs on every commit and lists the live docs linked to what is staged but not in the commit, plus any broken docs ↔ code citations (see `docs/DOCLINKS.md`). **Warns only, never blocks**; it is skipped when `node` is not on `PATH`. The check that fails on broken citations is `tests/unit/doclinks.test.ts`, run by `bun test` and CI.
-2. **Placement check** — rejects newly-added or renamed-into entries that violate the placement rules. Pre-existing files are grandfathered. A commit that adds or renames no file ends the hook here.
-3. **Secrets scan** (`gitleaks protect --staged`) — scans the staged diff for credentials. If gitleaks isn't installed, the scan is skipped with a one-line install hint.
+2. **Placement check** — rejects newly-added or renamed-into entries that violate the placement rules. Pre-existing files are grandfathered. A commit that adds or renames no file passes this step and continues to the secrets scan.
+3. **Secrets scan** (`gitleaks protect --staged`) — scans the staged diff of every commit, modify-only commits included, for credentials. If gitleaks isn't installed, the scan is skipped with a one-line install hint.
 
 Bypass with `git commit --no-verify` (use sparingly).
 
@@ -76,7 +76,7 @@ A commit is rejected when it adds (or renames into) a file that violates any of 
 
 ## Gitleaks
 
-`gitleaks protect --staged --redact --no-banner` runs after a successful placement check. The redact flag masks matched secrets in the output.
+`gitleaks protect --staged --redact --no-banner` runs on every commit after the placement check passes, whether or not the commit adds files. The redact flag masks matched secrets in the output.
 
 Install:
 
