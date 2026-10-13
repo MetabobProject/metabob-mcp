@@ -117,6 +117,10 @@
       "docs/SIDECAR.md": {
         "at": "c89a250",
         "why": "scheduler.ts changes after the doc (claim lease on dequeued rows, execFile instead of a shell) are internal; the doc's claims — same-process workers, 2 s send loop, scheduler gated on METABOB_API_KEY — still hold"
+      },
+      "docs/SPEC.md": {
+        "at": "3c86708",
+        "why": "src/config.ts gained only a CONFORMANCE citation in a comment; SPEC § Endpoint derivation still matches deriveSubstrateDefaults"
       }
     }
   },
