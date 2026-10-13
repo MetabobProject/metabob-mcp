@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §init_workspace
 import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, extname, dirname, resolve } from 'path';

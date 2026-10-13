@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §submit_resolution
 /**
  * submit_resolution — the agent answers a task the substrate dispatched to it.
  *

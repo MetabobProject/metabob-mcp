@@ -420,7 +420,8 @@ async function main() {
   //      via env while config.json points at a local substrate would otherwise
   //      be silently redirected to ide.metabob.com).
   // The canonical minimal setup remains METABOB_API_KEY alone; METABOB_ENDPOINT
-  // is the gateway everything else derives from when set.
+  // is the gateway everything else derives from when set. SPEC §precedence,
+  // CLAUDE §environment-variables.
   // An explicit METABOB_ENDPOINT chose the substrate, so only the file's
   // credentials still apply — never its endpoints (see withoutEndpoints).
   const envConfig = loadMetabobEnvConfig();

@@ -3,8 +3,11 @@
 # metabob-mcp pre-commit hook.
 #
 # Mirrors the metabob-devbob super-repo hook with mcp-specific allowlists.
-# Runs two layers in order:
+# Runs three layers in order:
 #
+#   0. Doc links — scripts/doclinks.mjs precommit lists live docs linked to
+#      what is staged but not in the commit, and broken citations. WARNS
+#      ONLY: the gate that fails on broken citations is tests/unit/doclinks.test.ts.
 #   1. Placement check — rejects newly-added or renamed-into entries that
 #      violate the placement rules (only ADDED files are checked; modifying
 #      existing tracked files is never blocked).
@@ -19,6 +22,7 @@
 #   scripts/     — operational scripts (incl. scripts/git-hooks/)
 #   openspec/    — change proposals
 #   packages/    — internal sub-packages (if any)
+#   .claude/     — shared Claude Code project settings (settings.json and its hooks)
 
 set -euo pipefail
 
@@ -78,9 +82,20 @@ ALLOWED_TOPLEVEL_DIRS=(
   packages
   .github
   .minibob
+  # Shared Claude Code project settings — .claude/settings.json wires the
+  # doclinks hooks. Machine-local files under it (settings.local.json,
+  # worktrees/) are gitignored.
+  .claude
 )
 
 ARTEFACT_EXTENSIONS='png|jpg|jpeg|gif|webp|svg|bmp|ico|mp4|mov|webm|pdf|zip|tar|gz|tgz'
+
+# Doc links — warn-only, and run for every commit (modified files included),
+# ahead of the added-files gate below. Never blocks: a failure of the script
+# itself is ignored, and a missing node skips it.
+if command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/scripts/doclinks.mjs" precommit || true
+fi
 
 mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=AR)
 

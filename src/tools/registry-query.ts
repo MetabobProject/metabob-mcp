@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §registry_query
 /**
  * registry_query — inspect discovery-vessel's registry directly through MCP,
  * so an operator agent never has to escape to `docker exec … curl discovery`.

@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §get_metrics
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';

@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_neighbors
 /**
  * concept_neighbors — graph traversal from a known concept to its neighbors.
  *

@@ -17,7 +17,7 @@ import { ZodError } from 'zod';
  * shapes the vessel resolves synchronously. An impulse of one of these is
  * durably enqueued for the agent to pull, and ACKed immediately (goal-host's
  * accept-then-callback contract). Kept out of resolvePointerToTool so the
- * synchronous "unknown shape → throw" invariant is untouched.
+ * synchronous "unknown shape → throw" invariant is untouched. SPEC §impulse-shapes.
  */
 export const QUEUED_SHAPES = new Set(['human_input']);
 
@@ -362,12 +362,9 @@ export async function resolveImpulseContent(
 }
 
 /**
- * Map an impulse pointer to a tool name and input.
- *
- * Supports three shapes:
- *   mcp:tool_call           — pointer.tool + pointer.input
- *   code:cochange_prediction — pointer.changed_files, pointer.limit, pointer.confidence_threshold
- *   code:impact_analysis    — pointer.changed_files, pointer.direction, pointer.max_depth, pointer.include_tests
+ * Map an impulse pointer to a tool name and input. The shape → tool table and
+ * the pointer fields each shape forwards are SPEC §impulse-shapes; queued
+ * shapes (QUEUED_SHAPES) never reach this function.
  */
 function resolvePointerToTool(pointer: Record<string, unknown>): {
   toolName: string;

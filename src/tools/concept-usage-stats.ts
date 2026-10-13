@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_usage_stats
 /**
  * concept_usage_stats — per-concept usage timeline + aggregates.
  *

@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §get_problems
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import { extractProblemDetectionPayload } from '../api-client.js';

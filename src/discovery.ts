@@ -130,6 +130,7 @@ function resolveVesselBaseUrl(capability: DiscoveryCapability, discoveryEndpoint
   );
 }
 
+/** The local-substrate branch of SPEC §endpoint-derivation: an explicit http port ≡ 80 (mod 100). */
 export function deriveLocalDiscoveryEndpoint(activityApiUrl?: string): string | undefined {
   if (!activityApiUrl) {
     return undefined;

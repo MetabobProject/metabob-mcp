@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_record_usage
 /**
  * concept_record_usage — the direct write into concept-db's relevance model.
  *

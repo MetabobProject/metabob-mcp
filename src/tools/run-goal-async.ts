@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §run_goal_async
 /**
  * run_goal_async — dispatch a goal to goal-host-vessel WITHOUT blocking.
  *

@@ -1,5 +1,9 @@
 # @metabob/mcp — Tool Specification
 
+Code cites this document by section — `SPEC §get_problems`, `SPEC §impulse-shapes` — and each
+section names the code it describes as `` `file@anchor` ``. Section ids are heading slugs; the rule
+and the checks live in [DOCLINKS.md](DOCLINKS.md).
+
 ## Architecture
 
 ```
@@ -18,15 +22,22 @@ Agent (Claude Code / Cursor / custom)
 └─────────────────────────────────────────┘
 ```
 
-**Local tier** — runs entirely in-process via the vendored CPG library (`vendor/cpg-inference`, re-exported by `src/cpg-inference.ts`; a fork, not an installed package — it is absent from `package.json` dependencies and has diverged from upstream):
+The registry is `src/tools/index.ts@TOOL_REGISTRY`: every tool below is one entry, validated by its
+module's zod `InputSchema` and served by its module's `handle`.
+
+**Local tier** — runs in-process via the vendored CPG library (`vendor/cpg-inference`, a git submodule re-exported by `src/cpg-inference.ts`; a fork, absent from `package.json` dependencies):
 - Tree-sitter parsing → `CodePropertyGraph`
-- GCN embeddings (109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → USearch vector index
+- GCN embeddings (a ~109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → an in-process brute-force vector index (`src/vector-index.ts@FAISSIndex`)
 - BFS graph traversal
 
-**API tier** — requires `METABOB_API_KEY` and a live session against `ide.metabob.com`:
-- File submission: `POST /v2/submit` (multipart)
-- Analysis results: `GET /analysis`
-- Feedback: `POST /feedback/detection`
+**API tier** — requires `METABOB_API_KEY`. Its surface depends on the mode:
+
+| Operation | Default (sidecar / vessel mode) | `METABOB_STATELESS=true` (legacy REST) |
+|-----------|----------------------------------|----------------------------------------|
+| Auth | `Authorization: ApiKey <key>` on every request | `POST /session` exchange, opaque token refreshed on a timer |
+| File submission | per file: `POST {activity}/v2/mcp/analysis/run` when the analysis host is `ide.metabob.com`; otherwise the `problem_detection` shape resolved through discovery and `/v2/impulses/resolve` (`src/api-client.ts@submitFiles`) | `POST /v2/submit` (multipart) |
+| Analysis results | none — `getAnalysis` returns an empty `complete` result; problems come from the local seed cache and concept-db | `GET /analysis` |
+| Feedback | a `resolution` event to `POST /v2/events/mcp` | `POST /feedback/detection` |
 
 ---
 
@@ -43,7 +54,7 @@ METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
 ```
 
 ```jsonc
-// ~/.metabob/config.json (or METABOB_CONFIG_PATH)
+// .metabob/config.json, ~/.metabob/config.json, or METABOB_CONFIG_PATH
 {
   "metabob": {
     "apiKey": "mb_live_...",
@@ -55,83 +66,105 @@ METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
 Config resolution is **directory-aware, like git**: a project can pin its own
 backend with `.metabob/config.json` in the directory the server is launched
 from (MCP clients spawn stdio servers with cwd = project root). Lookup order:
-`METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`.
+`METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`
+(`src/config.ts@getDefaultConfigPath`).
 
-`endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the single
-URL from which sibling services are derived. A remote base endpoint derives
-**nothing** — no path-prefixed siblings are assumed — so a remote substrate
-needs an explicit `discoveryEndpoint`; a local substrate endpoint
-(`http://127.0.0.1:18080`) derives the port-offset siblings (discovery `:18100`, analysis `:18250`,
-concept-db `:18260`).
+### Endpoint derivation
 
-### Config-file schema (all keys optional)
+`endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the URL from
+which the sibling services are derived (`src/config.ts@deriveSubstrateDefaults`).
+
+- **Local substrate** — an `http:` URL whose explicit port ends in `80` (`8080`,
+  `18080`, `28080`, …; `src/discovery.ts@deriveLocalDiscoveryEndpoint`) derives
+  port-offset siblings: discovery `+20`, analysis `+170`, concept-db `+180`
+  (so `http://127.0.0.1:18080` gives `:18100`, `:18250`, `:18260`). No identity
+  endpoint is derived; with discovery set and no explicit `IDENTITY_ENDPOINT`,
+  tenant resolution is skipped.
+- **Remote gateway** — any other endpoint derives nothing: no path-prefixed
+  siblings are assumed, so a remote substrate is anchored by an explicit
+  `discoveryEndpoint` / `DISCOVERY_ENDPOINT`.
+- goal-host-vessel is never derived: the goal tools find it through discovery
+  (`goal_execution` shape) unless `GOAL_HOST_VESSEL_URL` pins it.
+
+### Config-file schema
+
+All keys are optional.
 
 | Key | Purpose |
 |-----|---------|
 | `metabob.apiKey` | API key (also accepted at legacy `instance.apiKey`) |
-| `metabob.endpoint` | Gateway URL — everything below derives from it |
+| `metabob.endpoint` | Gateway URL — the derived siblings above come from it |
+| `metabob.vesselId` | Pins `VESSEL_ID` (discovery registration id) |
 | `metabob.discoveryEndpoint` | Advanced: pin discovery-vessel explicitly |
 | `metabob.analysisApiUrl` | Advanced: pin the analysis API explicitly |
 | `metabob.identityEndpoint` | Advanced: pin identity (tenant resolution) explicitly |
 | `metabob.conceptDbUrl` | Advanced: pin concept-db explicitly |
 | `metabob.goalHostVesselUrl` | Advanced: pin goal-host-vessel explicitly |
 
-Unknown keys are ignored (passthrough). Each explicit key wins over its
-derived value; the same is true of the corresponding env vars
-(`ANALYSIS_API_URL`, `DISCOVERY_ENDPOINT`, `IDENTITY_ENDPOINT`,
-`CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`).
+Unknown keys are ignored (passthrough). Each config key and each corresponding
+env var (`ANALYSIS_API_URL`, `ACTIVITY_API_URL`, `DISCOVERY_ENDPOINT`,
+`IDENTITY_ENDPOINT`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`) wins over the
+value derived from the same source's endpoint.
 
-### Precedence (lowest → highest)
+### Precedence
 
-1. Built-in default — API key alone routes everything to `https://ide.metabob.com`
-2. `~/.metabob/config.json`
-3. Environment (`METABOB_ENDPOINT` derivation; specific env vars)
-4. CLI flags (`--endpoint`, `--api-key`; `--api-url` as the raw analysis override)
+Each loader fills only variables that are still unset (`src/config.ts@applyConfigDefaults`), applied in this order (`src/cli.ts@main`) — so earlier wins:
 
-Two guarantees worth knowing:
+1. CLI flags — `--api-key` and `--endpoint` are written into the environment first; `--api-url` overwrites `ANALYSIS_API_URL` after the loaders run
+2. Environment — explicit variables, then the siblings derived from `METABOB_ENDPOINT`
+3. The config file (lookup order above) — its explicit keys, then the siblings derived from its `endpoint`. When `METABOB_ENDPOINT` is set, only the file's credentials (`apiKey`, `vesselId`) apply, never its endpoints (`src/config.ts@withoutEndpoints`)
+4. Built-in default — an API key alone routes everything to `https://ide.metabob.com`
+
+Consequences worth knowing:
 
 - A **file-supplied `endpoint` beats the built-in default** even when the API
   key arrives via env — an MCP client injecting `METABOB_API_KEY` cannot
   silently redirect a config file pointed at a local substrate.
+- An explicit `METABOB_ENDPOINT` chooses the substrate: the config file's
+  endpoints never fill a sibling it left underived, so activity and discovery
+  cannot split across two substrates.
 - **Legacy carve-out**: pinning a specific endpoint var (e.g.
-  `ANALYSIS_API_URL`) *without* `METABOB_ENDPOINT` keeps gateway derivation
-  inert, so hand-configured routing is never split-brained onto the default
+  `ANALYSIS_API_URL`) *without* `METABOB_ENDPOINT` keeps the default-gateway
+  derivation inert, so hand-configured routing is never split onto the default
   gateway.
 
 ---
 
 ## Tools
 
+The analysis tools. Every handler returns a single text block.
+
 ### init_workspace
 
-Initialize the local CPG index and incrementally sync the most relevant files to the analysis server. Call repeatedly as you work — each call submits one small batch ranked by relevance to recently changed files.
+Handler: `src/tools/init-workspace.ts@handle`
 
-Analysis is asynchronous: after submission, the server may continue processing in the background and later calls may still see `pending` or `running`. Agents should prefer async follow-up when working with Metabob.
+Index the workspace into the local CPG and sync the most relevant files to the analysis server. Call it repeatedly as you work — each call submits one batch ranked by relevance to recently changed files.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `workspace_path` | string | `$WORKSPACE_PATH` or cwd | Absolute path to workspace root |
-| `recently_changed_files` | string[] | `[]` | Changed files — prioritised in sync batch |
-| `batch_size` | number | `5` | Files to submit per call (max 20) |
-| `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index |
-| `exclude` | string[] | `[node_modules,.git,dist,...]` | Directories to skip |
-| `sync_api` | boolean | `true` | Submit batch to analysis server |
+| `recently_changed_files` | string[] | `[]` | Changed files — prioritised in the sync batch |
+| `batch_size` | number | `20` | Files to submit per call (1–20) |
+| `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index (with or without the leading dot) |
+| `exclude` | string[] | `[node_modules,.git,dist,build,.next,.nuxt,coverage,.turbo,.cache,__pycache__,.venv,venv,vendor]` | Directory names to skip; dot-directories are always skipped |
+| `sync_api` | boolean | `true` | Submit the batch to the analysis server |
 
 **Behaviour**
-1. Scans workspace and builds/updates the local CPG.
-2. Ranks files: recently changed → CPG co-change neighbours → same directory → alphabetical.
-3. Submits `batch_size` files to `POST /v2/submit`.
+1. Scans the workspace (at most 2000 files, each at most 200 KB) and parses it into the local CPG within a 20 s budget; a parse that runs out of budget resumes on the next call and says so.
+2. Ranks files: recently changed → GCN name-similarity neighbours of the changed files → same directory → the rest alphabetically.
+3. Submits `batch_size` files through the API tier (see § Architecture) with the submission timeout (`SUBMIT_TIMEOUT_MS`, default 120 s), and upserts returned results into the local seed cache.
 4. Reports how many files remain unsynced.
-5. Uses a longer submission timeout than ordinary API calls; if the server is slow to answer, prefer async follow-up with `get_analysis_context` or `get_problems`.
-6. Does not wait for backend analysis to finish; use `get_analysis_context` or `get_problems` to check progress later.
+5. Does not wait for backend analysis to finish; use `get_analysis_context` or `get_problems` to follow up.
 
 ---
 
 ### get_problems
 
-Fetch known problems for this codebase, ranked by severity: backend detections plus findings recorded by agents (`record_finding`) working on the same region. If analysis is still running, the tool reports that state instead of blocking until completion.
+Handler: `src/tools/get-problems.ts@handle`
+
+Problems for this codebase, ranked by severity: agent-recorded findings (`record_finding`) and the local seed cache are the primary source; backend detection is a secondary one.
 
 **Input**
 
@@ -140,14 +173,19 @@ Fetch known problems for this codebase, ranked by severity: backend detections p
 | `limit` | number | `10` | Max results (max 100) |
 | `severity` | `CRITICAL\|HIGH\|MEDIUM\|LOW\|INFO`[] | all | Filter by severity |
 | `category` | string[] | all | Filter by category slug |
-| `file_path` | string | — | Exact file path for the local seed cache (the primary source); substring only on the legacy vessel fan-out |
-| `include_discarded` | boolean | `false` | Include dismissed false positives |
+| `file_path` | string | — | Substring match on the seed file path (and on the legacy vessel fan-out) |
+| `include_discarded` | boolean | `false` | Include dismissed false positives (legacy REST path only) |
 
-**Behaviour** — serves the local seed cache (including agent-recorded `agf_*` findings) or falls back to backend detection (`GET /analysis` / vessel fan-out — a legacy secondary source; agent-recorded findings are primary), then appends a distinct **"Findings recorded by agents on this codebase"** section recalled from concept-db: `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=` — semantic search is unstable on the local vessel), paged 50 rows at a time via `offset` up to 300 scanned rows, then filtered client-side to concepts mentioning the current repo name or the requested file path; hitting the scan cap is reported as truncated. concept-db unreachable is non-fatal.
+**Behaviour**
+- With `file_path` and matching seeds, it serves those seeds. With no matching seed, the file is enqueued for analysis and the backend path runs.
+- With no `file_path`, it runs the backend path (`GET /analysis` in legacy mode; the vessel fan-out otherwise; in legacy mode a `pending`/`running` analysis is reported instead of awaited) and appends the workspace's cached seeds.
+- It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=`), paged 50 rows at a time via `offset` up to 300 scanned rows, kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Hitting the scan cap is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 
 ---
 
 ### record_finding
+
+Handler: `src/tools/record-finding.ts@handle`
 
 The write half of agent-side analysis: LLM processing lives on the agent; the server attributes agent-noticed details to code and surfaces them to other agents on the same codebase.
 
@@ -162,66 +200,74 @@ The write half of agent-side analysis: LLM processing lives on the agent; the se
 | `category` | string | **required** | Free-form slug (security, correctness, design-constraint, …) |
 | `line_start` | number | — | Start line |
 | `line_end` | number | — | End line |
-| `status` | string | `open` | Finding status |
+| `status` | string | `open` | Finding status; anything but `open` stores the seed already stale |
 
-**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, content carrying repo name, workspace-relative files, line range and details — so other agents' sessions recall it org-wide. The concept content also carries the author: `recorded_by: <vesselId>` (the same `metabob-mcp-<12 hex>` identity used for discovery registration) and `session: <sessionId>`. When no vessel identity can be resolved — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's. concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
+**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, and content carrying `repo`, `workspace`, workspace-relative `files`, `lines`, `severity`, `category`, `status`, `finding_ids` and the details — so other agents' sessions recall it org-wide. The minted concept id is stored back on the seeds (`refs_json`), which is what lets `mark_complete` fold a verdict into that concept's relevance. The concept content also carries the author: `recorded_by: <vesselId>` (the same `metabob-mcp-<12 hex>` identity used for discovery registration) and `session: <sessionId>`. When no vessel identity resolves — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's (`src/tools/_findings.ts@attributionLines`). concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
 
 ---
 
 ### search_codebase
 
-Search components (local CPG) and problems (analysis results) by keyword.
+Handler: `src/tools/search-codebase.ts@handle`
+
+Search components (local CPG) and problems by keyword.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `query` | string | **required** | Matched against component names, file paths, categories, summaries |
+| `query` | string | **required** | Tokenised (camelCase, snake_case and kebab-case split) and matched by partial token containment |
 | `limit` | number | `10` | Max results (max 50) |
 | `target` | `components\|problems\|both` | `both` | What to search |
 | `file_filter` | string[] | — | Narrow to these file paths (substring) |
 
-Requires `init_workspace` for component results.
+Components match on name, file path and node type; problems match on the cached seeds' brief, category and file path, plus backend analysis results (empty in vessel mode). Requires `init_workspace` for component results.
 
 ---
 
 ### predict_cochanges
 
-Predict which files and components should be changed together with the given files. Runs entirely locally — no API call. **Git-history co-change mining carries all of the signal.** The bundled GCN contributes a second list that should be treated as noise: its input features are the node name's char-codes (`src/cochange-predictor.ts:176-188`), and `infer()` is called one node at a time (`src/cochange-predictor.ts:80-81`), so the star edge index is always empty (`vendor/cpg-inference/src/embedding-model.ts:121,314-317`) and no graph structure reaches the model. Rank on the git-history section; do not act on a GCN-only suggestion.
+Handler: `src/tools/predict-cochanges.ts@handle`
+
+Predict which files and components change together with the given files. Runs locally — no API call. **Git-history co-change mining carries all of the signal.** The bundled GCN contributes a second list that should be treated as noise: its only input feature is the node name's char-codes (`src/cochange-predictor.ts@generateSimpleFeatures`), and the model is called one node at a time (`src/cochange-predictor.ts@addFile`, `src/cochange-predictor.ts@predictCochanges`), so the vendored model's edge index for a single node is empty and no graph structure reaches it. Rank on the git-history section; do not act on a GCN-only suggestion.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Files being changed |
-| `limit` | number | `10` | Max suggestions |
-| `confidence_threshold` | number | `0.3` | Min similarity score (0.0–1.0) |
+| `limit` | number | `10` | Max suggestions (max 50) |
+| `confidence_threshold` | number | `0.3` | Min score (0.0–1.0), applied to both the git-history confidence and the GCN similarity |
 
-Requires `init_workspace`.
+Cached seeds for the predicted files are appended. Requires `init_workspace`.
 
 ---
 
 ### analyze_impact
 
-Analyze which components are affected by changing the given files, by traversing the local Code Property Graph.
+Handler: `src/tools/analyze-impact.ts@handle`
+
+Components affected by changing the given files, by traversing the local Code Property Graph and the file import graph.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Files being changed |
-| `diff` | string | — | Git diff for line-precise symbol resolution |
-| `direction` | `forward\|backward\|both` | `both` | forward=dependencies, backward=dependents |
+| `diff` | string | — | Accepted for compatibility; the handler does not read it |
+| `direction` | `forward\|backward\|both` | `backward` | forward=dependencies, backward=dependents |
 | `max_depth` | number | `5` | Max traversal depth (max 10) |
 | `include_tests` | boolean | `true` | Include test files |
 
-Requires `init_workspace`.
+Appends up to 20 cached seeds for affected files. In legacy REST mode it also reports the changed files with `POST /v2/analysis/impact`; in vessel mode that call is a no-op. Requires `init_workspace`.
 
 ---
 
 ### annotate_component
 
-Add structured notes for a detected problem using the current analysis result.
+Handler: `src/tools/annotate-component.ts@handle`
+
+Structured notes for a detected problem.
 
 **Input**
 
@@ -231,11 +277,13 @@ Add structured notes for a detected problem using the current analysis result.
 | `mode` | `explain\|recommend` | `explain` | `explain` adds why-focused notes, `recommend` adds how-to-fix notes |
 | `context` | string | — | Additional context to include in the notes |
 
-Calls `GET /analysis`, finds the matching problem ID, and returns structured notes. An `agf_*` id is served from the LocalStore seed instead (no API call), rendering severity/category/file/refs/status plus the same why/how notes — so record → annotate → mark_complete works on agent findings.
+For a backend problem id it reads `getAnalysis` (`GET /analysis` in legacy mode), finds the matching problem, and builds the notes locally from templates — no explain/recommend endpoint is called. In vessel mode `getAnalysis` is empty, so only `agf_*` ids resolve. An `agf_*` id is served from the LocalStore seed (no API call), rendering severity/category/file/refs/status plus the same why/how notes — so record → annotate → mark_complete works on agent findings.
 
 ---
 
 ### mark_complete
+
+Handler: `src/tools/mark-complete.ts@handle`
 
 Mark a detected problem as resolved or dismiss it as a false positive.
 
@@ -243,100 +291,326 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `problem_id` | string | **required** | Problem ID from `get_problems` |
+| `problem_id` | string | **required** | Problem ID from `get_problems` — a backend id, an `agf_*` finding id, or a `concept_*` id |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-Calls `POST /feedback/detection`. A `concept_*` id is also accepted — the cross-agent recall surfaces findings by concept id, so that is often the only identifier an agent holds; it is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states plainly that nothing local was retired. For agent-recorded findings the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and a `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. Additionally, when the finding seed carries a linked `code_finding` concept (stashed by `record_finding` in `refs_json`), the verdict is folded straight into that concept's **relevance** via a usage signal — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`) — so operator judgment moves the Bayesian relevance score, not just a parallel verdict concept.
+A backend problem id goes to `postFeedback` (`POST /feedback/detection` in legacy mode; a `resolution` event to `POST /v2/events/mcp` in vessel mode). A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`, `src/tools/_findings.ts@recordConceptUsage`).
 
 ---
 
 ### get_metrics
 
-Retrieve session and project analysis health. Parallel fetch of `/metrics`, `/session/stats`, and `/analysis`.
+Handler: `src/tools/get-metrics.ts@handle`
+
+Session and project analysis health.
 
 **Input** — none
 
-**Output** — problem counts by severity and category, session statistics, API health.
+Fetches `/metrics`, `/session/stats` and the analysis result in parallel. In vessel mode `/metrics` maps to `GET /v2/analysis/learning/metrics` and the other two return empty without a request. **Output** — problem counts by severity and category, endorsed/discarded counts, session statistics when available, and the local cache's non-stale seed count (across all workspaces).
 
 ---
 
 ### assign_git_changes
 
-Assign changed files to the CPG components they affect. Returns a file→component map and co-change predictions per component.
+Handler: `src/tools/assign-git-changes.ts@handle`
+
+Assign changed files to the CPG components they affect, with co-change predictions.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Changed file paths |
-| `diff` | string | — | Git diff for line-precise attribution |
-| `include_cochange_predictions` | boolean | `true` | Include co-change predictions per component |
-| `prediction_limit` | number | `5` | Max co-change predictions per file |
+| `diff` | string | — | Accepted for compatibility; the handler does not read it |
+| `include_cochange_predictions` | boolean | `true` | Include co-change predictions |
+| `prediction_limit` | number | `5` | Prediction budget per changed file (max 20) |
 
-Requires `init_workspace`.
+Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with cached seeds show them; the rest are enqueued for analysis. Requires `init_workspace`.
 
 ---
 
 ### get_analysis_context
 
-Return the current analysis state: CPG index stats, open problems summary, co-change predictions for recently changed files, and a compact top-5 recall of findings recorded by agents on this codebase (concept-db `code_finding` concepts, non-fatal when unreachable). Designed to feed an LLM deciding what to do next.
+Handler: `src/tools/get-analysis-context.ts@handle`
+
+The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems (backend results, else the workspace's cached seeds), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable).
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `recently_changed_files` | string[] | `[]` | Used to generate co-change predictions |
-| `problem_limit` | number | `10` | Max open problems to include |
+| `problem_limit` | number | `10` | Max open problems to include (max 50) |
 | `scope` | `session\|project\|org` | `session` | Accepted for compatibility; the handler does not read it |
 
 ---
 
-## Substrate goal tools (the operator cockpit)
+## Substrate goal tools
 
-Beyond the CPG-analysis tools above, the MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it — without host access** (`docker exec` / `journalctl` / raw `curl` are the last resort, not the default). They resolve goal-host / discovery / activity-api through discovery-vessel; they need `metabob.endpoint` + `apiKey` in `~/.metabob/config.json`.
+The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
 
-Three planes + a coverage set:
+- **goal-host-vessel** — `GOAL_HOST_VESSEL_URL` when set, else the first vessel discovery returns for the `goal_execution` shape (`src/discovery.ts@resolveServiceEndpointByShape`; loopback endpoints are rehosted onto a remote discovery's host).
+- **activity-api** — `ACTIVITY_API_URL`, else `ANALYSIS_API_URL`, else `https://ide.metabob.com`; never discovered.
+- **discovery** — `DISCOVERY_ENDPOINT` (set directly or derived, see § Configuration).
 
-| Tool | Plane | Behaviour |
-|------|-------|-----------|
-| `run_goal` | ACT | Synchronous dispatch via goal-host `POST /resolve` (~290s cap). Short goals answered inline. |
-| `run_goal_async` | ACT | Async dispatch via goal-host `POST /run-goal` → `dispatchId` immediately. Default for non-trivial goals. **Names a `repos/<vessel>/src/…` file → routes to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit** (no byte-exact trick needed). |
-| `goal_status` | ACT | Poll a `dispatchId` → the honest **`reached`** verdict (primary), executionId/template, hydrated roll-up (state signature, produced shapes, failure mode, Thompson α/β). |
-| `goal_reasoning` | REASON | The goal-host **walk decision-log** for a `dispatchId`: goal-target inference → satisfier/bridge/step decisions → reach verdict + per-task trace sequence. *Why* it reached or fell short. Renders the `walkLog` for satisfier-only reaches (no template trace). |
-| `provide_feedback` | FEEDBACK | Record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) → records a `goal_verification_labels` oracle-corpus label, consumed by offline audit rather than by an automated reach-gate. Auto-derives goal/executionId/template from the dispatch record. |
-| `registry_query` | INSPECT | Discovery registry: `mode:"shapes"` (vocabulary, optional `shape` substring) / `mode:"vessels"` (who serves a `shape`). Replaces `curl discovery`. |
-| `execution_trace` | INSPECT | Durable trace by `execution_id`: status, template, chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), per-task sequence + failure_mode. Replaces raw trace curls. |
-| `resolve_impulse` | INSPECT | Advanced escape hatch: resolve/write ANY impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery. Prefer dedicated tools when they fit. |
+Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is set. Planes:
 
-**`reached`, not `status`.** `status` (`running|completed|failed`) is only the template *exit status*. **`reached`** (`yes|no`) is the goal-reach verdict and the load-bearing signal — surfaced first by `goal_status`/`goal_reasoning`. `completed`+`reached:false` (hollow) and `failed`+`reached:true` (e.g. satisfier reach) are both normal; trusting `status` mis-judges the outcome. High-stakes → also read the actual diff/output (a change can typecheck + pass the reach-gate yet not do what was asked). Every dispatch auto-stamps `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`) into the trace tags.
+| Tool | Plane |
+|------|-------|
+| `run_goal`, `run_goal_async` | ACT |
+| `goal_status` | TRACK |
+| `goal_reasoning` | REASON |
+| `provide_feedback` | FEEDBACK |
+| `registry_query`, `execution_trace`, `resolve_impulse` | INSPECT |
 
-**Canonical loop:** `run_goal_async` → `goal_status` → `goal_reasoning` → `provide_feedback`, annotated in CLAUDE.md § Tools.
+**`reached`, not `status`.** `status` (`running|completed|failed`) is only the template *exit status*. **`reached`** (`yes|no`) is the goal-reach verdict and the load-bearing signal — printed first by `goal_status` and `goal_reasoning`. `completed`+`reached:false` (hollow) and `failed`+`reached:true` (e.g. a satisfier reach) are both normal; trusting `status` mis-judges the outcome. For high-stakes work also read the actual diff/output: a change can typecheck and pass the reach-gate yet not do what was asked.
 
-> Also available: `concept_*` (concept-db graph — see the `metabob-substrate` skill), including **`concept_record_usage`** — the direct write into concept-db's relevance model. `POST /concepts/:id/usage` with `outcome` ∈ `success|failure|neutral`; concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` (`success` credits and raises relevance; `failure`/`neutral` grow the load denominator). `mark_complete` on a finding uses this same channel. Note the MCP server runs the compiled `dist/cli.js`; after editing `src/`, `bun run build` before a reconnect or new/changed tools stay stale.
+**Canonical loop:** `run_goal_async` → `goal_status` → `goal_reasoning` → `provide_feedback`.
+
+### run_goal
+
+Handler: `src/tools/run-goal.ts@handle`
+
+Synchronous goal dispatch for short, one-shot goals.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `goal` | string | — | Natural-language goal. `goal` or `target_template_id` is required |
+| `target_template_id` | string | — | Activity template to execute, bypassing Thompson selection |
+| `variables` | object | — | Seed variables for the execution pool (`{{var}}` placeholders) |
+| `parent_execution_id` | string | — | Parent execution id for cross-vessel provenance |
+| `composition_chain` | string[] | — | Ancestor execution ids, root-first |
+
+POSTs the impulse envelope `{ impulse: { pointer: { type: "goal_execution", operator, goal?, target_template_id?, … } } }` to `${GOAL_HOST_VESSEL_URL}/resolve`, or to the discovered vessel's advertised resolve endpoint (default `/v2/impulses/resolve`). `operator` is `MB_OPERATOR_ID` (default `claude-code-operator`); goal-host turns it into the trace's `operator:` tag. Blocks for up to `RUN_GOAL_TIMEOUT_MS` (default 290 s). Returns `executionId`, `status`, `selectedTemplateId` and the duration; a non-2xx or `resolved:false` reply returns its status and error.
+
+### run_goal_async
+
+Handler: `src/tools/run-goal-async.ts@handle`
+
+Asynchronous goal dispatch — the default for non-trivial goals. Same parameters as `run_goal`.
+
+POSTs the flat body `{ operator, goal?, targetTemplateId?, variables?, parent_execution_id?, composition_chain? }` to `{goal-host}/run-goal` (timeout `RUN_GOAL_ASYNC_TIMEOUT_MS`, default 30 s) and returns the `dispatchId` with a `goal_status` hint. The goal text is forwarded unchanged; goal-host decides the route — a goal naming a real `repos/<vessel>/src/…` file routes to `feature_compose`, which drafts, typecheck-verifies and lands a traced commit.
+
+### goal_status
+
+Handler: `src/tools/goal-status.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
+
+`GET {goal-host}/executions/:dispatch_id` (timeout `GOAL_STATUS_TIMEOUT_MS`, default 15 s). Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace from activity-api `GET /v2/activities/execution-traces/:executionId`: state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so a 404 means the record was pruned or never existed.
+
+### goal_reasoning
+
+Handler: `src/tools/goal-reasoning.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
+
+The walk's decision-log for a finished dispatch: the same header as `goal_status`, then the dispatch record's `walkLog` whenever it has one (numbered, verbatim), then — when an `executionId` exists — the per-task trace sequence (`#N ✓/✗ resolver/tier inShapes → outShapes`, failure mode) and a reach-verdict block (state-space, produced shapes, reach tags, α/β). With neither a `walkLog` nor trace tasks it says the decision-log is unavailable (typically a direct vessel resolve). While the dispatch runs it returns "still running" and nothing else.
+
+### provide_feedback
+
+Handler: `src/tools/provide-feedback.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
+| `verdict` | `reached\|not_reached\|partial` | **required** | Operator verdict on whether the goal was achieved |
+| `rationale` | string | **required** | The evidence behind the verdict; stored as the label notes |
+| `confidence` | number | `0.9` | Operator confidence, 0..1 |
+| `goal` | string | — | Goal text, when the dispatch record does not carry it |
+
+Reads the dispatch record from goal-host (`GET /executions/:dispatch_id`), refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and POSTs a `goal_verification_label_write` impulse to activity-api `/v2/impulses/resolve`: verdict `achieved`/`not_achieved`/`partial`, `labeler: "human"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate.
+
+### registry_query
+
+Handler: `src/tools/registry-query.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | `shapes\|vessels` | **required** | `shapes` lists the advertised vocabulary; `vessels` lists who serves `shape` |
+| `shape` | string | — | Required in `vessels` mode; in `shapes` mode, a case-insensitive substring filter |
+
+Talks to discovery directly: `DISCOVERY_ENDPOINT`, else the configured discovery, else `http://localhost:18100`. `shapes` mode: `GET /registry/shapes`, filtered client-side and sorted. `vessels` mode: `POST /resolve` with a `vesselCapability` pointer, listing each vessel's id, endpoint (`public_endpoint` when present), protocol and resolve endpoint, plus a warning line when the two registry views disagree about the shape.
+
+### execution_trace
+
+Handler: `src/tools/execution-trace.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `execution_id` | string | **required** | The durable trace's execution id |
+
+`GET {activity-api}/v2/activities/execution-traces/:execution_id`. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. `goal_reasoning` renders the same trace for a dispatch.
+
+### resolve_impulse
+
+Handler: `src/tools/resolve-impulse.ts@handle`
+
+The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). Prefer a dedicated tool when one fits.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `shape` | string | **required** | `pointer.type` to resolve |
+| `pointer` | object | — | Extra pointer fields, merged after `type` (so `pointer.type` overrides `shape`) |
+| `vessel_shape` | string | — | Discovery shape of the owning vessel, when it differs from `shape` |
+| `activity_api` | boolean | `true` unless `vessel_shape` is set | `true` POSTs to activity-api; `false` routes through discovery |
+
+POSTs `{ impulse: { pointer } }` to activity-api `/v2/impulses/resolve`, or — through discovery, by `vessel_shape` or else `shape` — to the owning vessel's resolve endpoint (timeout `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s). Returns the target URL, the HTTP status and the response body (pretty-printed JSON, truncated at 2048 characters) for any status. It adds no `operator` field.
 
 ---
 
-## Agent-resolver tools (Claude-Code-as-implicit-vessel, write half)
+## Concept graph tools
 
-The cockpit is not only a client that dispatches goals INTO the substrate — the
-agent can also act as a **resolver the substrate dispatches work TO**. When
-enabled (opt-in `METABOB_AGENT_RESOLVER=1`; off by default), the vessel advertises
-the `human_input` shape, so a goal-host walk that exhausts its automated
-approaches solicits a decision from this agent. The vessel durably enqueues the
-task; the agent drains it with these tools. `goal_reasoning` is the read half of
-the same "Claude-Code-as-implicit-vessel" idea — this is the write half.
+concept-db's graph of concepts, edges and usage. The URL is `CONCEPT_DB_URL` (set directly or derived, see § Configuration), else the first vessel discovery returns for the `conceptGraph` shape; with neither a concept-db URL nor discovery the tools return a configuration message and make no request. Requests time out after 10 s (15 s for `concept_create`); an unreachable concept-db or a non-2xx reply is returned as text, never thrown. Bodies render through `src/tools/_concept-content.ts@renderConceptContent`: `preview` is the first ~700 characters, cut back to a line boundary with the truncation disclosed; `full` is the whole body; `none` omits it.
 
-| Tool | Behaviour |
-|------|-----------|
-| `pull_assigned_work` | Claim tasks the substrate dispatched to this agent-resolver. Returns each `task_id` + `question`. Tasks are **durable and keyed by the stable vesselId**, so work assigned while you were away in a prior session surfaces now. Params: `limit` (default 10). |
-| `submit_resolution` | Answer a task: `{ task_id, outcome: "answered"\|"declined"\|"insufficient_context", answer? }` (answer required when `answered`). The answer is recorded durably FIRST, then delivered to goal-host as `solicitationResponse_write` to unblock its parked walk. If the substrate is briefly unreachable the answer stays queued and is retried automatically on the next session's startup — the cross-session provide-info-back guarantee. |
+### concept_search
 
-**Cross-session coordination.** Tasks and answers persist in `~/.metabob/sidecar.db`,
-partitioned by the vesselId (`metabob-mcp-<hash(apiKey+workspace)>`). A later
-session in the same workspace+key re-derives the identical id and resumes: it
-sees still-pending tasks (`pull_assigned_work`) and re-delivers any answer a
-prior session recorded but couldn't send. Loop: substrate solicits →
-`pull_assigned_work` → reason → `submit_resolution`.
+Handler: `src/tools/concept-search.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `concept_id` | string | — | Read exactly this concept (with or without the `concept:` prefix) with its full body; other filters are ignored |
+| `content` | `preview\|full\|none` | `preview` | Body rendering per result |
+| `query` | string | — | Natural-language or shape-name query; omitted = list mode |
+| `source_type` | string | — | Filter by source type |
+| `shape` | string | — | Filter by shape |
+| `min_relevance` | number | — | Relevance threshold, 0..1 |
+| `limit` | number | `10` | Max results (max 50) |
+
+`GET {conceptDb}/concepts/:id` for `concept_id`; otherwise `GET {conceptDb}/concepts/search` with the filters set. Each result shows source type, shape, id, summary, relevance / loaded / succeeded / failed counts, last update and the body.
+
+### concept_neighbors
+
+Handler: `src/tools/concept-neighbors.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `concept_id` | string | **required** | Concept id (no `concept:` prefix) |
+| `content` | `preview\|full\|none` | `preview` | Body rendering per neighbour |
+| `direction` | `outgoing\|incoming\|both` | `both` | Edge direction to follow |
+| `edge_types` | string[] | — | Edge-type filter |
+| `limit` | number | `10` | Max neighbours (max 50) |
+
+`GET {conceptDb}/concepts/:id/neighbors`. One entry per edge: edge type, shape, neighbour id, summary, edge weight and traversal count, relevance and the body.
+
+### concept_usage_stats
+
+Handler: `src/tools/concept-usage-stats.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `concept_id` | string | **required** | Concept id (no `concept:` prefix) |
+| `include_history` | boolean | `true` | Include recent usage rows |
+| `history_limit` | number | `10` | Max usage rows (max 50) |
+
+`GET {conceptDb}/concepts/:id/stats` (total uses, success and failure rates) and, with history, `GET {conceptDb}/concepts/:id/usage?limit=N` (outcome, time, trace and activity per row). A failed history call still returns the stats.
+
+### concept_sequence
+
+Handler: `src/tools/concept-sequence.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `concept_id` | string | **required** | Concept id (no `concept:` prefix) |
+| `direction` | `next\|prev\|both` | `next` | Direction along the sequence chain |
+| `limit` | number | `10` | Max neighbours (max 50) |
+
+`GET {conceptDb}/concepts/:id/sequence`: the concepts observed to follow (or precede) this one, with weight and traversal count.
+
+### concept_link
+
+Handler: `src/tools/concept-link.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `from_concept_id` | string | **required** | Source concept id |
+| `to_concept_id` | string | **required** | Target concept id |
+| `edge_type` | `related_to\|derived_from\|resolves_to\|sequence_next\|sequence_prev\|description_of\|example_of\|contradicts` | **required** | The typed relationship |
+| `description` | string | — | Rationale |
+| `weight` | number | concept-db's default | Initial edge weight, 0..1 |
+
+`POST {conceptDb}/concepts/:from/link` with the fields set; renders the created edge.
+
+### concept_create
+
+Handler: `src/tools/concept-create.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `content` | string | **required** | The concept body (embedded for similarity search) |
+| `summary` | string | — | One-line gist |
+| `shape` | string | **required** | The impulse shape this concept represents |
+| `source_type` | `goal\|memo\|human_input\|search\|llm\|metabob_annotation\|write\|read\|cpg_embedding\|extracted\|impulse_signature\|vessel_construction_pattern\|impulse_activity_pattern` | **required** | Substrate category |
+| `pointer` | object | `{ type: <shape> }` | Pointer envelope |
+| `budget` | number | concept-db's default | Token budget for resolution snapshots |
+| `priority` | number | concept-db's default | Initial priority, 0..1 |
+
+`POST {conceptDb}/concepts`; renders the created concept's id, shape, source type, summary, budget and priority.
+
+### concept_record_usage
+
+Handler: `src/tools/concept-record-usage.ts@handle`
+
+The direct write into concept-db's relevance model.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `concept_id` | string | **required** | The concept the outcome applies to (with or without `concept:`) |
+| `outcome` | `success\|failure\|neutral` | **required** | `success` = it helped; `failure` = it misled; `neutral` = loaded only |
+| `trace_id` | string | `mcp:<uuid>` | Execution or trace id |
+| `activity_id` | string | — | Activity id |
+| `task_id` | string | — | Task id within the activity |
+
+`POST {conceptDb}/concepts/:id/usage` with `{ trace_id, outcome, activity_id?, task_id? }`. The client computes no relevance: concept-db folds the outcome into its Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` — `success` credits the concept, `failure` and `neutral` grow the load count without credit. `mark_complete` on a finding writes through this same endpoint.
+
+---
+
+## Agent-resolver tools
+
+The agent is also a **resolver the substrate dispatches work to**. When
+`METABOB_AGENT_RESOLVER` is `1`/`true`/`on` (off by default — opt in only where
+a human is at that terminal; `src/vessel-identity.ts@agentResolverEnabled`) and
+the vessel registers with discovery (which needs a bound HTTP server, an
+explicit `VESSEL_PUBLIC_ENDPOINT` and an explicit `HEALTH_PORT`), the vessel
+advertises the `human_input` shape, so a goal-host walk that exhausts its
+automated approaches can solicit a decision from this agent. The switch
+gates only the advertisement: an inbound `human_input` impulse is always
+enqueued (see § Impulse shapes). `goal_reasoning` reads the substrate's walk;
+these two tools answer it.
+
+Tasks and answers persist in `~/.metabob/sidecar.db` (sidecar mode only),
+keyed by the vesselId — `VESSEL_ID`, else `metabob-mcp-<hash(apiKey+workspace)>`
+(`src/resolver-identity.ts@getResolverVesselId`). A later session in the same
+workspace with the same key derives the same id and resumes: it sees
+still-pending tasks and, at startup, re-delivers answers a prior session
+recorded but could not send (`src/agent-delivery.ts@reconcileUndelivered`).
+Loop: substrate solicits → `pull_assigned_work` → reason → `submit_resolution`.
+
+### pull_assigned_work
+
+Handler: `src/tools/pull-assigned-work.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | number | `10` | Max tasks (max 100) |
+
+Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires.
+
+### submit_resolution
+
+Handler: `src/tools/submit-resolution.ts@handle`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `task_id` | string | **required** | A task from `pull_assigned_work` |
+| `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
+| `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
+
+Records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
 
 ---
 
@@ -353,7 +627,7 @@ prior session recorded but couldn't send. Loop: substrate solicits →
    → full problem list for triage
 
 4. predict_cochanges(changed_files) / analyze_impact(changed_files)
-   → local CPG queries, no API call
+   → local CPG queries
 
 5. record_finding(files, summary, severity, category)
    → the write half: attribute what you found to the code; returns agf_* ids
@@ -368,21 +642,23 @@ prior session recorded but couldn't send. Loop: substrate solicits →
 8. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
    → answer decisions the substrate dispatched to this agent
 
-9. init_workspace(recently_changed_files=[...new files...])
-   → sync next batch as work progresses
+9. init_workspace(recently_changed_files=[...files changed since...])
+   → sync the next batch as work progresses
 ```
+
+The MCP client runs the compiled `dist/cli.js`: after editing `src/`, run `bun run build` and reconnect the server for tool changes to take effect.
 
 ## Impulse shapes (HTTP resolver)
 
-The vessel also accepts `POST /v2/impulses/resolve` from the activity system:
+The vessel accepts `POST /v2/impulses/resolve` from the activity system. The body is `{ impulses: [{ id?, pointer }] }` or a single `{ pointer }`; the shape is `pointer.type`. Mapped shapes run the named tool, subject to the `METABOB_TOOLS` allowlist (`src/vessel-server.ts@resolvePointerToTool`):
 
-| Shape | Maps to |
-|-------|---------|
-| `mcp:tool_call` | any tool by name via `pointer.tool` + `pointer.input` |
-| `code:cochange_prediction` | `predict_cochanges` |
-| `code:impact_analysis` | `analyze_impact` |
-| `code:git_change_assignment` | `assign_git_changes` |
-| `code:analysis_context` | `get_analysis_context` |
-| `human_input` | queued, not resolved inline — durably enqueued for `pull_assigned_work` / `submit_resolution`; the POST ACKs immediately |
+| Shape | Maps to | Pointer fields forwarded |
+|-------|---------|--------------------------|
+| `mcp:tool_call` | any tool by name | `tool`, `input` (default `{}`) |
+| `code:cochange_prediction` | `predict_cochanges` | `changed_files`, `limit`, `confidence_threshold` |
+| `code:impact_analysis` | `analyze_impact` | `changed_files`, `diff`, `direction`, `max_depth`, `include_tests` |
+| `code:git_change_assignment` | `assign_git_changes` | `changed_files`, `diff`, `include_cochange_predictions`, `prediction_limit` |
+| `code:analysis_context` | `get_analysis_context` | `recently_changed_files`, `problem_limit`, `scope` |
+| `human_input` | queued, not resolved inline (`src/vessel-server.ts@QUEUED_SHAPES`) | `question_markdown` (required), `solicitation_id` or `id`, `timeout_ms` (default 300 000) — durably enqueued for `pull_assigned_work` / `submit_resolution`; the POST ACKs `{ accepted, solicitation_id, will_respond_via }` |
 
-Auth: `Authorization: ApiKey <METABOB_API_KEY>`
+Auth: `Authorization: ApiKey <key>` (a `Bearer <key>` or bare key is also accepted), matched against `METABOB_API_KEY` or the identity API key; with no key configured the endpoint fails closed with 401. Per-impulse errors return `loaded: false` inside an HTTP 200.

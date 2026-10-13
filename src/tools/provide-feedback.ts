@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §provide_feedback
 /**
  * provide_feedback — the "feedback plane" for the operator (Claude Code) working
  * WITH the substrate. After inspecting a goal's reasoning (goal_reasoning), the

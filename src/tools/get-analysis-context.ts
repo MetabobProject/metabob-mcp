@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §get_analysis_context
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';

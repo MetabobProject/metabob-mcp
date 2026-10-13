@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §record_finding
 /**
  * record_finding — the write half of agent-side analysis.
  *

@@ -42,3 +42,7 @@ metabob-mcp-doctor-*.json
 # machine-local MCP config (gitignored)
 .mcp.json
 .metabob/config.json
+
+# machine-local Claude Code state (the shared .claude/settings.json is tracked)
+.claude/settings.local.json
+.claude/worktrees/

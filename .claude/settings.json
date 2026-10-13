@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/doclinks.mjs\" hook-post 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "doclinks: checking linked docs"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/doclinks.mjs\" hook-stop 2>/dev/null || true",
+            "timeout": 60,
+            "statusMessage": "doclinks: reviewing changed files against their docs"
+          }
+        ]
+      }
+    ]
+  }
+}

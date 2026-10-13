@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_create
 /**
  * concept_create — mint a typed concept into the substrate concept graph.
  *

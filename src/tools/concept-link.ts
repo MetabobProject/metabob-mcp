@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_link
 /**
  * concept_link — write a typed edge between two concepts.
  *

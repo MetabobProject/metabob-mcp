@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_search
 /**
  * concept_search — query the substrate's concept-db for accumulated concepts.
  *

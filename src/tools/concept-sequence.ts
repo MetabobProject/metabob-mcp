@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §concept_sequence
 /**
  * concept_sequence — predict-the-next-step neighbor lookup.
  *

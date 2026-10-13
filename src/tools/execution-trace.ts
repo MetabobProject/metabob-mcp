@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §execution_trace
 /**
  * execution_trace — read a durable execution trace by executionId directly
  * through MCP, so an operator never has to escape to raw activity-api curls or

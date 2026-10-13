@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §goal_status
 /**
  * goal_status — poll a goal dispatched via run_goal_async, and (once it has an
  * executionId) hydrate the durable execution trace for status + state-space.

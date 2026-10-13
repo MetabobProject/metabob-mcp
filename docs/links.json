@@ -1,0 +1,468 @@
+{
+  "about": "The link database between docs and code. `curated` is edited by hand; `derived` is rebuilt by `node scripts/doclinks.mjs build`. See docs/DOCLINKS.md.",
+  "curated": {
+    "docs": {
+      "CLAUDE": "CLAUDE.md",
+      "DEPLOYMENT": "docs/DEPLOYMENT.md",
+      "DOCLINKS": "docs/DOCLINKS.md",
+      "PUBLISHING": "docs/PUBLISHING.md",
+      "QUICK_START": "docs/QUICK_START.md",
+      "SIDECAR": "docs/SIDECAR.md",
+      "SPEC": "docs/SPEC.md"
+    },
+    "live": [
+      "CLAUDE.md",
+      "README.md",
+      "docs/DEPLOYMENT.md",
+      "docs/DOCLINKS.md",
+      "docs/METABOB-TOOL-QUESTIONS.md",
+      "docs/PUBLISHING.md",
+      "docs/QUICK_START.md",
+      "docs/SIDECAR.md",
+      "docs/SPEC.md",
+      "scripts/git-hooks/README.md",
+      "skills/metabob/SKILL.md"
+    ],
+    "covers": {
+      "docs/SPEC.md": [
+        "src/tools/init-workspace.ts",
+        "src/tools/get-problems.ts",
+        "src/tools/record-finding.ts",
+        "src/tools/search-codebase.ts",
+        "src/tools/predict-cochanges.ts",
+        "src/tools/analyze-impact.ts",
+        "src/tools/annotate-component.ts",
+        "src/tools/mark-complete.ts",
+        "src/tools/get-metrics.ts",
+        "src/tools/assign-git-changes.ts",
+        "src/tools/get-analysis-context.ts",
+        "src/tools/run-goal.ts",
+        "src/tools/run-goal-async.ts",
+        "src/tools/goal-status.ts",
+        "src/tools/goal-reasoning.ts",
+        "src/tools/provide-feedback.ts",
+        "src/tools/registry-query.ts",
+        "src/tools/execution-trace.ts",
+        "src/tools/resolve-impulse.ts",
+        "src/tools/concept-*.ts",
+        "src/tools/pull-assigned-work.ts",
+        "src/tools/submit-resolution.ts",
+        "src/tools/_findings.ts",
+        "src/tools/_concept-content.ts",
+        "src/tools/index.ts",
+        "src/vessel-server.ts",
+        "src/config.ts",
+        "src/cli.ts",
+        "src/discovery.ts",
+        "src/agent-delivery.ts",
+        "src/cochange-predictor.ts"
+      ],
+      "CLAUDE.md": [
+        "src/index.ts",
+        "src/api-client.ts",
+        "src/auth-service.ts",
+        "src/vessel-server.ts",
+        "src/local-index.ts",
+        "src/tools/index.ts",
+        "src/config.ts",
+        "src/cli.ts",
+        "src/telemetry.ts",
+        "src/vessel-identity.ts",
+        "src/presence-advertiser.ts",
+        "src/bootstrap.ts",
+        "scripts/doclinks.mjs"
+      ],
+      "docs/SIDECAR.md": [
+        "src/watcher.ts",
+        "src/git-watcher.ts",
+        "src/scheduler.ts"
+      ],
+      "docs/DOCLINKS.md": [
+        "scripts/doclinks.mjs"
+      ],
+      "scripts/git-hooks/README.md": [
+        "scripts/git-hooks/pre-commit",
+        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/install.sh"
+      ]
+    },
+    "retired": {},
+    "outsideTree": {
+      "dist/**": "build output of `bun run build` (gitignored)",
+      "include/**": "model assets copied at build time (gitignored)",
+      "vendor/cpg-inference/**": "git submodule — the superproject tracks only its gitlink",
+      "repos/**": "substrate vessel repositories, outside this repository"
+    },
+    "notDocs": [],
+    "notCode": [
+      "Node.js"
+    ],
+    "reviewed": {
+      "docs/SIDECAR.md": {
+        "at": "c89a250",
+        "why": "scheduler.ts changes after the doc (claim lease on dequeued rows, execFile instead of a shell) are internal; the doc's claims — same-process workers, 2 s send loop, scheduler gated on METABOB_API_KEY — still hold"
+      }
+    }
+  },
+  "derived": {
+    "note": "REBUILT by `node scripts/doclinks.mjs build` — do not edit by hand.",
+    "codeCitesDocs": {
+      "src/agent-delivery.ts": {
+        "SPEC": [
+          "submit_resolution"
+        ]
+      },
+      "src/cli.ts": {
+        "CLAUDE": [
+          "environment-variables"
+        ],
+        "SPEC": [
+          "precedence"
+        ]
+      },
+      "src/config.ts": {
+        "SPEC": [
+          "endpoint-derivation",
+          "precedence"
+        ]
+      },
+      "src/discovery.ts": {
+        "SPEC": [
+          "endpoint-derivation"
+        ]
+      },
+      "src/index.ts": {
+        "CLAUDE": [
+          "environment-variables"
+        ]
+      },
+      "src/tools/analyze-impact.ts": {
+        "SPEC": [
+          "analyze_impact"
+        ]
+      },
+      "src/tools/annotate-component.ts": {
+        "SPEC": [
+          "annotate_component"
+        ]
+      },
+      "src/tools/assign-git-changes.ts": {
+        "SPEC": [
+          "assign_git_changes"
+        ]
+      },
+      "src/tools/concept-create.ts": {
+        "CLAUDE": [],
+        "SPEC": [
+          "concept_create"
+        ]
+      },
+      "src/tools/concept-link.ts": {
+        "SPEC": [
+          "concept_link"
+        ]
+      },
+      "src/tools/concept-neighbors.ts": {
+        "SPEC": [
+          "concept_neighbors"
+        ]
+      },
+      "src/tools/concept-record-usage.ts": {
+        "SPEC": [
+          "concept_record_usage"
+        ]
+      },
+      "src/tools/concept-search.ts": {
+        "SPEC": [
+          "concept_search"
+        ]
+      },
+      "src/tools/concept-sequence.ts": {
+        "SPEC": [
+          "concept_sequence"
+        ]
+      },
+      "src/tools/concept-usage-stats.ts": {
+        "SPEC": [
+          "concept_usage_stats"
+        ]
+      },
+      "src/tools/execution-trace.ts": {
+        "SPEC": [
+          "execution_trace"
+        ]
+      },
+      "src/tools/get-analysis-context.ts": {
+        "SPEC": [
+          "get_analysis_context"
+        ]
+      },
+      "src/tools/get-metrics.ts": {
+        "SPEC": [
+          "get_metrics"
+        ]
+      },
+      "src/tools/get-problems.ts": {
+        "SPEC": [
+          "get_problems"
+        ]
+      },
+      "src/tools/goal-reasoning.ts": {
+        "SPEC": [
+          "goal_reasoning"
+        ]
+      },
+      "src/tools/goal-status.ts": {
+        "SPEC": [
+          "goal_status"
+        ]
+      },
+      "src/tools/init-workspace.ts": {
+        "SPEC": [
+          "init_workspace"
+        ]
+      },
+      "src/tools/mark-complete.ts": {
+        "SPEC": [
+          "mark_complete"
+        ]
+      },
+      "src/tools/predict-cochanges.ts": {
+        "SPEC": [
+          "predict_cochanges"
+        ]
+      },
+      "src/tools/provide-feedback.ts": {
+        "SPEC": [
+          "provide_feedback"
+        ]
+      },
+      "src/tools/pull-assigned-work.ts": {
+        "SPEC": [
+          "pull_assigned_work"
+        ]
+      },
+      "src/tools/record-finding.ts": {
+        "SPEC": [
+          "record_finding"
+        ]
+      },
+      "src/tools/registry-query.ts": {
+        "SPEC": [
+          "registry_query"
+        ]
+      },
+      "src/tools/resolve-impulse.ts": {
+        "SPEC": [
+          "resolve_impulse"
+        ]
+      },
+      "src/tools/run-goal-async.ts": {
+        "SPEC": [
+          "run_goal_async"
+        ]
+      },
+      "src/tools/run-goal.ts": {
+        "SPEC": [
+          "run_goal"
+        ]
+      },
+      "src/tools/search-codebase.ts": {
+        "SPEC": [
+          "search_codebase"
+        ]
+      },
+      "src/tools/submit-resolution.ts": {
+        "SPEC": [
+          "submit_resolution"
+        ]
+      },
+      "src/vessel-server.ts": {
+        "SPEC": [
+          "impulse-shapes"
+        ]
+      }
+    },
+    "docCitesCode": {
+      "CLAUDE.md": [
+        "docs/DOCLINKS.md",
+        "docs/SPEC.md",
+        "scripts/doclinks.mjs",
+        "scripts/git-hooks/install.sh",
+        "src/api-client.ts",
+        "src/auth-service.ts",
+        "src/cochange-predictor.ts@addFile",
+        "src/cpg-inference.ts",
+        "src/index.ts",
+        "src/local-index.ts",
+        "src/tools/index.ts",
+        "src/vessel-server.ts",
+        "tests/unit/doclinks.test.ts"
+      ],
+      "README.md": [
+        "CLAUDE.md",
+        "docs/SPEC.md",
+        "scripts/git-hooks/install.sh"
+      ],
+      "docs/COORDINATION-DEMONSTRATION.md": [
+        "src/tools/_findings.ts"
+      ],
+      "docs/DEMO-SCRIPT.md": [
+        "rc/cli.ts",
+        "scripts/demo/get-problems.ts",
+        "scripts/demo/record-then-die.ts",
+        "src/cli.ts"
+      ],
+      "docs/DEPLOYMENT.md": [
+        "docs/SIDECAR.md"
+      ],
+      "docs/DOCLINKS.md": [
+        "scripts/doclinks.mjs",
+        "scripts/doclinks.mjs@slug",
+        "scripts/doclinks.mjs@symbolRegions",
+        "src/index.ts",
+        "src/tools/index.ts",
+        "tests/unit/doclinks.test.ts"
+      ],
+      "docs/METABOB-TOOL-QUESTIONS.md": [
+        "src/local-store.ts",
+        "tests/unit/agent-coordination-store.test.ts"
+      ],
+      "docs/PUBLISHING.md": [
+        "scripts/verify-vendor.ts",
+        "src/cli.ts",
+        "src/cpg-inference.ts",
+        "src/tools/index.ts"
+      ],
+      "docs/QUICK_START.md": [
+        "README.md",
+        "docs/SPEC.md"
+      ],
+      "docs/SPEC.md": [
+        "docs/DOCLINKS.md",
+        "src/agent-delivery.ts@deliverResolution",
+        "src/agent-delivery.ts@reconcileUndelivered",
+        "src/api-client.ts@submitFiles",
+        "src/cli.ts@main",
+        "src/cochange-predictor.ts@addFile",
+        "src/cochange-predictor.ts@generateSimpleFeatures",
+        "src/cochange-predictor.ts@predictCochanges",
+        "src/config.ts@applyConfigDefaults",
+        "src/config.ts@deriveSubstrateDefaults",
+        "src/config.ts@getDefaultConfigPath",
+        "src/config.ts@withoutEndpoints",
+        "src/cpg-inference.ts",
+        "src/discovery.ts@deriveLocalDiscoveryEndpoint",
+        "src/discovery.ts@resolveServiceEndpointByShape",
+        "src/resolver-identity.ts@getResolverVesselId",
+        "src/tools/_concept-content.ts@renderConceptContent",
+        "src/tools/_findings.ts@attributionLines",
+        "src/tools/_findings.ts@fetchAgentFindings",
+        "src/tools/_findings.ts@recordConceptUsage",
+        "src/tools/analyze-impact.ts@handle",
+        "src/tools/annotate-component.ts@handle",
+        "src/tools/assign-git-changes.ts@handle",
+        "src/tools/concept-create.ts@handle",
+        "src/tools/concept-link.ts@handle",
+        "src/tools/concept-neighbors.ts@handle",
+        "src/tools/concept-record-usage.ts@handle",
+        "src/tools/concept-search.ts@handle",
+        "src/tools/concept-sequence.ts@handle",
+        "src/tools/concept-usage-stats.ts@handle",
+        "src/tools/execution-trace.ts@handle",
+        "src/tools/get-analysis-context.ts@handle",
+        "src/tools/get-metrics.ts@handle",
+        "src/tools/get-problems.ts@handle",
+        "src/tools/goal-reasoning.ts@handle",
+        "src/tools/goal-status.ts@handle",
+        "src/tools/index.ts",
+        "src/tools/index.ts@TOOL_REGISTRY",
+        "src/tools/init-workspace.ts@handle",
+        "src/tools/mark-complete.ts@handle",
+        "src/tools/predict-cochanges.ts@handle",
+        "src/tools/provide-feedback.ts@handle",
+        "src/tools/pull-assigned-work.ts@handle",
+        "src/tools/record-finding.ts@handle",
+        "src/tools/registry-query.ts@handle",
+        "src/tools/resolve-impulse.ts@handle",
+        "src/tools/run-goal-async.ts@handle",
+        "src/tools/run-goal.ts@handle",
+        "src/tools/search-codebase.ts@handle",
+        "src/tools/submit-resolution.ts@handle",
+        "src/vector-index.ts@FAISSIndex",
+        "src/vessel-identity.ts@agentResolverEnabled",
+        "src/vessel-server.ts@QUEUED_SHAPES",
+        "src/vessel-server.ts@resolvePointerToTool"
+      ],
+      "openspec/changes/2026-07-19-local-index-persistence/proposal.md": [
+        "graph-builder.ts",
+        "src/cochange-predictor.ts",
+        "src/local-index.ts",
+        "src/vector-index.ts",
+        "src/workspace.ts"
+      ],
+      "scripts/git-hooks/README.md": [
+        "index.ts",
+        "scripts/doclinks.mjs",
+        "scripts/git-hooks/install.sh",
+        "src/cli.ts",
+        "tests/unit/doclinks.test.ts"
+      ]
+    },
+    "anchors": {
+      "scripts/doclinks.mjs@slug": "42eb2e2b8920",
+      "scripts/doclinks.mjs@symbolRegions": "57ce027154cc",
+      "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
+      "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
+      "src/api-client.ts@submitFiles": "e606d02a1169",
+      "src/cli.ts@main": "7d5d3f63a3bd",
+      "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
+      "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
+      "src/cochange-predictor.ts@predictCochanges": "9c7b4dc703d1",
+      "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
+      "src/config.ts@deriveSubstrateDefaults": "b1540b144e4b",
+      "src/config.ts@getDefaultConfigPath": "b2314fb60be6",
+      "src/config.ts@withoutEndpoints": "6e745d8a7242",
+      "src/discovery.ts@deriveLocalDiscoveryEndpoint": "3582fa0db678",
+      "src/discovery.ts@resolveServiceEndpointByShape": "c82219d4d059",
+      "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
+      "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
+      "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
+      "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
+      "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
+      "src/tools/analyze-impact.ts@handle": "4bdf740420c9",
+      "src/tools/annotate-component.ts@handle": "4bdf740420c9",
+      "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
+      "src/tools/concept-create.ts@handle": "4bdf740420c9",
+      "src/tools/concept-link.ts@handle": "4bdf740420c9",
+      "src/tools/concept-neighbors.ts@handle": "4bdf740420c9",
+      "src/tools/concept-record-usage.ts@handle": "4bdf740420c9",
+      "src/tools/concept-search.ts@handle": "4bdf740420c9",
+      "src/tools/concept-sequence.ts@handle": "4bdf740420c9",
+      "src/tools/concept-usage-stats.ts@handle": "4bdf740420c9",
+      "src/tools/execution-trace.ts@handle": "8f239da060cb",
+      "src/tools/get-analysis-context.ts@handle": "4bdf740420c9",
+      "src/tools/get-metrics.ts@handle": "4bdf740420c9",
+      "src/tools/get-problems.ts@handle": "4bdf740420c9",
+      "src/tools/goal-reasoning.ts@handle": "398fef219237",
+      "src/tools/goal-status.ts@handle": "4bdf740420c9",
+      "src/tools/index.ts@TOOL_REGISTRY": "c2ebce7570f5",
+      "src/tools/init-workspace.ts@handle": "4bdf740420c9",
+      "src/tools/mark-complete.ts@handle": "4bdf740420c9",
+      "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
+      "src/tools/provide-feedback.ts@handle": "ac0b84ada5a5",
+      "src/tools/pull-assigned-work.ts@handle": "4bdf740420c9",
+      "src/tools/record-finding.ts@handle": "4bdf740420c9",
+      "src/tools/registry-query.ts@handle": "4206dbda7e7a",
+      "src/tools/resolve-impulse.ts@handle": "d2893d44938d",
+      "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
+      "src/tools/run-goal.ts@handle": "4bdf740420c9",
+      "src/tools/search-codebase.ts@handle": "4bdf740420c9",
+      "src/tools/submit-resolution.ts@handle": "4bdf740420c9",
+      "src/vector-index.ts@FAISSIndex": "bdf68716d2e4",
+      "src/vessel-identity.ts@agentResolverEnabled": "1052bbb4ff16",
+      "src/vessel-server.ts@QUEUED_SHAPES": "6db48f2ed6c0",
+      "src/vessel-server.ts@resolvePointerToTool": "16d1a9fc8690"
+    }
+  }
+}

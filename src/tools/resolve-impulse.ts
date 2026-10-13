@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §resolve_impulse
 /**
  * resolve_impulse — a GENERAL impulse-resolve passthrough, so an operator agent
  * can resolve or write ANY shape through MCP instead of raw `curl … /v2/impulses/

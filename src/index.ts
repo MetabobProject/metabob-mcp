@@ -52,7 +52,7 @@ import { ZodError } from 'zod';
 
 const MCP_VERSION = VESSEL_VERSION;
 
-// ── Configuration ────────────────────────────────────────────────────────────
+// ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
 const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;

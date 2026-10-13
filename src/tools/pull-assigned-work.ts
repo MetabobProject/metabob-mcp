@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §pull_assigned_work
 /**
  * pull_assigned_work — the agent claims work the substrate dispatched to it.
  *

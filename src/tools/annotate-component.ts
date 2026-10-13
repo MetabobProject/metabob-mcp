@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §annotate_component
 import { z } from 'zod';
 import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';

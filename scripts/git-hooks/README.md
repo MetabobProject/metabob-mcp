@@ -15,7 +15,7 @@ metabob-mcp is an MCP server distributed via npm (`@metabob/mcp`). The repo is o
 - `src/` — server source (`cli.ts`, `index.ts`, tool handlers)
 - `tests/` — test suites
 - `docs/` — stateless reference docs (`DEPLOYMENT.md`, `PUBLISHING.md`, `QUICK_START.md`)
-- `scripts/` — operational tooling (incl. `scripts/git-hooks/`)
+- `scripts/` — operational tooling (incl. `scripts/git-hooks/` and `scripts/doclinks.mjs`)
 - `openspec/` — change proposals
 
 A small allowlist of project-metadata files lives at root (`CLAUDE.md`, `README.md`, `LICENSE`, `package.json`, `bun.lock`, `tsconfig.json`, `Dockerfile`, `.gitignore`, `.dockerignore`, `.npmignore`, `.env.example`, etc.). Anything else accumulates as cruft.
@@ -54,10 +54,11 @@ METABOB_ALLOW_MAIN_PUSH=1 git push origin main
 
 ## What the pre-commit hook does
 
-The hook runs two layers, in order:
+The hook runs three layers, in order:
 
-1. **Placement check** — rejects newly-added or renamed-into entries that violate the placement rules. Pre-existing files are grandfathered.
-2. **Secrets scan** (`gitleaks protect --staged`) — scans the staged diff for credentials. If gitleaks isn't installed, the scan is skipped with a one-line install hint.
+1. **Doc links** (`node scripts/doclinks.mjs precommit`) — runs on every commit and lists the live docs linked to what is staged but not in the commit, plus any broken docs ↔ code citations (see `docs/DOCLINKS.md`). **Warns only, never blocks**; it is skipped when `node` is not on `PATH`. The check that fails on broken citations is `tests/unit/doclinks.test.ts`, run by `bun test` and CI.
+2. **Placement check** — rejects newly-added or renamed-into entries that violate the placement rules. Pre-existing files are grandfathered. A commit that adds or renames no file ends the hook here.
+3. **Secrets scan** (`gitleaks protect --staged`) — scans the staged diff for credentials. If gitleaks isn't installed, the scan is skipped with a one-line install hint.
 
 Bypass with `git commit --no-verify` (use sparingly).
 
@@ -71,7 +72,7 @@ A commit is rejected when it adds (or renames into) a file that violates any of 
 4. **No new test files** outside `tests/` or co-located `src/<module>/__tests__/`.
 5. **No new YAML / JSON / SQL / SurrealQL / TOML / HTML / TXT / JSONL at root**. Config goes alongside what it configures.
 6. **No new image / video / archive files** anywhere outside `docs/assets/`.
-7. **New files must sit under an allowed top-level directory**: `src/`, `test/`, `tests/`, `scripts/`, `docs/`, `openspec/`, `packages/`, `.github/`, `.minibob/`. This is a path check, not a directory-creation check — adding a file under an existing-but-unlisted directory (`vendor/`, `skills/`, `include/`) is rejected too. Extend `ALLOWED_TOPLEVEL_DIRS` rather than bypassing.
+7. **New files must sit under an allowed top-level directory**: `src/`, `test/`, `tests/`, `scripts/`, `docs/`, `openspec/`, `packages/`, `.github/`, `.minibob/`, `.claude/` (the shared Claude Code `settings.json`; machine-local files under it are gitignored). This is a path check, not a directory-creation check — adding a file under an existing-but-unlisted directory (`vendor/`, `skills/`, `include/`) is rejected too. Extend `ALLOWED_TOPLEVEL_DIRS` rather than bypassing.
 
 ## Gitleaks
 

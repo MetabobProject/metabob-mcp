@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §goal_reasoning
 /**
  * goal_reasoning — the "reason plane" for the operator (Claude Code) working
  * WITH the substrate. Given a dispatchId, reconstruct the goal-host walk's

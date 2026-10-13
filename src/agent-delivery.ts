@@ -5,8 +5,9 @@
  * The answer is recorded durably BEFORE delivery (delivered=0), so a failed
  * post-back (network down, goal-host briefly unreachable) is not lost: the
  * startup reconcile drains any undelivered answers on the next session, keyed by
- * the stable vesselId. Prefers discovery (which yields the p2p/HTTP transport
- * the vessel advertises) and falls back to an explicit GOAL_HOST_VESSEL_URL.
+ * the stable vesselId. Targets an explicit GOAL_HOST_VESSEL_URL when set, else
+ * the goal-host discovery returns for the `goal_execution` shape (and the
+ * resolve endpoint it advertises). Contract: SPEC §submit_resolution.
  */
 
 import type { AnalysisAPIClient } from './api-client.js';

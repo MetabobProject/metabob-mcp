@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §run_goal
 /**
  * run_goal — dispatch a goal to the substrate's goal-host-vessel.
  *

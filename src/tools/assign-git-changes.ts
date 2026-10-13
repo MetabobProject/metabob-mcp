@@ -1,3 +1,4 @@
+// Contract (input schema, behaviour): SPEC §assign_git_changes
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';

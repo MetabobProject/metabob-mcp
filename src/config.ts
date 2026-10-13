@@ -58,6 +58,7 @@ function normalizeUrl(urlString: string): string | undefined {
   }
 }
 
+/** Sibling services derived from the gateway endpoint — SPEC §endpoint-derivation. */
 function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   MetabobCLIConfig,
   'discoveryEndpoint' | 'analysisApiUrl' | 'identityEndpoint' | 'conceptDbUrl'
@@ -156,9 +157,8 @@ export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): Meta
 }
 
 /**
- * Last-resort default: an API key alone is a valid, fully-derived config
- * pointing at the public deployment (analysis at
- * https://ide.metabob.com/analysis, plus discovery/identity/concept-db) —
+ * Last-resort default: an API key alone is a valid config pointing at the
+ * public deployment (https://ide.metabob.com, which derives no siblings) —
  * identical to an api-key-only ~/.metabob/config.json.
  *
  * Callers apply this AFTER loadMetabobEnvConfig and loadMetabobCLIConfig, so
@@ -264,6 +264,7 @@ export function withoutEndpoints(config: MetabobCLIConfig | null): MetabobCLICon
   return { apiKey: config.apiKey, vesselId: config.vesselId, sourcePath: config.sourcePath };
 }
 
+/** Fill only variables that are still unset, so the first loader applied wins — SPEC §precedence. */
 export function applyConfigDefaults(
   env: NodeJS.ProcessEnv,
   config: MetabobCLIConfig | null,
