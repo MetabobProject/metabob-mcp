@@ -1,9 +1,11 @@
 # Substrate participation conformance
 
 This vessel joins a substrate it does not own. Where the vessel's own design and the substrate's
-expectations disagree, **the substrate's expectations take priority** — that is the user's ruling,
-and it settles every conflict below. The requirements originate in the substrate's deployment:
-`docs/FEDERATION.md` of the substrate repository and the discovery-vessel contract it describes.
+expectations disagree, **the substrate's expectations take priority** (user ruling 2026-10-13:
+substrate expectations over vessel design), and that settles every conflict below. The requirements
+originate in the substrate's deployment: the super-repo `CLAUDE.md` laws (cited as `CLAUDE.md law N`),
+user rulings held in the substrate's memory store (cited as `user ruling YYYY-MM-DD: <topic>`; only
+the user makes rulings), `docs/FEDERATION.md`, and the discovery-vessel contract it describes.
 
 Each section states one requirement, then the status of this code against it: **met** (with the code
 that meets it), **partially met**, or **not yet met** (with the gap stated plainly). Code that
@@ -60,6 +62,14 @@ relay or the package the vessel is HTTP-only, which is the conforming state.
   `Authorization: ApiKey <key>` on their requests.
 - Not yet met — the vessel does not check that its key belongs to the discovery's namespace before it
   registers; a foreign key surfaces only as a rejected registration that the heartbeat keeps retrying.
+
+**Accepted risk, not conformance: cleartext key on plain-http anchors.** The vessel sends its key to
+whatever anchor it is configured with, including non-loopback plain-http anchors such as a hub's
+published `http://<host>:18100` (user ruling 2026-10-13: send the key wherever the anchor is).
+Through discovery `POST /resolve` the key is forwarded as a plain `Authorization` header to the local
+owner or a peer discovery, readable by any proxy or network on the path. The remedy is on the
+substrate side (the overlay, or a TLS anchor on 443); until it lands, this exposure is known and
+accepted, and does not count as meeting C3.
 
 ## C4 — Anchoring
 
