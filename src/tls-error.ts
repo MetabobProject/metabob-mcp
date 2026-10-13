@@ -120,8 +120,8 @@ function buildHint(intercepting: TlsCertSubject | undefined, host: string | unde
     `metabob-mcp already tries to load OS trust roots at startup ` +
     `(disable with --no-system-ca); if you are still seeing this, the ` +
     `intercepting CA is not in your OS trust store. ` +
-    `Fix options: (1) ask IT to add the Metabob hosts ` +
-    `(*.metabob.com) to your proxy's SSL inspection bypass list, ` +
+    `Fix options: (1) ask IT to add ${host ?? 'the substrate host'} ` +
+    `to your proxy's SSL inspection bypass list, ` +
     `(2) install the corporate root CA into your OS trust store, or ` +
     `(3) set NODE_EXTRA_CA_CERTS=/path/to/corp-root.pem.`
   );

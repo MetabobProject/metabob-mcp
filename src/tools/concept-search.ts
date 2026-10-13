@@ -8,9 +8,8 @@
  * so over time this becomes a per-shape leaderboard of "which analysis
  * surfaces does the substrate actually exercise."
  *
- * Auth: this tool only runs in vessel mode (when ANALYSIS_API_URL points at
- * the substrate stack). It bypasses the legacy api-client routes and talks
- * directly to concept-db over CONCEPT_DB_URL.
+ * Auth: talks directly to concept-db (CONCEPT_DB_URL, or discovered by its
+ * shape) with METABOB_API_KEY as the ApiKey bearer.
  */
 
 import { z } from 'zod';

@@ -1,8 +1,10 @@
 # Quick Start
 
-## 1. Get an API key
+## 1. Have an API key and a substrate endpoint
 
-[app.metabob.com/settings/api-keys](https://app.metabob.com/settings/api-keys)
+The server attaches to a substrate with two inputs: an API key and the substrate's endpoint (for a
+local substrate, `http://127.0.0.1:18080`). Neither has a default. The substrate installer writes both into
+`~/.metabob/config.json`; on such a machine, drop the `-e` flags below.
 
 ## 2. Add to your AI tool
 
@@ -11,7 +13,7 @@
 From npm:
 
 ```bash
-claude mcp add metabob -e METABOB_API_KEY=mb_... -- npx @metabob/mcp@latest
+claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.0.0.1:18080 -- npx @metabob/mcp@latest
 ```
 
 From a local checkout (development):
@@ -21,7 +23,7 @@ git submodule update --init --recursive
 bun install
 bun run build
 npm link
-claude mcp add metabob -e METABOB_API_KEY=mb_... -- metabob-mcp
+claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.0.0.1:18080 -- metabob-mcp
 ```
 
 Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc.
@@ -49,13 +51,13 @@ mark_complete         # endorse the fix, or discard a false positive
 init_workspace        # parse files added since the last call
 ```
 
-Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, `provide_feedback` for goal verdicts, and `pull_assigned_work` / `submit_resolution` for work the substrate dispatched to this agent. See [SPEC.md](SPEC.md).
+Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, `provide_feedback` for goal verdicts, and `submit_resolution` for a task queued on this machine (the substrate dispatches nothing to a client-only session). See [SPEC.md](SPEC.md).
 
 ## Common issues
 
-**"Authentication failed"** — API key is invalid or expired. Generate a new one at [app.metabob.com](https://app.metabob.com/settings/api-keys).
+**"Not attached to a substrate: missing …"** — the API key or the endpoint is not configured. The message names which one, and where config files are read from.
 
-**"Circuit breaker open"** — The analysis API had repeated failures. Resets automatically after 60 seconds.
+**"Circuit breaker open"** — Substrate calls failed repeatedly. Resets automatically after 60 seconds.
 
 **"Rate limit exceeded"** — Default is 60 requests/min per session. Set `MAX_REQUESTS_PER_MINUTE=120` to raise it.
 

@@ -26,7 +26,6 @@ const mockApiClient = {
   get: mock(async () => ({})),
   post: mock(async () => ({})),
   put: mock(async () => ({})),
-  isVesselMode: mock(() => false),
 } as unknown as AnalysisAPIClient;
 
 let ws: string;

@@ -3,12 +3,8 @@
  *
  * Two gaps this closes:
  *
- * 1. `tools.test.ts` asserted `expect(postFeedback).toHaveBeenCalled()` — arity
- *    zero. The payload is the entire semantic content of the tool: swap the two
- *    booleans and every endorse tells the backend "false positive" while the
- *    return string, built independently from `input.action`, still reads
- *    "endorsed". Suite green, detection-quality signal inverted for every
- *    non-agent problem.
+ * 1. An id that names no finding must not be reported as endorsed or
+ *    discarded: the tool refuses it and makes no request.
  *
  * 2. The fleet case — a `concept_*` id with no local seed — is asserted here
  *    against a fake concept-db, because it is the case SKILL.md documented
@@ -29,35 +25,36 @@ afterEach(() => {
 
 function makeApiClient(): AnalysisAPIClient {
   return {
-    postFeedback: mock(async () => ({})),
     hasDiscovery: mock(() => false),
     getDiscoveryEndpoint: mock(() => undefined),
   } as unknown as AnalysisAPIClient;
 }
 
-// ===== Finding 33: the directional verdict on the legacy API =====
+// ===== Ids that name no finding are refused =====
 
-test('endorse posts endorsed=true / discarded=false', async () => {
-  const api = makeApiClient();
-  const input = MarkComplete.InputSchema.parse({ problem_id: 'prob_456', action: 'endorse' });
-  await MarkComplete.handle(input, api, SESSION);
-
-  expect(api.postFeedback).toHaveBeenCalledWith('prob_456', SESSION, {
-    endorsed: true,
-    discarded: false,
+// Every problem this server lists is an agf_* finding or a concept_* id. Any
+// other id names nothing that could be written, so the tool refuses it and
+// makes no request — it never reports a verdict it did not record.
+for (const action of ['endorse', 'discard'] as const) {
+  test(`${action} on a non-finding id is refused and writes nothing`, async () => {
+    const api = makeApiClient();
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: unknown) => {
+      calls.push(String(input));
+      return new Response('{}');
+    }) as unknown as typeof fetch;
+    try {
+      const input = MarkComplete.InputSchema.parse({ problem_id: 'prob_456', action });
+      const out = await MarkComplete.handle(input, api, SESSION);
+      expect(out).toContain('"prob_456" is not a finding id, so nothing was recorded');
+      expect(calls).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
-});
+}
 
-test('discard posts endorsed=false / discarded=true', async () => {
-  const api = makeApiClient();
-  const input = MarkComplete.InputSchema.parse({ problem_id: 'prob_456', action: 'discard' });
-  await MarkComplete.handle(input, api, SESSION);
-
-  expect(api.postFeedback).toHaveBeenCalledWith('prob_456', SESSION, {
-    endorsed: false,
-    discarded: true,
-  });
-});
 
 // ===== Finding 14: a concept_* id with no local seed still records a verdict =====
 

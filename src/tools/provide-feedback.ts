@@ -21,7 +21,7 @@
  * Verdict maps operator-facing terms → oracle-corpus verdicts:
  *   reached → achieved | not_reached → not_achieved | partial → partial
  *
- * Auth: vessel mode only. Re-uses METABOB_API_KEY as ApiKey bearer (activity-api
+ * Auth: re-uses METABOB_API_KEY as ApiKey bearer (activity-api
  * exchanges it for a tenant JWT so the write is org-scoped).
  */
 

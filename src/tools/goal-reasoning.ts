@@ -24,7 +24,7 @@
  *      lives in the walkLog (source 1) or, failing that, only in the goal-host
  *      journal. This tool says so explicitly rather than rendering an empty log.
  *
- * Auth: vessel mode only. Re-uses METABOB_API_KEY as ApiKey bearer.
+ * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';

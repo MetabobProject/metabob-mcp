@@ -35,18 +35,15 @@ COPY --from=build /app/package.json ./
 # Kubernetes SecurityContext to run as non-root user (runAsUser: 1001)
 
 # Environment variables (can be overridden)
-ENV ANALYSIS_API_URL=http://metabob-analysis-api:8080
 ENV SESSION_ID=docker-session
 ENV LOG_LEVEL=info
 ENV HEALTH_PORT=8080
 ENV MAX_REQUESTS_PER_MINUTE=60
 
-# Expose health check port
-EXPOSE 8080
-
-# Health check (using Bun's fetch instead of curl)
+# The HTTP resolver binds 127.0.0.1 only, so the port is not exposed: the
+# healthcheck runs inside the container's own network namespace.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD bun run -e "fetch('http://localhost:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+    CMD bun run -e "fetch('http://127.0.0.1:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
 # Run MCP server (dist/cli.js produced by bun run build; dist/index.js fallback)
 CMD ["bun", "run", "dist/cli.js"]

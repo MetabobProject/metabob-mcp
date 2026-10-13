@@ -10,7 +10,6 @@ const RawConfigSchema = z.object({
     endpoint: z.string().min(1).optional(),
     vesselId: z.string().min(1).optional(),
     discoveryEndpoint: z.string().min(1).optional(),
-    analysisApiUrl: z.string().min(1).optional(),
     identityEndpoint: z.string().min(1).optional(),
     conceptDbUrl: z.string().min(1).optional(),
     goalHostVesselUrl: z.string().min(1).optional(),
@@ -25,15 +24,11 @@ export interface MetabobCLIConfig {
   vesselId?: string;
   activityApiUrl?: string;
   discoveryEndpoint?: string;
-  analysisApiUrl?: string;
   identityEndpoint?: string;
   conceptDbUrl?: string;
   goalHostVesselUrl?: string;
   sourcePath: string;
 }
-
-/** The single public endpoint. Every sibling service derives from it. */
-export const DEFAULT_ENDPOINT = 'https://ide.metabob.com';
 
 /**
  * Config resolution is directory-aware, like git: a project pins its own
@@ -61,10 +56,10 @@ function normalizeUrl(urlString: string): string | undefined {
 /** Sibling services derived from the gateway endpoint — SPEC §endpoint-derivation, CONFORMANCE §c4-anchoring. */
 function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   MetabobCLIConfig,
-  'discoveryEndpoint' | 'analysisApiUrl' | 'identityEndpoint' | 'conceptDbUrl'
+  'discoveryEndpoint' | 'conceptDbUrl'
 > {
   // Local port-published substrate: the vessels sit at fixed offsets from the
-  // activity port (18080 → discovery 18100, analysis 18250, concept-db 18260;
+  // activity port (18080 → discovery 18100, concept-db 18260;
   // same pattern for 8xxx and 28xxx prefixes).
   const localDiscovery = deriveLocalDiscoveryEndpoint(activityApiUrl);
   if (localDiscovery) {
@@ -78,56 +73,31 @@ function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
     };
     return {
       discoveryEndpoint: localDiscovery,
-      analysisApiUrl: portAt(250),
       conceptDbUrl: portAt(260),
     };
   }
 
   // No path-prefix derivation for remote endpoints: no live node serves
-  // {endpoint}/discovery, /identity, /conceptdb or /analysis, and encoding a
-  // reverse-proxy layout is a pinned-topology assumption. A remote substrate is
-  // anchored by an explicit discoveryEndpoint (DISCOVERY_ENDPOINT) plus the key;
-  // everything else is learned from /bootstrap and discovery.
+  // {endpoint}/discovery, /identity or /conceptdb, and encoding a reverse-proxy
+  // layout is a pinned-topology assumption. A remote substrate is anchored by an
+  // explicit discoveryEndpoint (DISCOVERY_ENDPOINT) plus the key; the vessels
+  // the tools call are found through discovery.
   return {};
 }
 
 /**
- * Env vars that manually pin a specific substrate endpoint. Their presence
- * (without METABOB_ENDPOINT) marks the legacy / hand-configured env style,
- * where we must NOT auto-default the gateway — see loadMetabobEnvConfig.
- */
-const SPECIFIC_ENDPOINT_ENV_VARS = [
-  'ANALYSIS_API_URL',
-  'ACTIVITY_API_URL',
-  'DISCOVERY_ENDPOINT',
-  'IDENTITY_ENDPOINT',
-  'CONCEPT_DB_URL',
-  'GOAL_HOST_VESSEL_URL',
-] as const;
-
-/**
- * Build a config from the environment — the canonical minimal setup is just:
+ * Build a config from the environment. The attachment is two inputs:
  *
  *   METABOB_API_KEY   — the API key
- *   METABOB_ENDPOINT  — the gateway in the vessel (optional; DEFAULTS to
- *                       https://ide.metabob.com)
+ *   METABOB_ENDPOINT  — the substrate endpoint (no default)
  *
  * METABOB_ENDPOINT is the env-var mirror of `metabob.endpoint` from
- * ~/.metabob/config.json: it points at the gateway and every sibling service
- * (analysis, discovery, identity, concept-db) is derived from it via
- * deriveSubstrateDefaults(), keeping the env-var and config-file paths
- * byte-for-byte equivalent.
+ * ~/.metabob/config.json, and the siblings derive from it through
+ * deriveSubstrateDefaults() exactly as they do for the file.
  *
- * This loader activates ONLY on an explicit METABOB_ENDPOINT. The
- * api-key-alone default (public deployment) lives in
- * loadMetabobDefaultConfig(), which callers apply AFTER the config file —
- * a merely-defaulted endpoint must never beat a file-supplied one (env
- * apiKey injected by an MCP client + file endpoint localhost:18080 would
- * otherwise be silently redirected to the public gateway).
- *
- * Precedence note: the specific env vars (ANALYSIS_API_URL, DISCOVERY_ENDPOINT,
- * …) still win when set explicitly, because applyConfigDefaults() only fills
- * variables that are currently unset.
+ * This loader activates only on an explicit METABOB_ENDPOINT. The specific env
+ * vars (DISCOVERY_ENDPOINT, CONCEPT_DB_URL, …) still win when set explicitly,
+ * because applyConfigDefaults() only fills variables that are currently unset.
  */
 export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): MetabobCLIConfig | null {
   const explicitEndpoint = env.METABOB_ENDPOINT?.trim() || undefined;
@@ -148,51 +118,10 @@ export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): Meta
     apiKey,
     activityApiUrl,
     discoveryEndpoint: derived.discoveryEndpoint,
-    analysisApiUrl: derived.analysisApiUrl,
-    identityEndpoint: derived.identityEndpoint,
+    identityEndpoint: undefined,
     conceptDbUrl: derived.conceptDbUrl,
     goalHostVesselUrl: undefined,
     sourcePath: '<env:METABOB_ENDPOINT>',
-  };
-}
-
-/**
- * Last-resort default: an API key alone is a valid config pointing at the
- * public deployment (https://ide.metabob.com, which derives no siblings) —
- * identical to an api-key-only ~/.metabob/config.json.
- *
- * Callers apply this AFTER loadMetabobEnvConfig and loadMetabobCLIConfig, so
- * it fires only when neither supplied an endpoint. The carve-out preserves
- * the older hand-configured env style (METABOB_API_KEY + ANALYSIS_API_URL, as
- * in the historical Claude Desktop / Cursor examples): if any specific
- * endpoint var is already set — including by the config file in the previous
- * pass — the default stays inert rather than forcing the remaining siblings
- * onto the public gateway (which would split-brain the routing).
- */
-export function loadMetabobDefaultConfig(env: NodeJS.ProcessEnv = process.env): MetabobCLIConfig | null {
-  const apiKey = env.METABOB_API_KEY?.trim() || undefined;
-  if (!apiKey) {
-    return null;
-  }
-  if (env.METABOB_ENDPOINT?.trim()) {
-    return null; // explicit gateway is loadMetabobEnvConfig's job
-  }
-  const hasManualEndpoint = SPECIFIC_ENDPOINT_ENV_VARS.some((k) => !!env[k]?.trim());
-  if (hasManualEndpoint) {
-    return null;
-  }
-
-  const derived = deriveSubstrateDefaults(DEFAULT_ENDPOINT);
-
-  return {
-    apiKey,
-    activityApiUrl: DEFAULT_ENDPOINT,
-    discoveryEndpoint: derived.discoveryEndpoint,
-    analysisApiUrl: derived.analysisApiUrl,
-    identityEndpoint: derived.identityEndpoint,
-    conceptDbUrl: derived.conceptDbUrl,
-    goalHostVesselUrl: undefined,
-    sourcePath: '<env:default-endpoint>',
   };
 }
 
@@ -220,20 +149,16 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
 
   const apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
   const vesselId = result.data.metabob?.vesselId;
-  // An apiKey-only config is valid: the endpoint defaults to the public
-  // deployment and every sibling service (identity included) derives from it.
-  // Nothing defaults to a specialized host — all traffic routes through the
-  // one endpoint.
-  const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '')
-    ?? (apiKey ? DEFAULT_ENDPOINT : undefined);
+  // No endpoint means no endpoint: an apiKey-only config is not attached to
+  // any substrate (see unattachedMessage).
+  const activityApiUrl = normalizeUrl(result.data.metabob?.endpoint ?? '');
   const derived = deriveSubstrateDefaults(activityApiUrl);
   const discoveryEndpoint = normalizeUrl(result.data.metabob?.discoveryEndpoint ?? '') ?? derived.discoveryEndpoint;
-  const analysisApiUrl = normalizeUrl(result.data.metabob?.analysisApiUrl ?? '') ?? derived.analysisApiUrl;
-  const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '') ?? derived.identityEndpoint;
+  const identityEndpoint = normalizeUrl(result.data.metabob?.identityEndpoint ?? '');
   const conceptDbUrl = normalizeUrl(result.data.metabob?.conceptDbUrl ?? '') ?? derived.conceptDbUrl;
   const goalHostVesselUrl = normalizeUrl(result.data.metabob?.goalHostVesselUrl ?? '');
 
-  if (!apiKey && !activityApiUrl && !discoveryEndpoint && !analysisApiUrl && !identityEndpoint && !conceptDbUrl && !goalHostVesselUrl) {
+  if (!apiKey && !activityApiUrl && !discoveryEndpoint && !identityEndpoint && !conceptDbUrl && !goalHostVesselUrl) {
     return null;
   }
 
@@ -242,7 +167,6 @@ export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PAT
     vesselId,
     activityApiUrl,
     discoveryEndpoint,
-    analysisApiUrl,
     identityEndpoint,
     conceptDbUrl,
     goalHostVesselUrl,
@@ -289,10 +213,6 @@ export function applyConfigDefaults(
     env.DISCOVERY_ENDPOINT = config.discoveryEndpoint;
   }
 
-  if (!env.ANALYSIS_API_URL && config.analysisApiUrl) {
-    env.ANALYSIS_API_URL = config.analysisApiUrl;
-  }
-
   if (!env.IDENTITY_ENDPOINT && config.identityEndpoint) {
     env.IDENTITY_ENDPOINT = config.identityEndpoint;
   }
@@ -304,4 +224,47 @@ export function applyConfigDefaults(
   if (!env.GOAL_HOST_VESSEL_URL && config.goalHostVesselUrl) {
     env.GOAL_HOST_VESSEL_URL = config.goalHostVesselUrl;
   }
+}
+
+/** Where a config file is looked for, in order — named in every "not attached" message. */
+export const CONFIG_LOOKUP_ORDER = '$METABOB_CONFIG_PATH, then ./.metabob/config.json, then ~/.metabob/config.json';
+
+/**
+ * The one message for a process that is not attached to a substrate, or null
+ * when it is. The attachment needs a key and an endpoint; this names whichever
+ * is missing and where the configuration is read from, so a missing input
+ * surfaces once instead of as an error from every service that needs it.
+ * CONFORMANCE §c4-anchoring
+ */
+export function unattachedMessage(env: NodeJS.ProcessEnv = process.env): string | null {
+  const hasKey = Boolean(env.METABOB_API_KEY?.trim());
+  const hasEndpoint = Boolean(env.ACTIVITY_API_URL?.trim() || env.DISCOVERY_ENDPOINT?.trim());
+  if (hasKey && hasEndpoint) {
+    return null;
+  }
+  const missing = [
+    hasKey ? null : 'an API key (METABOB_API_KEY, or metabob.apiKey in a config file)',
+    hasEndpoint ? null : 'a substrate endpoint (METABOB_ENDPOINT, or metabob.endpoint in a config file)',
+  ].filter(Boolean).join(' and ');
+  return (
+    `Not attached to a substrate: missing ${missing}. ` +
+    `Config files are read from ${CONFIG_LOOKUP_ORDER}. ` +
+    'Local tools work; substrate tools are unavailable until this is set.'
+  );
+}
+
+/**
+ * The configured substrate URLs, anchor first (discovery, then the endpoint),
+ * for code that needs a host to name or probe: proxy selection, the TLS
+ * fingerprint probe and doctor.
+ */
+export function configuredSubstrateUrls(env: NodeJS.ProcessEnv = process.env): string[] {
+  const urls = [
+    env.DISCOVERY_ENDPOINT,
+    env.ACTIVITY_API_URL,
+    env.IDENTITY_ENDPOINT,
+    env.CONCEPT_DB_URL,
+    env.GOAL_HOST_VESSEL_URL,
+  ].map((u) => u?.trim()).filter((u): u is string => Boolean(u));
+  return [...new Set(urls)];
 }

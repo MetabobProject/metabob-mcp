@@ -4,7 +4,7 @@
  *
  * MCP_UNDER_TEST=dist runs the built `dist/cli.js`; anything else runs
  * `src/cli.ts`. Each server gets its own temp HOME (the sidecar store lives in
- * ~/.metabob), its own workspace and telemetry off.
+ * ~/.metabob) and its own workspace.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -87,7 +87,7 @@ export class McpServer {
     }
     // Nothing from the developer's or the CI's environment may steer routing.
     for (const k of Object.keys(env)) {
-      if (/^(METABOB_|MB_|ANALYSIS_API_URL|ACTIVITY_API_URL|DISCOVERY_ENDPOINT|IDENTITY_|CONCEPT_DB_URL|GOAL_HOST_VESSEL_URL|VESSEL_|HEALTH_PORT|SESSION_|USER_VESSEL_URL|WORKSPACE_PATH)/.test(k)) {
+      if (/^(METABOB_|MB_|ACTIVITY_API_URL|DISCOVERY_ENDPOINT|IDENTITY_|CONCEPT_DB_URL|GOAL_HOST_VESSEL_URL|VESSEL_|HEALTH_PORT|SESSION_|WORKSPACE_PATH)/.test(k)) {
         delete env[k];
       }
     }
@@ -96,7 +96,6 @@ export class McpServer {
       USERPROFILE: this.home,
       WORKSPACE_PATH: opts.workspace,
       METABOB_API_KEY: 'mb_test_workflow_key',
-      METABOB_TELEMETRY: 'off',
       // Without this the CLI re-execs itself under `bun --use-system-ca`, and
       // the process we hold would be a trampoline rather than the server.
       METABOB_NO_SYSTEM_CA: '1',

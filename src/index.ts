@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * MCP Server for Metabob Analysis API
- * Exposes code analysis tools to AI agents via MCP protocol
+ * metabob-mcp: local code analysis and the substrate's operator cockpit,
+ * exposed to AI agents over MCP stdio. A client of the substrate only.
  */
 
 // Install OS trust store before any HTTPS fires. Idempotent — if cli.ts
@@ -32,87 +32,49 @@ import { AnalysisAPIClient } from './api-client.js';
 import { SessionManager } from './session-manager.js';
 import { TOOL_REGISTRY, getAllTools } from './tools/index.js';
 import { RateLimiter } from './rate-limiter.js';
-import { CircuitBreaker, CircuitState, shouldTripBreaker } from './circuit-breaker.js';
+import { CircuitBreaker, shouldTripBreaker } from './circuit-breaker.js';
 import {
   VesselServer,
-  resolveImpulseContent,
   isToolPermitted,
   toolAllowlistActive,
   toolNotEnabledMessage,
 } from './vessel-server.js';
-import { VesselHeartbeat } from './vessel-heartbeat.js';
-import { resolveVesselId, VESSEL_VERSION, VESSEL_BASE_NAME, agentResolverEnabled } from './vessel-identity.js';
-import { fetchBootstrapAnchors } from './bootstrap.js';
-import { startFederationNode, type FederationNode } from './federation/libp2p-node.js';
-import { computeAdvertisedShapes, startPresenceAdvertiser } from './presence-advertiser.js';
+import { resolveVesselId, VESSEL_BASE_NAME, VESSEL_VERSION } from './vessel-identity.js';
 import { setResolverIdentity } from './resolver-identity.js';
 import { reconcileUndelivered } from './agent-delivery.js';
-import { getLocalIndex } from './local-index.js';
 import { AuthService } from './auth-service.js';
-import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
 import { getLastTrustSummary } from './tls-trust.js';
 import { LocalStore } from './local-store.js';
+import { configuredSubstrateUrls, unattachedMessage } from './config.js';
+import { translateTlsError } from './tls-error.js';
 import { ZodError } from 'zod';
 
-const MCP_VERSION = VESSEL_VERSION;
-
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
-const ANALYSIS_API_URL = process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
-const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_API_URL || 'https://ide.metabob.com';
-const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;
-
-/**
- * When METABOB_STATELESS=true the process keeps no local state and speaks the
- * legacy REST surface (POST /session exchange). Otherwise "sidecar mode" is
- * active: the LocalStore holds agent findings and the agent-resolver queue,
- * telemetry is batched to the analysis-api, and the analysis endpoint is
- * treated as a vessel. Neither mode sends workspace file content anywhere.
- */
-const SIDECAR_MODE = process.env.METABOB_STATELESS !== 'true';
+// Nothing defaults to a public host: an unset endpoint stays unset, and
+// unattachedMessage reports it once at startup.
+const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || undefined;
+const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT || undefined;
 
 /** Stable session identifier — callers may inject SESSION_ID; otherwise a fresh UUID. */
 const SESSION_ID = process.env.SESSION_ID || crypto.randomUUID();
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 // No fixed default port: a fixed default collides across concurrent instances,
-// and 8000–8999 belong to substrate containers (8080 is activity-api; discovery
-// rewrites 127.0.0.1:8xxx rows to +10000). Unset → ephemeral, client-local only.
+// and 8000–8999 belong to substrate container ports (8080 is activity-api).
+// Unset → ephemeral. The server binds loopback only either way.
 // CONFORMANCE §c6-collisions
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 0;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
-/** Pre-obtained session token (skips the key-exchange step). */
-const SESSION_TOKEN = process.env.SESSION_TOKEN;
-const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 
-// Identity (tenant resolution only — discovery registration removed).
-// Defaults to the /identity path of the single public endpoint; the
-// identity.metabob.com vhost is not part of the deployment's routing.
-// CONFORMANCE §c4-anchoring — the public fallback is a gap there.
-const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || (DISCOVERY_ENDPOINT ? undefined : 'https://ide.metabob.com/identity');
+// Identity (tenant resolution) runs only against an explicit IDENTITY_ENDPOINT;
+// there is no public default. CONFORMANCE §c4-anchoring
+const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || undefined;
 
-/**
- * Vessel mode: ANALYSIS_API_URL points at a discovery-style impulse resolver
- * (substrate analysis-vessel) instead of the legacy ide.metabob.com REST surface.
- * Same gate as SIDECAR_MODE today; kept as a separate name for clarity.
- */
-const VESSEL_MODE = SIDECAR_MODE;
-
-// Initialize clients
+// Substrate routing context for the tools.
 const apiClient = new AnalysisAPIClient({
-  baseURL: ANALYSIS_API_URL,
   discoveryEndpoint: DISCOVERY_ENDPOINT,
   activityApiUrl: ACTIVITY_API_URL,
-  timeout: 30000,
-  retryAttempts: 3,
-  retryDelayMs: 100,
-  apiKey: METABOB_API_KEY,
-  sessionToken: SESSION_TOKEN,
-  useConnectionSlots: USE_CONNECTION_SLOTS && !VESSEL_MODE,
-  vesselMode: VESSEL_MODE,
-  onConnectionStateChange: (state) => {
-    log('info', `Connection state changed: ${state}`);
-  },
 });
 
 const sessionManager = new SessionManager({
@@ -130,49 +92,22 @@ const circuitBreaker = new CircuitBreaker({
   resetTimeout: 60000,
 });
 
-// ── Auth service (identity.metabob.com path) ─────────────────────────────────
+// ── Auth service (identity vessel) ───────────────────────────────────────────
 const authService = new AuthService();
 const identityApiKey = process.env.IDENTITY_API_KEY ?? METABOB_API_KEY;
 if (identityApiKey) {
   authService.setApiKey(identityApiKey);
 }
 
-// ── Usage telemetry ──────────────────────────────────────────────────────────
-// In sidecar mode: batches events to ${ANALYSIS_API_URL}/v2/events/mcp.
-// In legacy mode (ide.metabob.com): fire-and-forget to user-vessel /v2/mcp/usage.
-// Disabled by METABOB_TELEMETRY=off or when no API key is configured.
-const telemetry = new Telemetry({
-  endpoint: process.env.USER_VESSEL_URL,
-  analysisApiUrl: ANALYSIS_API_URL,
-  apiKey: identityApiKey,
-  mcpVersion: MCP_VERSION,
-  sessionId: SESSION_ID,
-});
-
-// ── Local SQLite store (sidecar mode only) ────────────────────────────────────
-// Initialised with or without an API key: findings and agent tasks are local.
-const localStore = SIDECAR_MODE ? new LocalStore() : null;
-if (localStore) {
-  try {
-    localStore.init();
-  } catch (err) {
-    // Non-fatal: sidecar features degrade gracefully if SQLite is unavailable.
-    console.error('[warn] LocalStore init failed:', err);
-  }
-}
-
-// ── Registration workers (same-process, lightweight timers) ───────────────────
-let vesselHeartbeat: VesselHeartbeat | null = null;
-let federationNode: FederationNode | null = null;
-let stopPresenceAdvertiser: (() => void) | null = null;
-
-/** Use-time capability condition: does the local CPG hold an indexed workspace? */
-function workspaceIsIndexed(): boolean {
-  try {
-    return getLocalIndex().stats().filesIndexed > 0;
-  } catch {
-    return false;
-  }
+// ── Local SQLite store ───────────────────────────────────────────────────────
+// Always on, with or without an API key: findings and agent tasks are local.
+// If it cannot open, the tools that need it say so (localStore is null).
+let localStore: LocalStore | null = new LocalStore();
+try {
+  localStore.init();
+} catch (err) {
+  console.error('[warn] LocalStore init failed — local findings and the agent task queue are unavailable:', err);
+  localStore = null;
 }
 
 const vesselServer = new VesselServer({
@@ -221,8 +156,8 @@ function log(level: string, message: string, data?: any) {
  * variable under test.
  *
  * Unset (the default) lists everything, so existing deployments are unchanged.
- * The rule itself lives in vessel-server.ts and is shared with the HTTP and
- * libp2p planes: one grammar, one authority. A second copy here is how the
+ * The rule itself lives in vessel-server.ts and is shared with the loopback
+ * HTTP resolver: one grammar, one authority. A second copy here is how the
  * enforcement split that a9bf3c7 fixed would grow back — silently, and with the
  * tests still green, because only one copy would be covered.
  */
@@ -288,9 +223,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const resetTime = circuitBreaker.getResetTime();
       throw new McpError(
         ErrorCode.InternalError,
-        `Analysis API is temporarily unavailable due to repeated failures. Circuit breaker is open. Try again in ${Math.ceil(resetTime / 1000)}s.`,
+        `Substrate calls are paused after repeated upstream failures. Circuit breaker is open. Try again in ${Math.ceil(resetTime / 1000)}s.`,
         {
-          // Distinct from api-client's SERVICE_UNAVAILABLE (a real 5xx): this
+          // Distinct from an upstream SERVICE_UNAVAILABLE (a real 5xx): this
           // is the breaker's own rejection, and counting it as an upstream
           // failure would keep resetting lastFailureTime so the circuit could
           // never half-open under sustained traffic.
@@ -339,55 +274,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
-    // Extract optional file path from input (present on get_problems, search_codebase, etc.)
-    const inputRecord = (validatedInput as Record<string, unknown> | null) ?? {};
-    const filePath =
-      typeof inputRecord['file_path'] === 'string' ? inputRecord['file_path'] : undefined;
-
-    // Fire-and-forget telemetry.
-    telemetry.record({
-      tool_name: name,
-      success: true,
-      duration_ms: duration,
-      file: filePath,
-    });
-
-    // Semantic outcome events for state-changing tools (best-effort).
-    const rawArgs = (args as Record<string, unknown> | undefined) ?? {};
-    if (name === 'mark_complete') {
-      const verdict = typeof rawArgs['action'] === 'string' ? rawArgs['action'] : 'endorse';
-      const problemId = typeof rawArgs['problem_id'] === 'string' ? rawArgs['problem_id'] : '';
-      if (problemId) {
-        const resolutionEvent: Parameters<typeof telemetry.recordOutcome>[0] = {
-          kind: 'resolution',
-          ts: Date.now(),
-          session_id: SESSION_ID,
-          annotation: { type: 'resolution', body: verdict, problem_id: problemId },
-        };
-        telemetry.recordOutcome(resolutionEvent);
-      }
-    } else if (name === 'annotate_component') {
-      // Use explicit context arg if provided; fall back to the tool's generated text.
-      const contextArg = typeof rawArgs['context'] === 'string' ? rawArgs['context'] : '';
-      const body = contextArg || (typeof result === 'string' ? result : '');
-      const mode = typeof rawArgs['mode'] === 'string' ? rawArgs['mode'] : 'explain';
-      const problemId = typeof rawArgs['problem_id'] === 'string' ? rawArgs['problem_id'] : '';
-      const truncated = body.length > 1985 ? body.slice(0, 1985) + '…[truncated]' : body;
-      const annotationEvent: Parameters<typeof telemetry.recordOutcome>[0] = {
-        kind: 'annotation',
-        ts: Date.now(),
-        session_id: SESSION_ID,
-        annotation: { type: mode, body: truncated, problem_id: problemId || undefined },
-      };
-      telemetry.recordOutcome(annotationEvent);
-    } else {
-      // Generic outcome payload for other state-changing tools (assign_git_changes etc.)
-      const outcomePayload = extractOutcomePayload(name, rawArgs);
-      if (outcomePayload) {
-        telemetry.outcome({ tool_name: name, outcome_payload: outcomePayload });
-      }
-    }
-
     log('info', `Tool ${name} completed in ${duration}ms`);
 
     // Return MCP response
@@ -403,24 +289,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
-    // Fire-and-forget telemetry on failure path. error_code is the message
-    // (truncated by Telemetry.record's body validator on the server side).
-    {
-      const err = error as { message?: string } | undefined;
-      const inputRecord2 = (validatedInput as Record<string, unknown> | null | undefined) ?? {};
-      const filePath2 =
-        typeof inputRecord2['file_path'] === 'string' ? inputRecord2['file_path'] : undefined;
-      telemetry.record({
-        tool_name: name,
-        success: false,
-        duration_ms: duration,
-        error_code: err?.message?.slice(0, 200),
-        file: filePath2,
-      });
+    // @anchor tls-intercepted-report
+    // A rejected certificate chain is reported as TLS_INTERCEPTED, naming the
+    // intercepting issuer, rather than as a bare fetch failure.
+    // CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role
+    const tlsError = translateTlsError(error);
+    if (tlsError) {
+      error = new McpError(ErrorCode.InternalError, tlsError.message, tlsError.toMcpDetails());
     }
 
     // Only genuine upstream failures may open the circuit — a client-side
-    // error says nothing about the analysis API's health, and counting them
+    // error says nothing about the substrate's health, and counting them
     // let five bad arguments lock out every tool, local ones included.
     if (shouldTripBreaker(error)) {
       circuitBreaker.recordFailure();
@@ -456,22 +335,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  * Start server
  */
 async function main() {
-  // Determine auth method
-  const authMethod = METABOB_API_KEY ? 'api_key' : SESSION_TOKEN ? 'session_token' : 'none';
-
-  log('info', 'Starting metabob-mcp vessel', {
-    analysisAPIURL: ANALYSIS_API_URL,
-    activityAPIURL: ACTIVITY_API_URL,
+  log('info', 'Starting metabob-mcp', {
+    discovery: DISCOVERY_ENDPOINT ?? null,
+    activityAPIURL: ACTIVITY_API_URL ?? null,
     sessionId: SESSION_ID,
     logLevel: LOG_LEVEL,
-    auth: authMethod,
-    connectionSlots: USE_CONNECTION_SLOTS,
-    protocols: ['mcp:stdio', `http:resolver(port=${HEALTH_PORT || 'ephemeral'})`],
+    auth: METABOB_API_KEY ? 'api_key' : 'none',
+    protocols: ['mcp:stdio', `http:resolver(127.0.0.1:${HEALTH_PORT || 'ephemeral'})`],
   });
 
-  // Fire-and-forget TLS fingerprint self-probe. Records first-seen
-  // fingerprints in ~/.metabob/known-hosts.json and warns once on
-  // changes that look like MITM (new chain root in OS trust store but
+  // A missing key or endpoint is reported here, once, by name — not as an
+  // error from each service that would have needed it.
+  const notAttached = unattachedMessage();
+  if (notAttached) {
+    log('warn', notAttached);
+  }
+
+  // Fire-and-forget TLS fingerprint self-probe of the configured https hosts.
+  // Records first-seen fingerprints in ~/.metabob/known-hosts.json and warns
+  // once on changes that look like MITM (new chain root in OS trust store but
   // not bundled Mozilla roots).
   const trustSummary = getLastTrustSummary();
   if (trustSummary?.installed) {
@@ -481,14 +363,7 @@ async function main() {
     });
   }
   try {
-    // system-ca certs were merged into tls.rootCertificates by
-    // installSystemTrustStoreSync — slice off the bundled prefix for the
-    // probe's MITM heuristic. (If we don't know the split, we still get
-    // the change-detection benefit; we just won't flag MITM as confidently.)
-    const probeHosts = pickMonitoredHosts(
-      [ANALYSIS_API_URL, ACTIVITY_API_URL, IDENTITY_ENDPOINT].filter((value): value is string => Boolean(value)),
-    );
-    for (const host of probeHosts) {
+    for (const host of pickMonitoredHosts(configuredSubstrateUrls())) {
       probeHostFingerprint({ host }).catch((err) => {
         log('debug', `Cert fingerprint probe failed for ${host}`, { error: err instanceof Error ? err.message : String(err) });
       });
@@ -497,31 +372,29 @@ async function main() {
     log('debug', 'Cert fingerprint probe setup failed', { error: err instanceof Error ? err.message : String(err) });
   }
 
-  // Resolve tenant with identity.metabob.com (non-fatal; populates orgId + inline JWT)
+  // Resolve the tenant with the identity vessel (non-fatal; populates orgId).
   if (authService.hasKey() && IDENTITY_ENDPOINT) {
     log('info', `Resolving tenant with identity-vessel (${IDENTITY_ENDPOINT})...`);
     await authService.resolveTenant(IDENTITY_ENDPOINT);
     if (authService.isResolved()) {
       log('info', `Tenant resolved: orgId=${authService.getOrgId()}`);
     } else {
-      log('warn', 'Tenant resolution incomplete — vessel discovery will use raw ApiKey auth');
+      log('warn', 'Tenant resolution incomplete — substrate calls use raw ApiKey auth');
     }
-    // Periodic re-resolve = key-issuance heartbeat that identity-vessel uses
-    // to monitor metabob-mcp usage during the interim period.
+    // Periodic re-resolve = key-issuance heartbeat the identity vessel uses to
+    // monitor metabob-mcp usage.
     authService.startKeyHeartbeat(5 * 60_000, IDENTITY_ENDPOINT);
-  } else if (authService.hasKey() && DISCOVERY_ENDPOINT) {
-    log('info', 'Discovery-only substrate mode: skipping identity-vessel auto-resolution without an explicit IDENTITY_ENDPOINT');
   }
 
-  // Start vessel HTTP server (health + capabilities + impulse resolver).
-  // Registration below is gated on this succeeding: a vessel that failed to bind
-  // must not advertise an endpoint it does not serve. CONFORMANCE §c2-endpoint.
-  let httpServerBound = false;
+  // The vessel HTTP server (health + capabilities + impulse resolver) serves
+  // local callers only: it binds 127.0.0.1, and nothing advertises it. The
+  // process is a client of the substrate — it makes no discovery registration
+  // and runs no overlay node (CONFORMANCE §c1-transport, CONFORMANCE §c2-endpoint,
+  // CONFORMANCE §c11-attachment-model).
   try {
     await vesselServer.start();
-    httpServerBound = true;
   } catch (error) {
-    log('warn', 'Failed to start vessel HTTP server — will not register with discovery', { error });
+    log('warn', 'Failed to start the loopback HTTP resolver — continuing with MCP stdio only', { error });
   }
   // CONFORMANCE §c6-collisions
   // @anchor health-port-range-warning
@@ -529,24 +402,19 @@ async function main() {
     log('warn', 'HEALTH_PORT is in 8000–8999, which collides with substrate container ports', { port: HEALTH_PORT });
   }
 
-  // Register with the discovery namespace (point-and-go: needs only a discovery
-  // endpoint + a valid key). vesselId is stable+unique per instance so multiple
-  // concurrent instances disambiguate without a third required input. Fail-open:
-  // a missing discovery endpoint / key, or an unreachable discovery, degrades to
-  // an unregistered (client-only) vessel rather than blocking startup.
+  // The stable coordination identity: keys the local agent-task queue and the
+  // authorship of recorded findings. It is never registered anywhere.
   try {
     const vesselId = await resolveVesselId({
       explicit: process.env.VESSEL_ID,
       apiKey: METABOB_API_KEY,
       workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
     });
-    // Publish the stable coordination identity even if discovery registration is
-    // skipped — the agent-resolver tools + inbound enqueue key on the vesselId.
     setResolverIdentity({ vesselId });
 
     // Resume: deliver any answers this workspace produced in a prior session
     // that never reached the substrate (cross-session "provide info back").
-    if (vesselId && localStore && SIDECAR_MODE) {
+    if (vesselId && localStore && !notAttached) {
       reconcileUndelivered(apiClient, localStore, vesselId)
         .then((r) => {
           if (r.delivered || r.abandoned || r.pending) {
@@ -555,161 +423,8 @@ async function main() {
         })
         .catch((err) => log('warn', 'Resolution reconcile failed (will retry next session)', { error: err }));
     }
-    // Advertise only an endpoint the reader of the row can dial. Loopback is
-    // valid only inside the caller's own network namespace (the host's
-    // 127.0.0.1 is not a container's), so there is no default: registration
-    // needs an explicit VESSEL_PUBLIC_ENDPOINT and a bound HTTP server.
-    // CONFORMANCE §c2-endpoint
-    const advertisedEndpoint = process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || undefined;
-    if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !httpServerBound) {
-      log('warn', 'Discovery registration skipped — HTTP server not bound; running client-only', { port: HEALTH_PORT });
-    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !advertisedEndpoint) {
-      log('info', 'Discovery registration skipped — no VESSEL_PUBLIC_ENDPOINT set; running client-only');
-    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !HEALTH_PORT) {
-      // An ephemeral port can't be what VESSEL_PUBLIC_ENDPOINT names (the operator
-      // chose the endpoint before the port existed), so the row would point at
-      // nothing. Pinning HEALTH_PORT is required; a sidecar may still remap it.
-      log('warn', 'Discovery registration skipped — VESSEL_PUBLIC_ENDPOINT needs an explicit HEALTH_PORT; running client-only', { advertisedEndpoint });
-    } else if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && advertisedEndpoint) {
-
-      // Prefer p2p: discover a relay via /bootstrap (read at use time, never
-      // pinned). If one exists AND the optional libp2p transport is installed,
-      // stand up an overlay node serving the SAME resolve handler so peers
-      // behind NAT / a corp proxy can reach us. No relay or no transport →
-      // FederationNode is null and we advertise HTTP-only (the compliant
-      // fallback).
-      // CONFORMANCE §c1-transport — a vessel-owned libp2p node is a gap there.
-      try {
-        const anchors = await fetchBootstrapAnchors(DISCOVERY_ENDPOINT);
-        const relay = anchors.relayMultiaddrs[0];
-        if (relay) {
-          log('info', 'Relay discovered — starting libp2p overlay', { relay });
-          federationNode = await startFederationNode({
-            vesselId,
-            relayMultiaddr: relay,
-            resolveHandler: async (pointer: any) =>
-              (await resolveImpulseContent(pointer ?? {}, apiClient, SESSION_ID, localStore)).content,
-          });
-          if (federationNode) {
-            log('info', 'libp2p overlay ready', {
-              peerId: federationNode.peerId,
-              circuit: federationNode.currentCircuit() || '(pending)',
-            });
-          } else {
-            log('info', 'libp2p overlay unavailable — advertising HTTP-only');
-          }
-        }
-      } catch (err) {
-        log('warn', 'Overlay setup failed — advertising HTTP-only', { error: err });
-      }
-
-      vesselHeartbeat = new VesselHeartbeat({
-        discoveryEndpoint: DISCOVERY_ENDPOINT,
-        vesselId,
-        vesselName: VESSEL_BASE_NAME,
-        version: VESSEL_VERSION,
-        endpoint: advertisedEndpoint,
-        // Advertise only currently-serviceable shapes; the presence-advertiser
-        // keeps this in step as conditions change (Law 1): CPG shapes once a
-        // workspace is indexed, human_input while the agent-resolver role is on.
-        shapes: computeAdvertisedShapes(workspaceIsIndexed(), agentResolverEnabled()),
-        // A generous resolve timeout when acting as an agent-resolver: goal-host
-        // uses this as the solicitation deadline (the agent needs minutes to
-        // answer, unlike the fast code:* resolves).
-        resolveTimeoutMs: agentResolverEnabled() ? 300_000 : undefined,
-        authService,
-        // Advertise the libp2p transport row when a circuit exists; re-derived
-        // each heartbeat cycle so a late reservation is picked up.
-        extraFields: () => {
-          if (!federationNode) return {};
-          const circuit = federationNode.currentCircuit();
-          return {
-            protocol: 'libp2p',
-            libp2p_peer_id: federationNode.peerId,
-            libp2p_multiaddr: circuit ? [circuit] : [],
-          };
-        },
-      });
-      const registered = await vesselHeartbeat.start();
-      // Keep the advertised shape-set in step with live capability.
-      stopPresenceAdvertiser = startPresenceAdvertiser({
-        heartbeat: vesselHeartbeat,
-        desiredShapes: () => computeAdvertisedShapes(workspaceIsIndexed(), agentResolverEnabled()),
-      });
-      // Report what actually happened: the heartbeat keeps retrying after a
-      // rejected registration, so claiming success here hid a bad key behind
-      // an INFO line that read as though the vessel had joined the namespace.
-      log(registered ? 'info' : 'warn',
-        registered
-          ? 'Registered with discovery'
-          : 'Discovery registration rejected — not yet advertised; retrying on the heartbeat interval',
-        {
-          vesselId,
-          discovery: DISCOVERY_ENDPOINT,
-          transport: federationNode ? 'libp2p+http' : 'http',
-          indexed: workspaceIsIndexed(),
-        });
-    } else {
-      log('info', 'Discovery registration skipped (no discovery endpoint / key / vesselId) — running client-only');
-    }
   } catch (error) {
-    log('warn', 'Discovery registration failed (continuing client-only)', { error });
-  }
-
-  // Authenticate with ide.metabob.com (analysis API path)
-  if (METABOB_API_KEY && !VESSEL_MODE) {
-    try {
-      log('info', 'Authenticating with API key...');
-      const authResponse = await apiClient.authenticateWithApiKey();
-      log('info', 'Session created', {
-        session: authResponse.session.slice(0, 8) + '…',
-      });
-      // Keep the opaque session token fresh against ide.metabob.com
-      apiClient.startSessionRefresh();
-    } catch (error) {
-      const err = error as Error;
-      log('error', 'API key authentication failed', { error: err.message });
-      console.error(`\nAuthentication failed: ${err.message}`);
-      console.error('Check that your API key is valid and not expired.');
-      console.error('Get a new API key from: https://app.metabob.com/settings/api-keys\n');
-      process.exit(1);
-    }
-  } else if (VESSEL_MODE) {
-    log('info', 'Vessel mode: authenticating with raw ApiKey header against analysis-vessel', {
-      analysisAPIURL: ANALYSIS_API_URL,
-    });
-  } else if (!SESSION_TOKEN) {
-    log('warn', 'No authentication configured. Some features may be unavailable.');
-    log('warn', 'Set METABOB_API_KEY (exchanged for a session token) or SESSION_TOKEN for authenticated access.');
-  }
-
-  // Check API health (optional, non-blocking)
-  try {
-    await apiClient.health();
-    log('info', 'Analysis API health check passed');
-  } catch (error) {
-    log('warn', 'Analysis API health check failed (continuing anyway)', { error });
-  }
-
-  // Acquire connection slot if enabled
-  if (USE_CONNECTION_SLOTS) {
-    try {
-      log('info', 'Acquiring connection slot...');
-      const connectionInfo = await apiClient.connectWithSlot();
-      if (connectionInfo) {
-        log('info', 'Connection slot acquired', {
-          connectionId: connectionInfo.connectionId,
-          slotNumber: connectionInfo.slotNumber,
-          maxSlots: connectionInfo.maxSlots,
-          gracePeriodMs: connectionInfo.gracePeriodMs,
-        });
-      }
-    } catch (error) {
-      const err = error as Error;
-      log('error', 'Failed to acquire connection slot', { error: err.message });
-      // Continue without connection slot - tools will still work but may be rate limited
-      log('warn', 'Continuing without connection slot. Some features may be limited.');
-    }
+    log('warn', 'Could not derive the coordination identity', { error });
   }
 
   // Create transport and connect
@@ -727,12 +442,7 @@ async function main() {
     log('info', 'Shutting down...', { reason });
 
     authService.stopKeyHeartbeat();
-    stopPresenceAdvertiser?.();
-    vesselHeartbeat?.stop();
-    await federationNode?.stop().catch(() => {});
-    telemetry.destroy();
     localStore?.close();
-    await apiClient.shutdown();
     await vesselServer.stop();
     sessionManager.stop();
     await server.close();
@@ -750,13 +460,12 @@ async function main() {
   // The MCP stdio contract is that the client owning stdin owns our lifetime.
   // When a client dies without signalling us, we are reparented to init and
   // stdin hits EOF — but the SDK's StdioServerTransport only ever listens for
-  // 'data' and 'error', so nothing surfaces that. With the presence/heartbeat
-  // timers and the HTTP server holding the event loop open, the orphan then
-  // runs forever. Watching for
-  // EOF ourselves is what makes the process mortal.
+  // 'data' and 'error', so nothing surfaces that. With the HTTP server and the
+  // timers holding the event loop open, the orphan then runs forever. Watching
+  // for EOF ourselves is what makes the process mortal.
   //
-  // Escape hatch: set METABOB_STDIO_KEEPALIVE=1 to run headless (HTTP resolver
-  // + discovery registration only) with stdin closed or /dev/null.
+  // Escape hatch: set METABOB_STDIO_KEEPALIVE=1 to run headless (the loopback
+  // HTTP resolver only) with stdin closed or /dev/null.
   if (process.env['METABOB_STDIO_KEEPALIVE'] !== '1') {
     const onStdinEof = () => void shutdown('stdin EOF (client closed)');
     process.stdin.on('end', onStdinEof);

@@ -3,8 +3,8 @@
  *
  * 12: concept-db returns ids both bare and ⟨⟩-wrapped, and the wrapped form is
  *     what get_problems prints. On HEAD the wrapped form failed the
- *     `startsWith('concept_')` gate and fell through to the legacy postFeedback
- *     path — reporting "endorsed" for a finding write that never happened.
+ *     `startsWith('concept_')` gate, so the finding was never touched while the
+ *     tool reported on it.
  * 24: the remote verdict was keyed on `remote.findingId || problem_id`, but
  *     record_finding writes the truthy placeholder "(not cached locally)" into
  *     `finding_ids:` when it has no LocalStore, so the `||` never fell back and
@@ -92,15 +92,13 @@ function storeSpy(byRef: Record<string, SeedRecord>): StoreSpy {
   return spy;
 }
 
-/** apiClient stub: postFeedback must NEVER fire on a finding id. */
-function apiStub(): { client: AnalysisAPIClient; feedback: string[] } {
-  const feedback: string[] = [];
+/** apiClient stub: no discovery, so concept-db is reached only via CONCEPT_DB_URL. */
+function apiStub(): { client: AnalysisAPIClient } {
   const client = {
-    postFeedback: async (id: string) => { feedback.push(id); },
     hasDiscovery: () => false,
     getDiscoveryEndpoint: () => undefined,
   } as unknown as AnalysisAPIClient;
-  return { client, feedback };
+  return { client };
 }
 
 /** A concept-db row whose `finding_ids:` line holds `ids`. */
@@ -139,10 +137,10 @@ afterEach(() => {
 
 // ── Finding 12 ──────────────────────────────────────────────────────────────
 
-test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed instead of falling through to postFeedback', async () => {
+test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed', async () => {
   delete process.env.CONCEPT_DB_URL; // isolate the local half
   const spy = storeSpy({ [PLAIN]: seed() });
-  const { client, feedback } = apiStub();
+  const { client } = apiStub();
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'endorse' }),
@@ -151,18 +149,18 @@ test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed instead 
     spy.store,
   );
 
-  // HEAD: gate missed, so postFeedback fired and the seed was never touched.
-  expect(feedback).toEqual([]);
+  // The gate must match the wrapped form, or the seed is never touched.
+  expect(out).not.toContain('is not a finding id');
   expect(spy.staled).toEqual(['agf_local1']);
   expect(spy.deleted).toEqual([]);
   expect(out).toContain('agf_local1');
   expect(out).toContain('endorsed');
 });
 
-test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store, not the legacy API', async () => {
+test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store', async () => {
   delete process.env.CONCEPT_DB_URL;
   const spy = storeSpy({ [PLAIN]: seed() });
-  const { client, feedback } = apiStub();
+  const { client } = apiStub();
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'discard' }),
@@ -171,7 +169,6 @@ test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store, n
     spy.store,
   );
 
-  expect(feedback).toEqual([]);
   expect(spy.deleted).toEqual(['agf_local1']);
   expect(spy.staled).toEqual([]);
 });
@@ -181,7 +178,7 @@ test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and
   // The seed is reachable by the id as GIVEN, not by the canonical one — this
   // is what postConcept's `^concept:`-only strip leaves in refs_json.
   const spy = storeSpy({ [WRAPPED]: seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) });
-  const { client, feedback } = apiStub();
+  const { client } = apiStub();
   const calls = stubFetch(() => new Response('{"id":"concept_v1"}', {
     status: 200, headers: { 'Content-Type': 'application/json' },
   }));
@@ -193,7 +190,6 @@ test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and
     { ...spy.store, getSeedById: () => seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) } as unknown as LocalStore,
   );
 
-  expect(feedback).toEqual([]);
   const usage = calls.find((c) => c.url.includes('/usage'));
   // HEAD: http://conceptdb.test/concepts/%E2%9F%A8concept_ABC%E2%9F%A9/usage → 404
   expect(usage?.url).toBe('http://conceptdb.test/concepts/concept_ABC/usage');
@@ -202,7 +198,7 @@ test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and
 test('mark_complete: a wrapped id with no local seed reads the concept by its bare id', async () => {
   process.env.CONCEPT_DB_URL = 'http://conceptdb.test';
   const spy = storeSpy({});
-  const { client, feedback } = apiStub();
+  const { client } = apiStub();
   const calls = stubFetch((url) =>
     url.endsWith(`/concepts/${PLAIN}`)
       ? conceptRow('agf_remote9')
@@ -216,8 +212,8 @@ test('mark_complete: a wrapped id with no local seed reads the concept by its ba
     spy.store,
   );
 
-  // HEAD: no fetch at all — the wrapped id went to postFeedback.
-  expect(feedback).toEqual([]);
+  // The wrapped id must reach concept-db by its plain form.
+  expect(out).not.toContain('is not a finding id');
   expect(calls.some((c) => c.url === `http://conceptdb.test/concepts/${PLAIN}`)).toBe(true);
   expect(calls.some((c) => c.url.includes('%E2%9F%A8'))).toBe(false);
   expect(out).toContain('endorsed');

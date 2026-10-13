@@ -66,10 +66,7 @@
         "src/tools/index.ts",
         "src/config.ts",
         "src/cli.ts",
-        "src/telemetry.ts",
         "src/vessel-identity.ts",
-        "src/presence-advertiser.ts",
-        "src/bootstrap.ts",
         "scripts/doclinks.mjs"
       ],
       "docs/DOCLINKS.md": [
@@ -85,14 +82,13 @@
         "src/vessel-identity.ts",
         "src/config.ts",
         "src/vessel-server.ts",
-        "src/presence-advertiser.ts",
-        "src/vessel-heartbeat.ts",
-        "src/federation/libp2p-node.ts",
         "src/tls-trust.ts",
         "src/tls-error.ts",
         "src/auth-service.ts",
-        "src/bootstrap.ts",
-        "src/tools/run-goal.ts"
+        "src/tools/run-goal.ts",
+        "src/doctor.ts",
+        "src/tools/pull-assigned-work.ts",
+        "src/tools/submit-resolution.ts"
       ]
     },
     "retired": {},
@@ -125,6 +121,17 @@
           "submit_resolution"
         ]
       },
+      "src/api-client.ts": {
+        "SPEC": [
+          "concept-graph-tools",
+          "substrate-goal-tools"
+        ]
+      },
+      "src/auth-service.ts": {
+        "CONFORMANCE": [
+          "c4-anchoring"
+        ]
+      },
       "src/cli.ts": {
         "CLAUDE": [
           "environment-variables"
@@ -147,20 +154,27 @@
           "endpoint-derivation"
         ]
       },
+      "src/doctor.ts": {
+        "CONFORMANCE": [
+          "c3-identity"
+        ]
+      },
       "src/index.ts": {
         "CLAUDE": [
           "environment-variables"
         ],
         "CONFORMANCE": [
           "c1-transport",
+          "c11-attachment-model",
           "c2-endpoint",
           "c4-anchoring",
-          "c6-collisions"
+          "c6-collisions",
+          "c8-proxy-and-tls-in-the-vessel-role"
         ]
       },
-      "src/presence-advertiser.ts": {
+      "src/tls-trust.ts": {
         "CONFORMANCE": [
-          "c7-shapes"
+          "c8-proxy-and-tls-in-the-vessel-role"
         ]
       },
       "src/tools/_findings.ts": {
@@ -271,7 +285,7 @@
       },
       "src/tools/pull-assigned-work.ts": {
         "CONFORMANCE": [
-          "c7-shapes"
+          "c11-attachment-model"
         ],
         "SPEC": [
           "pull_assigned_work"
@@ -309,23 +323,24 @@
       },
       "src/tools/submit-resolution.ts": {
         "CONFORMANCE": [
-          "c7-shapes"
+          "c11-attachment-model"
         ],
         "SPEC": [
           "submit_resolution"
         ]
       },
-      "src/vessel-heartbeat.ts": {
-        "CONFORMANCE": [
-          "c9-fail-visibly"
-        ]
-      },
       "src/vessel-identity.ts": {
         "CONFORMANCE": [
-          "c7-shapes"
+          "c10-one-registrant-per-key-and-workspace",
+          "c11-attachment-model"
         ]
       },
       "src/vessel-server.ts": {
+        "CONFORMANCE": [
+          "c2-endpoint",
+          "c3-identity",
+          "c9-fail-visibly"
+        ],
         "SPEC": [
           "impulse-shapes"
         ]
@@ -339,7 +354,8 @@
         "CONFORMANCE": [
           "c11-attachment-model",
           "c2-endpoint",
-          "c7-shapes"
+          "c7-shapes",
+          "c9-fail-visibly"
         ]
       }
     },
@@ -353,6 +369,8 @@
         "src/api-client.ts",
         "src/auth-service.ts",
         "src/cochange-predictor.ts@addFile",
+        "src/config.ts",
+        "src/config.ts@unattachedMessage",
         "src/cpg-inference.ts",
         "src/index.ts",
         "src/local-index.ts",
@@ -368,26 +386,25 @@
       "docs/CONFORMANCE.md": [
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
-        "src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT",
-        "src/bootstrap.ts@fetchBootstrapAnchors",
         "src/config.ts@deriveSubstrateDefaults",
+        "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
-        "src/federation/libp2p-node.ts@startFederationNode",
+        "src/doctor.ts@resolveSubstrateTargets",
         "src/index.ts@HEALTH_PORT",
         "src/index.ts@IDENTITY_ENDPOINT",
-        "src/index.ts@advertisedEndpoint",
         "src/index.ts@health-port-range-warning",
-        "src/index.ts@httpServerBound",
         "src/index.ts@main",
-        "src/presence-advertiser.ts@computeAdvertisedShapes",
-        "src/presence-advertiser.ts@startPresenceAdvertiser",
+        "src/index.ts@tls-intercepted-report",
         "src/tls-error.ts@translateTlsError",
         "src/tls-trust.ts@installSystemTrustStoreSync",
+        "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS",
-        "src/vessel-heartbeat.ts@VesselHeartbeat",
-        "src/vessel-identity.ts@agentResolverEnabled",
+        "src/vessel-identity.ts@SERVED_SHAPES",
         "src/vessel-identity.ts@resolveVesselId",
-        "src/vessel-server.ts@VesselServer"
+        "src/vessel-server.ts@VesselServer",
+        "src/vessel-server.ts@health-attachment",
+        "src/vessel-server.ts@loopback-bind",
+        "tests/workflows/w3-attachment.test.ts"
       ],
       "docs/COORDINATION-DEMONSTRATION.md": [
         "src/tools/_findings.ts"
@@ -431,6 +448,7 @@
         "src/config.ts@applyConfigDefaults",
         "src/config.ts@deriveSubstrateDefaults",
         "src/config.ts@getDefaultConfigPath",
+        "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
         "src/cpg-inference.ts",
         "src/discovery.ts@deriveLocalDiscoveryEndpoint",
@@ -465,6 +483,7 @@
         "src/tools/mark-complete.ts@handle",
         "src/tools/predict-cochanges.ts@handle",
         "src/tools/provide-feedback.ts@handle",
+        "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/pull-assigned-work.ts@handle",
         "src/tools/record-finding.ts@handle",
         "src/tools/registry-query.ts@handle",
@@ -474,8 +493,9 @@
         "src/tools/search-codebase.ts@handle",
         "src/tools/submit-resolution.ts@handle",
         "src/vector-index.ts@FAISSIndex",
-        "src/vessel-identity.ts@agentResolverEnabled",
+        "src/vessel-identity.ts@resolveVesselId",
         "src/vessel-server.ts@QUEUED_SHAPES",
+        "src/vessel-server.ts@loopback-bind",
         "src/vessel-server.ts@resolvePointerToTool"
       ],
       "openspec/changes/2026-07-19-local-index-persistence/proposal.md": [
@@ -507,8 +527,6 @@
       "scripts/doclinks.mjs@symbolRegions": "57ce027154cc",
       "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
-      "src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT": "961ac605c7c1",
-      "src/bootstrap.ts@fetchBootstrapAnchors": "1b0c2f5da2f8",
       "src/cli.ts@main": "7d5d3f63a3bd",
       "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
@@ -516,19 +534,17 @@
       "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
       "src/config.ts@deriveSubstrateDefaults": "b1540b144e4b",
       "src/config.ts@getDefaultConfigPath": "b2314fb60be6",
+      "src/config.ts@unattachedMessage": "c37187992372",
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
       "src/discovery.ts@deriveLocalDiscoveryEndpoint": "3582fa0db678",
       "src/discovery.ts@resolveServiceEndpointByShape": "c82219d4d059",
-      "src/federation/libp2p-node.ts@startFederationNode": "c2e75c7a5db3",
+      "src/doctor.ts@resolveSubstrateTargets": "f5c7346fc7ce",
       "src/index.ts@HEALTH_PORT": "3b0f11787db8",
-      "src/index.ts@IDENTITY_ENDPOINT": "6dd8d4bbbb87",
-      "src/index.ts@advertisedEndpoint": "857f4cae044d",
+      "src/index.ts@IDENTITY_ENDPOINT": "ecdfc78b71e8",
       "src/index.ts@health-port-range-warning": "fa8dd2a85884",
-      "src/index.ts@httpServerBound": "f6ec5db62849",
       "src/index.ts@main": "7d5d3f63a3bd",
       "src/index.ts@stdout-is-transport": "11f9a2ac527f",
-      "src/presence-advertiser.ts@computeAdvertisedShapes": "dff4f00edf65",
-      "src/presence-advertiser.ts@startPresenceAdvertiser": "8a4001141eb2",
+      "src/index.ts@tls-intercepted-report": "a0bd592ac9b4",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/tls-error.ts@translateTlsError": "0ecf7178bdcf",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
@@ -559,6 +575,7 @@
       "src/tools/mark-complete.ts@handle": "4bdf740420c9",
       "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
       "src/tools/provide-feedback.ts@handle": "ac0b84ada5a5",
+      "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER": "d379a2d71e1b",
       "src/tools/pull-assigned-work.ts@handle": "4bdf740420c9",
       "src/tools/record-finding.ts@handle": "4bdf740420c9",
       "src/tools/registry-query.ts@handle": "4206dbda7e7a",
@@ -569,11 +586,12 @@
       "src/tools/search-codebase.ts@handle": "4bdf740420c9",
       "src/tools/submit-resolution.ts@handle": "4bdf740420c9",
       "src/vector-index.ts@FAISSIndex": "bdf68716d2e4",
-      "src/vessel-heartbeat.ts@VesselHeartbeat": "3e2425cea530",
-      "src/vessel-identity.ts@agentResolverEnabled": "1052bbb4ff16",
+      "src/vessel-identity.ts@SERVED_SHAPES": "0d7dddfff5e9",
       "src/vessel-identity.ts@resolveVesselId": "e0980371a921",
       "src/vessel-server.ts@QUEUED_SHAPES": "6db48f2ed6c0",
       "src/vessel-server.ts@VesselServer": "52e392baadee",
+      "src/vessel-server.ts@health-attachment": "80eef15c9804",
+      "src/vessel-server.ts@loopback-bind": "ef89ff76c40c",
       "src/vessel-server.ts@resolvePointerToTool": "16d1a9fc8690"
     }
   }

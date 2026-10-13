@@ -108,7 +108,7 @@ export async function handle(
   // findings (agf_*) first among them. There is no server-side analysis to
   // look an id up in.
   if (!localStore) {
-    return `Problem "${input.problem_id}" cannot be annotated — local store unavailable in this session (METABOB_STATELESS=true), and there is no server-side analysis.`;
+    return `Problem "${input.problem_id}" cannot be annotated — the local store failed to open in this session (see the startup log), and there is no server-side analysis.`;
   }
   const seed = localStore.getSeedById(input.problem_id);
   if (!seed) {

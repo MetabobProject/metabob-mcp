@@ -16,7 +16,7 @@
  * shape via discovery-vessel and host-remap the internal port, or honor an
  * explicit GOAL_HOST_VESSEL_URL.
  *
- * Auth: vessel mode only. Re-uses METABOB_API_KEY as ApiKey bearer.
+ * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';

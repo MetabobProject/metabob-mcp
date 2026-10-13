@@ -20,12 +20,11 @@ reader are faster.
 2. `get_problems` — the work queue. Findings carrying a verdict appear in a
    trailing **closed** section tagged `[FIXED]`/`[RETRACTED]`; the open list is
    work that is genuinely still open.
-3. Only when this session runs with `METABOB_AGENT_RESOLVER=1` (the
-   agent-resolver role, off by default and set only where a human is at the
-   terminal): `pull_assigned_work` — tasks the substrate dispatched to this
-   vessel, including while you were away. Answer each with
-   `submit_resolution { task_id, outcome, answer }`. Without the opt-in the
-   substrate dispatches nothing here, so skip this step.
+3. Skip `pull_assigned_work` unless you know a task was queued on this machine.
+   The session is a client of the substrate and advertises nothing, so the
+   substrate dispatches no tasks to it; the tool says so when its queue is
+   empty. A queued task is answered with
+   `submit_resolution { task_id, outcome, answer }`.
 
 For the org's design memory, use `concept_search` with a **`shape` filter and no
 `query`** — list-mode returns the full set for a shape.

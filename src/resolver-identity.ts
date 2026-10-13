@@ -6,8 +6,7 @@
  * partition key for the durable coordination store: a later session in the same
  * workspace+key re-derives the identical id and reattaches to prior tasks. The
  * operatorId is the task owner. Both are process-wide constants, so a tiny
- * module-level holder avoids threading them through the shared resolve handler
- * (which must stay identical across the HTTP and libp2p transports).
+ * module-level holder avoids threading them through the shared resolve handler.
  */
 
 import { operatorId } from './operator-id.js';
@@ -29,7 +28,7 @@ export function setResolverIdentity(next: { vesselId?: string; operatorId?: stri
   if (next.operatorId !== undefined) identity.operatorId = next.operatorId;
 }
 
-/** The cross-session partition key, or undefined when there is no key/registration. */
+/** The cross-session partition key, or undefined when there is no key and no VESSEL_ID. */
 export function getResolverVesselId(): string | undefined {
   return identity.vesselId;
 }

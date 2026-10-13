@@ -4,7 +4,7 @@
  *
  *   - it never registers with discovery (CONFORMANCE §c11-attachment-model:
  *     client-only until an outside-vantage reachability probe exists);
- *   - its HTTP server's bind address (CONFORMANCE §c2-endpoint);
+ *   - its HTTP server binds loopback only (CONFORMANCE §c2-endpoint);
  *   - it does not offer human_input (CONFORMANCE §c7-shapes);
  *   - no workspace content leaves the machine.
  */
@@ -59,56 +59,45 @@ afterAll(async () => {
 }, BOOT_TIMEOUT_MS);
 
 describe('W3 attachment conformance', () => {
-  test('no discovery /register under the default configuration, or any partial opt-in', async () => {
-    const [healthPort, publicPort] = await Promise.all([freePort(), freePort()]);
+  // CONFORMANCE §c11-attachment-model: inbound is offered only after an
+  // outside-vantage reachability probe, and none exists for host vessels, so
+  // the server is client-only under every configuration, whatever variables
+  // the environment carries (VESSEL_PUBLIC_ENDPOINT, METABOB_AGENT_RESOLVER
+  // and VESSEL_ID included).
+  test('no discovery /register under any configuration', async () => {
+    const [healthPort, pinnedPort] = await Promise.all([freePort(), freePort()]);
     await Promise.all([
       start('attach-port', { HEALTH_PORT: String(healthPort) }),
-      start('attach-public', { VESSEL_PUBLIC_ENDPOINT: `http://127.0.0.1:${publicPort}` }),
+      start('attach-pinned', { HEALTH_PORT: String(pinnedPort), VESSEL_PUBLIC_ENDPOINT: `http://127.0.0.1:${pinnedPort}` }),
       start('attach-resolver', { METABOB_AGENT_RESOLVER: '1' }),
       start('attach-vesselid', { VESSEL_ID: 'metabob-mcp-explicit' }),
     ]);
-    // Registration runs before the MCP transport connects, so by the time a
-    // server has answered `initialize` it has registered or decided not to.
+    // Startup work runs before the MCP transport connects, so by the time a
+    // server has answered `initialize` anything it would send at boot is sent.
     expect(fake.requestsFor('register')).toEqual([]);
+    expect(fake.requests.filter(r => r.service === 'discovery' && r.method !== 'GET')).toEqual([]);
   });
 
-  // CONFORMANCE §c11-attachment-model: inbound is offered only after an
-  // outside-vantage reachability probe, and until one exists the vessel is
-  // client-only. With every C2 gate passed (bound server, explicit
-  // VESSEL_PUBLIC_ENDPOINT, explicit HEALTH_PORT) the server registers today.
-  test.todo('no discovery /register even with VESSEL_PUBLIC_ENDPOINT and HEALTH_PORT set', async () => {
-    const port = await freePort();
-    await start('attach-optin', { HEALTH_PORT: String(port), VESSEL_PUBLIC_ENDPOINT: `http://127.0.0.1:${port}` });
-    expect(fake.requestsFor('register')).toEqual([]);
-  });
-
-  test('a registration, wherever one happens, never offers human_input by default', async () => {
-    const port = await freePort();
-    await start('attach-optin-shapes', { HEALTH_PORT: String(port), VESSEL_PUBLIC_ENDPOINT: `http://127.0.0.1:${port}` });
-    for (const r of fake.requestsFor('register')) {
-      expect((r.body as { shapes?: string[] }).shapes ?? []).not.toContain('human_input');
-    }
-  });
-
-  test('the vessel resolver does not advertise human_input by default', async () => {
+  test('the vessel resolver does not advertise human_input', async () => {
     const port = await plain.vesselPort();
     const caps = (await (await fetch(`http://127.0.0.1:${port}/v2/capabilities`)).json()) as { shapes: string[] };
     expect(caps.shapes.length).toBeGreaterThan(0);
     expect(caps.shapes).not.toContain('human_input');
   });
 
-  // The HTTP server binds every interface (`server.listen(port)` with no host):
-  // it answers on a non-loopback address. Recorded as the current behaviour.
-  const lanAddress = nonLoopbackIPv4();
-  test.skipIf(!lanAddress)('the vessel HTTP server binds all interfaces (current behaviour)', async () => {
+  // CONFORMANCE §c2-endpoint: loopback is dialable only within the same network
+  // namespace, and a client-only process has no reader outside it.
+  test('the vessel HTTP server answers on loopback', async () => {
     const port = await plain.vesselPort();
-    const res = await fetch(`http://${lanAddress}:${port}/health`, { signal: AbortSignal.timeout(3_000) });
+    const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3_000) });
     expect(res.status).toBe(200);
+    // CONFORMANCE §c9-fail-visibly: the attachment state is reported.
+    const body = (await res.json()) as { attachment?: { attached: boolean; advertised: string } };
+    expect(body.attachment).toEqual({ attached: true, advertised: 'none (client-only)' });
   });
 
-  // CONFORMANCE §c2-endpoint: loopback is dialable only within the same network
-  // namespace, and a client-only vessel has no reader outside it.
-  test.todo('the vessel HTTP server binds loopback only', async () => {
+  const lanAddress = nonLoopbackIPv4();
+  test.skipIf(!lanAddress)('the vessel HTTP server does not answer on a non-loopback address', async () => {
     const port = await plain.vesselPort();
     const reached = await fetch(`http://${lanAddress}:${port}/health`, { signal: AbortSignal.timeout(3_000) })
       .then(() => true, () => false);

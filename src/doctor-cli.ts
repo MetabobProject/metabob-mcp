@@ -31,8 +31,11 @@ ENVIRONMENT:
   NO_COLOR          Disable ANSI color output
   FORCE_COLOR       Force ANSI color output
 
-Exit code: 0 if all Metabob hosts are reachable (even if TLS-intercepted),
-1 if any Metabob host is unreachable.
+The hosts probed are those of the configured substrate (METABOB_ENDPOINT,
+DISCOVERY_ENDPOINT, or a config file), read the same way the server reads them.
+
+Exit code: 0 if every https substrate host is reachable (even if
+TLS-intercepted), 1 if any is unreachable or no endpoint is configured.
 `);
     process.exit(0);
   }

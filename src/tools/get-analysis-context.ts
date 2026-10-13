@@ -88,7 +88,7 @@ export async function handle(
 
   // ── Open problems in the local store (same source as get_problems) ───────
   let cacheTag: string | null = null;
-  let problemsText = '(no local store in this session — METABOB_STATELESS=true)';
+  let problemsText = '(no local store in this session — it failed to open; see the startup log)';
   let criticalCount = 0;
   let highCount = 0;
   const recentProblems: string[] = [];

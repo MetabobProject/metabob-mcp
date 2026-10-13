@@ -9,9 +9,8 @@
  *     /v2/capabilities advertised authScheme:'ApiKey'. Old code: 200.
  *   - "allowlist rejects a non-permitted tool" (both via mcp:tool_call and via a
  *     shape pointer). METABOB_TOOLS was enforced only in the MCP request
- *     handlers, so the HTTP resolver AND the libp2p overlay — both of which
- *     dispatch through resolveImpulseContent — accepted any tool in the
- *     registry. Old code: resolved and returned the tool's content.
+ *     handlers, so the HTTP resolver — which dispatches through
+ *     resolveImpulseContent — accepted any tool in the registry. Old code: resolved and returned the tool's content.
  *
  * The keyed-mode and human_input cases pass before AND after; they are here so a
  * later "simplification" cannot over-tighten the gate into breaking real callers
@@ -131,8 +130,8 @@ describe('METABOB_TOOLS parsing (finding D)', () => {
 });
 
 describe('allowlist enforcement on the resolve plane (finding D)', () => {
-  // resolveImpulseContent is the shared dispatch for BOTH the HTTP resolver and
-  // the libp2p overlay handler (src/index.ts), so driving it directly covers both.
+  // resolveImpulseContent is the HTTP resolver's dispatch, so driving it
+  // directly covers that plane.
 
   test('a non-permitted tool named via mcp:tool_call is refused', async () => {
     setAllowlist('record_finding');

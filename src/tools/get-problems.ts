@@ -71,7 +71,7 @@ export async function handle(
 /** The local store's open seeds for this workspace (or matching files), filtered. */
 function localFindings(input: GetProblemsInput, localStore?: LocalStore | null): string {
   if (!localStore) {
-    return 'Local findings: unavailable. There is no local store in this session (METABOB_STATELESS=true).';
+    return 'Local findings: unavailable. The local store failed to open in this session (see the startup log).';
   }
   const startTime = Date.now();
   // Both reads return seeds ordered by severity, then location.

@@ -66,7 +66,7 @@ test('remote port-published substrates derive discovery from the port block', ()
   expect(deriveLocalDiscoveryEndpoint('http://syzygy.host:18080')).toBe('http://syzygy.host:18100');
   expect(deriveLocalDiscoveryEndpoint('http://localhost:18080')).toBe('http://localhost:18100');
   // A portless proxy host must still fall through to the path-prefix branch.
-  expect(deriveLocalDiscoveryEndpoint('http://ide.metabob.com')).toBeUndefined();
+  expect(deriveLocalDiscoveryEndpoint('http://substrate.example')).toBeUndefined();
   // https:// is the reverse-proxy shape, never port-published.
-  expect(deriveLocalDiscoveryEndpoint('https://ide.metabob.com')).toBeUndefined();
+  expect(deriveLocalDiscoveryEndpoint('https://substrate.example')).toBeUndefined();
 });

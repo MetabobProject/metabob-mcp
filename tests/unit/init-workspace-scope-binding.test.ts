@@ -57,8 +57,6 @@ beforeEach(() => {
   apiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    postFeedback: mock(async () => ({})),
-    isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
 });
 

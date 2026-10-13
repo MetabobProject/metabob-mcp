@@ -49,16 +49,8 @@
       "description": "Mark a problem as resolved with optional commit reference."
     },
     {
-      "name": "generate_spec",
-      "description": "Generate a detailed implementation plan from a natural language goal."
-    },
-    {
       "name": "get_metrics",
       "description": "Project-level code health metrics and summary statistics."
-    },
-    {
-      "name": "activity",
-      "description": "Activity lifecycle: resolve_impulse, run_goal, get_recommendations, submit_trace."
     }
   ],
 
@@ -78,7 +70,7 @@
     "healthPath": "/health",
     "notes": [
       "MCP stdio transport is separate from the HTTP vessel server — both start in the same process.",
-      "Set ANALYSIS_API_URL to point at a running metabob-analysis-api instance.",
+      "Set METABOB_API_KEY and METABOB_ENDPOINT (or metabob.apiKey / metabob.endpoint in ~/.metabob/config.json) to attach to a substrate; nothing has a default.",
       "Set METABOB_API_KEY for authenticated API calls; the vessel server validates incoming requests against the same key.",
       "init_workspace must be called before predict_cochanges or analyze_impact — local CPG is in-process only.",
       "WORKSPACE_PATH defaults to cwd; set it if the agent's cwd differs from the repo root."

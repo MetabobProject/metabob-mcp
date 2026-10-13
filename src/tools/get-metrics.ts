@@ -57,7 +57,7 @@ export async function handle(
       text += `  Top categories: ${catStr}\n`;
     }
   } else {
-    text += `Local store: unavailable (METABOB_STATELESS=true)\n`;
+    text += `Local store: unavailable (it failed to open; see the startup log)\n`;
   }
   text += '\n';
 

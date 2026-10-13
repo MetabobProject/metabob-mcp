@@ -17,7 +17,7 @@
  * deliberate contributor — the same interface concept-db's own execution
  * observer uses when a task completes.
  *
- * Auth: vessel mode only. Talks directly to concept-db over the discovered
+ * Auth: talks directly to concept-db over the discovered
  * `conceptGraph` endpoint (or explicit CONCEPT_DB_URL), authenticated with the
  * customer's METABOB_API_KEY (identity-vessel resolves it to a tenant JWT).
  */

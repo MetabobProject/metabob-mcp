@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import {
   readKnownHosts,
   writeKnownHosts,
-  isMonitoredHost,
   pickMonitoredHosts,
 } from '../../src/cert-fingerprint';
 
@@ -21,20 +20,8 @@ afterEach(() => {
   for (const d of tempDirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-describe('isMonitoredHost', () => {
-  test('matches metabob.com subdomains', () => {
-    expect(isMonitoredHost('activity.metabob.com')).toBe(true);
-    expect(isMonitoredHost('identity.metabob.com')).toBe(true);
-    expect(isMonitoredHost('metabob.com')).toBe(true);
-  });
-  test('rejects unrelated hosts', () => {
-    expect(isMonitoredHost('example.com')).toBe(false);
-    expect(isMonitoredHost('metabob.example.com')).toBe(false);
-  });
-});
-
 describe('pickMonitoredHosts', () => {
-  test('extracts unique https metabob hosts from URLs', () => {
+  test('extracts the unique https hosts from the configured URLs', () => {
     const hosts = pickMonitoredHosts([
       'https://activity.metabob.com',
       'https://identity.metabob.com/v1/auth/resolve',
@@ -44,7 +31,7 @@ describe('pickMonitoredHosts', () => {
       'not a url',
       'https://example.com',
     ]);
-    expect(hosts.sort()).toEqual(['activity.metabob.com', 'identity.metabob.com']);
+    expect(hosts.sort()).toEqual(['activity.metabob.com', 'example.com', 'identity.metabob.com']);
   });
 });
 

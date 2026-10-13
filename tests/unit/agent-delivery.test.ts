@@ -154,24 +154,16 @@ describe('pull_assigned_work tool', () => {
     expect(out).toContain('No assigned work');
   });
 
-  test('an empty queue with the role off names the opt-in; with it on, it is just empty', async () => {
+  test('an empty queue says nothing can arrive, and names no opt-in', async () => {
     const store = freshStore();
     setResolverIdentity({ vesselId: 'v-optin', operatorId: 'op' });
-    const prev = process.env.METABOB_AGENT_RESOLVER;
-    try {
-      delete process.env.METABOB_AGENT_RESOLVER;
-      expect(await PullAssignedWork.handle({}, apiClient, 'sess-1', store)).toContain('METABOB_AGENT_RESOLVER=1');
-      process.env.METABOB_AGENT_RESOLVER = '1';
-      const on = await PullAssignedWork.handle({}, apiClient, 'sess-1', store);
-      expect(on).toContain('No assigned work');
-      expect(on).not.toContain('METABOB_AGENT_RESOLVER');
-    } finally {
-      if (prev === undefined) delete process.env.METABOB_AGENT_RESOLVER;
-      else process.env.METABOB_AGENT_RESOLVER = prev;
-    }
+    const out = await PullAssignedWork.handle({}, apiClient, 'sess-1', store);
+    expect(out).toBe(PullAssignedWork.NO_INBOUND_OFFER);
+    expect(out).toContain('none can arrive');
+    expect(out).not.toContain('METABOB_AGENT_RESOLVER');
   });
 
-  test('a queued task is listed even with the role off', async () => {
+  test('a task already in the local queue is listed', async () => {
     const store = freshStore();
     setResolverIdentity({ vesselId: 'v-off', operatorId: 'op' });
     store.enqueueAgentTask({

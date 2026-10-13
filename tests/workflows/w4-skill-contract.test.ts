@@ -86,18 +86,20 @@ describe('W4 skill contract', () => {
     expectWorks('concept_search', await server.text('concept_search', { shape: 'code_finding' }));
   });
 
-  test('Phase 0 — the pull step is conditional on the agent-resolver opt-in, in the skill and in the tools', async () => {
+  test('Phase 0 — the skill and the tools agree that nothing is dispatched to a client-only session', async () => {
     const step = stepMentioning(SKILL, '`pull_assigned_work`');
-    expect(step).toContain('METABOB_AGENT_RESOLVER');
+    expect(step).toContain('advertises nothing');
+    expect(step).not.toContain('METABOB_AGENT_RESOLVER');
 
-    // Under the default configuration nothing can ever be dispatched here, so
-    // the tool says why instead of reporting an empty queue.
+    // Nothing can ever be dispatched here, so the tool says why instead of
+    // reporting an empty queue an agent would keep polling.
     const pulled = await server.text('pull_assigned_work');
-    expect(pulled).toContain('METABOB_AGENT_RESOLVER');
-    expect(pulled).toMatch(/human_input/);
+    expect(pulled).toContain('none can arrive');
+    expect(pulled).not.toContain('METABOB_AGENT_RESOLVER');
 
     const submitted = await server.text('submit_resolution', { task_id: 'no-such-task', outcome: 'declined' });
-    expect(submitted).toContain('METABOB_AGENT_RESOLVER');
+    expect(submitted).toContain('advertises nothing to the substrate');
+    expect(submitted).not.toContain('METABOB_AGENT_RESOLVER');
   });
 
   test('Phase 1 — adopt the codebase', async () => {

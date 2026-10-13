@@ -29,8 +29,6 @@ beforeEach(() => {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
     put: mock(async () => ({})),
-    postFeedback: mock(async () => ({})),
-    isVesselMode: mock(() => false),
   };
   calls = Object.values(client);
   mockApiClient = client as unknown as AnalysisAPIClient;

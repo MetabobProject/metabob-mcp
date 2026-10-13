@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig, withoutEndpoints} from '../../src/config';
+import { applyConfigDefaults, configuredSubstrateUrls, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -34,7 +34,6 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
     apiKey: 'mb_test_key',
     activityApiUrl: 'https://activity.metabob.com',
     discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
     identityEndpoint: undefined,
     conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
@@ -42,20 +41,18 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
   });
 });
 
-test('loadMetabobCLIConfig falls back to instance api key and defaults the endpoint', () => {
+test('loadMetabobCLIConfig falls back to instance api key and defaults no endpoint', () => {
   const path = writeConfigFile(JSON.stringify({
     instance: {
       apiKey: 'mb_instance_key',
     },
   }));
 
-  // An apiKey-only config defaults the endpoint but derives no siblings: no
-  // path-prefixed layout is assumed for a remote gateway.
+  // An apiKey-only config names no substrate: nothing is defaulted.
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_instance_key',
-    activityApiUrl: 'https://ide.metabob.com',
+    activityApiUrl: undefined,
     discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
     identityEndpoint: undefined,
     conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
@@ -75,7 +72,6 @@ test('loadMetabobCLIConfig derives substrate sibling endpoints from local activi
     apiKey: 'mb_test_key',
     activityApiUrl: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:18100',
-    analysisApiUrl: 'http://localhost:18250',
     identityEndpoint: undefined,
     conceptDbUrl: 'http://localhost:18260',
     goalHostVesselUrl: undefined,
@@ -101,7 +97,6 @@ test('loadMetabobCLIConfig derives sibling endpoints from a REMOTE port-publishe
     apiKey: 'mb_test_key',
     activityApiUrl: 'http://syzygy.host:18080',
     discoveryEndpoint: 'http://syzygy.host:18100',
-    analysisApiUrl: 'http://syzygy.host:18250',
     identityEndpoint: undefined,
     conceptDbUrl: 'http://syzygy.host:18260',
     goalHostVesselUrl: undefined,
@@ -116,7 +111,7 @@ test('loadMetabobCLIConfig derives nothing for a portless http endpoint', () => 
   const path = writeConfigFile(JSON.stringify({
     metabob: {
       apiKey: 'mb_test_key',
-      endpoint: 'http://ide.metabob.com',
+      endpoint: 'http://substrate.example',
     },
   }));
 
@@ -130,7 +125,6 @@ test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived def
     metabob: {
       endpoint: 'http://localhost:18080',
       discoveryEndpoint: 'http://localhost:9990',
-      analysisApiUrl: 'http://localhost:9991',
       identityEndpoint: 'http://localhost:9992',
       conceptDbUrl: 'http://localhost:9993',
       goalHostVesselUrl: 'http://localhost:9994',
@@ -141,7 +135,6 @@ test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived def
     apiKey: undefined,
     activityApiUrl: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:9990',
-    analysisApiUrl: 'http://localhost:9991',
     identityEndpoint: 'http://localhost:9992',
     conceptDbUrl: 'http://localhost:9993',
     goalHostVesselUrl: 'http://localhost:9994',
@@ -152,51 +145,18 @@ test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived def
 test('loadMetabobEnvConfig treats METABOB_ENDPOINT as the gateway and derives siblings', () => {
   const config = loadMetabobEnvConfig({
     METABOB_API_KEY: 'mb_env_key',
-    METABOB_ENDPOINT: 'https://ide.metabob.com',
+    METABOB_ENDPOINT: 'https://substrate.example',
   });
 
   expect(config).toEqual({
     apiKey: 'mb_env_key',
-    activityApiUrl: 'https://ide.metabob.com',
+    activityApiUrl: 'https://substrate.example',
     discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
     identityEndpoint: undefined,
     conceptDbUrl: undefined,
     goalHostVesselUrl: undefined,
     sourcePath: '<env:METABOB_ENDPOINT>',
   });
-});
-
-test('loadMetabobDefaultConfig defaults the endpoint to ide.metabob.com — api key alone is valid', () => {
-  expect(loadMetabobEnvConfig({ METABOB_API_KEY: 'mb_env_key' })).toBeNull();
-  const config = loadMetabobDefaultConfig({ METABOB_API_KEY: 'mb_env_key' });
-
-  expect(config).toEqual({
-    apiKey: 'mb_env_key',
-    activityApiUrl: 'https://ide.metabob.com',
-    discoveryEndpoint: undefined,
-    analysisApiUrl: undefined,
-    identityEndpoint: undefined,
-    conceptDbUrl: undefined,
-    goalHostVesselUrl: undefined,
-    sourcePath: '<env:default-endpoint>',
-  });
-});
-
-test('loadMetabobEnvConfig leaves the legacy ANALYSIS_API_URL-only style untouched', () => {
-  const env: NodeJS.ProcessEnv = {
-    METABOB_API_KEY: 'mb_env_key',
-    ANALYSIS_API_URL: 'https://custom.example',
-  };
-  // No METABOB_ENDPOINT → both loaders stay inert → nothing changes.
-  applyConfigDefaults(env, loadMetabobEnvConfig(env));
-  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
-
-  expect(env.ANALYSIS_API_URL).toBe('https://custom.example');
-  expect(env.ACTIVITY_API_URL).toBeUndefined();
-  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
-  expect(env.IDENTITY_ENDPOINT).toBeUndefined();
-  expect(env.CONCEPT_DB_URL).toBeUndefined();
 });
 
 test('loadMetabobEnvConfig derives local substrate ports from METABOB_ENDPOINT', () => {
@@ -209,7 +169,6 @@ test('loadMetabobEnvConfig derives local substrate ports from METABOB_ENDPOINT',
     apiKey: 'mb_env_key',
     activityApiUrl: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:18100',
-    analysisApiUrl: 'http://localhost:18250',
     identityEndpoint: undefined,
     conceptDbUrl: 'http://localhost:18260',
     goalHostVesselUrl: undefined,
@@ -223,31 +182,18 @@ test('loadMetabobEnvConfig returns null when neither key nor endpoint is set', (
 
 test('env-var path derives the same endpoints as the config-file path', () => {
   const path = writeConfigFile(JSON.stringify({
-    metabob: { apiKey: 'mb_test_key', endpoint: 'https://ide.metabob.com' },
+    metabob: { apiKey: 'mb_test_key', endpoint: 'http://127.0.0.1:18080' },
   }));
 
-  const envA: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_test_key', METABOB_ENDPOINT: 'https://ide.metabob.com' };
+  const envA: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_test_key', METABOB_ENDPOINT: 'http://127.0.0.1:18080' };
   applyConfigDefaults(envA, loadMetabobEnvConfig(envA));
 
   const envB: NodeJS.ProcessEnv = {};
   applyConfigDefaults(envB, loadMetabobCLIConfig(path));
 
-  for (const key of ['ACTIVITY_API_URL', 'ANALYSIS_API_URL', 'DISCOVERY_ENDPOINT', 'IDENTITY_ENDPOINT', 'CONCEPT_DB_URL']) {
+  for (const key of ['ACTIVITY_API_URL', 'DISCOVERY_ENDPOINT', 'IDENTITY_ENDPOINT', 'CONCEPT_DB_URL']) {
     expect(envA[key]).toBe(envB[key]);
   }
-});
-
-test('explicit ANALYSIS_API_URL still wins over the METABOB_ENDPOINT-derived value', () => {
-  const env: NodeJS.ProcessEnv = {
-    METABOB_API_KEY: 'mb_env_key',
-    METABOB_ENDPOINT: 'https://ide.metabob.com',
-    ANALYSIS_API_URL: 'https://custom.example/analysis',
-  };
-  applyConfigDefaults(env, loadMetabobEnvConfig(env));
-
-  expect(env.ANALYSIS_API_URL).toBe('https://custom.example/analysis');
-  // …and a remote gateway derives no path-prefixed siblings.
-  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
 });
 
 test('loadMetabobCLIConfig returns null for invalid json', () => {
@@ -273,7 +219,6 @@ test('applyConfigDefaults fills only missing environment values', () => {
     apiKey: 'config_key',
     activityApiUrl: 'https://activity.metabob.com',
     discoveryEndpoint: 'http://localhost:18100',
-    analysisApiUrl: 'http://localhost:18250',
     identityEndpoint: 'http://localhost:18101',
     conceptDbUrl: 'http://localhost:18260',
     goalHostVesselUrl: 'http://localhost:18210',
@@ -283,16 +228,14 @@ test('applyConfigDefaults fills only missing environment values', () => {
   expect(env.METABOB_API_KEY).toBe('existing_key');
   expect(env.ACTIVITY_API_URL).toBe('https://activity.metabob.com');
   expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
-  expect(env.ANALYSIS_API_URL).toBe('http://localhost:18250');
   expect(env.IDENTITY_ENDPOINT).toBe('http://localhost:18101');
   expect(env.CONCEPT_DB_URL).toBe('http://localhost:18260');
   expect(env.GOAL_HOST_VESSEL_URL).toBe('http://localhost:18210');
 });
 
-test('file-supplied endpoint beats the api-key-alone default (env apiKey via MCP client)', () => {
-  // Regression: MCP clients inject METABOB_API_KEY via env while
-  // ~/.metabob/config.json points at a local substrate. The defaulted public
-  // gateway must NOT preempt the file endpoint.
+test('an env-supplied key keeps the file endpoint (env apiKey via MCP client)', () => {
+  // MCP clients inject METABOB_API_KEY via env while ~/.metabob/config.json
+  // points at a local substrate: the file's endpoint still applies.
   const path = writeConfigFile(JSON.stringify({
     metabob: { apiKey: 'mb_file_key', endpoint: 'http://localhost:18080' },
   }));
@@ -300,11 +243,9 @@ test('file-supplied endpoint beats the api-key-alone default (env apiKey via MCP
   const env: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_env_key' };
   applyConfigDefaults(env, loadMetabobEnvConfig(env));      // cli.ts order
   applyConfigDefaults(env, loadMetabobCLIConfig(path));
-  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
 
   expect(env.ACTIVITY_API_URL).toBe('http://localhost:18080');
   expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
-  expect(env.ANALYSIS_API_URL).toBe('http://localhost:18250');
   expect(env.METABOB_API_KEY).toBe('mb_env_key'); // env key still wins
 });
 
@@ -315,14 +256,13 @@ test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
 
   const env: NodeJS.ProcessEnv = {
     METABOB_API_KEY: 'mb_env_key',
-    METABOB_ENDPOINT: 'https://ide.metabob.com',
+    METABOB_ENDPOINT: 'https://substrate.example',
   };
   const envConfig = loadMetabobEnvConfig(env);              // cli.ts order
   applyConfigDefaults(env, envConfig);
   applyConfigDefaults(env, envConfig ? withoutEndpoints(loadMetabobCLIConfig(path)) : loadMetabobCLIConfig(path));
-  applyConfigDefaults(env, loadMetabobDefaultConfig(env));
 
-  expect(env.ACTIVITY_API_URL).toBe('https://ide.metabob.com');
+  expect(env.ACTIVITY_API_URL).toBe('https://substrate.example');
   // The file's local discovery must not fill the gap the remote gateway
   // leaves — that would split activity and discovery across two substrates.
   expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
@@ -411,4 +351,48 @@ test('METABOB_CONFIG_PATH overrides the project-local config', () => {
     if (prevConfigPath === undefined) delete process.env.METABOB_CONFIG_PATH;
     else process.env.METABOB_CONFIG_PATH = prevConfigPath;
   }
+});
+
+// ===== one configuration: no default endpoint, one message when unattached =====
+
+test('the installer-written config attaches: key + local endpoint, nothing else', () => {
+  const path = writeConfigFile(JSON.stringify({
+    metabob: { apiKey: 'mb_installer_key', endpoint: 'http://127.0.0.1:18080' },
+  }));
+  const env: NodeJS.ProcessEnv = {};
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));
+  applyConfigDefaults(env, loadMetabobCLIConfig(path));
+
+  expect(env.METABOB_API_KEY).toBe('mb_installer_key');
+  expect(env.ACTIVITY_API_URL).toBe('http://127.0.0.1:18080');
+  expect(env.DISCOVERY_ENDPOINT).toBe('http://127.0.0.1:18100');
+  expect(env.CONCEPT_DB_URL).toBe('http://127.0.0.1:18260');
+  expect(env.IDENTITY_ENDPOINT).toBeUndefined();
+  expect(unattachedMessage(env)).toBeNull();
+  expect(configuredSubstrateUrls(env)[0]).toBe('http://127.0.0.1:18100');
+});
+
+test('an api key alone names no endpoint, and the message says which input is missing', () => {
+  const env: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_env_key' };
+  applyConfigDefaults(env, loadMetabobEnvConfig(env));
+
+  expect(env.ACTIVITY_API_URL).toBeUndefined();
+  expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
+  const message = unattachedMessage(env)!;
+  expect(message).toContain('a substrate endpoint (METABOB_ENDPOINT');
+  expect(message).not.toContain('API key');
+  expect(message).toContain('$METABOB_CONFIG_PATH, then ./.metabob/config.json, then ~/.metabob/config.json');
+});
+
+test('with nothing configured, one message names both inputs', () => {
+  const message = unattachedMessage({})!;
+  expect(message).toContain('an API key (METABOB_API_KEY');
+  expect(message).toContain('a substrate endpoint (METABOB_ENDPOINT');
+  expect(message.split('\n')).toHaveLength(1);
+});
+
+test('an endpoint without a key names the key', () => {
+  const message = unattachedMessage({ DISCOVERY_ENDPOINT: 'http://127.0.0.1:18100' })!;
+  expect(message).toContain('an API key (METABOB_API_KEY');
+  expect(message).not.toContain('substrate endpoint');
 });

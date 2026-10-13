@@ -1,7 +1,7 @@
 /**
  * Cert fingerprint self-probe (mitigation #6).
  *
- * On first successful TLS connect to a Metabob host, record the leaf cert's
+ * On first successful TLS connect to a configured substrate host, record the leaf cert's
  * SHA-256 SPKI fingerprint in `~/.metabob/known-hosts.json`. On subsequent
  * runs, compare and emit a one-time stderr warning if the fingerprint
  * changed AND the new chain's root is not in Mozilla's bundled CA list but
@@ -25,14 +25,8 @@ export interface KnownHostsFile {
   hosts: Record<string, KnownHostEntry>;
 }
 
-const MONITORED_HOST_SUFFIXES = ['.metabob.com'];
-
 function defaultStorePath(): string {
   return path.join(os.homedir(), '.metabob', 'known-hosts.json');
-}
-
-export function isMonitoredHost(host: string): boolean {
-  return MONITORED_HOST_SUFFIXES.some((s) => host.endsWith(s) || host === s.slice(1));
 }
 
 export function readKnownHosts(storePath = defaultStorePath()): KnownHostsFile {
@@ -209,7 +203,8 @@ function describeSubject(subject: tls.PeerCertificate['subject'] | undefined): s
 }
 
 /**
- * Determine which Metabob hosts to probe from the configured endpoints.
+ * The hosts to probe: every https host among the configured substrate URLs.
+ * A plain-http endpoint has no certificate to fingerprint.
  */
 export function pickMonitoredHosts(urls: ReadonlyArray<string | undefined>): string[] {
   const out = new Set<string>();
@@ -218,7 +213,7 @@ export function pickMonitoredHosts(urls: ReadonlyArray<string | undefined>): str
     try {
       const parsed = new URL(u);
       if (parsed.protocol !== 'https:') continue;
-      if (isMonitoredHost(parsed.hostname)) out.add(parsed.hostname);
+      out.add(parsed.hostname);
     } catch {
       // skip
     }

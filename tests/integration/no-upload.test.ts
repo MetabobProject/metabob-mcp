@@ -7,13 +7,13 @@
  * The workspace holds files a careless sender would ship: a source file, a
  * `.env`, a log, and a binary that looks like a sqlite WAL, each carrying a
  * unique sentinel. The test runs `init_workspace`, edits files afterwards (the
- * path a file watcher would take), calls the analysis tools, waits past the
- * telemetry flush interval, and then asserts that no request carried any
- * content sentinel, that none outside usage telemetry carried a sentinel
- * file's name, and that none went to a submission path.
+ * path a file watcher would take), calls the analysis tools, waits long enough
+ * for any background sender to fire, and then asserts that no request carried
+ * any content sentinel or a sentinel file's name, and that none went to a
+ * submission path.
  *
- * It asserts on bodies rather than on "zero requests": usage telemetry is
- * expected traffic, and must carry none of this either.
+ * It asserts on bodies rather than on "zero requests": the substrate tools
+ * legitimately reach the configured endpoints, and must carry none of this.
  */
 import { test, expect, afterAll } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -37,14 +37,6 @@ const NAME_SENTINEL = 'zz_sentinel_module';
 
 /** File content: no request may carry any of these. */
 const CONTENT_SENTINELS = [SOURCE_SENTINEL, ENV_SENTINEL, LOG_SENTINEL, WAL_SENTINEL, EDIT_SENTINEL];
-
-/**
- * Usage telemetry (src/telemetry.ts). It carries the paths an agent passes as
- * tool input — `file_path`, assign_git_changes' `changed_files` — so a file
- * NAME may appear there; file CONTENT may not. Every other request is held to
- * both.
- */
-const TELEMETRY_PATHS = [/\/v2\/mcp\/usage$/, /\/v2\/mcp\/outcomes$/, /\/v2\/events\/mcp$/];
 
 /** Paths a workspace-content sender would use. */
 const SUBMISSION_PATHS = [/\/v2\/mcp\/analysis\/run/, /\/v2\/submit/, /^\/resolve$/, /^\/v2\/impulses\/resolve$/];
@@ -122,15 +114,12 @@ test('the server sends no workspace content to any endpoint it is configured wit
       WORKSPACE_PATH: workspace,
       SESSION_ID: 'no-upload-session',
       METABOB_ENDPOINT: endpoint,
-      ANALYSIS_API_URL: endpoint,
       ACTIVITY_API_URL: endpoint,
       DISCOVERY_ENDPOINT: endpoint,
       IDENTITY_ENDPOINT: endpoint,
-      USER_VESSEL_URL: endpoint,
       CONCEPT_DB_URL: endpoint,
       GOAL_HOST_VESSEL_URL: endpoint,
       HEALTH_PORT: String(19900 + Math.floor(Math.random() * 90)),
-      METABOB_AGENT_RESOLVER: '0',
       LOG_LEVEL: 'error',
     },
   });
@@ -202,7 +191,7 @@ test('the server sends no workspace content to any endpoint it is configured wit
       expect(res.error).toBeUndefined();
     }
 
-    // Past the 5 s telemetry batch interval, so expected traffic does flow.
+    // Long enough for any background sender to fire.
     await Bun.sleep(6_000);
   } finally {
     child.kill();
@@ -216,9 +205,7 @@ test('the server sends no workspace content to any endpoint it is configured wit
     for (const sentinel of CONTENT_SENTINELS) {
       expect({ where, carries: carries(sentinel) }).toEqual({ where, carries: false });
     }
-    if (!TELEMETRY_PATHS.some(p => p.test(pathname))) {
-      expect({ where, carriesFileName: carries(NAME_SENTINEL) }).toEqual({ where, carriesFileName: false });
-    }
+    expect({ where, carriesFileName: carries(NAME_SENTINEL) }).toEqual({ where, carriesFileName: false });
     for (const path of SUBMISSION_PATHS) {
       expect({ where, submission: path.test(pathname) }).toEqual({ where, submission: false });
     }

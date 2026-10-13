@@ -10,6 +10,7 @@ import type { AuthService } from './auth-service.js';
 import type { LocalStore, AgentTaskRecord } from './local-store.js';
 import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
 import { getResolverVesselId, getResolverOperatorId } from './resolver-identity.js';
+import { unattachedMessage } from './config.js';
 import { ZodError } from 'zod';
 
 /**
@@ -37,9 +38,9 @@ let allowlistMemo: { value: ReadonlySet<string> | null } | null = null;
 
 /**
  * The METABOB_TOOLS allowlist applies to EVERY plane this process serves, not
- * just stdio MCP: the HTTP resolver and the libp2p overlay both dispatch through
+ * just stdio MCP: the loopback HTTP resolver dispatches through
  * resolveImpulseContent, so an allowlist enforced only in the MCP handlers is a
- * control on one of three doors. Memoised on first call — the env is frozen at
+ * control on one of two doors. Memoised on first call — the env is frozen at
  * process start in production, but a memo (unlike a module const) is resettable,
  * and unassertable enforcement is exactly how this drifted for two releases.
  */
@@ -118,7 +119,7 @@ export interface VesselServerConfig {
   apiClient: AnalysisAPIClient;
   circuitBreaker: CircuitBreaker;
   sessionId: string;
-  /** Raw API key used for incoming request auth (ide.metabob.com key). */
+  /** Raw API key used for incoming request auth (METABOB_API_KEY). */
   apiKey?: string;
   /** Auth service used for identity-vessel key validation. */
   authService: AuthService;
@@ -145,7 +146,7 @@ export class VesselServer {
     const { port } = this.config;
 
     this.nodeServer = await this.startNodeServer(app, port);
-    console.error(`[${new Date().toISOString()}] [INFO] Vessel server listening on port ${this.boundPort ?? port}`);
+    console.error(`[${new Date().toISOString()}] [INFO] Vessel server listening on port ${this.boundPort ?? port} (127.0.0.1)`);
   }
 
   /** The port actually bound (resolves an ephemeral port 0), or null when not listening. */
@@ -194,7 +195,11 @@ export class VesselServer {
         res.end(await response.text());
       });
 
-      server.listen(port, () => resolve(server));
+      // CONFORMANCE §c2-endpoint
+      // @anchor loopback-bind
+      // Loopback only: the resolver serves local callers, and nothing advertises
+      // it — a client-only process has no reader outside this network namespace.
+      server.listen(port, '127.0.0.1', () => resolve(server));
       server.once('error', reject);
     });
   }
@@ -208,12 +213,23 @@ export class VesselServer {
 
     // ── Liveness ──────────────────────────────────────────────────────────────
 
+    // CONFORMANCE §c9-fail-visibly
+    // @anchor health-attachment
+    // The attachment state is reported, never dropped: a missing key or
+    // endpoint, and that the process advertises nothing.
+    const attachment = () => {
+      const missing = unattachedMessage();
+      return missing
+        ? { attached: false, reason: missing, advertised: 'none' }
+        : { attached: true, advertised: 'none (client-only)' };
+    };
+
     app.get('/health', (c) => {
       const state = circuitBreaker.getState();
       if (state === CircuitState.OPEN) {
-        return c.json({ status: 'unhealthy', reason: 'circuit breaker open', circuitState: state }, 503);
+        return c.json({ status: 'unhealthy', reason: 'circuit breaker open', circuitState: state, attachment: attachment() }, 503);
       }
-      return c.json({ status: 'healthy', circuitState: state, timestamp: new Date().toISOString() });
+      return c.json({ status: 'healthy', circuitState: state, attachment: attachment(), timestamp: new Date().toISOString() });
     });
 
     app.get('/ready', (c) => {
@@ -240,19 +256,16 @@ export class VesselServer {
     // ── Impulse resolver ──────────────────────────────────────────────────────
 
     app.post('/v2/impulses/resolve', async (c) => {
-      // Auth check — accept either the ide.metabob.com key (METABOB_API_KEY)
-      // or the identity.metabob.com key (IDENTITY_API_KEY) during the
-      // interim period where both backends are in use.
+      // Auth check — accept the substrate key (METABOB_API_KEY) or a separate
+      // identity key (IDENTITY_API_KEY) when one is configured.
       //
-      // FAIL CLOSED when neither is configured (anonymous mode). This gate used
-      // to be nested inside `if (apiKey || identityKey)`, which served EVERY
-      // resolve unauthenticated on 0.0.0.0 while /v2/capabilities advertised
-      // authScheme:ApiKey — and this surface dispatches init_workspace,
-      // search_codebase, record_finding and resolve_impulse. Under the
-      // advertised scheme an anonymous caller has no credential it could ever
-      // present, and discovery registration is itself gated on METABOB_API_KEY,
-      // so no legitimate inbound caller is lost. Resolved per-request, never at
-      // build time: the identity key arrives asynchronously after start.
+      // FAIL CLOSED when neither is configured (anonymous mode): this surface
+      // dispatches init_workspace, search_codebase, record_finding and
+      // resolve_impulse, and /v2/capabilities advertises authScheme:ApiKey, so
+      // an anonymous caller has no credential it could ever present. Loopback
+      // binding narrows who can reach it; the key decides who may use it.
+      // Resolved per-request, never at build time: the identity key arrives
+      // asynchronously after start. CONFORMANCE §c3-identity
       const identityKey = authService.getIdentityApiKey();
       const validKeys = new Set([apiKey, identityKey].filter(Boolean) as string[]);
       if (validKeys.size === 0) {
@@ -325,11 +338,9 @@ export class VesselServer {
 }
 
 /**
- * Resolve a single impulse pointer to its tool output. Extracted so the HTTP
- * resolver (`POST /v2/impulses/resolve`) and the libp2p transport
- * (serveResolve / serveResolveHttp) resolve identically — same shape → same
- * tool → same content — rather than duplicating dispatch per transport. Throws
- * on unknown tool or validation failure; callers wrap the error per transport.
+ * Resolve a single impulse pointer to its tool output, for the HTTP resolver
+ * (`POST /v2/impulses/resolve`): same shape → same tool → same content. Throws
+ * on unknown tool or validation failure; the caller wraps the error.
  */
 export async function resolveImpulseContent(
   pointer: Record<string, unknown>,
@@ -338,8 +349,7 @@ export async function resolveImpulseContent(
   localStore?: LocalStore | null,
 ): Promise<{ toolName: string; content: unknown }> {
   // Agent-task shapes (e.g. human_input) are DISPATCHED to the agent: enqueue
-  // durably + ACK, instead of resolving synchronously. Handled here (not in the
-  // HTTP map callback) so the libp2p transport gets the same behaviour.
+  // durably + ACK, instead of resolving synchronously.
   const shape = typeof pointer['type'] === 'string' ? (pointer['type'] as string) : undefined;
   if (isAgentTaskShape(shape)) {
     return { toolName: shape!, content: acceptAgentTask(pointer, shape!, sessionId, localStore) };
@@ -347,8 +357,7 @@ export async function resolveImpulseContent(
 
   const { toolName, toolInput } = resolvePointerToTool(pointer);
   // Gate AFTER shape→tool mapping so every shape is covered, not just
-  // mcp:tool_call, and here rather than in the Hono route so the libp2p overlay
-  // (which calls this function directly) is gated by the same line.
+  // mcp:tool_call.
   if (!isToolPermitted(toolName)) {
     throw new Error(toolNotEnabledMessage(toolName));
   }

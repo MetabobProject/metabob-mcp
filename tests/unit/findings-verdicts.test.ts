@@ -36,8 +36,6 @@ beforeEach(() => {
   mockApiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    postFeedback: mock(async () => ({})),
-    isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
 
   dbPath = join(tmpdir(), `metabob-verdict-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);

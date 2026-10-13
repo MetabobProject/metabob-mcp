@@ -27,8 +27,6 @@ beforeEach(() => {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
     put: mock(async () => ({})),
-    postFeedback: mock(async () => ({})),
-    isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
 });
 
@@ -216,10 +214,11 @@ test('mark_complete: handler returns non-empty string', async () => {
   expect(result.length).toBeGreaterThan(0);
 });
 
-test('mark_complete: calls postFeedback', async () => {
+test('mark_complete: an id that is neither agf_* nor concept_* is refused, not reported done', async () => {
   const input = MarkComplete.InputSchema.parse({ problem_id: 'prob_456' });
-  await MarkComplete.handle(input, mockApiClient, SESSION);
-  expect(mockApiClient.postFeedback).toHaveBeenCalled();
+  const result = await MarkComplete.handle(input, mockApiClient, SESSION);
+  expect(result).toContain('is not a finding id, so nothing was recorded');
+  expect(result).not.toMatch(/endorsed|discarded/);
 });
 
 // ===== get_metrics =====

@@ -12,6 +12,11 @@ that meets it), **partially met**, or **not yet met** (with the gap stated plain
 implements a requirement cites it as `CONFORMANCE §<section>`; the rules for those citations are in
 [DOCLINKS.md](DOCLINKS.md).
 
+The vessel has one configuration: an API key and an endpoint, from which the substrate URLs derive
+(user ruling 2026-10-13: one configuration, not two). It is a client of the substrate: it makes no
+discovery registration, runs no libp2p node, and serves its HTTP resolver on loopback for local
+callers only.
+
 ## C1 — Transport
 
 **Requirement.**
@@ -22,11 +27,11 @@ implements a requirement cites it as `CONFORMANCE §<section>`; the rules for th
 - A host-run vessel reaches the overlay through the ingress-sidecar pattern.
 - A vessel never runs a second libp2p peer.
 
-**Status: not yet met.** When `GET /bootstrap` advertises a relay and the optional transport package
-is installed, the vessel starts its own libp2p node (`src/federation/libp2p-node.ts@startFederationNode`,
-called from `src/index.ts@main`) with its own peer id and circuit reservation, and advertises that
-peer in its registration row. That is a second peer and a vessel-owned overlay identity. Without the
-relay or the package the vessel is HTTP-only, which is the conforming state.
+**Status: met.** The vessel runs no libp2p node and has no overlay identity of its own:
+`src/index.ts@main` starts the MCP stdio transport and the loopback HTTP resolver
+(`src/vessel-server.ts@loopback-bind`) and nothing else, and the package depends on no libp2p
+transport. It reaches other vessels only as a client of the endpoints it is configured with
+(see C11).
 
 ## C2 — Endpoint
 
@@ -37,14 +42,12 @@ relay or the package the vessel is HTTP-only, which is the conforming state.
 - A vessel advertises an endpoint only after reachability has been observed.
 - A vessel never registers when its server is not bound.
 
-**Status: partially met.**
-- Met — no registration without a bound server: `src/index.ts@httpServerBound` gates the discovery
-  registration, and a failed bind leaves the process client-only.
-- Met — no loopback default: `src/index.ts@advertisedEndpoint` is the explicit
-  `VESSEL_PUBLIC_ENDPOINT` or nothing, and nothing means no registration. Registration also requires
-  an explicit `HEALTH_PORT`, since an ephemeral port cannot be what an operator-chosen endpoint names.
-- Not yet met — `VESSEL_PUBLIC_ENDPOINT` is itself a host-address override, and nothing probes the
-  advertised endpoint before the row is written: the vessel trusts the operator's value.
+**Status: met.** The vessel writes no registry row, so it advertises no endpoint, uses no
+host-address override, and has nothing to advertise before reachability is observed:
+`src/index.ts@main` makes no discovery registration under any configuration, and
+`tests/workflows/w3-attachment.test.ts` asserts that no `/register` reaches discovery. The HTTP
+resolver binds `127.0.0.1` only (`src/vessel-server.ts@loopback-bind`), so it is reachable only from
+the vessel's own network namespace.
 
 ## C3 — Identity
 
@@ -60,8 +63,9 @@ relay or the package the vessel is HTTP-only, which is the conforming state.
 - Met — the vessel's own resolver (`POST /v2/impulses/resolve`, `src/vessel-server.ts@VesselServer`)
   fails closed with 401 when no key matches, and the substrate tools send
   `Authorization: ApiKey <key>` on their requests.
-- Not yet met — the vessel does not check that its key belongs to the discovery's namespace before it
-  registers; a foreign key surfaces only as a rejected registration that the heartbeat keeps retrying.
+- Not yet met — the vessel does not check that its key belongs to the namespace of the discovery it
+  resolves through: there is no `orgId` check against the anchor's identity endpoint, so a foreign
+  key surfaces only as individual tool calls failing.
 
 **Accepted risk, not conformance: cleartext key on plain-http anchors.** The vessel sends its key to
 whatever anchor it is configured with, including non-loopback plain-http anchors such as a hub's
@@ -82,17 +86,20 @@ accepted, and does not count as meeting C3.
 - Inside a substrate, discovery is `127.0.0.1:8100`.
 
 **Status: partially met.**
+- Met — nothing defaults to a public host. With the key or the endpoint missing, the vessel reports
+  the missing input once, naming the config lookup order (`src/config.ts@unattachedMessage`), and
+  runs with local tools only.
 - Met — no path-prefix derivation: `src/config.ts@deriveSubstrateDefaults` derives port-offset
-  siblings only for a local substrate endpoint and nothing for a remote one, and
+  siblings only for a port-published endpoint and nothing for a remote one, and
   `src/config.ts@withoutEndpoints` keeps a config file's endpoints from mixing with an explicit
   `METABOB_ENDPOINT`.
-- Met — the relay is read from `/bootstrap` at use time (`src/bootstrap.ts@fetchBootstrapAnchors`).
-- Not yet met — identity is not learned from `/bootstrap`. `fetchBootstrapAnchors` parses
-  `identity_endpoint`, but nothing consumes it; `src/index.ts@IDENTITY_ENDPOINT` and
-  `src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT` fall back to `https://ide.metabob.com/identity`.
-- Not yet met — the inputs are more than two: the gateway `METABOB_ENDPOINT` and its derivations,
-  `ANALYSIS_API_URL`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL` and `VESSEL_PUBLIC_ENDPOINT` all feed
-  routing.
+- Not yet met — identity is not learned from `/bootstrap`: nothing reads `GET /bootstrap`, and tenant
+  resolution runs only against an explicit `IDENTITY_ENDPOINT` (`src/index.ts@IDENTITY_ENDPOINT`);
+  without one it is skipped.
+- Not yet met — the inputs are more than two. The anchor is `METABOB_ENDPOINT` (from which discovery
+  and concept-db derive at port offsets, census class H1) rather than the discovery endpoint, and
+  `DISCOVERY_ENDPOINT`, `ACTIVITY_API_URL`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL` and
+  `IDENTITY_ENDPOINT` each still feed routing when set.
 
 ## C5 — What breaks under enforcement
 
@@ -102,9 +109,9 @@ Under the substrate's enforce mode these fail, whatever the vessel intends:
 - reachability that exists only through rows nobody can dial;
 - reliance on unauthenticated ingress for a non-public shape, such as `mcp:tool_call`.
 
-**Status.** The vessel's advertised shapes, `mcp:tool_call` included, require a key at its own
-resolver, so it does not depend on unauthenticated ingress. The other three follow from C2, C3 and C1:
-each holds only where those are met.
+**Status.** The vessel writes no row and offers nothing inbound, so no substrate caller depends on
+it; its loopback resolver still requires a key for every shape, `mcp:tool_call` included. Its own
+cross-node exposure is the key it sends: a foreign key fails per call (C3).
 
 ## C6 — Collisions
 
@@ -127,12 +134,10 @@ each holds only where those are met.
   by default.
 - Advertise concrete shape names, not `code:*`-style namespaced families.
 
-**Status: partially met.**
-- Met — `human_input` is opt-in: `src/vessel-identity.ts@agentResolverEnabled` is true only for
-  `METABOB_AGENT_RESOLVER=1|true|on`.
-- Not yet met — `src/presence-advertiser.ts@computeAdvertisedShapes` advertises `mcp:tool_call` and
-  the `code:*` family (`code:analysis_context`, `code:cochange_prediction`, `code:impact_analysis`,
-  `code:git_change_assignment`).
+**Status: met.** The vessel advertises no shape to the substrate (C11), so it produces neither
+`human_input` nor a namespaced family there. The loopback capabilities document lists
+`src/vessel-identity.ts@SERVED_SHAPES` for local callers only; that list excludes `human_input` and
+names the `code:*` family, which would have to become concrete shape names before any inbound offer.
 
 ## C8 — Proxy and TLS in the vessel role
 
@@ -144,12 +149,16 @@ each holds only where those are met.
 
 **Status: partially met.**
 - Met — `src/tls-trust.ts@installSystemTrustStoreSync` merges the OS trust store into Node's roots
-  and the global fetch dispatcher; `src/tls-error.ts@translateTlsError` reports interception as
-  `TLS_INTERCEPTED`.
+  and the global fetch dispatcher, after the configuration is read, so the proxy is chosen for the
+  configured substrate host. A certificate chain error a tool throws is reported as
+  `TLS_INTERCEPTED` with the intercepting issuer (`src/index.ts@tls-intercepted-report`,
+  `src/tls-error.ts@translateTlsError`).
 - Not yet met — `127.0.0.1` and `localhost` are not added to `NO_PROXY`. With an undici that has
   `EnvHttpProxyAgent`, `NO_PROXY` is honoured as the operator set it; with an older undici the
-  fallback resolves one proxy for `ide.metabob.com` and sends every host through it, ignoring
+  fallback resolves one proxy for the configured anchor and sends every host through it, ignoring
   `NO_PROXY`.
+- Not yet met — tools that catch their own request errors and report them as text (the substrate
+  tools do) report the raw error rather than `TLS_INTERCEPTED`.
 
 ## C9 — Fail visibly
 
@@ -160,20 +169,22 @@ each holds only where those are met.
   its 5-minute TTL lapses or on an explicit `DELETE /vessels/:vesselId`, never for being undialable,
   so an unreachable row the vessel keeps refreshing stays in the registry.
 
-**Status: not yet met.** `src/vessel-heartbeat.ts@VesselHeartbeat` re-registers on its interval
-(half the TTL, 150 s by default) with no reachability check, and
-`src/presence-advertiser.ts@startPresenceAdvertiser` re-registers every 30 s whenever the shape-set
-changes. `/health` reports only the circuit-breaker state, and the vessel never deletes its row.
+**Status: met.** The vessel writes no row, so it has no endpoint that can be unreachable and nothing
+to heartbeat or leave behind in the registry (`src/index.ts@main`). The attachment state it does have
+is reported, never dropped: `/health` carries it (`src/vessel-server.ts@health-attachment`: attached,
+or the missing input; advertised: none), the startup log states a missing key or endpoint once
+(`src/config.ts@unattachedMessage`), and `doctor` reports the same message and the substrate URLs it
+probed (`src/doctor.ts@resolveSubstrateTargets`).
 
 ## C10 — One registrant per key and workspace
 
 **Requirement.** For one key and one workspace there is one registrant: the instance that holds the
 bind registers, and the others run client-only. Rows are never per session.
 
-**Status: met.** `src/vessel-identity.ts@resolveVesselId` derives the vessel id from the key and the
-workspace, so every session of the same workspace writes the same row. Registration requires an
-explicit `HEALTH_PORT`; a second instance on that port fails to bind and, by the C2 bind gate, stays
-client-only.
+**Status: met.** No instance registers, so there is never more than one registrant, and no row is
+per session. `src/vessel-identity.ts@resolveVesselId` still derives one stable id from the key and
+the workspace; it keys the local agent-task queue and the authorship of recorded findings, and is
+never written to discovery.
 
 ## C11 — Attachment model
 
@@ -187,10 +198,13 @@ client-only.
   node's transport egress — never through the local ingress. Until such a vantage exists, the vessel
   is client-only.
 
-**Status: not yet met.**
-- The substrate tools call concept-db, goal-host-vessel and activity-api over direct REST (see
-  [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery locates some of
-  them but is not the path the calls take.
-- `src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS` holds a synchronous goal resolve for up to 290 s, and
-  the agent-resolver registration advertises a 300 s resolve timeout (`src/index.ts@main`).
-- Inbound is offered whenever C2's gates pass, with no outside-vantage probe.
+**Status: partially met.**
+- Met — inbound: the vessel is client-only. It offers no shape and makes no registration under any
+  configuration (`src/index.ts@main`; `tests/workflows/w3-attachment.test.ts`), and
+  `pull_assigned_work` / `submit_resolution` say that the substrate dispatches nothing to it
+  (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`).
+- Not yet met — the substrate tools call concept-db, goal-host-vessel and activity-api over direct
+  REST (see [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery locates
+  some of them but is not the path the calls take.
+- Not yet met — `src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS` holds a synchronous goal resolve for up
+  to 290 s.

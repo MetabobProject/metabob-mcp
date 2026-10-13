@@ -1,8 +1,8 @@
 /**
  * METABOB_TOOLS on the STDIO plane.
  *
- * The allowlist governs three doors: stdio MCP, the HTTP resolver, and the
- * libp2p overlay. vessel-server-auth-allowlist.test.ts covers the resolve path;
+ * The allowlist governs two doors: stdio MCP and the loopback HTTP resolver.
+ * vessel-server-auth-allowlist.test.ts covers the resolve path;
  * this covers stdio, which had no test at all — the asymmetry that let the two
  * planes carry independent copies of the parse rule in the first place. Both now
  * call isToolPermitted(), so this file and that one assert the same grammar
@@ -45,11 +45,11 @@ async function drive(
     env: {
       ...process.env,
       SESSION_ID: 'allowlist-stdio-test',
-      ANALYSIS_API_URL: 'http://localhost:8081',
-      // Never bind the port a live sidecar may hold, and never enrol in discovery.
+      // Not attached to any substrate: these exercise the local server only.
+      ACTIVITY_API_URL: '',
+      DISCOVERY_ENDPOINT: '',
+      // Never bind the port a live sidecar may hold.
       HEALTH_PORT: String(19900 + Math.floor(Math.random() * 90)),
-      METABOB_TELEMETRY: 'off',
-      METABOB_AGENT_RESOLVER: '0',
       METABOB_TOOLS: allowlist,
       LOG_LEVEL: 'error',
     },

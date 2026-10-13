@@ -14,12 +14,11 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { deliverResolution } from '../agent-delivery.js';
-import { agentResolverEnabled } from '../vessel-identity.js';
 
 export const SubmitResolutionTool = {
   name: 'submit_resolution',
   description:
-    'Answer a task the substrate dispatched to you (from pull_assigned_work). The answer is recorded durably and delivered back to the substrate to unblock its walk; if the substrate is briefly unreachable it is retried automatically on a later session. Use outcome "answered" with an answer, "declined" to pass, or "insufficient_context" if you lack what you would need. Tasks reach this session only when it opts in to the agent-resolver role (METABOB_AGENT_RESOLVER=1, off by default).',
+    'Answer a task the substrate dispatched to you (from pull_assigned_work). The answer is recorded durably and delivered back to the substrate to unblock its walk; if the substrate is briefly unreachable it is retried automatically on a later session. Use outcome "answered" with an answer, "declined" to pass, or "insufficient_context" if you lack what you would need. This session advertises nothing to the substrate, so the substrate dispatches no tasks to it.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -53,7 +52,7 @@ export async function handle(
   localStore?: LocalStore | null,
 ): Promise<string> {
   if (!localStore) {
-    return 'Agent-resolver coordination is unavailable (the local store is not active — not in sidecar mode).';
+    return 'Agent-resolver coordination is unavailable: the local store failed to open (see the startup log).';
   }
   const vesselId = getResolverVesselId();
   if (!vesselId) {
@@ -62,10 +61,7 @@ export async function handle(
 
   const task = localStore.getAgentTask(vesselId, input.task_id);
   if (!task) {
-    if (!agentResolverEnabled()) {
-      return `No assigned task "${input.task_id}". This session does not advertise human_input, so the substrate dispatches no tasks to it (opt-in, CONFORMANCE §c7-shapes); set METABOB_AGENT_RESOLVER=1 to opt in, only where a human is at this terminal.`;
-    }
-    return `No assigned task "${input.task_id}" — it may have already been resolved or expired. Run pull_assigned_work to see current tasks.`;
+    return `No assigned task "${input.task_id}" — it may have been resolved or expired, or never queued: this session advertises nothing to the substrate, so the substrate dispatches no tasks to it (CONFORMANCE §c11-attachment-model). Run pull_assigned_work to see the queue.`;
   }
 
   const answer = input.outcome === 'answered' ? (input.answer ?? '') : null;

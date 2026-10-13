@@ -7,7 +7,7 @@
 
 ## About the build
 
-`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`onnxruntime-node`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. `@avigopal/libp2p-federation-transport` is also external — an optional peer, dynamically imported, never bundled.
+`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`onnxruntime-node`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`.
 
 The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `include/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `include/` carries the ONNX model assets and `skills/` the bundled agent skill — both are required at runtime, not incidental.
 

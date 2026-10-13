@@ -101,17 +101,15 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobDefaultConfig, loadMetabobEnvConfig, withoutEndpoints } from './config.js';
+import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig, withoutEndpoints } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface CLIOptions {
-  apiUrl?: string;
   endpoint?: string;
   sessionId?: string;
   apiKey?: string;
-  sessionToken?: string;
   logLevel?: string;
   healthPort?: number;
   maxRequestsPerMinute?: number;
@@ -126,21 +124,15 @@ metabob-mcp - MCP server for Metabob code analysis
 
 USAGE:
   npx @metabob/mcp [OPTIONS]
-  npx @metabob/mcp doctor             Diagnose corporate-proxy / TLS-inspection issues
+  npx @metabob/mcp doctor             Diagnose proxy / TLS-inspection issues on the path to the substrate
 
 OPTIONS:
-  --api-key <KEY>              Metabob API key for authentication (recommended)
-  --endpoint <URL>             Gateway in the vessel (optional; default:
-                               https://ide.metabob.com). The single endpoint everything
-                               derives from — analysis, discovery, identity, concept-db.
-                               Flag mirror of METABOB_ENDPOINT / metabob.endpoint.
-                               Omit it and --api-key alone is the whole configuration.
-  --api-url <URL>              Advanced: raw analysis-base override (no sibling
-                               derivation). Same as ANALYSIS_API_URL. Prefer --endpoint.
-  --session-id <ID>            Session identifier (default: default-session)
-  --session-token <TOKEN>      Pre-obtained session token (advanced)
+  --api-key <KEY>              API key for the substrate. Same as METABOB_API_KEY.
+  --endpoint <URL>             Substrate endpoint (no default). Same as METABOB_ENDPOINT
+                               and metabob.endpoint in a config file.
+  --session-id <ID>            Session identifier (default: a fresh UUID)
   --log-level <LEVEL>          Logging level: debug, info, warn, error (default: info)
-  --health-port <PORT>         HTTP port for health checks (default: ephemeral)
+  --health-port <PORT>         Port of the loopback HTTP resolver (default: ephemeral)
   --max-requests-per-minute <N> Rate limit per session (default: 60)
   --no-system-ca               Skip loading OS root CAs at startup (advanced;
                                for users who hit a system-ca read bug). Without
@@ -150,79 +142,72 @@ OPTIONS:
   --help                       Show this help message
   --version                    Show version information
 
-AUTHENTICATION:
-  Use --api-key or METABOB_API_KEY for authentication. The API key is exchanged
-  for a session token on startup, with automatic refresh.
-
-  If METABOB_API_KEY is not set, metabob-mcp also checks ~/.metabob/config.json
-  and uses metabob.apiKey (or instance.apiKey) as a fallback.
-
-  Get your API key from the Metabob dashboard: https://app.metabob.com/settings/api-keys
+ATTACHMENT:
+  The server attaches to a substrate with two inputs, an API key and an
+  endpoint, and neither has a default. The substrate installer writes both
+  into ~/.metabob/config.json, so a machine it has set up needs no flags or
+  env. With either missing the server still starts: local tools work, and it
+  says once which input is missing.
 
 EXAMPLES:
-  # Start with API key authentication (recommended)
-  npx @metabob/mcp --api-key=mb_live_your_api_key_here
-
-  # Start with default settings (no auth)
+  # Attach with the installer's config file (no flags)
   npx @metabob/mcp
 
-  # Point at a specific gateway (analysis/discovery/identity/concept-db all derive from it)
-  npx @metabob/mcp --api-key=mb_live_... --endpoint=https://ide.metabob.com
+  # Attach to a local substrate explicitly
+  npx @metabob/mcp --api-key=mb_live_... --endpoint=http://127.0.0.1:18080
 
   # Custom session and debug logging
   npx @metabob/mcp --session-id=my-session --log-level=debug
 
 ENVIRONMENT VARIABLES:
-  Minimal setup is a single variable — METABOB_API_KEY:
-    METABOB_API_KEY            API key for authentication
-    METABOB_ENDPOINT           Gateway in the vessel. OPTIONAL — defaults to
-                               https://ide.metabob.com, so an API key alone is a
-                               valid, fully-derived config. When set, it is the
-                               gateway everything else derives from (analysis,
-                               discovery, identity, concept-db), exactly like
-                               metabob.endpoint in ~/.metabob/config.json.
+  METABOB_API_KEY              API key
+  METABOB_ENDPOINT             Substrate endpoint. A local port-published endpoint
+                               (http://127.0.0.1:18080) derives discovery (:18100)
+                               and concept-db (:18260); a remote endpoint derives
+                               nothing, so set DISCOVERY_ENDPOINT with it.
 
-  Advanced overrides (rarely needed — each wins over the derived value when set):
-  ACTIVITY_API_URL             Activity API URL (fallback: METABOB_ENDPOINT / config.json)
-  DISCOVERY_ENDPOINT           Discovery-vessel URL for substrate routing
-  ANALYSIS_API_URL             Raw analysis-base override; same as --api-url
+  Advanced overrides (each wins over the derived value when set):
+  DISCOVERY_ENDPOINT           Discovery-vessel URL
+  ACTIVITY_API_URL             Activity API URL (default: the endpoint)
+  IDENTITY_ENDPOINT            Identity vessel (tenant resolution; unset = skipped)
+  CONCEPT_DB_URL               concept-db URL
+  GOAL_HOST_VESSEL_URL         goal-host-vessel URL
   SESSION_ID                   Same as --session-id
-  SESSION_TOKEN                Pre-obtained session token (advanced)
   LOG_LEVEL                    Same as --log-level
   HEALTH_PORT                  Same as --health-port
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
 
-  Precedence: CLI flags > environment variables > ~/.metabob/config.json
-  > built-in default. A file-supplied endpoint beats the built-in default even
-  when the API key arrives via env — an MCP client injecting METABOB_API_KEY
-  cannot silently redirect a config file pointed at a local substrate.
+  Precedence: CLI flags > environment variables > config file. An explicit
+  METABOB_ENDPOINT takes only the credentials from a config file, never its
+  endpoints, so the two cannot split across substrates.
 
 CONFIGURATION FILE:
-  Resolution is directory-aware, like git: METABOB_CONFIG_PATH >
-  ./.metabob/config.json (the launch directory — lets a project pin its own
-  backend) > ~/.metabob/config.json.
+  Resolution is directory-aware: METABOB_CONFIG_PATH > ./.metabob/config.json
+  (the launch directory, which lets a project pin its own backend) >
+  ~/.metabob/config.json.
   {
     "metabob": {
       "apiKey": "mb_live_...",                  // or legacy instance.apiKey
-      "endpoint": "https://ide.metabob.com",    // optional gateway; the default
-      // Advanced pins — each wins over its derived value when set:
+      "endpoint": "http://127.0.0.1:18080",     // the substrate endpoint
+      // Advanced pins, each winning over its derived value when set:
       "discoveryEndpoint": "...",               // discovery-vessel
-      "analysisApiUrl": "...",                  // analysis API
       "identityEndpoint": "...",                // identity / tenant resolution
       "conceptDbUrl": "...",                    // concept-db
       "goalHostVesselUrl": "..."                // goal-host-vessel
     }
   }
-  All keys optional; unknown keys ignored. endpoint is the gateway everything
-  derives from: a remote base derives nothing — set discoveryEndpoint
-  explicitly (no path-prefixed siblings are assumed); a local substrate endpoint
-  (http://127.0.0.1:18080) derives port-offset siblings (discovery :18100,
-  analysis :18250, concept-db :18260), and substrate tools then resolve
-  concept-db / goal-host-vessel through discovery.
+  All keys optional; unknown keys ignored.
 
 INTEGRATION WITH MCP CLIENTS:
 
-  Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json):
+  On a machine the substrate installer has set up:
+  {
+    "mcpServers": {
+      "metabob": { "command": "metabob-mcp" }
+    }
+  }
+
+  Otherwise pass both inputs:
   {
     "mcpServers": {
       "metabob": {
@@ -230,21 +215,8 @@ INTEGRATION WITH MCP CLIENTS:
         "args": ["@metabob/mcp@latest"],
         "env": {
           "METABOB_API_KEY": "mb_live_your_api_key_here",
-          "METABOB_ENDPOINT": "https://ide.metabob.com"
+          "METABOB_ENDPOINT": "http://127.0.0.1:18080"
         }
-      }
-    }
-  }
-
-  Cursor (.cursor/mcp.json):
-  {
-    "mcpServers": {
-      "metabob": {
-        "command": "npx",
-        "args": [
-          "@metabob/mcp@latest",
-          "--api-key=mb_live_your_api_key_here"
-        ]
       }
     }
   }
@@ -284,11 +256,8 @@ function parseCliArgs(): CLIOptions {
     const { values } = parseArgs({
       options: {
         'endpoint': { type: 'string' },
-        'api-url': { type: 'string' },
         'session-id': { type: 'string' },
         'api-key': { type: 'string' },
-        'session-token': { type: 'string' },
-        'jwt-token': { type: 'string' },
         'log-level': { type: 'string' },
         'health-port': { type: 'string' },
         'max-requests-per-minute': { type: 'string' },
@@ -301,11 +270,9 @@ function parseCliArgs(): CLIOptions {
     });
 
       return {
-        apiUrl: values['api-url'] as string | undefined,
         endpoint: values['endpoint'] as string | undefined,
         sessionId: values['session-id'] as string | undefined,
         apiKey: values['api-key'] as string | undefined,
-        sessionToken: (values['session-token'] as string | undefined) ?? (values['jwt-token'] as string | undefined),
         logLevel: values['log-level'] as string | undefined,
         healthPort: values['health-port'] ? parseInt(values['health-port'] as string, 10) : undefined,
         maxRequestsPerMinute: values['max-requests-per-minute']
@@ -384,20 +351,6 @@ async function main() {
   // Validate options
   validateOptions(options);
 
-  // Install OS trust store BEFORE any HTTPS request fires. This is the
-  // single most impactful mitigation for corporate proxies / Zscaler /
-  // MDM-deployed SSL inspection that otherwise breaks every Metabob call
-  // with UNABLE_TO_GET_ISSUER_CERT_LOCALLY. Opt-out via --no-system-ca or
-  // METABOB_NO_SYSTEM_CA=1.
-  const noSystemCa = options.noSystemCa === true || process.env.METABOB_NO_SYSTEM_CA === '1';
-  installSystemTrustStoreSync({ disabled: noSystemCa });
-  // src/index.ts installs the trust store too, gated only on the env var — export the
-  // flag so --no-system-ca actually suppresses it there as well (it is documented as
-  // equivalent to METABOB_NO_SYSTEM_CA=1, and the trampoline above reads it the same way).
-  if (noSystemCa) {
-    process.env.METABOB_NO_SYSTEM_CA = '1';
-  }
-
   // The two derivation-participating flags (--endpoint, --api-key) must land in
   // the environment BEFORE the config loaders run, so the gateway derivation in
   // loadMetabobEnvConfig() sees the flag value. --endpoint is the flag mirror of
@@ -409,37 +362,36 @@ async function main() {
     process.env.METABOB_ENDPOINT = options.endpoint;
   }
 
-  // Precedence, lowest to highest: built-in default  <  ~/.metabob/config.json
-  // <  env vars  <  explicit specific overrides (ANALYSIS_API_URL, --api-url).
-  // applyConfigDefaults only fills variables that are currently unset, so:
-  //   1. explicit METABOB_ENDPOINT derivation first — env beats the file;
-  //   2. the config file next;
-  //   3. the api-key-alone default (public gateway) LAST — it must never beat
-  //      an endpoint the file supplied (an MCP client injecting the api key
-  //      via env while config.json points at a local substrate would otherwise
-  //      be silently redirected to ide.metabob.com).
-  // The canonical minimal setup remains METABOB_API_KEY alone; METABOB_ENDPOINT
-  // is the gateway everything else derives from when set. SPEC §precedence,
-  // CLAUDE §environment-variables.
-  // An explicit METABOB_ENDPOINT chose the substrate, so only the file's
+  // Precedence, lowest to highest: config file  <  env vars  <  CLI flags.
+  // applyConfigDefaults only fills variables that are currently unset, so the
+  // explicit METABOB_ENDPOINT derivation runs first, then the config file. An
+  // explicit METABOB_ENDPOINT chose the substrate, so only the file's
   // credentials still apply — never its endpoints (see withoutEndpoints).
+  // Nothing is defaulted: a missing key or endpoint is reported once, by
+  // index.ts (config.ts unattachedMessage). SPEC §precedence,
+  // CLAUDE §environment-variables.
   const envConfig = loadMetabobEnvConfig();
   applyConfigDefaults(process.env, envConfig);
   const fileConfig = loadMetabobCLIConfig();
   applyConfigDefaults(process.env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
-  applyConfigDefaults(process.env, loadMetabobDefaultConfig());
 
-  // Remaining CLI options are raw overrides that beat any derived/file value.
-  // --api-url / ANALYSIS_API_URL is the advanced raw analysis-base override —
-  // it deliberately overwrites the gateway-derived analysis endpoint.
-  if (options.apiUrl) {
-    process.env.ANALYSIS_API_URL = options.apiUrl;
+  // Install the OS trust store BEFORE any HTTPS request fires, and after the
+  // configuration, so the proxy is chosen for the configured substrate host.
+  // Behind corporate SSL inspection (Zscaler, MDM-deployed CAs) every call
+  // otherwise fails with UNABLE_TO_GET_ISSUER_CERT_LOCALLY. Opt-out via
+  // --no-system-ca or METABOB_NO_SYSTEM_CA=1.
+  const noSystemCa = options.noSystemCa === true || process.env.METABOB_NO_SYSTEM_CA === '1';
+  installSystemTrustStoreSync({ disabled: noSystemCa });
+  // src/index.ts installs the trust store too, gated only on the env var — export the
+  // flag so --no-system-ca actually suppresses it there as well (it is documented as
+  // equivalent to METABOB_NO_SYSTEM_CA=1, and the trampoline above reads it the same way).
+  if (noSystemCa) {
+    process.env.METABOB_NO_SYSTEM_CA = '1';
   }
+
+  // Remaining CLI options beat any file value.
   if (options.sessionId) {
     process.env.SESSION_ID = options.sessionId;
-  }
-  if (options.sessionToken) {
-    process.env.SESSION_TOKEN = options.sessionToken;
   }
   if (options.logLevel) {
     process.env.LOG_LEVEL = options.logLevel;

@@ -40,7 +40,9 @@ async function sendMCPRequest(request: MCPRequest): Promise<MCPResponse> {
       env: {
         ...process.env,
         SESSION_ID: 'integration-test-session',
-        ANALYSIS_API_URL: 'http://localhost:8081',
+        // Not attached to any substrate: these exercise the local server only.
+        ACTIVITY_API_URL: '',
+        DISCOVERY_ENDPOINT: '',
         LOG_LEVEL: 'error',
       },
       cwd: import.meta.dir + '/../..',
@@ -274,8 +276,8 @@ test('tools/list responds within 5 seconds', async () => {
 //
 // Everything above this line asserts an ERROR. Unknown-tool and Invalid-parameters
 // both throw before the handler runs, so the whole success path — the
-// `{ content: [{ type: 'text', text }] }` envelope, recordSuccess, trackUsage,
-// telemetry — was reachable by zero assertions: change the envelope to
+// `{ content: [{ type: 'text', text }] }` envelope, recordSuccess, trackUsage —
+// was reachable by zero assertions: change the envelope to
 // `{ content: result }` and the entire suite stayed green while every MCP client
 // got a protocol-invalid result for all 28 tools.
 //
@@ -338,10 +340,10 @@ async function driveSession(
       METABOB_CONFIG_PATH: join(home, 'no-such-config.json'),
       METABOB_API_KEY: '',
       SESSION_ID: 'integration-success-session',
-      ANALYSIS_API_URL: 'http://localhost:8081',
+      // Not attached to any substrate: these exercise the local server only.
+      ACTIVITY_API_URL: '',
+      DISCOVERY_ENDPOINT: '',
       HEALTH_PORT: String(19800 + Math.floor(Math.random() * 90)),
-      METABOB_TELEMETRY: 'off',
-      METABOB_AGENT_RESOLVER: '0',
       LOG_LEVEL: 'error',
       ...env,
     },

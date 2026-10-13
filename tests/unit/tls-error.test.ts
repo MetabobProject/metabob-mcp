@@ -32,7 +32,7 @@ describe('translateTlsError', () => {
     expect(translated!.interceptingIssuer?.CN).toBe('Zscaler Root CA');
     expect(translated!.hint).toContain('Zscaler');
     expect(translated!.hint).toContain('--no-system-ca');
-    expect(translated!.hint).toContain('*.metabob.com');
+    expect(translated!.hint).toContain('ask IT to add activity.metabob.com');
     expect(translated!.cause).toBe(original);
   });
 

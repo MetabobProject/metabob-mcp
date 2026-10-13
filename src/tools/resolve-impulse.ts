@@ -106,7 +106,7 @@ export async function handle(input: ResolveImpulseInput, apiClient: AnalysisAPIC
     url = `${activityApiUrl.replace(/\/$/, '')}/v2/impulses/resolve`;
   } else {
     if (!apiClient.hasDiscovery() && !process.env.DISCOVERY_ENDPOINT) {
-      return 'resolve_impulse (vessel mode) requires discovery. Set DISCOVERY_ENDPOINT or use activity_api:true.';
+      return 'resolve_impulse (vessel_shape mode) requires discovery. Set DISCOVERY_ENDPOINT or use activity_api:true.';
     }
     const capability = await discoverFirstVesselByShape({
       discoveryEndpoint: process.env.DISCOVERY_ENDPOINT?.replace(/\/$/, '') ?? apiClient.getDiscoveryEndpoint(),

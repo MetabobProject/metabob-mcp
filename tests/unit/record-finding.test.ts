@@ -35,8 +35,6 @@ beforeEach(() => {
   mockApiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    postFeedback: mock(async () => ({})),
-    isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
 
   dbPath = join(tmpdir(), `metabob-finding-test-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);
@@ -276,8 +274,6 @@ test('mark_complete: endorse retires an agf_* finding from the cache', async () 
   expect(localStore.getCachedSeeds('src/b.ts').length).toBe(0);
   // seed still exists (stale), not deleted
   expect(localStore.getSeedById(id)?.stale).toBe(true);
-  // legacy API was NOT called for agent findings
-  expect(mockApiClient.postFeedback).not.toHaveBeenCalled();
 });
 
 test('mark_complete: discard deletes an agf_* finding', async () => {
@@ -599,5 +595,5 @@ test('annotate_component: agf_* id without a local store is a clean error', asyn
     AnnotateComponent.InputSchema.parse({ problem_id: 'agf_x' }),
     mockApiClient, SESSION, null,
   );
-  expect(out).toContain('local store unavailable');
+  expect(out).toContain('the local store failed to open');
 });

@@ -1,14 +1,18 @@
 /**
  * Diagnostic doctor for corporate-proxy / Zscaler / MDM TLS-inspection issues.
  *
- * Runs a battery of probes against the user's network environment and prints
- * a human-readable report plus a JSON artifact for support tickets.
+ * Runs a battery of probes against the path to the configured substrate (the
+ * hosts of METABOB_ENDPOINT / DISCOVERY_ENDPOINT and their siblings, read the
+ * same way the server reads them) and prints a human-readable report plus a
+ * JSON artifact for support tickets.
  *
  * Entry points:
  *   - `metabob-mcp doctor` (subcommand of the main CLI)
  *   - `metabob-mcp-doctor` (dedicated bin)
  *
- * No env vars required. Safe to run with or without an API key.
+ * Safe to run with or without an API key. With no endpoint configured it says
+ * so once (config.ts unattachedMessage) and probes only the trust store and a
+ * reference host.
  */
 
 import * as tls from 'node:tls';
@@ -23,11 +27,16 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getProxyForUrl } from 'proxy-from-env';
-import WebSocketClient from 'ws';
+import { readKnownHosts } from './cert-fingerprint.js';
 import {
-  readKnownHosts,
-  isMonitoredHost,
-} from './cert-fingerprint.js';
+  applyConfigDefaults,
+  configuredSubstrateUrls,
+  getDefaultConfigPath,
+  loadMetabobCLIConfig,
+  loadMetabobEnvConfig,
+  unattachedMessage,
+  withoutEndpoints,
+} from './config.js';
 
 /**
  * proxy-from-env's getProxyForUrl() runs the legacy url.parse() when handed a
@@ -60,7 +69,8 @@ export interface DoctorReport {
   trustStore: TrustStoreSnapshot;
   tlsHandshakes: Record<string, TlsHandshakeResult>;
   httpsProbes: Record<string, HttpsProbeResult>;
-  webSocketProbes: Record<string, WebSocketProbeResult>;
+  /** The configured substrate URLs probed, and the one message when none is configured. */
+  substrate: SubstrateTargets;
   config: ConfigSnapshot;
   diagnosis: Diagnosis;
 }
@@ -162,14 +172,15 @@ export interface HttpsProbeResult {
   proxyUrl?: string;
 }
 
-export interface WebSocketProbeResult {
-  url: string;
-  durationMs: number;
-  available: boolean;
-  upgraded: boolean;
-  viaProxy: boolean;
-  proxyUrl?: string;
-  error?: string;
+export interface SubstrateTargets {
+  /** Every configured substrate URL, anchor first. */
+  urls: string[];
+  /** Hosts with an https URL: the ones TLS can be diagnosed for. */
+  tlsHosts: string[];
+  /** Plain-http URLs: reachability only, there is no TLS to inspect. */
+  plainHttpUrls: string[];
+  /** Set when the key or the endpoint is missing (config.ts unattachedMessage). */
+  unattached: string | null;
 }
 
 export interface ConfigSnapshot {
@@ -207,7 +218,7 @@ export interface Diagnosis {
 }
 
 export interface RunDoctorOptions {
-  /** Override probe target hosts (default: activity/identity/ide + npm). */
+  /** Override probe target hosts (default: the configured substrate's https hosts). */
   hosts?: string[];
   /** Override output path for JSON artifact. */
   artifactPath?: string;
@@ -222,12 +233,6 @@ export interface RunDoctorOptions {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-// Everything routes through the single public endpoint — probing the
-// specialized vhosts would diagnose hosts the client no longer talks to.
-const DEFAULT_METABOB_HOSTS = [
-  'ide.metabob.com',
-];
 
 const REFERENCE_HOST = 'registry.npmjs.org';
 
@@ -414,18 +419,19 @@ function inspectNodeExtraCaCerts(): ProxySnapshot['nodeExtraCaCerts'] {
   }
 }
 
-function snapshotProxy(metabobHost = 'ide.metabob.com'): ProxySnapshot {
+function snapshotProxy(anchorHosts: readonly string[]): ProxySnapshot {
   const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? null;
   const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? null;
   const noProxy = process.env.NO_PROXY ?? process.env.no_proxy ?? null;
 
-  // Resolve effective proxy for a representative metabob host (honors NO_PROXY).
-  const effective = proxyForUrl(`https://${metabobHost}/`);
+  // Resolve the effective proxy for the anchor host (honors NO_PROXY).
+  const anchor = anchorHosts[0];
+  const effective = anchor ? proxyForUrl(`https://${anchor}/`) : '';
   const effectiveProxyForMetabob = effective && effective.length > 0 ? effective : null;
 
-  // Detect which metabob hosts are excluded by NO_PROXY.
+  // Detect which substrate hosts are excluded by NO_PROXY.
   const noProxyExcludesMetabob: string[] = [];
-  for (const h of DEFAULT_METABOB_HOSTS) {
+  for (const h of anchorHosts) {
     const eff = proxyForUrl(`https://${h}/`);
     if (httpsProxy && (!eff || eff.length === 0)) {
       noProxyExcludesMetabob.push(h);
@@ -635,9 +641,9 @@ async function probeTlsHandshake(
   host: string,
   systemCerts: ReadonlyArray<string>,
   timeoutMs: number,
+  port = 443,
 ): Promise<TlsHandshakeResult> {
   const start = performance.now();
-  const port = 443;
   const bundled = new Set(tls.rootCertificates);
   const systemSet = new Set(systemCerts);
 
@@ -920,119 +926,8 @@ async function probeHttps(
   };
 }
 
-async function probeWebSocket(url: string, timeoutMs: number): Promise<WebSocketProbeResult> {
-  const start = performance.now();
-  // Use the `ws` library — Node's built-in WebSocket (Node 22+) honors neither
-  // HTTPS_PROXY nor NODE_EXTRA_CA_CERTS on its agent in a way we can easily
-  // observe, so we use `ws` for both built-in and pre-22 runtimes.
-  const proxyUrl = proxyForUrl(url.replace(/^wss?:/, 'https:'));
-  const viaProxy = Boolean(proxyUrl);
-
-  let nodeExtraCaPems: string[] = [];
-  if (process.env.NODE_EXTRA_CA_CERTS) {
-    try {
-      const pem = fs.readFileSync(process.env.NODE_EXTRA_CA_CERTS, 'utf-8');
-      nodeExtraCaPems = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
-    } catch {
-      // surfaced separately
-    }
-  }
-
-  return new Promise<WebSocketProbeResult>((resolve) => {
-    let settled = false;
-    let ws: WebSocketClient | undefined;
-    const finish = (r: WebSocketProbeResult) => {
-      if (settled) return;
-      settled = true;
-      try {
-        ws?.terminate();
-      } catch {
-        // ignore
-      }
-      resolve(r);
-    };
-
-    const wsOpts: WebSocketClient.ClientOptions = {
-      handshakeTimeout: timeoutMs,
-    };
-    if (nodeExtraCaPems.length > 0) {
-      wsOpts.ca = nodeExtraCaPems;
-    }
-    if (proxyUrl) {
-      wsOpts.agent = new HttpsProxyAgent(proxyUrl, {
-        ca: wsOpts.ca as string[] | undefined,
-        timeout: timeoutMs,
-      });
-    }
-
-    try {
-      ws = new WebSocketClient(url, wsOpts);
-    } catch (err) {
-      resolve({
-        url,
-        durationMs: Math.round(performance.now() - start),
-        available: true,
-        upgraded: false,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      finish({
-        url,
-        durationMs: Math.round(performance.now() - start),
-        available: true,
-        upgraded: false,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-        error: 'handshake timeout',
-      });
-    }, timeoutMs);
-
-    ws.on('open', () => {
-      clearTimeout(timer);
-      finish({
-        url,
-        durationMs: Math.round(performance.now() - start),
-        available: true,
-        upgraded: true,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-      });
-    });
-    ws.on('unexpected-response', (_req, res) => {
-      clearTimeout(timer);
-      finish({
-        url,
-        durationMs: Math.round(performance.now() - start),
-        available: true,
-        upgraded: false,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-        error: `unexpected HTTP ${res.statusCode} on upgrade`,
-      });
-    });
-    ws.on('error', (err: Error) => {
-      clearTimeout(timer);
-      const code = (err as NodeJS.ErrnoException).code;
-      finish({
-        url,
-        durationMs: Math.round(performance.now() - start),
-        available: true,
-        upgraded: false,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-        error: code ? `${code}: ${err.message}` : err.message,
-      });
-    });
-  });
-}
-
 function snapshotConfig(): ConfigSnapshot {
-  const configPath = path.join(os.homedir(), '.metabob', 'config.json');
+  const configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath();
   const knownHostsPath = path.join(os.homedir(), '.metabob', 'known-hosts.json');
 
   let apiKeyConfigured = false;
@@ -1092,12 +987,17 @@ export function synthesizeDiagnosis(input: {
   dns: Record<string, DnsProbeResult>;
   tlsHandshakes: Record<string, TlsHandshakeResult>;
   httpsProbes: Record<string, HttpsProbeResult>;
-  webSocketProbes?: Record<string, WebSocketProbeResult>;
   trustStore: TrustStoreSnapshot;
   proxy?: ProxySnapshot;
+  /** The substrate hosts (default: every probed host but the reference host). */
+  anchorHosts?: readonly string[];
 }): Diagnosis {
   const observations: DiagnosisObservation[] = [];
-  const metabobHosts = Object.keys(input.tlsHandshakes).filter((h) => isMonitoredHost(h));
+  const anchorSet = new Set(
+    input.anchorHosts ?? Object.keys(input.tlsHandshakes).filter((h) => h !== REFERENCE_HOST),
+  );
+  const metabobHosts = Object.keys(input.tlsHandshakes).filter((h) => anchorSet.has(h));
+  const firstHost = metabobHosts[0] ?? [...anchorSet][0] ?? '<substrate host>';
 
   // 1. DNS observations.
   const dnsFailures = metabobHosts.filter((h) => {
@@ -1108,9 +1008,9 @@ export function synthesizeDiagnosis(input: {
     observations.push({
       severity: 'error',
       code: 'dns-fail',
-      message: 'DNS resolution failed for all Metabob hosts.',
-      verify: 'nslookup ide.metabob.com',
-      action: 'Check your DNS resolver and confirm that *.metabob.com records are reachable.',
+      message: 'DNS resolution failed for every substrate host.',
+      verify: `nslookup ${firstHost}`,
+      action: 'Check your DNS resolver and confirm that the substrate host resolves from this network.',
     });
   } else if (dnsFailures.length > 0) {
     observations.push({
@@ -1125,7 +1025,7 @@ export function synthesizeDiagnosis(input: {
   //    proxy-aware. If they succeed, the host IS reachable, regardless of
   //    what the raw TLS probe says.
   const metabobHttpsProbes = Object.values(input.httpsProbes).filter((p) => {
-    try { return isMonitoredHost(new URL(p.url).hostname); } catch { return false; }
+    try { return anchorSet.has(new URL(p.url).hostname); } catch { return false; }
   });
   const httpsReachable = metabobHttpsProbes.filter(
     (p) => p.statusDefault !== null || p.statusOsTrust !== null,
@@ -1143,16 +1043,16 @@ export function synthesizeDiagnosis(input: {
       observations.push({
         severity: 'error',
         code: 'proxy-unreachable',
-        message: `Proxy ${proxyUrl} is configured but no Metabob host is reachable through it.`,
-        verify: `curl -x ${proxyUrl} -I https://ide.metabob.com/`,
-        action: 'Ask IT to confirm that *.metabob.com is on the proxy allowlist and that the proxy itself is reachable.',
+        message: `Proxy ${proxyUrl} is configured but no substrate host is reachable through it.`,
+        verify: `curl -x ${proxyUrl} -I https://${firstHost}/`,
+        action: `Ask IT to confirm that ${firstHost} is on the proxy allowlist and that the proxy itself is reachable.`,
       });
     } else {
       observations.push({
         severity: 'error',
         code: 'egress-blocked',
-        message: 'Direct egress to Metabob hosts is blocked, and no HTTPS_PROXY is configured.',
-        verify: 'curl -I https://ide.metabob.com/',
+        message: 'Direct egress to the substrate host is blocked, and no HTTPS_PROXY is configured.',
+        verify: `curl -I https://${firstHost}/`,
         action: 'On a corporate network: set HTTPS_PROXY to your proxy URL. Otherwise: check VPN / firewall rules.',
       });
     }
@@ -1219,39 +1119,6 @@ export function synthesizeDiagnosis(input: {
       message: `TLS interception detected${vendor ? ` (vendor: ${vendor})` : ''}. The default Mozilla CA chain rejects the cert; ${mitmConfirmed.length > 0 ? 'the OS trust store accepts it.' : 'a non-Mozilla root signs the chain.'}`,
       action: 'Set NODE_EXTRA_CA_CERTS=/path/to/corp-root.pem so the MCP client trusts the corporate root.',
     });
-  }
-
-  // 5. WebSocket through proxy.
-  const wsProbes = Object.values(input.webSocketProbes ?? {});
-  for (const w of wsProbes) {
-    const host = (() => { try { return new URL(w.url.replace(/^wss?:/, 'https:')).hostname; } catch { return null; } })();
-    if (!host) continue;
-    const httpsForHost = metabobHttpsProbes.find((p) => {
-      try { return new URL(p.url).hostname === host; } catch { return false; }
-    });
-    const httpsOk = httpsForHost && (httpsForHost.statusDefault !== null || httpsForHost.statusOsTrust !== null);
-    if (!w.upgraded && httpsOk) {
-      if (proxySet && w.viaProxy) {
-        observations.push({
-          severity: 'warn',
-          code: 'ws-via-proxy-fail',
-          message: `WebSocket to ${w.url} failed (${w.error ?? 'unknown'}) even through the proxy, but HTTPS to the same host works.`,
-          action: `Confirm that ${proxyUrl} allows HTTP CONNECT to port 443 for ${host} (WebSocket-over-TLS uses CONNECT tunnels).`,
-        });
-      } else if (proxySet && !w.viaProxy) {
-        observations.push({
-          severity: 'info',
-          code: 'ws-direct-blocked',
-          message: `WebSocket to ${w.url} bypassed the proxy and failed. Direct WSS egress is blocked, which is expected in proxy-required networks.`,
-        });
-      } else {
-        observations.push({
-          severity: 'warn',
-          code: 'ws-fail',
-          message: `WebSocket to ${w.url} failed (${w.error ?? 'unknown'}) even though HTTPS to ${host} works.`,
-        });
-      }
-    }
   }
 
   // 6. OS trust store skipped (not a failure).
@@ -1352,8 +1219,8 @@ export function synthesizeDiagnosis(input: {
   ) {
     status = 'unreachable';
     summary = proxySet
-      ? `No Metabob host is reachable through proxy ${proxyUrl}.`
-      : 'No Metabob host is reachable from this network.';
+      ? `No substrate host is reachable through proxy ${proxyUrl}.`
+      : 'No substrate host is reachable from this network.';
   } else if (hasError) {
     status = 'failed';
     summary = 'One or more probes returned an error. See observations below.';
@@ -1361,12 +1228,12 @@ export function synthesizeDiagnosis(input: {
     status = httpsReachable.length === metabobHttpsProbes.length && metabobHttpsProbes.length > 0
       ? 'degraded'
       : 'degraded';
-    summary = 'Metabob hosts are reachable, with caveats. See observations below.';
+    summary = 'Substrate hosts are reachable, with caveats. See observations below.';
   } else if (metabobHttpsProbes.length > 0 && httpsReachable.length === metabobHttpsProbes.length) {
     status = 'ok';
     summary = proxySet
-      ? `All Metabob hosts reachable through proxy ${proxyUrl}.`
-      : 'All Metabob hosts reachable. No TLS interception detected.';
+      ? `All substrate hosts reachable through proxy ${proxyUrl}.`
+      : 'All substrate hosts reachable. No TLS interception detected.';
   } else if (
     metabobHttpsProbes.length === 0 &&
     metabobHosts.length > 0 &&
@@ -1378,7 +1245,7 @@ export function synthesizeDiagnosis(input: {
     // No HTTPS probes were run, but raw TLS to every metabob host succeeded
     // with a bundled root — treat as ok.
     status = 'ok';
-    summary = 'No TLS interception detected. Metabob hosts are reachable with the bundled Mozilla CA chain.';
+    summary = 'No TLS interception detected. Substrate hosts are reachable with the bundled Mozilla CA chain.';
   } else {
     status = 'unknown';
     summary = 'Probes did not produce enough signal to render a diagnosis.';
@@ -1438,9 +1305,9 @@ export function renderReport(report: DoctorReport): string {
     if (report.proxy.httpsProxy) lines.push(`  HTTPS_PROXY=${report.proxy.httpsProxy}`);
     if (report.proxy.noProxy) lines.push(`  NO_PROXY=${report.proxy.noProxy}`);
     if (report.proxy.effectiveProxyForMetabob) {
-      lines.push(`  ${check} effective proxy for *.metabob.com: ${report.proxy.effectiveProxyForMetabob} (${report.proxy.proxyScheme})`);
+      lines.push(`  ${check} effective proxy for the substrate host: ${report.proxy.effectiveProxyForMetabob} (${report.proxy.proxyScheme})`);
     } else if (report.proxy.httpsProxy) {
-      lines.push(`  ${warn} HTTPS_PROXY is set but does not apply to *.metabob.com (excluded by NO_PROXY)`);
+      lines.push(`  ${warn} HTTPS_PROXY is set but does not apply to the substrate host (excluded by NO_PROXY)`);
     }
     if (report.proxy.noProxyExcludesMetabob.length > 0) {
       lines.push(`  ${warn} NO_PROXY excludes: ${report.proxy.noProxyExcludesMetabob.join(', ')}`);
@@ -1531,21 +1398,23 @@ export function renderReport(report: DoctorReport): string {
   }
   lines.push('');
 
-  // WebSocket probes
-  if (Object.keys(report.webSocketProbes).length > 0) {
-    lines.push(c('WebSocket probes', 'bold'));
-    for (const [host, r] of Object.entries(report.webSocketProbes)) {
-      const via = r.viaProxy ? ` [via proxy ${r.proxyUrl ?? ''}]` : ' [direct]';
-      if (!r.available) {
-        lines.push(`  ${warn} ${host}${via} — ${r.error ?? 'unavailable'}`);
-      } else if (r.upgraded) {
-        lines.push(`  ${check} ${host}${via} — Upgrade succeeded (${r.durationMs}ms)`);
-      } else {
-        lines.push(`  ${cross} ${host}${via} — ${r.error ?? 'failed'} (${r.durationMs}ms)`);
-      }
-    }
-    lines.push('');
+  // Substrate
+  lines.push(c('Substrate', 'bold'));
+  if (report.substrate.unattached) {
+    lines.push(`  ${cross} ${report.substrate.unattached}`);
   }
+  for (const u of report.substrate.urls) {
+    lines.push(`  ${u}`);
+  }
+  for (const u of report.substrate.plainHttpUrls) {
+    const loopback = (() => {
+      try { return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(u).hostname); } catch { return false; }
+    })();
+    lines.push(loopback
+      ? `  ${check} ${u} is plain HTTP on loopback: no TLS to diagnose`
+      : `  ${warn} ${u} is plain HTTP: no TLS to diagnose, and the key travels in cleartext (CONFORMANCE §c3-identity)`);
+  }
+  lines.push('');
 
   // Config
   lines.push(c('Configuration', 'bold'));
@@ -1620,6 +1489,39 @@ export function renderReport(report: DoctorReport): string {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/**
+ * The substrate the server would attach to, read with the server's own
+ * loaders (env first, then the config file) without changing process.env.
+ */
+function resolveSubstrateTargets(): SubstrateTargets & { tlsPorts: Record<string, number> } {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const envConfig = loadMetabobEnvConfig(env);
+  applyConfigDefaults(env, envConfig);
+  const fileConfig = loadMetabobCLIConfig(env.METABOB_CONFIG_PATH ?? getDefaultConfigPath());
+  applyConfigDefaults(env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
+
+  const urls = configuredSubstrateUrls(env);
+  const tlsHosts: string[] = [];
+  const tlsPorts: Record<string, number> = {};
+  const plainHttpUrls: string[] = [];
+  for (const u of urls) {
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol === 'https:') {
+        if (!tlsHosts.includes(parsed.hostname)) {
+          tlsHosts.push(parsed.hostname);
+          tlsPorts[parsed.hostname] = Number(parsed.port || 443);
+        }
+      } else {
+        plainHttpUrls.push(u);
+      }
+    } catch {
+      // A malformed URL is the server's to report; doctor skips it.
+    }
+  }
+  return { urls, tlsHosts, tlsPorts, plainHttpUrls, unattached: unattachedMessage(env) };
+}
+
 export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
   report: DoctorReport;
   exitCode: number;
@@ -1627,12 +1529,13 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
 }> {
   const overallStart = performance.now();
   const probeTimeoutMs = options.probeTimeoutMs ?? 5000;
-  const hosts = options.hosts ?? DEFAULT_METABOB_HOSTS;
+  const substrate = resolveSubstrateTargets();
+  const hosts = options.hosts ?? substrate.tlsHosts;
   const allHosts = Array.from(new Set([...hosts, REFERENCE_HOST]));
 
   // Environment + proxy + trust store are synchronous.
   const environment = snapshotEnvironment();
-  const proxy = snapshotProxy();
+  const proxy = snapshotProxy(hosts);
   const { snapshot: trustStore, systemCerts } = snapshotTrustStore();
 
   // DNS in parallel.
@@ -1645,15 +1548,16 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
   const tlsEntries: Array<[string, TlsHandshakeResult]> = await Promise.all(
     allHosts.map(async (h): Promise<[string, TlsHandshakeResult]> => [
       h,
-      await probeTlsHandshake(h, systemCerts, probeTimeoutMs),
+      await probeTlsHandshake(h, systemCerts, probeTimeoutMs, substrate.tlsPorts[h] ?? 443),
     ]),
   );
   const tlsMap: Record<string, TlsHandshakeResult> = Object.fromEntries(tlsEntries);
 
-  // HTTPS probes against metabob hosts only.
-  const httpsTargets = hosts
-    .filter((h) => h.endsWith('.metabob.com'))
-    .map((h) => `https://${h}/health`);
+  // HTTPS probes against the substrate hosts only.
+  const httpsTargets = hosts.map((h) => {
+    const port = substrate.tlsPorts[h];
+    return `https://${h}${port && port !== 443 ? `:${port}` : ''}/health`;
+  });
   const httpsEntries: Array<[string, HttpsProbeResult]> = await Promise.all(
     httpsTargets.map(async (url): Promise<[string, HttpsProbeResult]> => [
       new URL(url).hostname,
@@ -1662,27 +1566,15 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
   );
   const httpsMap: Record<string, HttpsProbeResult> = Object.fromEntries(httpsEntries);
 
-  // WebSocket probe — just ide.metabob.com.
-  const wsTargets = hosts
-    .filter((h) => h === 'ide.metabob.com')
-    .map((h) => `wss://${h}/ws`);
-  const wsEntries: Array<[string, WebSocketProbeResult]> = await Promise.all(
-    wsTargets.map(async (url): Promise<[string, WebSocketProbeResult]> => [
-      new URL(url).hostname,
-      await probeWebSocket(url, probeTimeoutMs),
-    ]),
-  );
-  const wsMap: Record<string, WebSocketProbeResult> = Object.fromEntries(wsEntries);
-
   const config = snapshotConfig();
 
   const diagnosis = synthesizeDiagnosis({
     dns: dnsMap,
     tlsHandshakes: tlsMap,
     httpsProbes: httpsMap,
-    webSocketProbes: wsMap,
     trustStore,
     proxy,
+    anchorHosts: hosts,
   });
 
   const durationMs = Math.round(performance.now() - overallStart);
@@ -1698,7 +1590,12 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
     trustStore,
     tlsHandshakes: tlsMap,
     httpsProbes: httpsMap,
-    webSocketProbes: wsMap,
+    substrate: {
+      urls: substrate.urls,
+      tlsHosts: substrate.tlsHosts,
+      plainHttpUrls: substrate.plainHttpUrls,
+      unattached: substrate.unattached,
+    },
     config,
     diagnosis,
   };
@@ -1725,15 +1622,15 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
     }
   }
 
-  // Exit code: 0 if all metabob hosts are reachable via HTTPS (the
-  // proxy-aware probe), 1 otherwise. Raw TLS failures alone don't justify
-  // exit-1 in proxy-required networks where direct TLS is blocked by design.
-  const metabobHosts = hosts.filter((h) => h.endsWith('.metabob.com'));
-  const anyHttpsUnreachable = metabobHosts.some((h) => {
+  // Exit code: 0 if every https substrate host is reachable via HTTPS (the
+  // proxy-aware probe), 1 otherwise, or when nothing is configured. Raw TLS
+  // failures alone don't justify exit-1 in proxy-required networks where
+  // direct TLS is blocked by design.
+  const anyHttpsUnreachable = hosts.some((h) => {
     const p = httpsMap[h];
     return !p || (p.statusDefault === null && p.statusOsTrust === null);
   });
-  const exitCode = anyHttpsUnreachable ? 1 : 0;
+  const exitCode = anyHttpsUnreachable || (substrate.unattached && !options.hosts) ? 1 : 0;
 
   return { report, exitCode, artifactPath };
 }

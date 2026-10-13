@@ -38,7 +38,6 @@ const STRUCTURED_AND_PROSE = [
 beforeEach(() => {
   mockApiClient = {
     get: mock(async () => ({})),
-    isVesselMode: mock(() => false),
     hasDiscovery: mock(() => false),
     getDiscoveryEndpoint: mock(() => undefined),
   } as unknown as AnalysisAPIClient;

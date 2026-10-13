@@ -97,10 +97,11 @@ async function sendSequential(requests: Array<Record<string, unknown>>): Promise
     env: {
       ...process.env,
       SESSION_ID: 'breaker-classification-test',
-      ANALYSIS_API_URL: 'http://localhost:8081',
-      // Never bind the port a live sidecar may hold, and never enrol in discovery.
+      // Not attached to any substrate: these exercise the local server only.
+      ACTIVITY_API_URL: '',
+      DISCOVERY_ENDPOINT: '',
+      // Never bind the port a live sidecar may hold.
       HEALTH_PORT: String(19000 + Math.floor(Math.random() * 900)),
-      METABOB_TELEMETRY: 'off',
       METABOB_TOOLS: '',
       LOG_LEVEL: 'error',
     },

@@ -38,12 +38,11 @@ in-process CPG. Nothing submits files, excerpts or file lists for analysis, and 
 workspace in the background, so there is no server-side analysis and no backend detections: problems
 are what agents record (`record_finding`), held in the local store and recalled from concept-db.
 
-**API tier** — requires `METABOB_API_KEY`. Its surface depends on the mode:
-
-| Operation | Default (sidecar / vessel mode) | `METABOB_STATELESS=true` (legacy REST) |
-|-----------|----------------------------------|----------------------------------------|
-| Auth | `Authorization: ApiKey <key>` on every request | `POST /session` exchange, opaque token refreshed on a timer |
-| Feedback on a non-`agf_*` problem id | a `resolution` event to `POST /v2/events/mcp` | `POST /feedback/detection` |
+**Substrate tier** — requires the attachment: `METABOB_API_KEY` and an endpoint (§ Configuration).
+Every substrate request carries `Authorization: ApiKey <key>`. The process is a client of the
+substrate only: it makes no discovery registration, runs no libp2p node, and serves its HTTP resolver
+(§ Impulse shapes) on `127.0.0.1` for local callers (`src/vessel-server.ts@loopback-bind`). It sends
+no usage telemetry.
 
 The substrate tools (goal dispatch, concept-db, the registry and trace readers) are described in their
 own sections below.
@@ -52,14 +51,16 @@ own sections below.
 
 ## Configuration
 
-**Minimal setup is a single value: an API key.** Everything else derives.
+**The attachment is two values: an API key and an endpoint.** Neither has a default. The substrate
+installer writes both into `~/.substrate/config.json` (`~/.metabob/config.json` is a symlink to it),
+so a machine it has set up needs no environment and no flags.
 
-Two equivalent ways to supply it:
+Two equivalent ways to supply them:
 
 ```bash
 # Environment (typical .mcp.json / MCP-client setup)
-METABOB_API_KEY=mb_live_...          # required
-METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
+METABOB_API_KEY=mb_live_...
+METABOB_ENDPOINT=http://127.0.0.1:18080
 ```
 
 ```jsonc
@@ -67,7 +68,7 @@ METABOB_ENDPOINT=https://ide.metabob.com   # optional — this IS the default
 {
   "metabob": {
     "apiKey": "mb_live_...",
-    "endpoint": "https://ide.metabob.com"   // optional — same default
+    "endpoint": "http://127.0.0.1:18080"
   }
 }
 ```
@@ -78,17 +79,21 @@ from (MCP clients spawn stdio servers with cwd = project root). Lookup order:
 `METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`
 (`src/config.ts@getDefaultConfigPath`).
 
+With the key or the endpoint missing, the server still starts — the local tools work — and logs one
+message naming the missing input and this lookup order (`src/config.ts@unattachedMessage`); `/health`
+and `doctor` report the same.
+
 ### Endpoint derivation
 
-`endpoint` / `METABOB_ENDPOINT` is the **gateway in the vessel**: the URL from
+`endpoint` / `METABOB_ENDPOINT` is the substrate endpoint (its activity-api) from
 which the sibling services are derived (`src/config.ts@deriveSubstrateDefaults`).
 
 - **Local substrate** — an `http:` URL whose explicit port ends in `80` (`8080`,
   `18080`, `28080`, …; `src/discovery.ts@deriveLocalDiscoveryEndpoint`) derives
-  port-offset siblings: discovery `+20`, analysis `+170`, concept-db `+180`
-  (so `http://127.0.0.1:18080` gives `:18100`, `:18250`, `:18260`). No identity
-  endpoint is derived; with discovery set and no explicit `IDENTITY_ENDPOINT`,
-  tenant resolution is skipped.
+  port-offset siblings: discovery `+20`, concept-db `+180` (so
+  `http://127.0.0.1:18080` gives `:18100` and `:18260`). No identity endpoint
+  is derived; without an explicit `IDENTITY_ENDPOINT`, tenant resolution is
+  skipped.
 - **Remote gateway** — any other endpoint derives nothing: no path-prefixed
   siblings are assumed, so a remote substrate is anchored by an explicit
   `discoveryEndpoint` / `DISCOVERY_ENDPOINT`.
@@ -101,41 +106,33 @@ All keys are optional.
 
 | Key | Purpose |
 |-----|---------|
-| `metabob.apiKey` | API key (also accepted at legacy `instance.apiKey`) |
-| `metabob.endpoint` | Gateway URL — the derived siblings above come from it |
-| `metabob.vesselId` | Pins `VESSEL_ID` (discovery registration id) |
+| `metabob.apiKey` | API key (also accepted at `instance.apiKey`) |
+| `metabob.endpoint` | Substrate endpoint — the derived siblings above come from it |
+| `metabob.vesselId` | Pins `VESSEL_ID` (the agent-task queue key and finding author) |
 | `metabob.discoveryEndpoint` | Advanced: pin discovery-vessel explicitly |
-| `metabob.analysisApiUrl` | Advanced: pin the analysis API explicitly |
 | `metabob.identityEndpoint` | Advanced: pin identity (tenant resolution) explicitly |
 | `metabob.conceptDbUrl` | Advanced: pin concept-db explicitly |
 | `metabob.goalHostVesselUrl` | Advanced: pin goal-host-vessel explicitly |
 
 Unknown keys are ignored (passthrough). Each config key and each corresponding
-env var (`ANALYSIS_API_URL`, `ACTIVITY_API_URL`, `DISCOVERY_ENDPOINT`,
-`IDENTITY_ENDPOINT`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`) wins over the
+env var (`ACTIVITY_API_URL`, `DISCOVERY_ENDPOINT`, `IDENTITY_ENDPOINT`,
+`CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`) wins over the
 value derived from the same source's endpoint.
 
 ### Precedence
 
 Each loader fills only variables that are still unset (`src/config.ts@applyConfigDefaults`), applied in this order (`src/cli.ts@main`) — so earlier wins:
 
-1. CLI flags — `--api-key` and `--endpoint` are written into the environment first; `--api-url` overwrites `ANALYSIS_API_URL` after the loaders run
+1. CLI flags — `--api-key` and `--endpoint` are written into the environment before the loaders run
 2. Environment — explicit variables, then the siblings derived from `METABOB_ENDPOINT`
 3. The config file (lookup order above) — its explicit keys, then the siblings derived from its `endpoint`. When `METABOB_ENDPOINT` is set, only the file's credentials (`apiKey`, `vesselId`) apply, never its endpoints (`src/config.ts@withoutEndpoints`)
-4. Built-in default — an API key alone routes everything to `https://ide.metabob.com`
 
-Consequences worth knowing:
+There is no built-in default after these. Consequences worth knowing:
 
-- A **file-supplied `endpoint` beats the built-in default** even when the API
-  key arrives via env — an MCP client injecting `METABOB_API_KEY` cannot
-  silently redirect a config file pointed at a local substrate.
+- An MCP client that injects only `METABOB_API_KEY` keeps the config file's endpoint.
 - An explicit `METABOB_ENDPOINT` chooses the substrate: the config file's
   endpoints never fill a sibling it left underived, so activity and discovery
   cannot split across two substrates.
-- **Legacy carve-out**: pinning a specific endpoint var (e.g.
-  `ANALYSIS_API_URL`) *without* `METABOB_ENDPOINT` keeps the default-gateway
-  derivation inert, so hand-configured routing is never split onto the default
-  gateway.
 
 ---
 
@@ -185,7 +182,7 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 | `include_discarded` | boolean | `false` | Accepted; a discarded finding is deleted from the local store, so it changes nothing |
 
 **Behaviour**
-- Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. Under `METABOB_STATELESS=true` there is no local store, and the output says so.
+- Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. If the local store failed to open, the output says so.
 - States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request.
 - It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=`), paged 50 rows at a time via `offset` up to 300 scanned rows, kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Hitting the scan cap is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 - The recall runs before the local cache is read, and retires this session's seeds of every finding it shows closed (`src/tools/_findings.ts@retireClosedSeeds`), matched by the seed's linked concept id or by the `agf_*` ids the concept carries: a fixed finding's seeds go stale, a retracted finding's are deleted — the same retirement `mark_complete` applies. A verdict another session recorded therefore removes the finding from this session's open list too.
@@ -211,7 +208,7 @@ The write half of agent-side analysis: LLM processing lives on the agent; the se
 | `line_end` | number | — | End line |
 | `status` | string | `open` | Finding status; anything but `open` stores the seed already stale |
 
-**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, and content carrying `repo`, `workspace`, workspace-relative `files`, `lines`, `severity`, `category`, `status`, `finding_ids` and the details — so other agents' sessions recall it org-wide. The minted concept id is stored back on the seeds (`refs_json`), which is what lets `mark_complete` fold a verdict into that concept's relevance. The concept content also carries the author: `recorded_by: <vesselId>` (the same `metabob-mcp-<12 hex>` identity used for discovery registration) and `session: <sessionId>`. When no vessel identity resolves — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's (`src/tools/_findings.ts@attributionLines`). concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
+**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, and content carrying `repo`, `workspace`, workspace-relative `files`, `lines`, `severity`, `category`, `status`, `finding_ids` and the details — so other agents' sessions recall it org-wide. The minted concept id is stored back on the seeds (`refs_json`), which is what lets `mark_complete` fold a verdict into that concept's relevance. The concept content also carries the author: `recorded_by: <vesselId>` (the stable `metabob-mcp-<12 hex>` identity, `src/vessel-identity.ts@resolveVesselId`) and `session: <sessionId>`. When no vessel identity resolves — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's (`src/tools/_findings.ts@attributionLines`). concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
 
 ---
 
@@ -303,7 +300,7 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 | `problem_id` | string | **required** | Problem ID from `get_problems` — a backend id, an `agf_*` finding id, or a `concept_*` id |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-A backend problem id goes to `postFeedback` (`POST /feedback/detection` in legacy mode; a `resolution` event to `POST /v2/events/mcp` in vessel mode). A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings the legacy API is bypassed: endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`, `src/tools/_findings.ts@recordConceptUsage`).
+Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a message saying nothing was recorded, since there are no backend detections for it to name. A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings, endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`, `src/tools/_findings.ts@recordConceptUsage`).
 
 ---
 
@@ -359,7 +356,7 @@ The current analysis state in one snapshot, designed to feed an LLM deciding wha
 The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
 
 - **goal-host-vessel** — `GOAL_HOST_VESSEL_URL` when set, else the first vessel discovery returns for the `goal_execution` shape (`src/discovery.ts@resolveServiceEndpointByShape`; loopback endpoints are rehosted onto a remote discovery's host).
-- **activity-api** — `ACTIVITY_API_URL`, else `ANALYSIS_API_URL`, else `https://ide.metabob.com`; never discovered.
+- **activity-api** — `ACTIVITY_API_URL` (the endpoint, unless pinned); never discovered. Unset means not attached (§ Configuration).
 - **discovery** — `DISCOVERY_ENDPOINT` (set directly or derived, see § Configuration).
 
 Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is set. Planes:
@@ -580,24 +577,19 @@ The direct write into concept-db's relevance model.
 
 ## Agent-resolver tools
 
-The agent is also a **resolver the substrate dispatches work to**. When
-`METABOB_AGENT_RESOLVER` is `1`/`true`/`on` (off by default — opt in only where
-a human is at that terminal; `src/vessel-identity.ts@agentResolverEnabled`) and
-the vessel registers with discovery (which needs a bound HTTP server, an
-explicit `VESSEL_PUBLIC_ENDPOINT` and an explicit `HEALTH_PORT`), the vessel
-advertises the `human_input` shape, so a goal-host walk that exhausts its
-automated approaches can solicit a decision from this agent. The switch
-gates only the advertisement: an inbound `human_input` impulse is always
-enqueued (see § Impulse shapes). `goal_reasoning` reads the substrate's walk;
-these two tools answer it.
+A `human_input` impulse that reaches the loopback resolver (§ Impulse shapes) is durably enqueued
+for the agent, and these two tools drain and answer that queue. The session is a client of the
+substrate and advertises no shape, so the substrate has no inbound offer to dispatch a task to it
+(CONFORMANCE §c11-attachment-model): the queue fills only from a local caller of the resolver.
+`goal_reasoning` reads the substrate's walk; these two tools answer a solicitation.
 
-Tasks and answers persist in `~/.metabob/sidecar.db` (sidecar mode only),
+Tasks and answers persist in `~/.metabob/sidecar.db`,
 keyed by the vesselId — `VESSEL_ID`, else `metabob-mcp-<hash(apiKey+workspace)>`
 (`src/resolver-identity.ts@getResolverVesselId`). A later session in the same
 workspace with the same key derives the same id and resumes: it sees
 still-pending tasks and, at startup, re-delivers answers a prior session
 recorded but could not send (`src/agent-delivery.ts@reconcileUndelivered`).
-Loop: substrate solicits → `pull_assigned_work` → reason → `submit_resolution`.
+Loop: a solicitation is queued → `pull_assigned_work` → reason → `submit_resolution`.
 
 ### pull_assigned_work
 
@@ -607,7 +599,7 @@ Handler: `src/tools/pull-assigned-work.ts@handle`
 |-----------|------|---------|-------------|
 | `limit` | number | `10` | Max tasks (max 100) |
 
-Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires. With nothing queued and the agent-resolver role off, it says that no task can arrive — the session advertises no `human_input`, so the substrate has no inbound offer to dispatch to — and names `METABOB_AGENT_RESOLVER=1` as the opt-in, rather than reporting an empty queue. A task already queued is listed whether or not the role is on.
+Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires. With nothing queued, it says that no task can arrive — the session advertises nothing, so the substrate has no inbound offer to dispatch to (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`) — rather than reporting an empty queue an agent would keep polling.
 
 ### submit_resolution
 
@@ -619,7 +611,7 @@ Handler: `src/tools/submit-resolution.ts@handle`
 | `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
 | `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
 
-An unknown `task_id` is reported as such; with the agent-resolver role off, the report adds that no task is dispatched to this session and names the opt-in. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
+An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
 
 ---
 
@@ -649,8 +641,8 @@ An unknown `task_id` is reported as such; with the agent-resolver role off, the 
    → verdict; on findings it also folds relevance into concept-db
 
 8. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
-   → answer decisions the substrate dispatched to this agent
-     (only with METABOB_AGENT_RESOLVER=1; otherwise nothing is dispatched here)
+   → answer a decision queued on this machine; the substrate dispatches
+     nothing to a client-only session, so the queue is usually empty
 
 9. init_workspace(recently_changed_files=[...files changed since...])
    → parses files added since the last call; files already parsed are not re-read
@@ -660,7 +652,7 @@ The MCP client runs the compiled `dist/cli.js`: after editing `src/`, run `bun r
 
 ## Impulse shapes (HTTP resolver)
 
-The vessel accepts `POST /v2/impulses/resolve` from the activity system. The body is `{ impulses: [{ id?, pointer }] }` or a single `{ pointer }`; the shape is `pointer.type`. Mapped shapes run the named tool, subject to the `METABOB_TOOLS` allowlist (`src/vessel-server.ts@resolvePointerToTool`):
+The vessel accepts `POST /v2/impulses/resolve` from local callers: the server binds `127.0.0.1` and advertises the resolver nowhere. The body is `{ impulses: [{ id?, pointer }] }` or a single `{ pointer }`; the shape is `pointer.type`. Mapped shapes run the named tool, subject to the `METABOB_TOOLS` allowlist (`src/vessel-server.ts@resolvePointerToTool`):
 
 | Shape | Maps to | Pointer fields forwarded |
 |-------|---------|--------------------------|

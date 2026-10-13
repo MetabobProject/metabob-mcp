@@ -46,7 +46,6 @@ jobs:
         run: bun test tests/integration/
         env:
           SESSION_ID: ci-test-session
-          ANALYSIS_API_URL: https://ide.metabob.com
           LOG_LEVEL: error
 
       - name: Build

@@ -23,6 +23,7 @@
 
 import * as tls from 'node:tls';
 import * as https from 'node:https';
+import { configuredSubstrateUrls } from './config.js';
 
 let installed = false;
 let appendedCount = 0;
@@ -154,14 +155,22 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
           caList ? { requestTls: { ca: caList } } : {},
         );
       } else if (proxyPresent && typeof undici.ProxyAgent === 'function') {
-        // Older undici without EnvHttpProxyAgent: resolve the proxy URL ourselves.
+        // Older undici without EnvHttpProxyAgent: resolve the proxy URL ourselves,
+        // for the configured substrate anchor (one proxy for every host — the
+        // CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role gap).
         const { getProxyForUrl } = require('proxy-from-env') as {
           getProxyForUrl: (u: string | URL) => string;
         };
         // Pass a WHATWG URL (not a string) so getProxyForUrl skips the legacy
         // url.parse() that emits DEP0169 under Node ≥21. Fields it reads
         // (.protocol/.host/.port) are byte-compatible with the legacy Url.
-        const proxyUri = getProxyForUrl(new URL('https://ide.metabob.com')) || proxyEnv;
+        const anchor = configuredSubstrateUrls()[0];
+        let proxyUri = proxyEnv;
+        try {
+          if (anchor) proxyUri = getProxyForUrl(new URL(anchor)) || proxyEnv;
+        } catch {
+          // Malformed anchor: fall back to the proxy environment as given.
+        }
         dispatcher = new undici.ProxyAgent({
           uri: proxyUri,
           ...(caList ? { requestTls: { ca: caList } } : {}),

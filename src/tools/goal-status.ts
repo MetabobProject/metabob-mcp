@@ -18,7 +18,7 @@
  * (β-penalty + completion-shape tags); inspect the produced shapes / failure
  * mode below to judge reach.
  *
- * Auth: vessel mode only. Re-uses METABOB_API_KEY as ApiKey bearer.
+ * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';

@@ -312,11 +312,9 @@ export class FakeSubstrate {
   env(): Record<string, string> {
     return {
       METABOB_ENDPOINT: this.url('activity'),
-      DISCOVERY_ENDPOINT: this.url('discovery'),
       // A METABOB_ENDPOINT outside the local port convention derives no
-      // siblings, and the analysis base would otherwise default to the public
-      // gateway. Pin it here so nothing leaves the machine.
-      ANALYSIS_API_URL: this.url('activity'),
+      // siblings, so discovery is given explicitly, as for a remote substrate.
+      DISCOVERY_ENDPOINT: this.url('discovery'),
     };
   }
 

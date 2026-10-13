@@ -20,7 +20,6 @@ export async function callTool(
       ...process.env,
       METABOB_CONFIG_PATH: `${REPO}/.metabob/config.json`,
       HEALTH_PORT: String(opts.healthPort ?? 18700 + Math.floor(Math.random() * 80)),
-      METABOB_AGENT_RESOLVER: '0',
       NO_PROXY: 'localhost,127.0.0.1',
       WORKSPACE_PATH: REPO,
       LOG_LEVEL: 'error',

@@ -45,7 +45,7 @@ export function shouldTripBreaker(error: unknown): boolean {
     const dataCode = (error as { data?: { code?: unknown } }).data?.code;
     return typeof dataCode === 'string' && UPSTREAM_FAILURE_CODES.has(dataCode);
   }
-  // api-client MCPError (see mapStatusToMCPCode).
+  // String-coded errors (e.g. TLS_INTERCEPTED from tls-error.ts).
   if (typeof code === 'string') return UPSTREAM_FAILURE_CODES.has(code);
   return false;
 }

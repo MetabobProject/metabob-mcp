@@ -18,7 +18,7 @@ import { plainConceptId } from './_concept-content.js';
 export const MarkCompleteTool = {
   name: 'mark_complete',
   description:
-    'Mark a detected problem as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Problem IDs come from get_problems. Works for agent-recorded findings too (agf_* ids from record_finding): endorse retires the finding as resolved, discard retracts it.',
+    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved, discard retracts it. Any other id is refused.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -53,17 +53,15 @@ export async function handle(
   const startTime = Date.now();
 
   // ── Agent-recorded findings (record_finding → agf_* ids) ───────────────────
-  // These live in the LocalStore + concept-db, not the legacy analysis API.
+  // These live in the LocalStore + concept-db.
   //
   // A `concept_*` id is accepted too: the cross-agent recall surfaces findings
-  // by concept id, so that is frequently the only identifier an agent holds.
-  // Letting one fall through to the legacy analysis path below reported
-  // "endorsed" for a write that never happened — see getSeedByConceptRef.
+  // by concept id, so that is frequently the only identifier an agent holds
+  // (see getSeedByConceptRef).
   //
   // Normalise FIRST: concept-db hands back the same id both bare and
   // ⟨⟩-wrapped (sometimes in one response), and the id get_problems prints
-  // keeps the wrapper. Gating on the raw string sent every wrapped id down the
-  // legacy path — the very fall-through this comment says was fixed.
+  // keeps the wrapper, so gating on the raw string would refuse a wrapped id.
   const plainId = plainConceptId(input.problem_id);
   const isConceptId = plainId.startsWith('concept_');
   if (input.problem_id.startsWith('agf_') || isConceptId) {
@@ -226,20 +224,12 @@ export async function handle(
     return out;
   }
 
-  try {
-    await apiClient.postFeedback(input.problem_id, sessionId, {
-      endorsed: input.action === 'endorse',
-      discarded: input.action === 'discard',
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
-    if (msg.includes('404') || msg.includes('not found') || msg.toLowerCase().includes('invalid')) {
-      return `Problem ID "${input.problem_id}" not found. Use get_problems to list valid IDs.`;
-    }
-    return `Failed to update problem: ${msg}`;
-  }
-
-  const duration = Date.now() - startTime;
-  const verb = input.action === 'endorse' ? 'endorsed (marked resolved)' : 'discarded (marked false positive)';
-  return `Problem ${input.problem_id} ${verb} in ${duration}ms`;
+  // Every problem this server lists is an agent finding (agf_*) or a recalled
+  // concept (concept_*): there is no server-side analysis whose detections
+  // another id could name. Anything else is refused rather than reported done.
+  return (
+    `Problem ID "${input.problem_id}" is not a finding id, so nothing was recorded. ` +
+    'Findings are agf_* ids (from record_finding or get_problems) or concept_* ids (from cross-agent recall); ' +
+    'use get_problems to list them.'
+  );
 }

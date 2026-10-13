@@ -22,8 +22,7 @@
     "test": "bun run preflight && bun test tests",
     "typecheck": "bun run preflight && tsc --noEmit",
     "build:model": "bun run preflight && bun run scripts/copy-model-assets.ts",
-    "build": "bun run build:model && bun build src/cli.ts src/doctor-cli.ts --target node --outdir dist --external @avigopal/libp2p-federation-transport --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
-    "validate:backend": "bun run scripts/validate-backend.ts",
+    "build": "bun run build:model && bun build src/cli.ts src/doctor-cli.ts --target node --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "keywords": [
@@ -65,13 +64,11 @@
     "tree-sitter-javascript": "^0.23.0",
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.23.0",
-    "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/proxy-from-env": "^1.0.4",
-    "@types/ws": "^8.18.1",
     "typescript": "^5.3.0"
   },
   "trustedDependencies": [
@@ -80,13 +77,5 @@
     "tree-sitter-javascript",
     "tree-sitter-python",
     "tree-sitter-typescript"
-  ],
-  "peerDependencies": {
-    "@avigopal/libp2p-federation-transport": "github:AviGopal/libp2p-federation-transport"
-  },
-  "peerDependenciesMeta": {
-    "@avigopal/libp2p-federation-transport": {
-      "optional": true
-    }
-  }
+  ]
 }

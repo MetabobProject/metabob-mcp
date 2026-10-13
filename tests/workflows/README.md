@@ -8,7 +8,7 @@ the workflows work end to end, not that each function is correct in isolation.
 |---|---|---|
 | `w1-operator-loop.test.ts` | dispatch, poll, read `reached` (not `status`), read the reasoning, label — for a reached, a hollow (`completed` + `reached:false`) and a satisfier (`failed` + `reached:true`) goal | `docs/SPEC.md` § Substrate goal tools |
 | `w2-ledger.test.ts` | session A records a finding; session B (another process, another home directory) recalls it and closes it by concept id; A then sees it closed and not offered as open work | `skills/metabob/SKILL.md` |
-| `w3-attachment.test.ts` | starting and using the server never registers with discovery, offers `human_input` or sends workspace content; the HTTP server's bind address | `docs/CONFORMANCE.md` |
+| `w3-attachment.test.ts` | starting and using the server never registers with discovery (under any configuration), offers `human_input` or sends workspace content; the HTTP server answers on loopback only and reports its attachment state | `docs/CONFORMANCE.md` |
 | `w4-skill-contract.test.ts` | every tool the skill names exists, and every step it prescribes works under the default configuration | `skills/metabob/SKILL.md` |
 
 A `test.todo` marks a requirement the code does not meet yet; its comment names the requirement or the
@@ -22,9 +22,8 @@ bun run build && MCP_UNDER_TEST=dist bun test tests/workflows/   # the built dis
 ```
 
 Each server runs with its own temporary `HOME` (the sidecar store lives in `~/.metabob`), its own
-temporary workspace as `WORKSPACE_PATH` and working directory, `METABOB_TELEMETRY=off`, and an
-environment pointing every endpoint at the fake (`METABOB_ENDPOINT`, `DISCOVERY_ENDPOINT`,
-`ANALYSIS_API_URL`). Routing variables from the calling environment are removed, so nothing leaves the
+temporary workspace as `WORKSPACE_PATH` and working directory, and an environment pointing the
+attachment at the fake (`METABOB_ENDPOINT`, `DISCOVERY_ENDPOINT`). Routing variables from the calling environment are removed, so nothing leaves the
 machine. The suite needs no network and no containers.
 
 ## The fake substrate

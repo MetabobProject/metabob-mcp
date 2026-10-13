@@ -1,5 +1,5 @@
 /**
- * LocalStore — SQLite-backed local state for sidecar mode.
+ * LocalStore — SQLite-backed local state, always on.
  *
  * Stores problem seeds (agent-recorded findings and any seeds already on disk),
  * MCP session metadata, and the agent-resolver task/resolution queue. Tool

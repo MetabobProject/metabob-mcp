@@ -1,27 +1,17 @@
 /**
- * Dual-backend authentication service.
+ * Identity-vessel authentication: POST /v1/auth/resolve with the impulse form
+ * resolves the key's orgId/userId and captures an inline JWT.
  *
- * Two auth paths run in parallel during the transition period:
- *
- *   ide.metabob.com path  — existing analysis API; handled by AnalysisAPIClient
- *                           via POST /v2/auth/apikey → JWT. That flow is
- *                           unchanged; this service does NOT touch it.
- *
- *   identity path         — new vessel system; this service calls
- *                           POST /v1/auth/resolve with the impulse form to
- *                           resolve orgId/userId and capture an inline JWT
- *                           for use against discovery + activity vessels.
+ * It runs only against an explicit identity endpoint (IDENTITY_ENDPOINT or
+ * metabob.identityEndpoint); there is no default host, and without one tenant
+ * resolution is skipped. CONFORMANCE §c4-anchoring
  *
  * Env vars:
- *   METABOB_API_KEY   — key for ide.metabob.com (analysis API)
- *   IDENTITY_API_KEY  — key for the identity vessel;
- *                       falls back to METABOB_API_KEY when not set
- *   IDENTITY_ENDPOINT — defaults to https://ide.metabob.com/identity
- *                       (identity resolution routes through the single
- *                       public endpoint, never a specialized host)
+ *   METABOB_API_KEY   — the substrate key
+ *   IDENTITY_API_KEY  — a separate identity key; falls back to METABOB_API_KEY
+ *   IDENTITY_ENDPOINT — the identity vessel (no default)
  */
 
-const DEFAULT_IDENTITY_ENDPOINT = 'https://ide.metabob.com/identity';
 const RESOLVE_TIMEOUT_MS = 5_000;
 const BEARER_REFRESH_MARGIN_MS = 60_000;
 
@@ -53,9 +43,10 @@ export class AuthService {
    */
   async resolveTenant(endpoint?: string): Promise<void> {
     const apiKey = this.getIdentityApiKey();
-    if (!apiKey) return;
+    const base = endpoint ?? process.env.IDENTITY_ENDPOINT;
+    if (!apiKey || !base) return;
 
-    const url = `${endpoint ?? process.env.IDENTITY_ENDPOINT ?? DEFAULT_IDENTITY_ENDPOINT}/v1/auth/resolve`;
+    const url = `${base}/v1/auth/resolve`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
 
@@ -163,7 +154,7 @@ export class AuthService {
     }
   }
 
-  /** API key to use against identity.metabob.com / vessel system. */
+  /** API key to use against the identity vessel. */
   getIdentityApiKey(): string | undefined {
     const key = process.env.IDENTITY_API_KEY ?? process.env.METABOB_API_KEY;
     if (key) return key;
@@ -171,7 +162,7 @@ export class AuthService {
     return undefined;
   }
 
-  /** Bearer JWT for vessel-to-vessel calls (e.g. discovery registration). */
+  /** Bearer JWT for vessel-to-vessel calls. */
   getBearerToken(): string | undefined {
     if (this.state.status !== 'resolved') return undefined;
     const { bearerToken, bearerExpiresAt } = this.state.identity;

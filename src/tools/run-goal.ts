@@ -15,7 +15,7 @@
  * intentionally not surfaced here so this tool remains a single-shape
  * impulse resolver.
  *
- * Auth: vessel mode only. Re-uses METABOB_API_KEY as ApiKey bearer.
+ * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';

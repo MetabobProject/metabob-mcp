@@ -334,7 +334,7 @@ describe('renderReport', () => {
       trustStore: emptyTrust,
       tlsHandshakes: { 'activity.metabob.com': tlsOk('activity.metabob.com') },
       httpsProbes: {},
-      webSocketProbes: {},
+      substrate: { urls: [], tlsHosts: [], plainHttpUrls: [], unattached: null },
       config: {
         configPath: '/tmp/config.json',
         configExists: false,
