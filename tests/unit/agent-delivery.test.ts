@@ -153,4 +153,33 @@ describe('pull_assigned_work tool', () => {
     const out = await PullAssignedWork.handle({}, apiClient, 'sess-1', store);
     expect(out).toContain('No assigned work');
   });
+
+  test('an empty queue with the role off names the opt-in; with it on, it is just empty', async () => {
+    const store = freshStore();
+    setResolverIdentity({ vesselId: 'v-optin', operatorId: 'op' });
+    const prev = process.env.METABOB_AGENT_RESOLVER;
+    try {
+      delete process.env.METABOB_AGENT_RESOLVER;
+      expect(await PullAssignedWork.handle({}, apiClient, 'sess-1', store)).toContain('METABOB_AGENT_RESOLVER=1');
+      process.env.METABOB_AGENT_RESOLVER = '1';
+      const on = await PullAssignedWork.handle({}, apiClient, 'sess-1', store);
+      expect(on).toContain('No assigned work');
+      expect(on).not.toContain('METABOB_AGENT_RESOLVER');
+    } finally {
+      if (prev === undefined) delete process.env.METABOB_AGENT_RESOLVER;
+      else process.env.METABOB_AGENT_RESOLVER = prev;
+    }
+  });
+
+  test('a queued task is listed even with the role off', async () => {
+    const store = freshStore();
+    setResolverIdentity({ vesselId: 'v-off', operatorId: 'op' });
+    store.enqueueAgentTask({
+      task_id: 'sid-off', vessel_id: 'v-off', operator_id: 'op', session_id: 's', shape: 'human_input',
+      dispatch_id: null, question_markdown: 'Pick one', respond_via_json: '{}',
+      deadline_ms: Date.now() + 300_000, status: 'pending', enqueued_at: Date.now(), claimed_at: null,
+    });
+    const out = await PullAssignedWork.handle({}, apiClient, 'sess-1', store);
+    expect(out).toContain('sid-off');
+  });
 });

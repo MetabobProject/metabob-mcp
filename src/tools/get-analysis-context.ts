@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
+import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepoName } from './_findings.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
@@ -75,6 +75,17 @@ export async function handle(
     }
   }
 
+  // ── Cross-agent findings recall (concept-db, best-effort, compact) ────────
+  // Phase-0 orientation sees other agents' recorded findings without an extra
+  // call. Non-fatal: unreachable concept-db renders a one-line note.
+  // Scoped by repo only: this is an orientation snapshot, so a finding about
+  // any part of this codebase is relevant, not just the files touched so far.
+  // Read before the local cache, so a verdict recorded by another session
+  // retires this session's seeds of that finding first. SPEC §get_analysis_context
+  const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepoName() });
+  retireClosedSeeds(recall, localStore);
+  const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
+
   // ── Open problems in the local store (same source as get_problems) ───────
   let cacheTag: string | null = null;
   let problemsText = '(no local store in this session — METABOB_STATELESS=true)';
@@ -98,13 +109,6 @@ export async function handle(
     cacheTag = seedCacheTag(seeds) || null;
   }
 
-  // ── Cross-agent findings recall (concept-db, best-effort, compact) ────────
-  // Phase-0 orientation sees other agents' recorded findings without an extra
-  // call. Non-fatal: unreachable concept-db renders a one-line note.
-  // Scoped by repo only: this is an orientation snapshot, so a finding about
-  // any part of this codebase is relevant, not just the files touched so far.
-  const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepoName() });
-  const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
 
   const duration = Date.now() - startTime;
 

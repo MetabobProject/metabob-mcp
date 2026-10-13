@@ -51,3 +51,10 @@ jobs:
 
       - name: Build
         run: bun run build
+
+      - name: Workflow tests
+        # The agent workflows end to end against an in-process fake substrate,
+        # driving the built dist/cli.js (tests/workflows/README.md).
+        run: bun test tests/workflows/
+        env:
+          MCP_UNDER_TEST: dist

@@ -23,6 +23,8 @@ Agent (Claude Code / Cursor / custom)
 └─────────────────────────────────────────┘
 ```
 
+stdout carries only JSON-RPC: the server routes `console.log`, `console.info` and `console.debug` to stderr (`src/index.ts@stdout-is-transport`), so library logging cannot corrupt the transport.
+
 The registry is `src/tools/index.ts@TOOL_REGISTRY`: every tool below is one entry, validated by its
 module's zod `InputSchema` and served by its module's `handle`.
 
@@ -186,6 +188,7 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 - Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. Under `METABOB_STATELESS=true` there is no local store, and the output says so.
 - States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request.
 - It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=`), paged 50 rows at a time via `offset` up to 300 scanned rows, kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Hitting the scan cap is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
+- The recall runs before the local cache is read, and retires this session's seeds of every finding it shows closed (`src/tools/_findings.ts@retireClosedSeeds`), matched by the seed's linked concept id or by the `agf_*` ids the concept carries: a fixed finding's seeds go stale, a retracted finding's are deleted — the same retirement `mark_complete` applies. A verdict another session recorded therefore removes the finding from this session's open list too.
 
 ---
 
@@ -339,7 +342,7 @@ Returns a file → component map. Predictions are pooled across the changed file
 
 Handler: `src/tools/get-analysis-context.ts@handle`
 
-The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable).
+The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable). The recall runs first and retires the local seeds of findings it shows closed, as `get_problems` does.
 
 **Input**
 
@@ -604,7 +607,7 @@ Handler: `src/tools/pull-assigned-work.ts@handle`
 |-----------|------|---------|-------------|
 | `limit` | number | `10` | Max tasks (max 100) |
 
-Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires.
+Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires. With nothing queued and the agent-resolver role off, it says that no task can arrive — the session advertises no `human_input`, so the substrate has no inbound offer to dispatch to — and names `METABOB_AGENT_RESOLVER=1` as the opt-in, rather than reporting an empty queue. A task already queued is listed whether or not the role is on.
 
 ### submit_resolution
 
@@ -616,7 +619,7 @@ Handler: `src/tools/submit-resolution.ts@handle`
 | `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
 | `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
 
-Records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
+An unknown `task_id` is reported as such; with the agent-resolver role off, the report adds that no task is dispatched to this session and names the opt-in. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
 
 ---
 
@@ -647,6 +650,7 @@ Records the answer durably first and marks the task resolved, then delivers it t
 
 8. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
    → answer decisions the substrate dispatched to this agent
+     (only with METABOB_AGENT_RESOLVER=1; otherwise nothing is dispatched here)
 
 9. init_workspace(recently_changed_files=[...files changed since...])
    → parses files added since the last call; files already parsed are not re-read

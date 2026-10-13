@@ -18,6 +18,7 @@
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AnalysisAPIClient } from '../api-client.js';
+import type { LocalStore, SeedRecord } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
 import { resolveVesselId } from '../vessel-identity.js';
@@ -544,6 +545,42 @@ export async function fetchAgentFindings(
   }
 
   return { status: 'ok', findings, truncated: scan.truncated, scanned: scan.rows.length };
+}
+
+/**
+ * Retire the local seeds of findings the recall shows closed.
+ *
+ * A verdict recorded by another session reaches this one only as a
+ * `finding_verdict` concept; the seeds this session wrote when it recorded the
+ * finding stay live until something retires them. Left alone, the local cache
+ * lists the finding as open directly above the recall that shows it closed, and
+ * the agent is handed finished work. A seed is matched by its linked concept id
+ * or by the `agf_*` ids the concept carries, and retired the way mark_complete
+ * retires it: a fixed finding's seeds go stale, a retracted finding's are deleted.
+ * SPEC §get_problems
+ */
+export function retireClosedSeeds(
+  result: AgentFindingsResult,
+  localStore: LocalStore | null | undefined,
+): number {
+  if (!localStore || result.status !== 'ok') return 0;
+  let retired = 0;
+  for (const f of result.findings) {
+    if (!f.verdict) continue;
+    const seeds = new Map<string, SeedRecord>();
+    for (const s of localStore.getSeedsByConceptRef(f.id)) seeds.set(s.id, s);
+    for (const id of parseFindingIds(f.content)) {
+      const s = localStore.getSeedById(id);
+      if (s) seeds.set(s.id, s);
+    }
+    for (const s of seeds.values()) {
+      if (s.stale) continue;
+      if (f.verdict === 'fixed') localStore.markSeedStaleById(s.id);
+      else localStore.deleteSeed(s.id);
+      retired++;
+    }
+  }
+  return retired;
 }
 
 /**
