@@ -23,25 +23,25 @@ node-shebanged bin cannot be exec'd without a `node` on PATH).
 Supported platforms: Linux, macOS, and Windows x64. Windows ARM64 is
 unsupported (no Bun ARM64 build, no tree-sitter win32-arm64 prebuilds).
 
-Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backend may take a while to finish processing it. Agents should prefer async follow-up with Metabob tools and treat `pending` or `running` analysis states as normal.
+No workspace content leaves the machine. `init_workspace` reads files into an in-process code property graph and sends nothing; there is no server-side analysis. Problems are what agents record with `record_finding`, shared with other agents on the same codebase through concept-db.
 
 ## Tools
 
 | Tool | Tier | Description |
 |------|------|-------------|
-| `init_workspace` | Local + API | Build local CPG index; incrementally sync relevant files to the analysis server |
-| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus findings other agents recorded on this codebase, recalled from concept-db |
-| `search_codebase` | Local + API | Search components (CPG) and problems by keyword |
+| `init_workspace` | **Local** | Build the local CPG index; sends nothing off the machine |
+| `get_problems` | Local + Substrate | Problems ranked by severity: the local store's findings (incl. agent-recorded `agf_*` findings) plus findings other agents recorded on this codebase, recalled from concept-db |
+| `search_codebase` | **Local** | Search components (CPG) and the local store's findings by keyword |
 | `predict_cochanges` | **Local** | Git-history co-change mining (primary) plus a GCN ranker that sees only node-name char-codes, so it ranks by name similarity, not learned structure — no API call |
 | `analyze_impact` | **Local** | CPG traversal showing what a change affects |
-| `annotate_component` | API | Add structured why/how notes for a problem using the current analysis result |
+| `annotate_component` | **Local** | Add structured why/how notes for a finding in the local store |
 | `mark_complete` | API / Local | Endorse a fix or discard a false positive. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by: endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
-| `get_metrics` | API | Session and project analysis health overview |
-| `assign_git_changes` | Local + API | Map changed files to CPG components + co-change predictions |
-| `get_analysis_context` | Local + API | Current analysis state snapshot for agent decision-making |
+| `get_metrics` | **Local** | Open findings by severity and source, plus the local CPG size |
+| `assign_git_changes` | **Local** | Map changed files to CPG components + co-change predictions |
+| `get_analysis_context` | Local + Substrate | Current analysis state snapshot for agent decision-making |
 | `record_finding` | Local + Substrate | Attribute an issue you noticed to code — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
 
-**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → embeddings → vector search). They require `init_workspace` to have run first but make no network calls.
+**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → embeddings → vector search) and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first.
 
 **API-tier** tools require `METABOB_API_KEY` and a session against `ide.metabob.com`. If `METABOB_API_KEY` is unset, the CLI reads `metabob.apiKey` (or `instance.apiKey`) from a config file, resolved directory-aware like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` in the launch directory → `~/.metabob/config.json`.
 
@@ -62,7 +62,6 @@ Metabob analysis is asynchronous: `init_workspace` uploads a batch and the backe
 | `HEALTH_PORT` | `8080` | Vessel HTTP server port |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
-| `SUBMIT_TIMEOUT_MS` | `120000` | Timeout for `init_workspace` file submission before treating it as a slow async response |
 
 CLI flags override environment variables, and environment variables override `~/.metabob/config.json`. Run `metabob-mcp --help` for the full flag reference.
 

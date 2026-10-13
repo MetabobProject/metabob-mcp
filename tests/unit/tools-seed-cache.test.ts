@@ -7,7 +7,7 @@
  *    `max_depth` and every dependent silently vanished.
  *  - get_problems used to consult the local cache only when `file_path` was
  *    supplied, so the argument-less triage call — and therefore the agent
- *    findings the tool calls its primary source — saw nothing.
+ *    findings that are its source — saw nothing.
  */
 
 import { test, expect, mock, beforeEach, afterEach, afterAll } from 'bun:test';
@@ -75,7 +75,6 @@ beforeEach(() => {
   mockApiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    getAnalysis: mock(async () => ({ status: 'complete', results: [] })),
     postFeedback: mock(async () => ({})),
     isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
@@ -167,7 +166,7 @@ test('analyze_impact: seeds still ride along when the file is not in the graph',
   expect(out).toContain('finding on an unindexed file');
 });
 
-test('analyze_impact: an empty cache leaves the traversal untouched and enqueues the file', async () => {
+test('analyze_impact: an empty cache leaves the traversal untouched and makes no request', async () => {
   const ws = makeWorkspace({
     'src/core.ts': 'export function core() { return 1; }\n',
     'src/consumer.ts': "import { core } from './core.js';\nexport function consumer() { return core(); }\n",
@@ -183,7 +182,8 @@ test('analyze_impact: an empty cache leaves the traversal untouched and enqueues
   // Basename, not a POSIX path — see the note on the assertion above.
   expect(out).toContain('consumer.ts');
   expect(out).not.toContain('Known problems in changed files');
-  expect(store.dequeue(10).some(q => q.file_path.includes('core.ts'))).toBe(true);
+  expect(mockApiClient.post).not.toHaveBeenCalled();
+  expect(mockApiClient.get).not.toHaveBeenCalled();
 });
 
 // ===== audit 10: get_problems =====
@@ -206,16 +206,11 @@ test('get_problems: the argument-less call reads the whole workspace seed cache'
   expect(out).toContain('agf_beta');
   // Severity order is preserved workspace-wide, not just per file.
   expect(out.indexOf('unbounded queue growth')).toBeLessThan(out.indexOf('race in the retry loop'));
-  // Cache-served output is labelled, and dated from the seeds when no backend
-  // analysis record exists for the file (this used to render "Infinitys old").
+  // Cache-served output is labelled and dated from the seeds themselves.
   expect(out).toContain('[cache:');
   expect(out).not.toContain('Infinity');
-  // …and it SUPPLEMENTS backend detection rather than replacing it. Returning
-  // early here would mean one stale seed anywhere in the workspace silenced
-  // detection for the whole codebase — a gate, on the one call that could not
-  // reach the cache at all before. Named-file lookups still short-circuit;
-  // that is the documented sidecar bargain and is asserted separately.
-  expect(mockApiClient.getAnalysis).toHaveBeenCalled();
+  // …and it says plainly that there is no backend analysis behind it.
+  expect(out).toContain('Server-side analysis: none');
 });
 
 test('get_problems: filters and limit still apply to the workspace-wide read', async () => {
@@ -240,17 +235,19 @@ test('get_problems: filters and limit still apply to the workspace-wide read', a
   expect(limited).toContain('2 total after filters');
 });
 
-test('get_problems: an empty seed cache still falls through to the live fetch', async () => {
+test('get_problems: an empty seed cache says so and makes no analysis request', async () => {
   const ws = makeWorkspace({});
   store.setWorkspaceScope(ws);
 
   const out = await GetProblems.handle(
-    GetProblems.InputSchema.parse({}),
+    GetProblems.InputSchema.parse({ file_path: 'src/core.ts' }),
     mockApiClient, SESSION, store,
   );
 
-  expect(mockApiClient.getAnalysis).toHaveBeenCalledWith(SESSION);
   expect(out).toContain('No problems found');
+  expect(out).toContain('Server-side analysis: none');
+  expect(mockApiClient.get).not.toHaveBeenCalled();
+  expect(mockApiClient.post).not.toHaveBeenCalled();
 });
 
 test('get_problems: another workspace\'s seeds are not served here', async () => {

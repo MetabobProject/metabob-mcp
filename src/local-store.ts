@@ -1,9 +1,9 @@
 /**
- * LocalStore — SQLite-backed cache for sidecar mode.
+ * LocalStore — SQLite-backed local state for sidecar mode.
  *
- * Stores file index records, analysis seeds (problems), a scheduling queue,
- * and MCP session metadata. Used by sidecar-mode tool handlers to serve
- * cache-first responses without blocking on the remote analysis API.
+ * Stores problem seeds (agent-recorded findings and any seeds already on disk),
+ * MCP session metadata, and the agent-resolver task/resolution queue. Tool
+ * handlers read it directly; nothing here is sent off the machine.
  *
  * Database location: ~/.metabob/sidecar.db — ONE file shared by every workspace
  * on the machine, so listing reads are partitioned by the workspace this store
@@ -26,13 +26,6 @@ import { execSync } from 'child_process';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface FileRecord {
-  path: string;
-  workspace_id: string;
-  content_hash: string;
-  indexed_at: number; // Unix ms
-}
-
 export interface SeedRecord {
   id: string;
   workspace_id: string;
@@ -49,26 +42,11 @@ export interface SeedRecord {
   stale: boolean;
 }
 
-export interface QueueItem {
-  id: string;
-  file_path: string;
-  priority: number;
-  enqueued_at: number; // Unix ms
-  processing: boolean;
-  workspace_id: string;
-}
-
 export interface SessionRecord {
   session_id: string;
   workspace_id: string;
   started_at: number; // Unix ms
   api_key_hash: string;
-}
-
-export interface Freshness {
-  fresh: boolean;
-  age_ms: number;
-  stale: boolean;
 }
 
 /**
@@ -114,14 +92,11 @@ export interface AgentResolutionRecord {
  * The identity of the one workspace a store instance serves.
  *
  * `~/.metabob/sidecar.db` is shared by every workspace on the machine, so a read
- * that does not filter on workspace_id serves repo A's findings as repo B's —
- * and, because the cache short-circuits the live fetch, suppresses B's real
- * result. Writers disagree on the id format (record_finding and init_workspace
- * write the absolute workspace path, the scheduler and watchers write
- * resolveWorkspaceId()'s hash, tool-layer enqueues wrote the sentinel
- * 'default'), so the scope carries every alias that means "here" and reads
- * filter on the whole set. New writes are normalised to `id`; the aliases exist
- * for rows already on disk.
+ * that does not filter on workspace_id serves repo A's findings as repo B's.
+ * Rows on disk carry more than one id format (the absolute workspace
+ * path, resolveWorkspaceId()'s hash, and the sentinel 'default'), so the scope
+ * carries every alias that means "here" and reads filter on the whole set. New
+ * writes are normalised to `id`; the aliases exist for rows already on disk.
  */
 export interface WorkspaceScope {
   /** Canonical partition key — resolveWorkspaceId()'s hash of the resolved root. */
@@ -162,9 +137,8 @@ function deriveScope(rawRoot: string): WorkspaceScope {
   const root = resolve(rawRoot);
   const id = workspaceIdHash(root);
   const aliases = new Set<string>([id, root, rawRoot, workspaceIdHash(rawRoot)]);
-  // 'default' / '' were never a real partition — the tool layer passes them to
-  // enqueue() for the workspace this process is already serving. Accepted on
-  // read so rows written before this fix stay visible; never written any more.
+  // 'default' / '' are not a real partition: rows on disk that carry them
+  // belong to the workspace this process serves. Accepted on read, never written.
   aliases.add('default');
   aliases.add('');
 
@@ -174,8 +148,6 @@ function deriveScope(rawRoot: string): WorkspaceScope {
 }
 
 // ── LocalStore ────────────────────────────────────────────────────────────────
-
-const FRESH_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 export class LocalStore {
   private db: Database | null = null;
@@ -215,14 +187,6 @@ export class LocalStore {
     this.db.exec('PRAGMA foreign_keys=ON;');
 
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS files (
-        path        TEXT    NOT NULL,
-        workspace_id TEXT   NOT NULL,
-        content_hash TEXT   NOT NULL,
-        indexed_at  INTEGER NOT NULL,
-        PRIMARY KEY (path, workspace_id)
-      );
-
       CREATE TABLE IF NOT EXISTS seeds (
         id           TEXT    NOT NULL,
         workspace_id TEXT    NOT NULL,
@@ -241,17 +205,6 @@ export class LocalStore {
       );
 
       CREATE INDEX IF NOT EXISTS seeds_file ON seeds(file_path, workspace_id);
-
-      CREATE TABLE IF NOT EXISTS schedule_queue (
-        id           TEXT    NOT NULL PRIMARY KEY,
-        file_path    TEXT    NOT NULL,
-        priority     INTEGER NOT NULL DEFAULT 0,
-        enqueued_at  INTEGER NOT NULL,
-        processing   INTEGER NOT NULL DEFAULT 0,
-        workspace_id TEXT    NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS queue_priority ON schedule_queue(priority DESC, enqueued_at ASC);
 
       CREATE TABLE IF NOT EXISTS mcp_sessions (
         session_id   TEXT    NOT NULL PRIMARY KEY,
@@ -292,6 +245,12 @@ export class LocalStore {
       );
 
       CREATE INDEX IF NOT EXISTS agent_res_undelivered ON agent_resolutions(vessel_id, delivered);
+
+      -- The store keeps no file index and no send queue. A database that
+      -- carries those tables loses them here, so no queued workspace paths
+      -- linger on disk.
+      DROP TABLE IF EXISTS schedule_queue;
+      DROP TABLE IF EXISTS files;
     `);
   }
 
@@ -304,10 +263,8 @@ export class LocalStore {
 
   /**
    * Bind this store to a workspace root. Optional: the scope is otherwise
-   * derived on first use from WORKSPACE_PATH/cwd, which is how index.ts picks
-   * the root it hands the watchers and scheduler. Call this when the served
-   * workspace is not the launch directory (tests; a future init_workspace
-   * retarget).
+   * derived on first use from WORKSPACE_PATH/cwd. init_workspace calls this
+   * when the served workspace is not the launch directory; tests call it too.
    */
   setWorkspaceScope(root: string): void {
     this.scope = deriveScope(root);
@@ -376,27 +333,6 @@ export class LocalStore {
       read_at: r['read_at'] as number | null,
       stale: !!(r['stale'] as number),
     };
-  }
-
-  // ── File records ────────────────────────────────────────────────────────────
-
-  upsertFile(path: string, workspaceId: string, contentHash: string): void {
-    this.store.run(
-      `INSERT INTO files (path, workspace_id, content_hash, indexed_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(path, workspace_id) DO UPDATE SET
-         content_hash = excluded.content_hash,
-         indexed_at   = excluded.indexed_at`,
-      [this.normalizePath(path), this.writeScopeId(workspaceId), contentHash, Date.now()],
-    );
-  }
-
-  getFile(path: string): FileRecord | null {
-    const scope = this.scopeFilter();
-    return (this.store.query(
-      `SELECT path, workspace_id, content_hash, indexed_at FROM files
-       WHERE path = ? AND ${scope.sql} LIMIT 1`,
-    ).get(this.normalizePath(path), ...scope.params) as FileRecord | null) ?? null;
   }
 
   // ── Seed records ────────────────────────────────────────────────────────────
@@ -593,73 +529,6 @@ export class LocalStore {
     );
   }
 
-  // ── Schedule queue ──────────────────────────────────────────────────────────
-
-  enqueue(filePath: string, priority: number, workspaceId: string): void {
-    const scopedId = this.writeScopeId(workspaceId);
-    filePath = this.normalizePath(filePath);
-    const id = `${scopedId}::${filePath}`;
-    this.store.run(
-      `INSERT INTO schedule_queue (id, file_path, priority, enqueued_at, processing, workspace_id)
-       VALUES (?, ?, ?, ?, 0, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         priority    = MAX(excluded.priority, schedule_queue.priority),
-         enqueued_at = MIN(excluded.enqueued_at, schedule_queue.enqueued_at),
-         processing  = 0`,
-      [id, filePath, priority, Date.now(), scopedId],
-    );
-  }
-
-  /** Remove a single queue item by id (called after successful or unrecoverable send). */
-  removeFromQueue(id: string): void {
-    this.store.run('DELETE FROM schedule_queue WHERE id = ?', [id]);
-  }
-
-  /** Ready queue items for THIS workspace — another repo's files are not ours to analyse. */
-  dequeue(limit: number): QueueItem[] {
-    const scope = this.scopeFilter();
-    const rows = this.store.query(
-      `SELECT id, file_path, priority, enqueued_at, processing, workspace_id
-       FROM schedule_queue
-       WHERE processing = 0 AND ${scope.sql}
-       ORDER BY priority DESC, enqueued_at ASC
-       LIMIT ?`,
-    ).all(...scope.params, limit) as Array<Record<string, unknown>>;
-    return rows.map(r => ({
-      id: r['id'] as string,
-      file_path: r['file_path'] as string,
-      priority: r['priority'] as number,
-      enqueued_at: r['enqueued_at'] as number,
-      processing: !!(r['processing'] as number),
-      workspace_id: r['workspace_id'] as string,
-    }));
-  }
-
-  // ── Freshness ───────────────────────────────────────────────────────────────
-
-  getFreshness(filePath: string): Freshness {
-    const path = this.normalizePath(filePath);
-    const scope = this.scopeFilter();
-    const row = this.store.query(
-      `SELECT indexed_at FROM files WHERE path = ? AND ${scope.sql} LIMIT 1`,
-    ).get(path, ...scope.params) as { indexed_at: number } | null;
-
-    if (!row) {
-      return { fresh: false, age_ms: Infinity, stale: true };
-    }
-
-    const age_ms = Date.now() - row.indexed_at;
-    const hasStaleSeeds = !!(this.store.query(
-      `SELECT 1 FROM seeds WHERE file_path = ? AND stale = 1 AND ${scope.sql} LIMIT 1`,
-    ).get(path, ...scope.params));
-
-    return {
-      fresh: age_ms <= FRESH_WINDOW_MS && !hasStaleSeeds,
-      age_ms,
-      stale: hasStaleSeeds,
-    };
-  }
-
   // ── Sessions ─────────────────────────────────────────────────────────────────
 
   upsertSession(session: SessionRecord): void {
@@ -815,4 +684,16 @@ export class LocalStore {
     this.db?.close();
     this.db = null;
   }
+}
+
+/**
+ * Age tag for a listing of cached seeds: `[cache: Ns old]`, dated from the
+ * oldest seed's `produced_at`, with `, stale` when any listed seed is resolved.
+ * '' for an empty listing.
+ */
+export function seedCacheTag(seeds: SeedRecord[]): string {
+  if (seeds.length === 0) return '';
+  const oldest = Math.min(...seeds.map(s => s.produced_at));
+  const ageSec = Math.max(0, Math.round((Date.now() - oldest) / 1000));
+  return `[cache: ${ageSec}s old${seeds.some(s => s.stale) ? ', stale' : ''}]`;
 }

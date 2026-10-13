@@ -12,7 +12,7 @@
  *   Phase 1 — auth + protocol: session token exchange, tools/list
  *   Phase 2 — api reads: get_metrics, get_problems, search_codebase
  *   Phase 3 — api writes: annotate_component (if problems found)
- *   Phase 4 — local CPG: init_workspace (parse + submission)
+ *   Phase 4 — local CPG: init_workspace (local parse; sends nothing)
  *   Phase 5 — local inference: predict_cochanges, analyze_impact
  *   Phase 6 — context: get_analysis_context, assign_git_changes
  */
@@ -174,8 +174,8 @@ await check('annotate_component', async () => {
 console.log('\nPhase 4: local CPG');
 let initWorkspaceFiles: string[] = [];
 await check('init_workspace', async () => {
-  // Collect a few .ts files from src/ to pass as recently_changed_files so they get
-  // prioritised in the batch and are available for Phase 5 inference checks.
+  // Collect a few .ts files from src/ to pass as recently_changed_files; Phase 5
+  // runs its inference checks on them.
   const { readdirSync: rd, existsSync: ex } = await import('fs');
   const srcDir = `${WORKSPACE}/src`;
   initWorkspaceFiles = (ex(srcDir) ? rd(srcDir) : rd(WORKSPACE))
@@ -186,8 +186,6 @@ await check('init_workspace', async () => {
   const out = await callTool('init_workspace', {
     workspace_path: WORKSPACE,
     recently_changed_files: initWorkspaceFiles,
-    batch_size: 5,
-    sync_api: true,
   }, 180000); // 3 min — ONNX + Tree-sitter parse can be slow
   const match = out.match(/Files scanned:\s*(\d+)/);
   return match ? `${match[1] ?? '?'} files scanned` : (out.trim().split('\n')[0] ?? '(empty)');
@@ -200,7 +198,7 @@ await check('search_codebase (post-init)', async () => {
 
 // Phase 5 — local inference (after init_workspace)
 console.log('\nPhase 5: local inference');
-// Use the same files that init_workspace prioritised so they're guaranteed indexed.
+// Use the same files passed to init_workspace; they are indexed.
 const tsFiles = initWorkspaceFiles.slice(0, 2);
 
 await check('predict_cochanges', async () => {

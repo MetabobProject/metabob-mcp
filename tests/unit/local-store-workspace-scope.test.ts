@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { makeTempStore, cleanupTempStores } from '../helpers/temp-store';
+import { makeTempStore, cleanupTempStores, trackStore } from '../helpers/temp-store';
 import { LocalStore } from '../../src/local-store';
 import { resolveWorkspaceId } from '../../src/workspace';
 
@@ -106,29 +106,38 @@ describe('workspace scoping (audit finding 8)', () => {
     expect(store.getSeedById(theirs)?.stale).toBe(false);
   });
 
-  test('freshness reads this workspace’s file record, not a same-named foreign one', () => {
-    const { store, dir } = makeTempStore('mcp-ws-fresh-');
+  test('a seed written under the "default" alias is read as this workspace’s', () => {
+    const { store, dir } = makeTempStore('mcp-ws-default-');
     store.setWorkspaceScope(dir);
     const other = foreignWorkspace();
 
-    store.upsertFile('src/only-theirs.ts', other, 'hash');
-    expect(store.getFreshness('src/only-theirs.ts').fresh).toBe(false);
-    expect(store.getFile('src/only-theirs.ts')).toBeNull();
+    const mine = seed(store, { workspace_id: 'default', file_path: 'src/mine.ts' });
+    seed(store, { workspace_id: other, file_path: 'src/theirs.ts' });
 
-    store.upsertFile('src/mine.ts', dir, 'hash');
-    expect(store.getFreshness('src/mine.ts').fresh).toBe(true);
+    expect(store.getAllCachedSeeds().map(s => s.id)).toEqual([mine]);
   });
 
-  test('queue: the tool layer’s "default" enqueue is dequeued, a foreign one is not', () => {
-    const { store, dir } = makeTempStore('mcp-ws-queue-');
-    store.setWorkspaceScope(dir);
-    const other = foreignWorkspace();
+  test('init drops a file-index and send-queue table, so no queued workspace paths stay on disk', () => {
+    const { store, dbPath } = makeTempStore('mcp-ws-drop-');
+    store.close();
+    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
+    const raw = new Database(dbPath);
+    raw.exec(`CREATE TABLE schedule_queue (id TEXT PRIMARY KEY, file_path TEXT);
+              INSERT INTO schedule_queue VALUES ('q1', '/work/src/secret.ts');
+              CREATE TABLE files (path TEXT, workspace_id TEXT);`);
+    raw.close();
 
-    store.enqueue('src/mine.ts', 0, 'default');
-    store.enqueue('src/theirs.ts', 0, other);
+    const reopened = trackStore(new LocalStore(dbPath));
+    reopened.init();
+    reopened.close();
 
-    const files = store.dequeue(10).map(i => i.file_path);
-    expect(files).toEqual(['src/mine.ts']);
+    const check = new Database(dbPath);
+    const tables = (check.query(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{ name: string }>)
+      .map(r => r.name);
+    check.close();
+    expect(tables).not.toContain('schedule_queue');
+    expect(tables).not.toContain('files');
+    expect(tables).toContain('seeds');
   });
 
   test('an id lookup stays cross-workspace — mark_complete accepts a finding recorded anywhere', () => {
@@ -178,7 +187,6 @@ describe('file_path matching (audit finding 16)', () => {
 
     const found = store.getCachedSeeds(join(dir, 'src', 'db', 'client.ts'));
     expect(found.map(s => s.id)).toEqual([id]);
-    expect(store.getFreshness(join(dir, 'src', 'db', 'client.ts')).age_ms).toBe(Infinity);
   });
 
   test('an absolute-stored seed is found by the relative path a caller passes', () => {

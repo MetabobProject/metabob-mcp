@@ -1,14 +1,14 @@
 // Contract (input schema, behaviour): SPEC §get_analysis_context
 import { z } from 'zod';
-import type { AnalysisAPIClient, AnalysisResult } from '../api-client.js';
+import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
-import type { LocalStore } from '../local-store.js';
-import { fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
+import { seedCacheTag, type LocalStore } from '../local-store.js';
+import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, workspaceRepoName } from './_findings.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
   description:
-    'Return the current analysis state: CPG index stats, open problems summary, and co-change predictions for recently changed files. Designed to feed an LLM deciding what to do next or what problems have appeared.',
+    'Return the current local analysis state: CPG index stats, open problems in the local store, co-change predictions for recently changed files, and a compact recall of findings other agents recorded on this codebase. Designed to feed an LLM deciding what to do next. There is no server-side analysis: no workspace content leaves the machine.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -24,7 +24,7 @@ export const GetAnalysisContextTool = {
       },
       scope: {
         type: 'string',
-        description: 'Problem scope (default: session)',
+        description: 'Accepted; problems always come from this workspace\'s local store (default: session)',
         enum: ['session', 'project', 'org'],
         default: 'session',
       },
@@ -43,7 +43,7 @@ export type GetAnalysisContextInput = z.infer<typeof InputSchema>;
 export async function handle(
   input: GetAnalysisContextInput,
   apiClient: AnalysisAPIClient,
-  sessionId: string,
+  _sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
@@ -75,78 +75,27 @@ export async function handle(
     }
   }
 
-  // ── Sidecar mode: read problems from local cache ───────────────────────────
+  // ── Open problems in the local store (same source as get_problems) ───────
   let cacheTag: string | null = null;
-  let cachedProblems: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
-  if (localStore && input.recently_changed_files?.length) {
-    for (const f of input.recently_changed_files) {
-      const seeds = localStore.getCachedSeeds(f);
-      cachedProblems.push(...seeds.map(s => ({
-        severity: s.severity,
-        category: s.category,
-        file_path: s.file_path,
-        line_start: s.line_start,
-        brief: s.brief,
-        id: s.id,
-      })));
-    }
-    if (cachedProblems.length > 0) {
-      const freshness = localStore.getFreshness(input.recently_changed_files[0]!);
-      const ageSec = Math.round(freshness.age_ms / 1000);
-      cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
-    }
-  }
-
-  // ── Open problems from analysis API (same source as get_problems) ────────
-  let problemsText = '(analysis pending or unavailable)';
+  let problemsText = '(no local store in this session — METABOB_STATELESS=true)';
   let criticalCount = 0;
   let highCount = 0;
-  let totalOpen = 0;
-  let recentProblems: string[] = [];
+  const recentProblems: string[] = [];
 
-  try {
-    const analysis = await apiClient.getAnalysis(sessionId);
-
-    // In vessel mode getAnalysis() returns empty; fall back to local store seeds
-    const fallbackResults: AnalysisResult[] | null =
-      analysis.results?.length === 0 && localStore
-        ? localStore.getAllCachedSeeds().map(s => ({
-            id: s.id, path: s.file_path, category: s.category,
-            severity: s.severity, summary: s.brief, description: s.brief,
-            startLine: s.line_start, endLine: s.line_end,
-            discarded: false, endorsed: false,
-          } as AnalysisResult))
-        : null;
-
-    if (analysis.status === 'complete') {
-      const results: AnalysisResult[] = (fallbackResults ?? analysis.results ?? []).filter(r => !r.discarded);
-      totalOpen = results.length;
-
-      const SEVERITY_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
-      const sorted = [...results].sort((a, b) => {
-        const sa = SEVERITY_ORDER[a.severity?.toUpperCase() ?? ''] ?? 99;
-        const sb = SEVERITY_ORDER[b.severity?.toUpperCase() ?? ''] ?? 99;
-        return sa !== sb ? sa - sb : a.path.localeCompare(b.path);
-      });
-
-      for (const p of sorted) {
-        if (p.severity?.toUpperCase() === 'CRITICAL') criticalCount++;
-        if (p.severity?.toUpperCase() === 'HIGH') highCount++;
-      }
-
-      for (const p of sorted.slice(0, input.problem_limit)) {
-        recentProblems.push(
-          `  • [${p.severity ?? 'LOW'}] ${p.category}  ${p.path}:${p.startLine}\n    ${p.summary.slice(0, 100)}\n    id: ${p.id}`,
-        );
-      }
-      problemsText = `${totalOpen} open (${criticalCount} critical, ${highCount} high)`;
-    } else if (analysis.status === 'pending' || analysis.status === 'running') {
-      problemsText = `(analysis ${analysis.status} — run init_workspace then try again)`;
-    } else if (analysis.status === 'failed') {
-      problemsText = `(analysis failed — re-submit files via init_workspace)`;
+  if (localStore) {
+    // Seeds arrive ordered by severity, then location.
+    const seeds = localStore.getAllCachedSeeds();
+    for (const s of seeds) {
+      if (s.severity.toUpperCase() === 'CRITICAL') criticalCount++;
+      if (s.severity.toUpperCase() === 'HIGH') highCount++;
     }
-  } catch {
-    // keep unavailable message
+    for (const s of seeds.slice(0, input.problem_limit)) {
+      recentProblems.push(
+        `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}\n    ${s.brief.slice(0, 100)}\n    id: ${s.id}`,
+      );
+    }
+    problemsText = `${seeds.length} open (${criticalCount} critical, ${highCount} high)`;
+    cacheTag = seedCacheTag(seeds) || null;
   }
 
   // ── Cross-agent findings recall (concept-db, best-effort, compact) ────────
@@ -174,12 +123,12 @@ export async function handle(
   }
 
   // Problems
-  text += `Open problems: ${problemsText}\n`;
+  text += `Open problems (local store): ${problemsText}\n`;
   if (recentProblems.length > 0) {
-    text += `\nMost recent (${recentProblems.length} shown):\n`;
+    text += `\nTop by severity (${recentProblems.length} shown):\n`;
     text += recentProblems.join('\n') + '\n';
   }
-  text += '\n';
+  text += `${NO_SERVER_ANALYSIS}\n\n`;
 
   // Co-change predictions
   if (input.recently_changed_files?.length) {
@@ -209,7 +158,7 @@ export async function handle(
   } else if (cochangePredictions.length > 0) {
     text += `  1. Update co-change candidates listed above before committing\n`;
   } else {
-    text += `  1. No critical issues detected — continue current work\n`;
+    text += `  1. No critical or high problems recorded — continue current work, and record what you notice with record_finding\n`;
   }
 
   text += `\nContext generated in ${duration}ms`;

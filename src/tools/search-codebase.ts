@@ -2,12 +2,12 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
-import type { LocalStore } from '../local-store.js';
+import { seedCacheTag, type LocalStore, type SeedRecord } from '../local-store.js';
 
 export const SearchCodebaseTool = {
   name: 'search_codebase',
   description:
-    'Search the codebase for problems or components matching a query. Searches both local CPG components (by name) and analysis results (by category/summary). Run init_workspace first for best results.',
+    'Search the codebase for problems or components matching a query. Searches local CPG components (by name, path and type) and the findings in the local store (by category, summary and path). Everything searched is local; run init_workspace first for components.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -22,7 +22,7 @@ export const SearchCodebaseTool = {
       },
       target: {
         type: 'string',
-        description: '"components" — local CPG index. "problems" — analysis results. "both" — (default)',
+        description: '"components" — local CPG index. "problems" — findings in the local store. "both" — (default)',
         enum: ['components', 'problems', 'both'],
         default: 'both',
       },
@@ -67,53 +67,41 @@ function matchesQuery(text: string, queryTokens: string[]): boolean {
 
 export async function handle(
   input: SearchCodebaseInput,
-  apiClient: AnalysisAPIClient,
-  sessionId: string,
+  _apiClient: AnalysisAPIClient,
+  _sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
   const queryTokens = tokenize(input.query);
   const sections: string[] = [];
 
-  // ── Sidecar mode: seed (problem) search from local SQLite cache ───────────
+  // ── Problem search over the local store's seeds ───────────────────────────
   let cacheTag: string | null = null;
   if (localStore && input.target !== 'components') {
-    // file_filter NARROWS the seed search; its absence must not skip it. Without
-    // a filter this searched zero seeds, so `search_codebase({ query,
-    // target: "problems" })` — the plain form — could never return an
-    // agent-recorded finding, only backend detections from getAnalysis().
+    // file_filter NARROWS the seed search; its absence searches every seed in
+    // this workspace, so the plain `search_codebase({ query, target:
+    // "problems" })` reaches agent-recorded findings.
     const filesToSearch = input.file_filter ?? [];
     const candidateSeeds = filesToSearch.length > 0
       ? filesToSearch.flatMap(f => localStore.getCachedSeeds(f))
       : localStore.getAllCachedSeeds();
 
-    const seedResults: Array<{ severity: string; category: string; file_path: string; line_start: number; brief: string; id: string }> = [];
+    const seedResults: SeedRecord[] = [];
     for (const s of candidateSeeds) {
       if (
         matchesQuery(s.brief, queryTokens) ||
         matchesQuery(s.category, queryTokens) ||
         matchesQuery(s.file_path, queryTokens)
       ) {
-        seedResults.push({
-          severity: s.severity,
-          category: s.category,
-          file_path: s.file_path,
-          line_start: s.line_start,
-          brief: s.brief,
-          id: s.id,
-        });
+        seedResults.push(s);
       }
     }
 
     if (seedResults.length > 0) {
-      const freshness = filesToSearch[0]
-        ? localStore.getFreshness(filesToSearch[0])
-        : { age_ms: 0, stale: false };
-      const ageSec = Math.round(freshness.age_ms / 1000);
-      cacheTag = `[cache: ${ageSec}s old${freshness.stale ? ', stale' : ''}]`;
+      cacheTag = seedCacheTag(seedResults);
 
       const capped = seedResults.slice(0, input.limit);
-      let text = `Problems matching "${input.query}" (${capped.length}, from cache):\n`;
+      let text = `Problems matching "${input.query}" (${capped.length}, from the local store):\n`;
       for (const p of capped) {
         text += `  • [${p.severity}] ${p.category}  ${p.file_path}:${p.line_start}\n`;
         text += `    ${p.brief}\n`;
@@ -160,36 +148,18 @@ export async function handle(
     }
   }
 
-  // ── Problem search via GET /analysis ──────────────────────────────────────
-  if (input.target !== 'components') {
-    try {
-      const analysis = await apiClient.getAnalysis(sessionId);
-      const results = (analysis.results ?? []).filter(r => {
-        if (!matchesQuery(r.path, queryTokens) && !matchesQuery(r.category, queryTokens) && !matchesQuery(r.summary, queryTokens) && !matchesQuery(r.description, queryTokens)) return false;
-        if (input.file_filter?.length && !input.file_filter.some(f => r.path.includes(f))) return false;
-        return true;
-      }).slice(0, input.limit);
-
-      if (results.length > 0) {
-        let text = `Problems matching "${input.query}" (${results.length}):\n`;
-        for (const p of results) {
-          text += `  • [${p.severity ?? 'LOW'}] ${p.category}  ${p.path}:${p.startLine}\n`;
-          text += `    ${p.summary}\n`;
-          text += `    id: ${p.id}\n`;
-        }
-        sections.push(text);
-      }
-    } catch {
-      // non-fatal — API may be unavailable
-    }
-  }
-
   const duration = Date.now() - startTime;
+  // Problems come only from the local store: say so, so an empty problem
+  // search is not read as "the backend analysed this and found nothing".
+  const scopeNote = input.target !== 'components'
+    ? '\nProblems are searched in the local store only; there is no server-side analysis.'
+    : '';
 
   if (sections.length === 0) {
-    return `No results for "${input.query}" — try a different term or run init_workspace.`;
+    return `No results for "${input.query}" — try a different term or run init_workspace.${scopeNote}`;
   }
 
-  const suffix = cacheTag ? `\nSearch completed in ${duration}ms\n\n${cacheTag}` : `\nSearch completed in ${duration}ms`;
+  let suffix = `${scopeNote}\nSearch completed in ${duration}ms`;
+  if (cacheTag) suffix += `\n\n${cacheTag}`;
   return sections.join('\n') + suffix;
 }

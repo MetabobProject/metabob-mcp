@@ -44,10 +44,6 @@ import { Telemetry, extractOutcomePayload } from './telemetry.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
 import { getLastTrustSummary } from './tls-trust.js';
 import { LocalStore } from './local-store.js';
-import { Scheduler } from './scheduler.js';
-import { startWatcher } from './watcher.js';
-import { startGitWatcher } from './git-watcher.js';
-import { resolveWorkspaceId } from './workspace.js';
 import { ZodError } from 'zod';
 
 const MCP_VERSION = VESSEL_VERSION;
@@ -58,12 +54,11 @@ const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || process.env.ANALYSIS_AP
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT;
 
 /**
- * When METABOB_STATELESS=true we use the original per-call HTTP behavior
- * unchanged (legacy REST surface with POST /session exchange). Otherwise
- * "sidecar mode" is active: tool reads are served from the local SQLite cache,
+ * When METABOB_STATELESS=true the process keeps no local state and speaks the
+ * legacy REST surface (POST /session exchange). Otherwise "sidecar mode" is
+ * active: the LocalStore holds agent findings and the agent-resolver queue,
  * telemetry is batched to the analysis-api, and the analysis endpoint is
- * treated as an impulse-resolving vessel. No hostname is special-cased —
- * all deployments (local substrate, org-split corp) speak the vessel protocol.
+ * treated as a vessel. Neither mode sends workspace file content anywhere.
  */
 const SIDECAR_MODE = process.env.METABOB_STATELESS !== 'true';
 
@@ -76,7 +71,6 @@ const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 6
 // rewrites 127.0.0.1:8xxx rows to +10000). Unset → ephemeral, client-local only.
 // CONFORMANCE §c6-collisions
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 0;
-const SUBMIT_TIMEOUT_MS = Number(process.env.SUBMIT_TIMEOUT_MS) || 120000;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
 /** Pre-obtained session token (skips the key-exchange step). */
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
@@ -101,7 +95,6 @@ const apiClient = new AnalysisAPIClient({
   discoveryEndpoint: DISCOVERY_ENDPOINT,
   activityApiUrl: ACTIVITY_API_URL,
   timeout: 30000,
-  submitTimeoutMs: SUBMIT_TIMEOUT_MS,
   retryAttempts: 3,
   retryDelayMs: 100,
   apiKey: METABOB_API_KEY,
@@ -148,10 +141,7 @@ const telemetry = new Telemetry({
 });
 
 // ── Local SQLite store (sidecar mode only) ────────────────────────────────────
-// In anonymous mode (no API key), we still init the store and watchers but
-// skip telemetry flushes and scheduler sends.
-const ANONYMOUS_MODE = SIDECAR_MODE && !METABOB_API_KEY;
-
+// Initialised with or without an API key: findings and agent tasks are local.
 const localStore = SIDECAR_MODE ? new LocalStore() : null;
 if (localStore) {
   try {
@@ -162,14 +152,7 @@ if (localStore) {
   }
 }
 
-if (ANONYMOUS_MODE) {
-  console.error('[sidecar] anonymous mode — caching disabled, watchers active');
-}
-
-// ── Sidecar workers (same-process, lightweight timers) ────────────────────────
-let scheduler: Scheduler | null = null;
-let stopWatcher: (() => void) | null = null;
-let stopGitWatcher: (() => void) | null = null;
+// ── Registration workers (same-process, lightweight timers) ───────────────────
 let vesselHeartbeat: VesselHeartbeat | null = null;
 let federationNode: FederationNode | null = null;
 let stopPresenceAdvertiser: (() => void) | null = null;
@@ -726,30 +709,6 @@ async function main() {
 
   log('info', 'MCP server ready');
 
-  // ── Start sidecar workers ─────────────────────────────────────────────────
-  if (SIDECAR_MODE && localStore) {
-    const workspaceRoot = process.env['WORKSPACE_PATH'] ?? process.cwd();
-    const workspaceId = await resolveWorkspaceId(workspaceRoot);
-
-    // Watchers run even in anonymous mode (they just enqueue; scheduler won't drain)
-    stopWatcher = startWatcher(workspaceRoot, localStore, workspaceId);
-    stopGitWatcher = startGitWatcher(workspaceRoot, localStore, workspaceId);
-
-    if (!ANONYMOUS_MODE && METABOB_API_KEY) {
-      scheduler = new Scheduler(
-        localStore,
-        workspaceId,
-        // /v2/mcp/analysis/run lives on the activity-api, not the analysis vessel.
-        ACTIVITY_API_URL,
-        METABOB_API_KEY,
-        telemetry,
-        workspaceRoot,
-      );
-      scheduler.start();
-      log('info', '[sidecar] scheduler started', { workspaceRoot, workspaceId: workspaceId.slice(0, 8) });
-    }
-  }
-
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   let shuttingDown = false;
   async function shutdown(reason = 'signal') {
@@ -757,10 +716,6 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log('info', 'Shutting down...', { reason });
-
-    scheduler?.stop();
-    stopWatcher?.();
-    stopGitWatcher?.();
 
     authService.stopKeyHeartbeat();
     stopPresenceAdvertiser?.();
@@ -786,9 +741,9 @@ async function main() {
   // The MCP stdio contract is that the client owning stdin owns our lifetime.
   // When a client dies without signalling us, we are reparented to init and
   // stdin hits EOF — but the SDK's StdioServerTransport only ever listens for
-  // 'data' and 'error', so nothing surfaces that. With a 5s git poll, a 2s
-  // scheduler tick, the presence/heartbeat timers and the :8080 server all
-  // holding the event loop open, the orphan then runs forever. Watching for
+  // 'data' and 'error', so nothing surfaces that. With the presence/heartbeat
+  // timers and the HTTP server holding the event loop open, the orphan then
+  // runs forever. Watching for
   // EOF ourselves is what makes the process mortal.
   //
   // Escape hatch: set METABOB_STDIO_KEEPALIVE=1 to run headless (HTTP resolver

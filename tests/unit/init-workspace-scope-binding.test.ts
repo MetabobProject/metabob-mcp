@@ -57,11 +57,8 @@ beforeEach(() => {
   apiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    getAnalysis: mock(async () => ({ status: 'complete', results: [] })),
     postFeedback: mock(async () => ({})),
     isVesselMode: mock(() => false),
-    submitFiles: mock(async () => ({ status: 'complete', submitted: 0 })),
-    resolveShape: mock(async () => ({})),
   } as unknown as AnalysisAPIClient;
 });
 

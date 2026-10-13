@@ -5,6 +5,8 @@ MCP bridge and local CPG analysis vessel. Exposes Metabob analysis capabilities 
 - **MCP (stdio)** — Claude Code, Cursor, Continue, and other MCP clients
 - **HTTP resolver (`HEALTH_PORT`, ephemeral by default)** — activity system invokes tools via impulse pointers
 
+**No workspace content leaves the machine.** The server is an agent cockpit plus substrate integration: `init_workspace` reads files into an in-process CPG and nowhere else, nothing watches the workspace or submits files, excerpts or file lists for analysis, and so there is no server-side analysis — problems are what agents record (`record_finding`). Telemetry carries usage events, not file content (§ Telemetry).
+
 Auth: `METABOB_API_KEY` authenticates each analysis request directly — there is no `POST /session` token exchange. The exchange path runs only under `METABOB_STATELESS=true`, which selects the legacy REST surface and refreshes an opaque session token on a timer. The same key also resolves a tenant JWT from the identity vessel at `ide.metabob.com/identity` (used for the HTTP impulse resolver) — identity resolution routes through the single public endpoint, never a specialized host.
 
 ## Quick reference
@@ -28,7 +30,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | Entry point — auth lifecycle, MCP server, refresh timers, shutdown |
-| `src/api-client.ts` | HTTP client to the analysis API — `ApiKey` auth (session exchange under `METABOB_STATELESS=true`), file submission, shape resolution, feedback |
+| `src/api-client.ts` | HTTP client to the analysis API — `ApiKey` auth (session exchange under `METABOB_STATELESS=true`), feedback on non-`agf_*` problem ids, health. It has no file-submission path |
 | `src/auth-service.ts` | Identity-vessel auth — tenant resolution, JWT refresh, key-issuance heartbeat |
 | `src/vessel-server.ts` | Hono HTTP server — `/health`, `/v2/capabilities`, `POST /v2/impulses/resolve`. Capabilities are also served on request via `/v2/capabilities` + identity tenant resolution |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
@@ -40,17 +42,17 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 
 | Tool | Tier | Key behaviour |
 |------|------|--------------|
-| `init_workspace` | Local + API | Parses workspace into CPG; submits relevance-ranked batch to `ide.metabob.com` |
-| `get_problems` | Local + Substrate | Problems ranked by severity: local seed cache (incl. agent-recorded `agf_*` findings) plus a "Findings recorded by agents on this codebase" section recalled from concept-db (`code_finding` concepts, list-mode, filtered client-side to the current repo/files). |
+| `init_workspace` | **Local** | Parses the workspace into the in-process CPG; makes no request. `batch_size` / `sync_api` are accepted and ignored |
+| `get_problems` | Local + Substrate | Problems ranked by severity: the local store's seeds (incl. agent-recorded `agf_*` findings) plus a "Findings recorded by agents on this codebase" section recalled from concept-db (`code_finding` concepts, list-mode, filtered client-side to the current repo/files). States that there is no server-side analysis |
 | `record_finding` | Local + Substrate | The write half of agent-side analysis: attribute an agent-noticed issue (files, summary, severity, category, optional lines/details) to code. Upserts a LocalStore seed (`agf_*` id — surfaces immediately via `get_problems`) and best-effort mints a `code_finding` concept into concept-db so other agents on this codebase recall it, stamped with `recorded_by: <vesselId>` + `session: <sessionId>` in the concept content (the author line is **omitted**, never faked, when no vessel identity resolves). concept-db unreachable = non-fatal, reported in output. |
-| `search_codebase` | Local + API | Keyword search over CPG nodes and analysis results |
+| `search_codebase` | **Local** | Keyword search over CPG nodes and the local store's findings |
 | `predict_cochanges` | **Local** | Git-history co-change mining — the only informative signal. No API call; needs `init_workspace`. The bundled ONNX GCN contributes a secondary ranking that carries **no** graph signal and should be read as noise: nodes are embedded one at a time (`src/cochange-predictor.ts@addFile`), so the edge index is always empty, and the sole input feature is node-name char-codes |
 | `analyze_impact` | **Local** | BFS over local CPG; shows affected components by depth |
-| `annotate_component` | API / Local | Why/how notes built locally from templates: a backend problem ID is looked up in `getAnalysis` (`GET /analysis`, legacy REST only — empty in vessel mode); an `agf_*` finding is read from its LocalStore seed |
+| `annotate_component` | **Local** | Why/how notes built locally from templates for a problem id held in the local store (`agf_*` findings); any other id is reported as not found, since there is no server-side analysis |
 | `mark_complete` | API / Local | Endorse (fixed) or discard (false positive). A backend problem goes to `POST /feedback/detection` (legacy REST) or a `resolution` event on `POST /v2/events/mcp` (vessel mode). For agent findings: endorse marks the LocalStore seed stale, discard deletes the **local seed only** (the org-wide `code_finding` concept is never retracted), a `finding_verdict` concept is best-effort recorded to concept-db, and — closing the relevance loop — the verdict is folded directly into the finding concept's relevance via a usage signal (endorse→`success`, discard→`failure`) when the seed carries a linked `concept:` id. Accepts a `concept_*` id too (the form cross-agent recall hands you) and resolves it to its `agf_*` seed via `LocalStore.getSeedByConceptRef`; with no local seed the verdict is written from the recalled concept itself (still keyed on the finding's `agf_*` id) and the output states that nothing local was retired. Both paths stamp the verdict with `reviewed_by: <vesselId>` + `session: <sessionId>` and a separate `origin: local` / `origin: remote` provenance line — author and locality are never folded into one key. |
-| `get_metrics` | API | Parallel fetch of `/metrics`, `/session/stats`, `/analysis` (in vessel mode only `/metrics` makes a request, as `/v2/analysis/learning/metrics`) plus the local seed count |
-| `assign_git_changes` | Local + API | Maps changed files → CPG components + co-change predictions |
-| `get_analysis_context` | Local + API | Snapshot of CPG stats + open problems + co-change predictions + compact top-5 recall of other agents' recorded findings for this codebase |
+| `get_metrics` | **Local** | Open findings in the local store by severity, source and category, plus the local CPG size; makes no request and states that there is no server-side analysis |
+| `assign_git_changes` | **Local** | Maps changed files → CPG components + co-change predictions + local-store findings in those files |
+| `get_analysis_context` | Local + Substrate | Snapshot of CPG stats + open problems from the local store + co-change predictions + compact top-5 recall of other agents' recorded findings for this codebase |
 | `run_goal` | Substrate | Dispatch a goal **synchronously** via goal-host's resolve endpoint (impulse shape `goal_execution`); blocks up to `RUN_GOAL_TIMEOUT_MS` (default 290 s). Short, one-shot goals. |
 | `run_goal_async` | Substrate | Dispatch a goal **asynchronously** via goal-host `POST /run-goal`; returns a `dispatchId` immediately. Long goals / fire-and-forget. |
 | `goal_status` | Substrate | Poll a `dispatchId` → the honest **`reached`** verdict (primary line), then `status`/executionId/template + hydrated trace (state-space signature, produced shapes, failure mode, Thompson α/β). Read `reached`, not `status` — `completed`≠reached, and a satisfier reach can be `status:"failed"` yet `reached:true`. |
@@ -206,9 +208,9 @@ Agent (Claude Code / Cursor / custom)
    │ HTTP (session token)          │ in-process                      │ identity-vessel JWT
    ▼                               ▼                                 ▼
 ide.metabob.com              cpg-inference-ts              ide.metabob.com/identity
-(file submit, analysis,      (Tree-sitter, GCN,            (tenant resolution,
- explain, recommend,          vector search)                key-issuance heartbeat)
- feedback)
+(feedback, usage             (Tree-sitter, GCN,            (tenant resolution,
+ telemetry — no file          vector search)                key-issuance heartbeat)
+ content)
 ```
 
 ## Related

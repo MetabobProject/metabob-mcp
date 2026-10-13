@@ -8,7 +8,6 @@
       "DOCLINKS": "docs/DOCLINKS.md",
       "PUBLISHING": "docs/PUBLISHING.md",
       "QUICK_START": "docs/QUICK_START.md",
-      "SIDECAR": "docs/SIDECAR.md",
       "SPEC": "docs/SPEC.md"
     },
     "live": [
@@ -20,7 +19,6 @@
       "docs/METABOB-TOOL-QUESTIONS.md",
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
-      "docs/SIDECAR.md",
       "docs/SPEC.md",
       "scripts/git-hooks/README.md",
       "skills/metabob/SKILL.md"
@@ -74,11 +72,6 @@
         "src/bootstrap.ts",
         "scripts/doclinks.mjs"
       ],
-      "docs/SIDECAR.md": [
-        "src/watcher.ts",
-        "src/git-watcher.ts",
-        "src/scheduler.ts"
-      ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs"
       ],
@@ -114,10 +107,6 @@
       "Node.js"
     ],
     "reviewed": {
-      "docs/SIDECAR.md": {
-        "at": "c89a250",
-        "why": "scheduler.ts changes after the doc (claim lease on dequeued rows, execFile instead of a shell) are internal; the doc's claims — same-process workers, 2 s send loop, scheduler gated on METABOB_API_KEY — still hold"
-      },
       "docs/SPEC.md": {
         "at": "3c86708",
         "why": "src/config.ts gained only a CONFORMANCE citation in a comment; SPEC § Endpoint derivation still matches deriveSubstrateDefaults"
@@ -382,9 +371,6 @@
         "scripts/demo/record-then-die.ts",
         "src/cli.ts"
       ],
-      "docs/DEPLOYMENT.md": [
-        "docs/SIDECAR.md"
-      ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs",
         "scripts/doclinks.mjs@slug",
@@ -411,7 +397,6 @@
         "docs/DOCLINKS.md",
         "src/agent-delivery.ts@deliverResolution",
         "src/agent-delivery.ts@reconcileUndelivered",
-        "src/api-client.ts@submitFiles",
         "src/cli.ts@main",
         "src/cochange-predictor.ts@addFile",
         "src/cochange-predictor.ts@generateSimpleFeatures",
@@ -425,6 +410,7 @@
         "src/discovery.ts@resolveServiceEndpointByShape",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/tools/_concept-content.ts@renderConceptContent",
+        "src/tools/_findings.ts@NO_SERVER_ANALYSIS",
         "src/tools/_findings.ts@attributionLines",
         "src/tools/_findings.ts@fetchAgentFindings",
         "src/tools/_findings.ts@recordConceptUsage",
@@ -483,7 +469,6 @@
       "scripts/doclinks.mjs@symbolRegions": "57ce027154cc",
       "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
-      "src/api-client.ts@submitFiles": "e606d02a1169",
       "src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT": "961ac605c7c1",
       "src/bootstrap.ts@fetchBootstrapAnchors": "1b0c2f5da2f8",
       "src/cli.ts@main": "7d5d3f63a3bd",
@@ -509,6 +494,7 @@
       "src/tls-error.ts@translateTlsError": "0ecf7178bdcf",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
+      "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",

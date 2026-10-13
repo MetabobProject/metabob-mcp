@@ -15,10 +15,11 @@ Agent (Claude Code / Cursor / custom)
 │                                         │
 │  Tool Registry (src/tools/index.ts)     │
 │                                         │
-│  Local tier           API tier          │
+│  Local tier           Substrate tier    │
 │  ────────────────     ──────────────    │
-│  cpg-inference-ts     AnalysisAPIClient │
-│  (in-process)         (ide.metabob.com) │
+│  cpg-inference-ts     concept-db,       │
+│  LocalStore           goal-host,        │
+│  (in-process)         discovery         │
 └─────────────────────────────────────────┘
 ```
 
@@ -30,14 +31,20 @@ module's zod `InputSchema` and served by its module's `handle`.
 - GCN embeddings (a ~109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → an in-process brute-force vector index (`src/vector-index.ts@FAISSIndex`)
 - BFS graph traversal
 
+**No workspace content leaves the machine.** File content is read only by `init_workspace`, into the
+in-process CPG. Nothing submits files, excerpts or file lists for analysis, and nothing watches the
+workspace in the background, so there is no server-side analysis and no backend detections: problems
+are what agents record (`record_finding`), held in the local store and recalled from concept-db.
+
 **API tier** — requires `METABOB_API_KEY`. Its surface depends on the mode:
 
 | Operation | Default (sidecar / vessel mode) | `METABOB_STATELESS=true` (legacy REST) |
 |-----------|----------------------------------|----------------------------------------|
 | Auth | `Authorization: ApiKey <key>` on every request | `POST /session` exchange, opaque token refreshed on a timer |
-| File submission | per file: `POST {activity}/v2/mcp/analysis/run` when the analysis host is `ide.metabob.com`; otherwise the `problem_detection` shape resolved through discovery and `/v2/impulses/resolve` (`src/api-client.ts@submitFiles`) | `POST /v2/submit` (multipart) |
-| Analysis results | none — `getAnalysis` returns an empty `complete` result; problems come from the local seed cache and concept-db | `GET /analysis` |
-| Feedback | a `resolution` event to `POST /v2/events/mcp` | `POST /feedback/detection` |
+| Feedback on a non-`agf_*` problem id | a `resolution` event to `POST /v2/events/mcp` | `POST /feedback/detection` |
+
+The substrate tools (goal dispatch, concept-db, the registry and trace readers) are described in their
+own sections below.
 
 ---
 
@@ -138,25 +145,24 @@ The analysis tools. Every handler returns a single text block.
 
 Handler: `src/tools/init-workspace.ts@handle`
 
-Index the workspace into the local CPG and sync the most relevant files to the analysis server. Call it repeatedly as you work — each call submits one batch ranked by relevance to recently changed files.
+Index the workspace into the local CPG. Indexing is local: no file content leaves the machine, and there is no server-side analysis to wait for.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `workspace_path` | string | `$WORKSPACE_PATH` or cwd | Absolute path to workspace root |
-| `recently_changed_files` | string[] | `[]` | Changed files — prioritised in the sync batch |
-| `batch_size` | number | `20` | Files to submit per call (1–20) |
+| `recently_changed_files` | string[] | `[]` | Changed files — the output reports how many co-change neighbours they have |
+| `batch_size` | number | `20` | Accepted (1–20) and ignored |
 | `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index (with or without the leading dot) |
 | `exclude` | string[] | `[node_modules,.git,dist,build,.next,.nuxt,coverage,.turbo,.cache,__pycache__,.venv,venv,vendor]` | Directory names to skip; dot-directories are always skipped |
-| `sync_api` | boolean | `true` | Submit the batch to the analysis server |
+| `sync_api` | boolean | `true` | Accepted and ignored |
 
 **Behaviour**
 1. Scans the workspace (at most 2000 files, each at most 200 KB) and parses it into the local CPG within a 20 s budget; a parse that runs out of budget resumes on the next call and says so.
-2. Ranks files: recently changed → GCN name-similarity neighbours of the changed files → same directory → the rest alphabetically.
-3. Submits `batch_size` files through the API tier (see § Architecture) with the submission timeout (`SUBMIT_TIMEOUT_MS`, default 120 s), and upserts returned results into the local seed cache.
-4. Reports how many files remain unsynced.
-5. Does not wait for backend analysis to finish; use `get_analysis_context` or `get_problems` to follow up.
+2. Binds the local store to the indexed root, so findings recorded afterwards land in this workspace.
+3. For `recently_changed_files`, counts their GCN name-similarity neighbours.
+4. Makes no request: `batch_size` and `sync_api` stay in the schema so existing callers validate, and change nothing. The output states that no file content was sent off the machine.
 
 ---
 
@@ -164,7 +170,7 @@ Index the workspace into the local CPG and sync the most relevant files to the a
 
 Handler: `src/tools/get-problems.ts@handle`
 
-Problems for this codebase, ranked by severity: agent-recorded findings (`record_finding`) and the local seed cache are the primary source; backend detection is a secondary one.
+Problems for this codebase, ranked by severity: the findings in the local store (agent-recorded `agf_*` seeds from `record_finding`, and any other seeds already on disk), plus findings other agents recorded on this codebase. There is no server-side detection.
 
 **Input**
 
@@ -173,12 +179,12 @@ Problems for this codebase, ranked by severity: agent-recorded findings (`record
 | `limit` | number | `10` | Max results (max 100) |
 | `severity` | `CRITICAL\|HIGH\|MEDIUM\|LOW\|INFO`[] | all | Filter by severity |
 | `category` | string[] | all | Filter by category slug |
-| `file_path` | string | — | Substring match on the seed file path (and on the legacy vessel fan-out) |
-| `include_discarded` | boolean | `false` | Include dismissed false positives (legacy REST path only) |
+| `file_path` | string | — | Substring match on the seed file path |
+| `include_discarded` | boolean | `false` | Accepted; a discarded finding is deleted from the local store, so it changes nothing |
 
 **Behaviour**
-- With `file_path` and matching seeds, it serves those seeds. With no matching seed, the file is enqueued for analysis and the backend path runs.
-- With no `file_path`, it runs the backend path (`GET /analysis` in legacy mode; the vessel fan-out otherwise; in legacy mode a `pending`/`running` analysis is reported instead of awaited) and appends the workspace's cached seeds.
+- Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. Under `METABOB_STATELESS=true` there is no local store, and the output says so.
+- States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request.
 - It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=`), paged 50 rows at a time via `offset` up to 300 scanned rows, kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Hitting the scan cap is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 
 ---
@@ -221,7 +227,7 @@ Search components (local CPG) and problems by keyword.
 | `target` | `components\|problems\|both` | `both` | What to search |
 | `file_filter` | string[] | — | Narrow to these file paths (substring) |
 
-Components match on name, file path and node type; problems match on the cached seeds' brief, category and file path, plus backend analysis results (empty in vessel mode). Requires `init_workspace` for component results.
+Components match on name, file path and node type; problems match on the local store's seeds — brief, category and file path. Both are local, and no request is made; when problems are searched, the output says there is no server-side analysis. Requires `init_workspace` for component results.
 
 ---
 
@@ -239,7 +245,7 @@ Predict which files and components change together with the given files. Runs lo
 | `limit` | number | `10` | Max suggestions (max 50) |
 | `confidence_threshold` | number | `0.3` | Min score (0.0–1.0), applied to both the git-history confidence and the GCN similarity |
 
-Cached seeds for the predicted files are appended. Requires `init_workspace`.
+Findings in the local store for the changed files are appended. Requires `init_workspace`.
 
 ---
 
@@ -259,7 +265,7 @@ Components affected by changing the given files, by traversing the local Code Pr
 | `max_depth` | number | `5` | Max traversal depth (max 10) |
 | `include_tests` | boolean | `true` | Include test files |
 
-Appends up to 20 cached seeds for affected files. In legacy REST mode it also reports the changed files with `POST /v2/analysis/impact`; in vessel mode that call is a no-op. Requires `init_workspace`.
+Appends up to 20 findings from the local store for the changed files. Makes no request. Requires `init_workspace`.
 
 ---
 
@@ -267,7 +273,7 @@ Appends up to 20 cached seeds for affected files. In legacy REST mode it also re
 
 Handler: `src/tools/annotate-component.ts@handle`
 
-Structured notes for a detected problem.
+Structured notes for a problem in the local store.
 
 **Input**
 
@@ -277,7 +283,7 @@ Structured notes for a detected problem.
 | `mode` | `explain\|recommend` | `explain` | `explain` adds why-focused notes, `recommend` adds how-to-fix notes |
 | `context` | string | — | Additional context to include in the notes |
 
-For a backend problem id it reads `getAnalysis` (`GET /analysis` in legacy mode), finds the matching problem, and builds the notes locally from templates — no explain/recommend endpoint is called. In vessel mode `getAnalysis` is empty, so only `agf_*` ids resolve. An `agf_*` id is served from the LocalStore seed (no API call), rendering severity/category/file/refs/status plus the same why/how notes — so record → annotate → mark_complete works on agent findings.
+The id is looked up in the local store, and the notes are built locally from templates — no request is made. The output renders severity/category/file/refs/status plus the why/how notes, so record → annotate → mark_complete works on agent findings. An id the local store does not hold is reported as not found, with the reason: there is no server-side analysis, so only local findings can be annotated.
 
 ---
 
@@ -302,11 +308,11 @@ A backend problem id goes to `postFeedback` (`POST /feedback/detection` in legac
 
 Handler: `src/tools/get-metrics.ts@handle`
 
-Session and project analysis health.
+This workspace's local analysis state.
 
 **Input** — none
 
-Fetches `/metrics`, `/session/stats` and the analysis result in parallel. In vessel mode `/metrics` maps to `GET /v2/analysis/learning/metrics` and the other two return empty without a request. **Output** — problem counts by severity and category, endorsed/discarded counts, session statistics when available, and the local cache's non-stale seed count (across all workspaces).
+Computed locally; makes no request. **Output** — open findings in the local store for this workspace by severity, agent-recorded (`agf_*`) versus other, the top five categories, the local CPG size, and the statement that there is no server-side analysis.
 
 ---
 
@@ -325,7 +331,7 @@ Assign changed files to the CPG components they affect, with co-change predictio
 | `include_cochange_predictions` | boolean | `true` | Include co-change predictions |
 | `prediction_limit` | number | `5` | Prediction budget per changed file (max 20) |
 
-Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with cached seeds show them; the rest are enqueued for analysis. Requires `init_workspace`.
+Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with findings in the local store show them. Requires `init_workspace`.
 
 ---
 
@@ -333,7 +339,7 @@ Returns a file → component map. Predictions are pooled across the changed file
 
 Handler: `src/tools/get-analysis-context.ts@handle`
 
-The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems (backend results, else the workspace's cached seeds), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable).
+The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable).
 
 **Input**
 
@@ -618,7 +624,7 @@ Records the answer durably first and marks the task resolved, then delivers it t
 
 ```
 1. init_workspace(workspace_path, recently_changed_files)
-   → builds local CPG, submits first batch
+   → builds the local CPG; nothing leaves the machine
 
 2. get_analysis_context(recently_changed_files)
    → snapshot: index stats + open problems + co-change hints
@@ -643,7 +649,7 @@ Records the answer durably first and marks the task resolved, then delivers it t
    → answer decisions the substrate dispatched to this agent
 
 9. init_workspace(recently_changed_files=[...files changed since...])
-   → sync the next batch as work progresses
+   → parses files added since the last call; files already parsed are not re-read
 ```
 
 The MCP client runs the compiled `dist/cli.js`: after editing `src/`, run `bun run build` and reconnect the server for tool changes to take effect.

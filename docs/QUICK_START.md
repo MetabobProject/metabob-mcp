@@ -34,19 +34,19 @@ Ask your agent:
 
 > "Initialise metabob for this workspace and show me the highest-severity problems."
 
-The agent will call `init_workspace` (builds the local CPG and submits files to the analysis server), then `get_problems`.
+The agent will call `init_workspace` (builds the local CPG; no file content leaves the machine), then `get_problems`.
 
 ## Typical flow
 
 ```
-init_workspace        # index workspace, sync first batch
+init_workspace        # index workspace locally
 get_analysis_context  # snapshot: index stats + open problems + other agents' findings
 get_problems          # full problem list
 predict_cochanges     # what else should change? (local, no API)
 record_finding        # write back an issue you noticed — shared with other agents
 annotate_component    # add why/how notes for a problem
 mark_complete         # endorse the fix, or discard a false positive
-init_workspace        # sync next batch as files change
+init_workspace        # parse files added since the last call
 ```
 
 Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, `provide_feedback` for goal verdicts, and `pull_assigned_work` / `submit_resolution` for work the substrate dispatched to this agent. See [SPEC.md](SPEC.md).

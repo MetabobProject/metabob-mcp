@@ -1,6 +1,6 @@
 /**
  * Integration tests for MCP server
- * Tests end-to-end MCP protocol communication against the current 10-tool surface
+ * Tests end-to-end MCP protocol communication against the tool surface
  */
 
 import { test, expect, afterAll } from 'bun:test';
@@ -420,15 +420,10 @@ test('a successful tools/call returns the MCP text envelope, not just an error',
   // Not merely non-empty: the text has to describe THIS workspace, so a handler
   // stubbed to return a constant cannot satisfy it.
   expect(text).toContain(workspace);
-  // Coverage is now reported as two separate numbers — local parsing is
-  // complete in one call, API submission is paced by batch_size — so a run that
-  // indexed everything but reached no backend can no longer read as success.
   expect(text).toContain('Local index: 2/2 files parsed');
-  expect(text).toContain('API sync:');
-  // The analysis API is a dead port here. The local half still succeeds and the
-  // remote half is reported as failed IN the result — a tool call that did real
-  // local work is not an MCP-level error.
-  expect(text).toMatch(/API sync/);
+  // Indexing is local and the result says so; there is no sync half to report.
+  expect(text).toContain('No file content was sent off the machine');
+  expect(text).not.toContain('API sync');
 }, 60000);
 
 test('a later tools/call in the same process sees the index an earlier one built', async () => {

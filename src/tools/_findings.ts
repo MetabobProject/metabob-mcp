@@ -24,6 +24,14 @@ import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
 
+/**
+ * What the analysis tools say where backend detections would otherwise be.
+ * This server sends no workspace content off the machine, so no backend ever
+ * analyses it; findings are what agents record.
+ */
+export const NO_SERVER_ANALYSIS =
+  'Server-side analysis: none. This server sends no workspace content off the machine, so there are no backend detections; problems come from agents (record_finding).';
+
 /** The concept shape used for agent-recorded findings. */
 export const FINDING_SHAPE = 'code_finding';
 /** The concept shape used for verdicts on findings (mark_complete). */

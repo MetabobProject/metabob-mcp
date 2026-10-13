@@ -1,7 +1,7 @@
 // Contract (input schema, behaviour): SPEC §init_workspace
 import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
-import { join, extname, dirname, resolve } from 'path';
+import { join, extname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
@@ -10,11 +10,10 @@ export const InitWorkspaceTool = {
   name: 'init_workspace',
   description:
     'Parse and index the WHOLE workspace into the local CPG in one call (local tools like predict_cochanges, ' +
-    'analyze_impact and assign_git_changes work immediately after), and incrementally sync the most relevant ' +
-    'files to the analysis server (one batch per call). ' +
-    'Pass recently_changed_files to prioritise those files and their co-change neighbours in the sync batch. ' +
-    'Call repeatedly with sync_api:true to continue submitting API batches; local coverage is complete after the first call. ' +
-    'Analysis may remain pending for a while after submission, so agents should prefer async follow-up when working with Metabob.',
+    'analyze_impact, assign_git_changes and search_codebase work immediately after). ' +
+    'Indexing is local: no file content leaves the machine and there is no server-side analysis to wait for. ' +
+    'Pass recently_changed_files to report their co-change neighbours. ' +
+    'A very large workspace may need a second call to finish parsing; the output says so.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -24,12 +23,12 @@ export const InitWorkspaceTool = {
       },
       recently_changed_files: {
         type: 'array',
-        description: 'Files changed in the current session — these and their CPG neighbours are submitted first',
+        description: 'Files changed in the current session — the output reports how many co-change neighbours they have',
         items: { type: 'string' },
       },
       batch_size: {
         type: 'number',
-        description: 'Number of files to submit to the analysis server per call (default: 20, max: 20). Local indexing always covers the whole workspace regardless.',
+        description: 'Accepted and ignored: init_workspace sends no files anywhere, and local indexing covers the whole workspace.',
         default: 20,
       },
       include: {
@@ -44,7 +43,7 @@ export const InitWorkspaceTool = {
       },
       sync_api: {
         type: 'boolean',
-        description: 'Sync a batch with the analysis server (default: true). false = pure local indexing, no API call.',
+        description: 'Accepted and ignored: init_workspace sends no files anywhere, whatever its value.',
       },
     },
   },
@@ -117,41 +116,10 @@ async function readSourceFile(path: string): Promise<string | null> {
   }
 }
 
-/**
- * Rank all file paths by relevance to the recently changed set.
- * Tier 1 — the changed files themselves
- * Tier 2 — CPG co-change predictions for those files
- * Tier 3 — files in the same directories as changed files
- * Tier 4 — everything else (stable alphabetical order for deterministic progress)
- */
-function rankByRelevance(
-  allPaths: Set<string>,
-  recentlyChanged: string[],
-  cochangePaths: Set<string>,
-): string[] {
-  const changedSet = new Set(recentlyChanged);
-  const changedDirs = new Set(recentlyChanged.map(f => dirname(f)));
-
-  const tier1: string[] = [];
-  const tier2: string[] = [];
-  const tier3: string[] = [];
-  const tier4: string[] = [];
-
-  for (const path of allPaths) {
-    if (changedSet.has(path)) { tier1.push(path); continue; }
-    if (cochangePaths.has(path)) { tier2.push(path); continue; }
-    if (changedDirs.has(dirname(path))) { tier3.push(path); continue; }
-    tier4.push(path);
-  }
-
-  tier4.sort();
-  return [...tier1, ...tier2, ...tier3, ...tier4];
-}
-
 export async function handle(
   input: InitWorkspaceInput,
-  apiClient: AnalysisAPIClient,
-  sessionId: string,
+  _apiClient: AnalysisAPIClient,
+  _sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
@@ -188,10 +156,11 @@ export async function handle(
   // workspace's graph.
   const recentlyChanged = (input.recently_changed_files ?? []).map(f => resolve(workspacePath, f));
 
-  // ── Parse + index the workspace locally — decoupled from API batching ───────
+  // ── Parse + index the workspace locally ─────────────────────────────────────
   // One call covers the whole workspace for any ordinary repository, so the
-  // local tools (predict_cochanges, analyze_impact, assign_git_changes) stop
-  // operating on a partial index.
+  // local tools (predict_cochanges, analyze_impact, assign_git_changes) never
+  // operate on a partial index. File content is read here and nowhere else:
+  // it goes into the in-process CPG and is not sent off the machine.
   //
   // Bounded by wall clock, not by faith. Parsing is NOT flatly cheap: addFile
   // scans the accumulated node set, so per-file cost grows with the graph.
@@ -199,8 +168,7 @@ export async function handle(
   // 2x the files for 2.75x the time. Unbounded, a large monorepo would hang the
   // first call of every session, and the index is not persisted across them.
   // So parse until the budget is spent, then stop and SAY so; the next call
-  // resumes where this one stopped (isParsed skips what is already done),
-  // exactly as API submission is already resumable.
+  // resumes where this one stopped (isParsed skips what is already done).
   let newComponents = 0;
   const languages = new Set<string>();
   const parseDeadline = Date.now() + PARSE_BUDGET_MS;
@@ -224,7 +192,7 @@ export async function handle(
     localIndex.markParsed(path);
   }
 
-  // ── Co-change ranking for API prioritisation (index is already complete) ─────
+  // ── Co-change neighbours of the recently changed files (local) ──────────────
   const cochangePaths = new Set<string>();
   if (recentlyChanged.length > 0) {
     const allIds: string[] = [];
@@ -237,101 +205,7 @@ export async function handle(
     }
   }
 
-  // ── API sync: pick batch (rank → filter submitted → slice) and submit ────────
-  let submitted: string[] = [];
-  let syncStatus = 'skipped (sync_api:false — local index only)';
-  let remaining = 0;
-
-  if (input.sync_api) {
-    const ranked = rankByRelevance(allPaths, recentlyChanged, cochangePaths);
-    const unsubmitted = ranked.filter(p => !localIndex.isSubmitted(p));
-    const batch = unsubmitted.slice(0, input.batch_size);
-    remaining = unsubmitted.length - batch.length;
-
-    if (batch.length === 0) {
-      syncStatus = `all ${localIndex.submittedCount()} files already submitted`;
-    } else {
-      try {
-        const fileList: Array<{ path: string; content: string }> = [];
-        for (const p of batch) {
-          const content = await readSourceFile(p);
-          if (content !== null) fileList.push({ path: p, content });
-        }
-
-        if (fileList.length > 0) {
-          const result = await apiClient.submitFiles(fileList, sessionId);
-          localIndex.markSubmitted(batch);
-          submitted = batch;
-
-          // Persist detection seeds returned synchronously at submit time —
-          // this is what fills the sidecar cache that get_problems and
-          // predict_cochanges read (the vessel cannot read our filesystem).
-          if (localStore && result.results) {
-            const now = Date.now();
-            for (const r of result.results) {
-              try {
-                localStore.upsertSeed({
-                  id: r.id,
-                  workspace_id: workspacePath,
-                  file_path: r.path,
-                  line_start: r.startLine,
-                  line_end: r.endLine,
-                  category: r.category,
-                  severity: r.severity,
-                  brief: r.summary,
-                  confidence: r.confidence ?? 1,
-                  refs_json: '[]',
-                  produced_at: now,
-                  stale: false,
-                });
-              } catch {
-                // Non-fatal: cache miss just means a live fetch later.
-              }
-            }
-          }
-
-          // A bare "failed" / "complete" is what made the vessel-submit
-          // protocol mismatch read as a backend outage for months. The
-          // per-file counts and the first reason are the only evidence the
-          // agent can see — stderr is invisible to an MCP client.
-          const failedCount = result.failed ?? 0;
-          const attempted = (result.submitted ?? 0) + failedCount;
-          const firstFailure = result.failures?.[0];
-          const reason = firstFailure
-            ? (firstFailure.reason ?? `HTTP ${firstFailure.status}`).slice(0, 160)
-            : '';
-          if (result.status === 'complete') {
-            syncStatus = failedCount > 0
-              ? `complete — ${failedCount}/${attempted} file${failedCount === 1 ? '' : 's'} not analyzed: ${reason}`
-              : 'complete';
-          } else if (result.jobId) {
-            syncStatus = `pending (job: ${result.jobId})`;
-          } else if (result.status === 'failed' && failedCount > 0) {
-            syncStatus = `failed — none of the ${attempted} submitted file${attempted === 1 ? '' : 's'} were analyzed: ${reason}`;
-          } else {
-            syncStatus = result.status;
-          }
-        } else {
-          syncStatus = 'skipped (no readable files in batch)';
-        }
-
-        if (remaining > 0) {
-          syncStatus += ` — ${remaining} file${remaining === 1 ? '' : 's'} not yet submitted (call again to continue)`;
-        }
-      } catch (err) {
-        const error = err as { code?: string; message?: string };
-        if (error.code === 'API_TIMEOUT') {
-          syncStatus =
-            'response timeout — the server may still be processing this batch; prefer async follow-up with get_analysis_context or get_problems before retrying';
-        } else {
-          syncStatus = `failed: ${error.message ?? String(err)}`;
-        }
-      }
-    }
-  }
-
   const duration = Date.now() - startTime;
-  const totalSubmitted = localIndex.submittedCount();
 
   // Honest coverage: how much of THIS workspace is actually in the local CPG.
   let parsedCount = 0;
@@ -353,16 +227,13 @@ export async function handle(
   }
   if (newComponents > 0) text += `  New CPG components: ${newComponents}\n`;
   text += `  Total CPG components: ${localIndex.stats().componentsIndexed}\n`;
+  if (recentlyChanged.length > 0) {
+    text += `  Co-change neighbours of recently changed files: ${cochangePaths.size}\n`;
+  }
   text += `\n`;
 
-  text += `API sync: ${totalSubmitted}/${allPaths.size} files submitted\n`;
-  text += `  Status: ${syncStatus}\n`;
-  if (submitted.length > 0 && remaining > 0) {
-    text += `  This batch: ${submitted.map(p => p.replace(workspacePath + '/', '')).join(', ')}\n`;
-  }
-  if (recentlyChanged.length > 0) {
-    text += `  Co-change neighbours: ${cochangePaths.size}\n`;
-  }
+  text += `No file content was sent off the machine: the index is local, and there is no server-side analysis.\n`;
+  text += `Record issues you notice with record_finding; get_problems lists them with other agents' findings.\n`;
 
   text += `\nDuration: ${duration}ms`;
   return text;

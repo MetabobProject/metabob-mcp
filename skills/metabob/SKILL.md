@@ -32,16 +32,13 @@ For the org's design memory, use `concept_search` with a **`shape` filter and no
 `init_workspace { workspace_path }`. **One call indexes the whole workspace** —
 roughly 120 files in a second or two. Local tools work immediately after it.
 
-Two numbers come back and they mean different things:
-
 ```
 Local index: 118/118 files parsed      <- the local CPG; impact and co-change use this
-API sync:    20/118 files submitted    <- backend analysis; paced, optional
 ```
 
-Call again to continue **API submission**, or if local parsing reports
-`parse budget reached, call again to continue` on a very large repo. Backend
-analysis is best-effort and its absence does not affect the local tier.
+Indexing is local: no file content leaves the machine, and there is no
+server-side analysis to wait for. Call again only if local parsing reports
+`parse budget reached, call again to continue` on a very large repo.
 
 ## Phase 2 — Working cadence
 
@@ -53,8 +50,8 @@ worth making before you edit a file other agents depend on.
 together with yours. Read the **git-history** section; it catches the sibling
 file you would otherwise forget.
 
-**After every ~3–5 edited files:** `init_workspace { recently_changed_files }` to
-keep the map current.
+**After adding files:** `init_workspace { recently_changed_files }` parses files
+added since the last call (files already parsed are not re-read).
 
 **When you notice something:** `record_finding { files, summary, severity,
 category, details }` — immediately, not at close-out. Put the *scope* in

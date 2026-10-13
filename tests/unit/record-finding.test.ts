@@ -35,7 +35,6 @@ beforeEach(() => {
   mockApiClient = {
     get: mock(async () => ({})),
     post: mock(async () => ({})),
-    getAnalysis: mock(async () => ({ status: 'complete', results: [] })),
     postFeedback: mock(async () => ({})),
     isVesselMode: mock(() => false),
   } as unknown as AnalysisAPIClient;
@@ -572,8 +571,9 @@ test('annotate_component: explain notes for an agf_* finding come from the local
   expect(out).toContain('Why this matters');
   expect(out).toContain('src/api.ts:2-2');
   expect(out).toContain('Status: open');
-  // Never hit the analysis API for agf ids
-  expect((mockApiClient.getAnalysis as any)).not.toHaveBeenCalled();
+  // Built locally: no request for agf ids
+  expect((mockApiClient.get as any)).not.toHaveBeenCalled();
+  expect((mockApiClient.post as any)).not.toHaveBeenCalled();
 });
 
 test('annotate_component: recommend mode renders fix steps for an agf_* finding', async () => {

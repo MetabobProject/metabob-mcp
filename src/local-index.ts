@@ -43,7 +43,6 @@ export class LocalIndex {
   private _ready = false;
   private _workspacePath: string | null = null;
   private _filesIndexed = 0;
-  private _submittedFiles = new Set<string>();
   private _parsedFiles = new Set<string>();
   /** file (absolute) → import specifiers, recorded at index time. The vendored
    *  CPG's own import extraction is broken (walks a child property the parser
@@ -72,7 +71,6 @@ export class LocalIndex {
    */
   async setWorkspace(path: string, filesIndexed: number): Promise<void> {
     if (this._workspacePath !== null && this._workspacePath !== path) {
-      this._submittedFiles.clear();
       this._parsedFiles.clear();
       this._imports.clear();
       this.predictor = new CoChangePredictor({ minSimilarity: 0.0 });
@@ -106,11 +104,10 @@ export class LocalIndex {
     return [...this._parsedFiles];
   }
 
-  /** Coverage snapshot: files parsed locally vs total scanned, plus API-submitted count. */
-  coverage(): { parsedFiles: number; submittedFiles: number; totalFiles: number } {
+  /** Coverage snapshot: files parsed locally vs total scanned. */
+  coverage(): { parsedFiles: number; totalFiles: number } {
     return {
       parsedFiles: this._parsedFiles.size,
-      submittedFiles: this._submittedFiles.size,
       totalFiles: this._filesIndexed,
     };
   }
@@ -139,18 +136,6 @@ export class LocalIndex {
     this._imports.set(this.resolvePath(filePath), [...specs]);
   }
 
-  isSubmitted(filePath: string): boolean {
-    return this._submittedFiles.has(this.resolvePath(filePath));
-  }
-
-  markSubmitted(filePaths: string[]): void {
-    for (const p of filePaths) this._submittedFiles.add(this.resolvePath(p));
-  }
-
-  submittedCount(): number {
-    return this._submittedFiles.size;
-  }
-
   getCPG(): CodePropertyGraph {
     return this.predictor.getCPG();
   }
@@ -163,18 +148,6 @@ export class LocalIndex {
       workspacePath: this._workspacePath,
       ready: this._ready,
     };
-  }
-
-  getIndexedFilePaths(): string[] {
-    const seen = new Set<string>();
-    for (const node of this.predictor.componentMap.values()) {
-      const nodePath = (node as any).filePath as string | undefined;
-      if (nodePath) seen.add(nodePath);
-    }
-    for (const filePath of this.getCPG().fileIndex.keys()) {
-      seen.add(filePath);
-    }
-    return [...seen];
   }
 
   /**

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { CPGNode } from '../cpg-inference.js';
-import type { LocalStore } from '../local-store.js';
+import { seedCacheTag, type LocalStore } from '../local-store.js';
 
 export const AnalyzeImpactTool = {
   name: 'analyze_impact',
@@ -103,34 +103,18 @@ function collectReachable(
 }
 
 /**
- * Cached problem seeds for the changed files, rendered as a supplementary
- * block — or '' when there are none (in which case the files are enqueued for
- * background analysis). Same shape as predict_cochanges' seed suffix.
+ * Known problems in the changed files from the local store, rendered as a
+ * supplementary block — or '' when there are none. Same shape as
+ * predict_cochanges' seed suffix.
  */
 function cachedSeedBlock(localStore: LocalStore, changedFiles: string[]): string {
   const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
-  let hasAnyCache = false;
-  let oldestAgeMs = 0;
-  let anyStale = false;
-
   for (const f of changedFiles) {
-    const seeds = localStore.getCachedSeeds(f);
-    const freshness = localStore.getFreshness(f);
-    if (seeds.length > 0 || freshness.age_ms !== Infinity) hasAnyCache = true;
-    if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
-      oldestAgeMs = freshness.age_ms;
-    }
-    if (freshness.stale) anyStale = true;
-    allSeeds.push(...seeds);
-  }
-
-  if (!hasAnyCache) {
-    for (const f of changedFiles) localStore.enqueue(f, 0 /* P0 */, 'default');
+    allSeeds.push(...localStore.getCachedSeeds(f));
   }
   if (allSeeds.length === 0) return '';
 
-  const ageSec = Math.round(oldestAgeMs / 1000);
-  let text = `\n\nKnown problems in changed files (cached, ${ageSec}s old${anyStale ? ', stale' : ''}):\n`;
+  let text = `\n\nKnown problems in changed files (local store) ${seedCacheTag(allSeeds)}:\n`;
   for (const s of allSeeds.slice(0, 20)) {
     text += `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}–${s.line_end} — ${s.brief}\n`;
     text += `    id: ${s.id}\n`;
@@ -141,8 +125,8 @@ function cachedSeedBlock(localStore: LocalStore, changedFiles: string[]): string
 
 export async function handle(
   input: AnalyzeImpactInput,
-  apiClient: AnalysisAPIClient,
-  sessionId: string,
+  _apiClient: AnalysisAPIClient,
+  _sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   // A cached problem detection is not an impact analysis — they are disjoint
@@ -151,14 +135,10 @@ export async function handle(
   // seed. Seeds are appended as supplementary context, never substituted, and
   // the block rides along on the early returns too so nothing is lost.
   const seedBlock = localStore ? cachedSeedBlock(localStore, input.changed_files) : '';
-  return (await impactReport(input, apiClient, sessionId)) + seedBlock;
+  return (await impactReport(input)) + seedBlock;
 }
 
-async function impactReport(
-  input: AnalyzeImpactInput,
-  apiClient: AnalysisAPIClient,
-  sessionId: string,
-): Promise<string> {
+async function impactReport(input: AnalyzeImpactInput): Promise<string> {
   const startTime = Date.now();
 
   const localIndex = getLocalIndex();
@@ -295,14 +275,6 @@ async function impactReport(
 
   const duration = Date.now() - startTime;
 
-  // Optionally augment with API data (non-blocking, best-effort)
-  let apiNote = '';
-  try {
-    await apiClient.post('/v2/analysis/impact', { changed_files: input.changed_files }, sessionId);
-  } catch {
-    apiNote = '\n(API augmentation unavailable — results are local CPG only)';
-  }
-
   let text = `Impact Analysis\n`;
   text += `═══════════════\n\n`;
   text += `Changed files:\n`;
@@ -355,6 +327,6 @@ async function impactReport(
     text += '\n';
   }
 
-  text += `\nAnalysis completed in ${duration}ms${apiNote}`;
+  text += `\nAnalysis completed in ${duration}ms`;
   return text;
 }

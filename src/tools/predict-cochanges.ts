@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
-import type { LocalStore } from '../local-store.js';
+import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 
 export const PredictCochangesTool = {
@@ -131,32 +131,18 @@ export async function handle(
   text += `\nSignals: git history (${gitPredictions.length}) + name-similarity (${gcnPredictions.length}, ${stats.componentsIndexed} components indexed)\n`;
   text += `Query completed in ${duration}ms`;
 
-  // ── Sidecar mode: append cached problem seeds as supplementary context.
-  // Never gates the GCN prediction above — an empty cache just enqueues the
-  // files for background analysis and stays silent.
+  // ── Local store: append known problems in the changed files as
+  // supplementary context. Never gates the prediction above; with no
+  // findings it stays silent.
   if (localStore) {
     const allSeeds: ReturnType<LocalStore['getCachedSeeds']> = [];
-    let oldestAgeMs = 0;
-    let anyStale = false;
-
     for (const f of input.changed_files) {
-      const seeds = localStore.getCachedSeeds(f);
-      const freshness = localStore.getFreshness(f);
-      if (seeds.length > 0) allSeeds.push(...seeds);
-      if (freshness.age_ms !== Infinity && freshness.age_ms > oldestAgeMs) {
-        oldestAgeMs = freshness.age_ms;
-      }
-      if (freshness.stale) anyStale = true;
+      allSeeds.push(...localStore.getCachedSeeds(f));
     }
 
-    if (allSeeds.length === 0) {
-      for (const f of input.changed_files) {
-        localStore.enqueue(f, 0 /* P0 */, 'default');
-      }
-    } else {
-      const ageSec = Math.round(oldestAgeMs / 1000);
+    if (allSeeds.length > 0) {
       const shown = allSeeds.slice(0, input.limit);
-      text += `\n\nKnown problems in changed files (cached, ${ageSec}s old${anyStale ? ', stale' : ''}):\n`;
+      text += `\n\nKnown problems in changed files (local store) ${seedCacheTag(allSeeds)}:\n`;
       for (const s of shown) {
         text += `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start} — ${s.brief}\n    id: ${s.id}\n`;
       }

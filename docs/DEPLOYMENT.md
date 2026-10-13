@@ -24,10 +24,10 @@ leaving the HTTP vessel server unreachable.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `METABOB_API_KEY` | — | Exchanged for a session token on startup. Absent ⇒ anonymous mode: local CPG tools work, the scheduler never starts |
+| `METABOB_API_KEY` | — | Exchanged for a session token on startup. Absent ⇒ anonymous mode: the local tools work, telemetry is off, and the vessel does not register |
 | `METABOB_ENDPOINT` | `https://ide.metabob.com` | Gateway everything else derives from (analysis, discovery, identity, concept-db) |
 | `METABOB_STDIO_KEEPALIVE` | — | `1` keeps the process alive with stdin closed. Required for headless / container runs |
-| `METABOB_STATELESS` | — | `true` disables `LocalStore` and with it the sidecar workers — see [SIDECAR.md](SIDECAR.md) |
+| `METABOB_STATELESS` | — | `true` leaves `LocalStore` unconstructed: no local findings for `record_finding` / `get_problems`, and no agent-resolver queue |
 | `ANALYSIS_API_URL` | _(derived from `METABOB_ENDPOINT`)_ | Analysis API base URL override |
 | `IDENTITY_ENDPOINT` | `https://ide.metabob.com/identity` | Identity vessel (tenant resolution) |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL for substrate routing |
@@ -36,7 +36,6 @@ leaving the HTTP vessel server unreachable.
 | `VESSEL_PUBLIC_ENDPOINT` | `http://127.0.0.1:$HEALTH_PORT` | Reachable base URL advertised for inbound HTTP resolves |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | Rate limit per session |
-| `SUBMIT_TIMEOUT_MS` | `120000` | Timeout for `init_workspace` file submission before treating the backend as slow |
 
 ## Health
 
