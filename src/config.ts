@@ -58,7 +58,7 @@ function normalizeUrl(urlString: string): string | undefined {
   }
 }
 
-/** Sibling services derived from the gateway endpoint — SPEC §endpoint-derivation. */
+/** Sibling services derived from the gateway endpoint — SPEC §endpoint-derivation, CONFORMANCE §c4-anchoring. */
 function deriveSubstrateDefaults(activityApiUrl?: string): Pick<
   MetabobCLIConfig,
   'discoveryEndpoint' | 'analysisApiUrl' | 'identityEndpoint' | 'conceptDbUrl'

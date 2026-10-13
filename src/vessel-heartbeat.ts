@@ -50,6 +50,7 @@ export interface VesselHeartbeatConfig {
   extraFields?: () => Record<string, unknown>;
 }
 
+/** Registration row lifecycle — CONFORMANCE §c9-fail-visibly. */
 export class VesselHeartbeat {
   private config: Required<Omit<VesselHeartbeatConfig, 'heartbeatIntervalMs' | 'metadata' | 'extraFields' | 'resolveTimeoutMs'>> & {
     heartbeatIntervalMs: number;

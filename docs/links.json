@@ -3,6 +3,7 @@
   "curated": {
     "docs": {
       "CLAUDE": "CLAUDE.md",
+      "CONFORMANCE": "docs/CONFORMANCE.md",
       "DEPLOYMENT": "docs/DEPLOYMENT.md",
       "DOCLINKS": "docs/DOCLINKS.md",
       "PUBLISHING": "docs/PUBLISHING.md",
@@ -13,6 +14,7 @@
     "live": [
       "CLAUDE.md",
       "README.md",
+      "docs/CONFORMANCE.md",
       "docs/DEPLOYMENT.md",
       "docs/DOCLINKS.md",
       "docs/METABOB-TOOL-QUESTIONS.md",
@@ -84,6 +86,20 @@
         "scripts/git-hooks/pre-commit",
         "scripts/git-hooks/pre-push",
         "scripts/git-hooks/install.sh"
+      ],
+      "docs/CONFORMANCE.md": [
+        "src/index.ts",
+        "src/vessel-identity.ts",
+        "src/config.ts",
+        "src/vessel-server.ts",
+        "src/presence-advertiser.ts",
+        "src/vessel-heartbeat.ts",
+        "src/federation/libp2p-node.ts",
+        "src/tls-trust.ts",
+        "src/tls-error.ts",
+        "src/auth-service.ts",
+        "src/bootstrap.ts",
+        "src/tools/run-goal.ts"
       ]
     },
     "retired": {},
@@ -121,6 +137,9 @@
         ]
       },
       "src/config.ts": {
+        "CONFORMANCE": [
+          "c4-anchoring"
+        ],
         "SPEC": [
           "endpoint-derivation",
           "precedence"
@@ -134,6 +153,17 @@
       "src/index.ts": {
         "CLAUDE": [
           "environment-variables"
+        ],
+        "CONFORMANCE": [
+          "c1-transport",
+          "c2-endpoint",
+          "c4-anchoring",
+          "c6-collisions"
+        ]
+      },
+      "src/presence-advertiser.ts": {
+        "CONFORMANCE": [
+          "c7-shapes"
         ]
       },
       "src/tools/analyze-impact.ts": {
@@ -277,6 +307,16 @@
           "submit_resolution"
         ]
       },
+      "src/vessel-heartbeat.ts": {
+        "CONFORMANCE": [
+          "c9-fail-visibly"
+        ]
+      },
+      "src/vessel-identity.ts": {
+        "CONFORMANCE": [
+          "c7-shapes"
+        ]
+      },
       "src/vessel-server.ts": {
         "SPEC": [
           "impulse-shapes"
@@ -285,6 +325,7 @@
     },
     "docCitesCode": {
       "CLAUDE.md": [
+        "docs/CONFORMANCE.md",
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
         "scripts/doclinks.mjs",
@@ -303,6 +344,30 @@
         "CLAUDE.md",
         "docs/SPEC.md",
         "scripts/git-hooks/install.sh"
+      ],
+      "docs/CONFORMANCE.md": [
+        "docs/DOCLINKS.md",
+        "docs/SPEC.md",
+        "src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT",
+        "src/bootstrap.ts@fetchBootstrapAnchors",
+        "src/config.ts@deriveSubstrateDefaults",
+        "src/config.ts@withoutEndpoints",
+        "src/federation/libp2p-node.ts@startFederationNode",
+        "src/index.ts@HEALTH_PORT",
+        "src/index.ts@IDENTITY_ENDPOINT",
+        "src/index.ts@advertisedEndpoint",
+        "src/index.ts@health-port-range-warning",
+        "src/index.ts@httpServerBound",
+        "src/index.ts@main",
+        "src/presence-advertiser.ts@computeAdvertisedShapes",
+        "src/presence-advertiser.ts@startPresenceAdvertiser",
+        "src/tls-error.ts@translateTlsError",
+        "src/tls-trust.ts@installSystemTrustStoreSync",
+        "src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS",
+        "src/vessel-heartbeat.ts@VesselHeartbeat",
+        "src/vessel-identity.ts@agentResolverEnabled",
+        "src/vessel-identity.ts@resolveVesselId",
+        "src/vessel-server.ts@VesselServer"
       ],
       "docs/COORDINATION-DEMONSTRATION.md": [
         "src/tools/_findings.ts"
@@ -415,6 +480,8 @@
       "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
       "src/api-client.ts@submitFiles": "e606d02a1169",
+      "src/auth-service.ts@DEFAULT_IDENTITY_ENDPOINT": "961ac605c7c1",
+      "src/bootstrap.ts@fetchBootstrapAnchors": "1b0c2f5da2f8",
       "src/cli.ts@main": "7d5d3f63a3bd",
       "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
@@ -425,7 +492,18 @@
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
       "src/discovery.ts@deriveLocalDiscoveryEndpoint": "3582fa0db678",
       "src/discovery.ts@resolveServiceEndpointByShape": "c82219d4d059",
+      "src/federation/libp2p-node.ts@startFederationNode": "c2e75c7a5db3",
+      "src/index.ts@HEALTH_PORT": "3b0f11787db8",
+      "src/index.ts@IDENTITY_ENDPOINT": "6dd8d4bbbb87",
+      "src/index.ts@advertisedEndpoint": "857f4cae044d",
+      "src/index.ts@health-port-range-warning": "fa8dd2a85884",
+      "src/index.ts@httpServerBound": "f6ec5db62849",
+      "src/index.ts@main": "7d5d3f63a3bd",
+      "src/presence-advertiser.ts@computeAdvertisedShapes": "dff4f00edf65",
+      "src/presence-advertiser.ts@startPresenceAdvertiser": "8a4001141eb2",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
+      "src/tls-error.ts@translateTlsError": "0ecf7178bdcf",
+      "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
@@ -456,12 +534,16 @@
       "src/tools/registry-query.ts@handle": "4206dbda7e7a",
       "src/tools/resolve-impulse.ts@handle": "d2893d44938d",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
+      "src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS": "fc0c2eaead1f",
       "src/tools/run-goal.ts@handle": "4bdf740420c9",
       "src/tools/search-codebase.ts@handle": "4bdf740420c9",
       "src/tools/submit-resolution.ts@handle": "4bdf740420c9",
       "src/vector-index.ts@FAISSIndex": "bdf68716d2e4",
+      "src/vessel-heartbeat.ts@VesselHeartbeat": "3e2425cea530",
       "src/vessel-identity.ts@agentResolverEnabled": "1052bbb4ff16",
+      "src/vessel-identity.ts@resolveVesselId": "e0980371a921",
       "src/vessel-server.ts@QUEUED_SHAPES": "6db48f2ed6c0",
+      "src/vessel-server.ts@VesselServer": "52e392baadee",
       "src/vessel-server.ts@resolvePointerToTool": "16d1a9fc8690"
     }
   }

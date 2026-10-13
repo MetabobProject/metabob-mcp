@@ -36,7 +36,7 @@ const AGENT_RESOLVER_SHAPES = ['human_input'] as const;
  * The shapes to advertise, from two use-time conditions: whether a workspace CPG
  * is populated (gates the code:* shapes) and whether this session is acting as
  * an agent-resolver (gates human_input). Pure and deterministic so the
- * heartbeat's change-detection is stable.
+ * heartbeat's change-detection is stable. CONFORMANCE §c7-shapes.
  */
 export function computeAdvertisedShapes(indexed: boolean, agentResolver = false): string[] {
   const shapes: string[] = [...ALWAYS_SHAPES];

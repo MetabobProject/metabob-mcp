@@ -57,7 +57,7 @@ export const VESSEL_VERSION = readVersion();
  * default: human_input already has producers (the human surface is the user's
  * interaction point), and a producer is added only where data locality
  * justifies it — opt in with METABOB_AGENT_RESOLVER=1|true|on.
- * Bootstrap-only (identity class): frozen at process start.
+ * Bootstrap-only (identity class): frozen at process start. CONFORMANCE §c7-shapes.
  */
 export function agentResolverEnabled(): boolean {
   const v = process.env['METABOB_AGENT_RESOLVER']?.trim().toLowerCase();

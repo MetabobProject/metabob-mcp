@@ -115,6 +115,8 @@ Resolver endpoint: `POST /v2/impulses/resolve` — `Authorization: ApiKey <METAB
 
 ## Vessel registration (point-and-go)
 
+The substrate's participation requirements take priority over this section's design; [docs/CONFORMANCE.md](docs/CONFORMANCE.md) lists each one and whether the code meets it.
+
 Beyond being an MCP/HTTP client, the process joins a discovery namespace as a
 conventional vessel with only `{discovery endpoint, valid key}` — everything else
 derives (namespace from the verified key; discovery explicit or from a local gateway;
@@ -213,4 +215,5 @@ ide.metabob.com              cpg-inference-ts              ide.metabob.com/ident
 
 - [docs/SPEC.md](docs/SPEC.md) — full tool specification
 - [docs/DOCLINKS.md](docs/DOCLINKS.md) — the docs ↔ code link database and its checks
+- [docs/CONFORMANCE.md](docs/CONFORMANCE.md) — the substrate participation requirements this vessel answers to, and which it meets
 - [vendor/cpg-inference](vendor/cpg-inference/) — vendored CPG fork (Tree-sitter parsing, ONNX embedding, vector index)

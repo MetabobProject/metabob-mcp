@@ -74,6 +74,7 @@ const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 6
 // No fixed default port: a fixed default collides across concurrent instances,
 // and 8000–8999 belong to substrate containers (8080 is activity-api; discovery
 // rewrites 127.0.0.1:8xxx rows to +10000). Unset → ephemeral, client-local only.
+// CONFORMANCE §c6-collisions
 const HEALTH_PORT = Number(process.env.HEALTH_PORT) || 0;
 const SUBMIT_TIMEOUT_MS = Number(process.env.SUBMIT_TIMEOUT_MS) || 120000;
 const METABOB_API_KEY = process.env.METABOB_API_KEY;
@@ -84,6 +85,7 @@ const USE_CONNECTION_SLOTS = process.env.USE_CONNECTION_SLOTS === 'true';
 // Identity (tenant resolution only — discovery registration removed).
 // Defaults to the /identity path of the single public endpoint; the
 // identity.metabob.com vhost is not part of the deployment's routing.
+// CONFORMANCE §c4-anchoring — the public fallback is a gap there.
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || (DISCOVERY_ENDPOINT ? undefined : 'https://ide.metabob.com/identity');
 
 /**
@@ -521,7 +523,7 @@ async function main() {
 
   // Start vessel HTTP server (health + capabilities + impulse resolver).
   // Registration below is gated on this succeeding: a vessel that failed to bind
-  // must not advertise an endpoint it does not serve.
+  // must not advertise an endpoint it does not serve. CONFORMANCE §c2-endpoint.
   let httpServerBound = false;
   try {
     await vesselServer.start();
@@ -529,6 +531,8 @@ async function main() {
   } catch (error) {
     log('warn', 'Failed to start vessel HTTP server — will not register with discovery', { error });
   }
+  // CONFORMANCE §c6-collisions
+  // @anchor health-port-range-warning
   if (HEALTH_PORT >= 8000 && HEALTH_PORT <= 8999) {
     log('warn', 'HEALTH_PORT is in 8000–8999, which collides with substrate container ports', { port: HEALTH_PORT });
   }
@@ -563,6 +567,7 @@ async function main() {
     // valid only inside the caller's own network namespace (the host's
     // 127.0.0.1 is not a container's), so there is no default: registration
     // needs an explicit VESSEL_PUBLIC_ENDPOINT and a bound HTTP server.
+    // CONFORMANCE §c2-endpoint
     const advertisedEndpoint = process.env.VESSEL_PUBLIC_ENDPOINT?.trim() || undefined;
     if (DISCOVERY_ENDPOINT && METABOB_API_KEY && vesselId && !httpServerBound) {
       log('warn', 'Discovery registration skipped — HTTP server not bound; running client-only', { port: HEALTH_PORT });
@@ -581,6 +586,7 @@ async function main() {
       // behind NAT / a corp proxy can reach us. No relay or no transport →
       // FederationNode is null and we advertise HTTP-only (the compliant
       // fallback).
+      // CONFORMANCE §c1-transport — a vessel-owned libp2p node is a gap there.
       try {
         const anchors = await fetchBootstrapAnchors(DISCOVERY_ENDPOINT);
         const relay = anchors.relayMultiaddrs[0];
