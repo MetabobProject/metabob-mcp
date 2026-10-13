@@ -115,14 +115,11 @@ describe('W3 attachment conformance', () => {
     expect(reached).toBe(false);
   });
 
-  // Pending the change that removes workspace uploads (the file watchers, the
-  // scheduler and init_workspace's submission). Until it lands, init_workspace
-  // sends file excerpts as `problem_detection` and the scheduler posts bundles
-  // to /v2/mcp/analysis/run.
-  test.todo('no workspace content is sent to the substrate', async () => {
+  // No workspace content leaves the machine (user ruling 2026-10-13: no uploads).
+  test('no workspace content is sent to the substrate', async () => {
     const out = await plain.text('init_workspace', {});
     expect(out).toMatch(/Local index:\s*[1-9]\d*\/\d+ files parsed/);
-    await Bun.sleep(2_500); // one scheduler tick
+    await Bun.sleep(2_500); // long enough for any background sender to fire
     const leaked = fake.requests.filter(r => r.rawBody.includes(MARKER));
     expect(leaked.map(r => `${r.service} ${r.method} ${r.path}`)).toEqual([]);
   });

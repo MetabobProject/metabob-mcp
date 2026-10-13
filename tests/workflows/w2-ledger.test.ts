@@ -125,6 +125,6 @@ describe('W2 ledger across two sessions', () => {
     expect(context).toContain('closed findings suppressed');
     expect(openRecall(context)).not.toContain(SECOND);
     expect(localPart(context)).not.toContain(SECOND);
-    expect(context).toMatch(/Open problems: 0 open/);
+    expect(context).toMatch(/Open problems \(local store\): 0 open/);
   });
 });
