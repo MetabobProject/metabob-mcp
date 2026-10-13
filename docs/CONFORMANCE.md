@@ -139,7 +139,8 @@ Under the substrate's enforce mode these fail, whatever the vessel intends:
 
 **Status.** The vessel writes no row and offers nothing inbound, so no substrate caller depends on
 it; its loopback resolver still requires a key for every shape, `mcp:tool_call` included. Its own
-cross-node exposure is the key it sends: a foreign key fails per call (C3).
+cross-node exposure is the key it sends: a foreign key is refused once, at the org check, before any
+other keyed call (C3).
 
 ## C6 — Collisions
 
