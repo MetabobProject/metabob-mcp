@@ -14,8 +14,12 @@
  *
  * Hermetic: an in-process fake substrate (../harness/fake-substrate.ts), TLS
  * fronts and corporate proxies on 127.0.0.1, and certificates minted at test
- * time. Every row runs concurrently, so the suite takes as long as its slowest
- * row (the 5 s default connect budget). Proxied host names end in `.invalid`
+ * time. Each row's outcome depends only on its own requests: shared proxies and
+ * fronts serve every connection independently, and the bounds come from the
+ * client's own budgets (CONNECT_BUDGET_MS, BOOTSTRAP_BUDGET_MS), never from a
+ * guess at how fast a runner is. Rows run ROW_CONCURRENCY at a time, so a 2-core
+ * runner is not asked to complete ~75 TLS handshakes and process starts at
+ * once. Proxied host names end in `.invalid`
  * (RFC 6761), which no resolver answers: only the proxy can reach them, and a
  * direct attempt fails as dns_failed at once — on a machine whose resolver
  * answers every name (a hijacking resolver), those two rows cannot hold.
@@ -27,6 +31,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { DEFAULT_CONNECT_TIMEOUT_MS } from '../../../src/net';
 import { attach, RESOLVE_TIMEOUT_MS, describeResolveFailure, setAttachment, getAttachment } from '../../../src/attachment';
 import { VesselServer } from '../../../src/vessel-server';
 import { CircuitState } from '../../../src/circuit-breaker';
@@ -37,8 +42,22 @@ import { makeCa, makeLeaf, type Issued } from './test-ca';
 const REPO_ROOT = resolve(import.meta.dir, '..', '..', '..');
 const KEY = 'mb_test_workflow_key';
 const PROXY_PASSWORD = 'not-a-real-proxy-password'; // gitleaks:allow (a test fixture)
-/** The connect budget the rows run with, so blackholed rows fail fast; one row keeps the 5 s default. */
-const ROW_CONNECT_MS = 2_000;
+/**
+ * Every row runs with the client's default budgets, so a bound is a property of
+ * the client, not of the test: a failure the network answers at once (a 407, a
+ * block page, an untrusted chain, NXDOMAIN, a refusal) is named before the
+ * connect budget could fire; a blackhole is named when it fires; anything at
+ * /bootstrap ends within its response budget, retries included. SLACK_MS covers
+ * the work around the request (reading the trust store, the OS proxy read the
+ * Node leg makes after a direct failure, scheduling); it never decides a cause.
+ */
+const CONNECT_BUDGET_MS = DEFAULT_CONNECT_TIMEOUT_MS;
+const BOOTSTRAP_BUDGET_MS = 5_000;
+const SLACK_MS = 2_500;
+/** The one row that sets its own, shorter connect budget. */
+const SHORT_CONNECT_MS = 2_000;
+/** Rows in flight at once, so the run holds on a 2-core runner; see the header comment. */
+const ROW_CONCURRENCY = 4;
 /**
  * The Node leg's bound is asserted on the attachment's own clock (the report's
  * startedAt → settledAt), so CI scheduler load on many concurrent processes does
@@ -100,7 +119,6 @@ let suiteMs = 0;
 
 function baseEnv(row: Row): Record<string, string> {
   return {
-    METABOB_CONNECT_TIMEOUT_MS: String(ROW_CONNECT_MS),
     NODE_EXTRA_CA_CERTS: caFileSubstrate,
     ...(row.env?.() ?? {}),
   };
@@ -138,7 +156,7 @@ const ROWS: Row[] = [
     condition: 'NO_PROXY names the anchor: it goes direct (and its name does not resolve here)',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.noproxy!.url(), NO_PROXY: '.example.com,substrate.invalid' }),
-    expect: { cause: 'dns_failed', causeArg: 'substrate.invalid', withinMs: ROW_CONNECT_MS + 1_000 },
+    expect: { cause: 'dns_failed', causeArg: 'substrate.invalid', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'basic-auth',
@@ -152,14 +170,14 @@ const ROWS: Row[] = [
     condition: 'Proxy with Basic auth, no credentials',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.basic!.url() }),
-    expect: { cause: 'proxy_auth_required', causeArg: 'Basic', withinMs: 2_000 },
+    expect: { cause: 'proxy_auth_required', causeArg: 'Basic', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'ntlm',
     condition: 'Proxy with NTLM auth',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.ntlm!.url() }),
-    expect: { cause: 'proxy_auth_required', causeArg: 'NTLM', withinMs: 2_000 },
+    expect: { cause: 'proxy_auth_required', causeArg: 'NTLM', withinMs: CONNECT_BUDGET_MS },
     check: (r) => expect(r.message).toMatch(/px- or cntlm-style/),
   },
   {
@@ -167,7 +185,7 @@ const ROWS: Row[] = [
     condition: 'Proxy with Negotiate (Kerberos) auth',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.negotiate!.url() }),
-    expect: { cause: 'proxy_auth_required', causeArg: 'Negotiate', withinMs: 2_000 },
+    expect: { cause: 'proxy_auth_required', causeArg: 'Negotiate', withinMs: CONNECT_BUDGET_MS },
     check: (r) => expect(r.message).toMatch(/px- or cntlm-style/),
   },
   {
@@ -175,7 +193,7 @@ const ROWS: Row[] = [
     condition: 'CONNECT allowed only to :443, anchor on :8443',
     anchor: () => 'https://substrate.invalid:8443',
     env: () => ({ HTTPS_PROXY: proxies.ssl443!.url() }),
-    expect: { cause: 'proxy_port_blocked', causeArg: '8443', withinMs: 2_000 },
+    expect: { cause: 'proxy_port_blocked', causeArg: '8443', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'plain-http-via-proxy',
@@ -196,34 +214,34 @@ const ROWS: Row[] = [
     condition: 'Proxy cutting idle connections; the anchor never answers',
     anchor: () => 'http://silent.invalid:18100',
     env: () => ({ HTTP_PROXY: proxies.idle!.url() }),
-    expect: { cause: 'connection_reset', withinMs: 4_000 },
+    expect: { cause: 'connection_reset', withinMs: BOOTSTRAP_BUDGET_MS + SLACK_MS },
   },
   {
     id: 'block-page',
     condition: 'Proxy answering CONNECT with an HTML block page',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.block!.url() }),
-    expect: { cause: 'blocked_by_portal', withinMs: 2_000 },
+    expect: { cause: 'blocked_by_portal', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'block-page-http',
     condition: 'Proxy answering a plain-http request with an HTML block page',
     anchor: () => 'http://plain.invalid:18100',
     env: () => ({ HTTP_PROXY: proxies.block!.url() }),
-    expect: { cause: 'blocked_by_portal', withinMs: 2_000 },
+    expect: { cause: 'blocked_by_portal', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'captive-portal',
     condition: 'Captive portal / impostor: /bootstrap answers HTML',
     anchor: () => fakePortal.url('discovery'),
-    expect: { cause: 'blocked_by_portal', withinMs: 2_000 },
+    expect: { cause: 'blocked_by_portal', withinMs: CONNECT_BUDGET_MS },
   },
   {
     id: 'tls-intercepted',
     condition: 'TLS interception, inspection CA not trusted',
     anchor: () => 'https://substrate.invalid',
     env: () => ({ HTTPS_PROXY: proxies.mitm!.url() }),
-    expect: { cause: 'tls_intercepted', causeArg: 'Corp Inspection CA', withinMs: 2_000 },
+    expect: { cause: 'tls_intercepted', causeArg: 'Corp Inspection CA', withinMs: CONNECT_BUDGET_MS },
     check: (r) => expect(r.message).toContain('TLS_INTERCEPTED'),
   },
   {
@@ -237,15 +255,15 @@ const ROWS: Row[] = [
     id: 'blackhole-proxy',
     condition: 'Blackholed proxy (accepts, never answers)',
     anchor: () => 'https://substrate.invalid',
-    env: () => ({ HTTPS_PROXY: proxies.blackhole!.url() }),
-    expect: { cause: 'connect_timeout', withinMs: ROW_CONNECT_MS + 1_500 },
+    env: () => ({ HTTPS_PROXY: proxies.blackhole!.url(), METABOB_CONNECT_TIMEOUT_MS: String(SHORT_CONNECT_MS) }),
+    expect: { cause: 'connect_timeout', withinMs: SHORT_CONNECT_MS + SLACK_MS },
   },
   {
     id: 'blackhole-default-budget',
     condition: 'Blackholed proxy, the default 5 s connect budget',
     anchor: () => 'https://substrate.invalid',
-    env: () => ({ HTTPS_PROXY: proxies.blackhole!.url(), METABOB_CONNECT_TIMEOUT_MS: '' }),
-    expect: { cause: 'connect_timeout', withinMs: 6_500 },
+    env: () => ({ HTTPS_PROXY: proxies.blackhole!.url() }),
+    expect: { cause: 'connect_timeout', withinMs: CONNECT_BUDGET_MS + SLACK_MS },
   },
   {
     id: 'connect-refused',
@@ -253,14 +271,13 @@ const ROWS: Row[] = [
     anchor: () => `http://127.0.0.1:${refusedPort}`,
     // Windows answers a refused loopback connect only after its SYN retries (~2 s),
     // so this row keeps the default budget: refused must not read as a timeout.
-    env: () => ({ METABOB_CONNECT_TIMEOUT_MS: '' }),
-    expect: { cause: 'connect_refused', withinMs: 4_000 },
+    expect: { cause: 'connect_refused', withinMs: CONNECT_BUDGET_MS + SLACK_MS },
   },
   {
     id: 'silent-anchor',
     condition: 'The anchor accepts and never answers (slow, not blocked)',
     anchor: () => `http://127.0.0.1:${silentPort}`,
-    expect: { cause: 'response_timeout', withinMs: 6_500 },
+    expect: { cause: 'response_timeout', withinMs: BOOTSTRAP_BUDGET_MS + SLACK_MS },
   },
 ];
 
@@ -438,14 +455,18 @@ beforeAll(async () => {
     }
   }
 
-  // Every row, both legs, at once.
+  // Both legs, a bounded number of rows at a time.
   const started = Date.now();
-  await Promise.all([
-    ...ROWS.map(async (row) => bunResults.set(row.id, await runBun(row))),
-    ...(nodeAvailable ? ROWS.map(async (row) => nodeResults.set(row.id, await runNode(row))) : []),
-  ]);
+  const tasks: Array<() => Promise<void>> = [
+    ...ROWS.map((row) => async () => { bunResults.set(row.id, await runBun(row)); }),
+    ...(nodeAvailable ? ROWS.map((row) => async () => { nodeResults.set(row.id, await runNode(row)); }) : []),
+  ];
+  let next = 0;
+  await Promise.all(Array.from({ length: ROW_CONCURRENCY }, async () => {
+    while (next < tasks.length) await tasks[next++]!();
+  }));
   suiteMs = Date.now() - started;
-}, 60_000);
+}, 180_000);
 
 afterAll(async () => {
   for (const stop of stoppers) await stop();
@@ -455,7 +476,7 @@ afterAll(async () => {
     const fmt = (x?: RowResult) => (x ? `${x.attached ? 'attached' : x.cause} ${x.elapsedMs}ms` : 'n/a');
     return `  ${r.id.padEnd(26)} bun: ${fmt(b).padEnd(44)} node: ${fmt(n)}`;
   });
-  console.error(`network matrix (${suiteMs}ms wall clock, rows concurrent):\n${lines.join('\n')}`);
+  console.error(`network matrix (${suiteMs}ms wall clock, ${ROW_CONCURRENCY} rows at a time):\n${lines.join('\n')}`);
   try {
     rmSync(tmp, { recursive: true, force: true });
   } catch {
@@ -464,12 +485,6 @@ afterAll(async () => {
 });
 
 // ── Assertions ───────────────────────────────────────────────────────────────
-
-// Windows runners connect, refuse and complete TLS handshakes markedly slower
-// (measured: idle-cut-slow 4.4 s, tls-intercepted 2.7 s on windows-latest), so
-// the "fails within" bounds scale there. The bound still means seconds, not the
-// minutes of the full-timeout-times-retries failure it guards against.
-const PLATFORM_TIME_FACTOR = process.platform === 'win32' ? 2 : 1;
 
 function assertRow(row: Row, r: RowResult | undefined, wallSlackMs: number) {
   expect(r).toBeDefined();
@@ -480,9 +495,8 @@ function assertRow(row: Row, r: RowResult | undefined, wallSlackMs: number) {
     expect(r!.cause).toBe(row.expect.cause);
     if (row.expect.causeArg) expect(r!.message).toContain(`${row.expect.cause}(`);
     if (row.expect.causeArg) expect(r!.message).toContain(row.expect.causeArg);
-    const withinMs = row.expect.withinMs * PLATFORM_TIME_FACTOR;
-    expect(r!.clientMs).toBeLessThan(withinMs);
-    expect(r!.elapsedMs).toBeLessThan(withinMs + wallSlackMs);
+    expect(r!.clientMs).toBeLessThan(row.expect.withinMs);
+    expect(r!.elapsedMs).toBeLessThan(row.expect.withinMs + wallSlackMs);
   }
 }
 

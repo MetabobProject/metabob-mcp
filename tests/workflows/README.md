@@ -57,8 +57,10 @@ route the recorded `body` is the operation's input; `rawBody` is what was sent.
 port allow-list, Basic / NTLM / Negotiate challenges, idle cuts, a block page, TLS interception,
 blackhole), with a TLS terminator and silent and closed ports; `networks/test-ca.ts` mints the test CAs
 and leaves with `node:crypto`. The proxied host names end in `.invalid`, so only a proxy reaches them.
-Every row runs concurrently; the matrix takes about as long as its slowest row (the 5 s default connect
-budget).
+The proxy holds a client's bytes from the end of the request head until it pipes them upstream, so a
+body sent in its own segment (as Node sends it) is never dropped. Every row runs with the client's
+default budgets, and its "fails within" bound comes from them; rows run four at a time, about 10 s for
+the whole matrix, and the outcome does not depend on order or CPU load.
 
 `harness/mcp-client.ts` spawns the server, sends `initialize` and then `tools/call` requests, times each
 request out, and records any non-JSON-RPC line on stdout.

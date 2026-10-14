@@ -90,6 +90,11 @@ export class CorpProxy {
       const idx = buf.indexOf('\r\n\r\n');
       if (idx < 0) return;
       client.off('data', onData);
+      // Hold what arrives next — a request body sent in its own segment, the
+      // first bytes of a tunnel — until onHead pipes the socket upstream. A
+      // socket left flowing with no 'data' listener drops those bytes, and the
+      // upstream then waits for a body that never comes.
+      client.pause();
       void this.onHead(client, buf.subarray(0, idx).toString('latin1'), buf.subarray(idx + 4));
     };
     client.on('data', onData);
