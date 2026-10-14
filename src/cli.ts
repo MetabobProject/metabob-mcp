@@ -9,11 +9,16 @@
 // `npx @metabob/mcp` starts under Node like every other npm package. The MCP server
 // itself needs Bun — bun:sqlite backs the local seed store — so a server invocation
 // that lands here under Node re-execs into Bun, and prints an actionable install
-// message when Bun is absent. --help, --version and `doctor` are Node-safe and stay
-// in-process; they must keep working on a machine that has never seen Bun.
+// message when Bun is absent. --help, --version, `doctor` and `attach --check` are
+// Node-safe and stay in-process — they must keep working on a machine that has never
+// seen Bun — so they run under whichever runtime launched them; their requests take
+// the same path as the server's (src/net.ts, identical under Bun and Node).
+// SPEC §runtime
 const NODE_SAFE_FLAGS = new Set(['--help', '-h', '--version', '-v']);
 const isNodeSafeInvocation =
-  process.argv[2] === 'doctor' || process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
+  process.argv[2] === 'doctor' ||
+  process.argv[2] === 'attach' ||
+  process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
 
 if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
   // Same opt-out conditions as the Bun-side re-exec below; passing the flag here
@@ -101,7 +106,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfigDefaults, loadMetabobCLIConfig, loadMetabobEnvConfig, withoutEndpoints } from './config.js';
+import { applyConfiguration } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -124,6 +129,8 @@ metabob-mcp - MCP server for Metabob code analysis
 
 USAGE:
   npx @metabob/mcp [OPTIONS]
+  npx @metabob/mcp attach --check     Run the attachment once and print each hop (proxy, TLS,
+                                      /bootstrap, identity, org check, one resolve); exit 0 when attached
   npx @metabob/mcp doctor             Diagnose proxy / TLS-inspection issues on the path to the substrate
 
 OPTIONS:
@@ -145,9 +152,10 @@ OPTIONS:
 ATTACHMENT:
   The server attaches to a substrate with two inputs, an API key and an
   endpoint, and neither has a default. The substrate installer writes both
-  into ~/.metabob/config.json, so a machine it has set up needs no flags or
+  into ~/.substrate/config.json, so a machine it has set up needs no flags or
   env. With either missing the server still starts: local tools work, and it
-  says once which input is missing.
+  says once which input is missing. When it does not attach, run
+  \`metabob-mcp attach --check\` first: it names what the network did.
 
 EXAMPLES:
   # Attach with the installer's config file (no flags)
@@ -160,8 +168,9 @@ EXAMPLES:
   npx @metabob/mcp --session-id=my-session --log-level=debug
 
 ENVIRONMENT VARIABLES:
-  METABOB_API_KEY              API key
-  METABOB_ENDPOINT             Substrate endpoint. A local port-published endpoint
+  METABOB_API_KEY              API key (SUBSTRATE_API_KEY is accepted too; METABOB_* wins)
+  METABOB_ENDPOINT             Substrate endpoint (SUBSTRATE_ENDPOINT is accepted too).
+                               A local port-published endpoint
                                (http://127.0.0.1:18080) derives discovery (:18100);
                                a remote endpoint derives nothing, so set
                                DISCOVERY_ENDPOINT with it.
@@ -176,14 +185,25 @@ ENVIRONMENT VARIABLES:
   HEALTH_PORT                  Same as --health-port
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
 
+  Network (from the environment and the OS, never from a config file):
+  HTTPS_PROXY / HTTP_PROXY     HTTP CONNECT proxy, chosen per request; https uses
+                               HTTPS_PROXY (falling back to HTTP_PROXY). Basic
+                               credentials go in the URL and are never logged.
+  NO_PROXY                     Hosts that go direct; 127.0.0.1, localhost and ::1
+                               always do. PAC / WPAD scripts are not evaluated:
+                               set HTTPS_PROXY to the proxy the PAC names.
+  NODE_EXTRA_CA_CERTS          Extra trusted roots (PEM), on top of the OS store
+  METABOB_CONNECT_TIMEOUT_MS   Connect budget (default 5000)
+
   Precedence: CLI flags > environment variables > config file. An explicit
   METABOB_ENDPOINT takes only the credentials from a config file, never its
   endpoints, so the two cannot split across substrates.
 
 CONFIGURATION FILE:
-  Resolution is directory-aware: METABOB_CONFIG_PATH > ./.metabob/config.json
-  (the launch directory, which lets a project pin its own backend) >
-  ~/.metabob/config.json.
+  Resolution is directory-aware: SUBSTRATE_CONFIG_PATH > METABOB_CONFIG_PATH >
+  ./.substrate/config.json > ./.metabob/config.json (the launch directory, which
+  lets a project pin its own backend) > ~/.substrate/config.json (what the
+  installer writes) > ~/.metabob/config.json.
   {
     "metabob": {
       "apiKey": "mb_live_...",                  // or legacy instance.apiKey
@@ -318,9 +338,26 @@ function validateOptions(options: CLIOptions): void {
 async function main() {
   // Doctor subcommand: handle BEFORE parseArgs (strict mode rejects positionals).
   // Form: `npx @metabob/mcp doctor [...]`
+  // `attach --check`: the attachment once, hop by hop. Node-safe, like doctor.
+  if (process.argv[2] === 'attach') {
+    const { runAttachCheck } = await import('./attach-check.js');
+    try {
+      process.exit(await runAttachCheck(process.argv.slice(3)));
+    } catch (err) {
+      console.error('[metabob-mcp attach] fatal:', err instanceof Error ? err.message : err);
+      process.exit(2);
+    }
+    return;
+  }
+
   if (process.argv[2] === 'doctor') {
     // Strip the subcommand so doctor-cli sees only its own args.
     process.argv.splice(2, 1);
+    // `doctor --attach` is the front door to `attach --check` (SPEC §attach-check).
+    if (process.argv.includes('--attach')) {
+      const { runAttachCheck } = await import('./attach-check.js');
+      process.exit(await runAttachCheck(['--check', ...process.argv.slice(2).filter((a) => a === '--json')]));
+    }
     const { runDoctor } = await import('./doctor.js');
     try {
       const { exitCode } = await runDoctor();
@@ -367,10 +404,11 @@ async function main() {
   // Nothing is defaulted: a missing key or endpoint is reported once, by
   // index.ts (config.ts unattachedMessage). SPEC §precedence,
   // CLAUDE §environment-variables.
-  const envConfig = loadMetabobEnvConfig();
-  applyConfigDefaults(process.env, envConfig);
-  const fileConfig = loadMetabobCLIConfig();
-  applyConfigDefaults(process.env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
+  // The installer's SUBSTRATE_* names are accepted too; METABOB_* wins, with one
+  // warning when both are set and differ. SPEC §configuration-lookup
+  for (const warning of applyConfiguration(process.env).warnings) {
+    console.error(`[metabob-mcp] ${warning}`);
+  }
 
   // Install the OS trust store BEFORE any HTTPS request fires, and after the
   // configuration, so the proxy is chosen for the configured substrate host.

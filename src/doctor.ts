@@ -16,8 +16,6 @@
  */
 
 import * as tls from 'node:tls';
-import * as net from 'node:net';
-import * as https from 'node:https';
 import * as dns from 'node:dns/promises';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -25,15 +23,16 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
-import { HttpsProxyAgent } from 'https-proxy-agent';
-import { getProxyForUrl } from 'proxy-from-env';
+import { classifyNetError, openTlsSocket, readProxyEnv, redactUrl, request, selectProxy } from './net.js';
+import { describeOsProxy, detectOsProxy, type OsProxySettings } from './os-proxy.js';
 import { readKnownHosts } from './cert-fingerprint.js';
 import { attach, type AttachmentState } from './attachment.js';
 import {
   applyConfigDefaults,
   configuredSubstrateUrls,
   discoveryEndpointSource,
-  getDefaultConfigPath,
+  applySubstrateEnvAliases,
+  resolveConfigPath,
   loadMetabobCLIConfig,
   loadMetabobEnvConfig,
   unattachedMessage,
@@ -41,18 +40,15 @@ import {
 } from './config.js';
 
 /**
- * proxy-from-env's getProxyForUrl() runs the legacy url.parse() when handed a
- * string, which emits `DEP0169 DeprecationWarning: url.parse()` under Node ≥21.
- * Handing it a WHATWG URL instead makes it skip url.parse() and read
- * .protocol/.host/.port directly — those fields are byte-compatible with what
- * it read off the legacy Url, so the result is identical, just warning-free.
- * Falls back to the string form if the input isn't a parseable absolute URL.
+ * The proxy a request to `rawUrl` takes, chosen as every request chooses it
+ * (src/net.ts@select-proxy: HTTP(S)_PROXY, NO_PROXY, loopback always direct);
+ * '' when it goes direct. Credentials intact — callers redact before printing.
  */
 function proxyForUrl(rawUrl: string): string {
   try {
-    return getProxyForUrl(new URL(rawUrl) as unknown as import('node:url').Url);
+    return selectProxy(rawUrl).proxy ?? '';
   } catch {
-    return getProxyForUrl(rawUrl);
+    return '';
   }
 }
 
@@ -100,6 +96,12 @@ export interface ProxySnapshot {
   proxyScheme: 'http' | 'https' | 'socks' | 'unknown' | null;
   /** Hosts in NO_PROXY that exclude any metabob target. */
   noProxyExcludesMetabob: string[];
+  /** NO_PROXY entries in force: the operator's, plus loopback whenever a proxy is set. */
+  effectiveNoProxy: string[];
+  /** OS proxy settings (scutil / registry / gsettings), which this process does not apply. */
+  osProxy: OsProxySettings | null;
+  /** One sentence naming OS proxy settings the environment does not carry, or null. */
+  osProxyNote: string | null;
   /** NODE_EXTRA_CA_CERTS path + parse result. */
   nodeExtraCaCerts: {
     path: string;
@@ -423,15 +425,18 @@ function inspectNodeExtraCaCerts(): ProxySnapshot['nodeExtraCaCerts'] {
   }
 }
 
-function snapshotProxy(anchorHosts: readonly string[]): ProxySnapshot {
-  const httpProxy = process.env.HTTP_PROXY ?? process.env.http_proxy ?? null;
-  const httpsProxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? null;
-  const noProxy = process.env.NO_PROXY ?? process.env.no_proxy ?? null;
+// Proxy URLs are redacted wherever they are reported: Basic credentials never
+// reach the report, the artifact or the screen (src/net.ts@redact-credentials).
+async function snapshotProxy(anchorHosts: readonly string[]): Promise<ProxySnapshot> {
+  const pe = readProxyEnv();
+  const httpProxy = pe.httpProxy ? redactUrl(pe.httpProxy) : null;
+  const httpsProxy = pe.httpsProxy ? redactUrl(pe.httpsProxy) : null;
+  const noProxy = pe.noProxy;
 
-  // Resolve the effective proxy for the anchor host (honors NO_PROXY).
+  // Resolve the effective proxy for the anchor host (honors NO_PROXY and loopback).
   const anchor = anchorHosts[0];
   const effective = anchor ? proxyForUrl(`https://${anchor}/`) : '';
-  const effectiveProxyForMetabob = effective && effective.length > 0 ? effective : null;
+  const effectiveProxyForMetabob = effective && effective.length > 0 ? redactUrl(effective) : null;
 
   // Detect which substrate hosts are excluded by NO_PROXY.
   const noProxyExcludesMetabob: string[] = [];
@@ -442,6 +447,11 @@ function snapshotProxy(anchorHosts: readonly string[]): ProxySnapshot {
     }
   }
 
+  // Best-effort and bounded: the OS settings, so a PAC / proxy the environment
+  // does not carry is named. SPEC §network
+  const osProxy = await detectOsProxy();
+  const osProxyNote = !pe.httpsProxy && !pe.httpProxy ? describeOsProxy(osProxy) : null;
+
   return {
     httpProxy,
     httpsProxy,
@@ -451,6 +461,9 @@ function snapshotProxy(anchorHosts: readonly string[]): ProxySnapshot {
     effectiveProxyForMetabob,
     proxyScheme: detectProxyScheme(effectiveProxyForMetabob ?? httpsProxy ?? httpProxy),
     noProxyExcludesMetabob,
+    effectiveNoProxy: pe.effectiveNoProxy,
+    osProxy,
+    osProxyNote,
     nodeExtraCaCerts: inspectNodeExtraCaCerts(),
   };
 }
@@ -542,105 +555,6 @@ function snapshotTrustStore(): { snapshot: TrustStoreSnapshot; systemCerts: stri
   };
 }
 
-/**
- * Open a TCP socket to an HTTP CONNECT proxy and request a tunnel to
- * `host:port`. Resolves with the underlying socket once the proxy returns
- * 200, or rejects on any error / non-200 response.
- */
-function openProxyTunnel(
-  proxyUrl: string,
-  targetHost: string,
-  targetPort: number,
-  timeoutMs: number,
-): Promise<net.Socket> {
-  return new Promise((resolve, reject) => {
-    let u: URL;
-    try {
-      u = new URL(proxyUrl);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const proxyPort = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
-    const proxyHost = u.hostname;
-
-    let settled = false;
-    const cleanup = (sock: net.Socket | null, err?: Error) => {
-      if (settled) return;
-      settled = true;
-      if (err) {
-        try { sock?.destroy(); } catch { /* ignore */ }
-        reject(err);
-      } else if (sock) {
-        resolve(sock);
-      }
-    };
-
-    // For an `https:` proxy the CONNECT request itself rides on TLS to the
-    // proxy. For an `http:` proxy it's plain TCP.
-    const socket: net.Socket =
-      u.protocol === 'https:'
-        ? tls.connect({ host: proxyHost, port: proxyPort, servername: proxyHost })
-        : net.connect({ host: proxyHost, port: proxyPort });
-
-    const timer = setTimeout(
-      () => cleanup(socket, new Error(`proxy tunnel timeout to ${proxyHost}:${proxyPort}`)),
-      timeoutMs,
-    );
-
-    socket.once('error', (err) => {
-      clearTimeout(timer);
-      cleanup(socket, err);
-    });
-
-    const onReady = () => {
-      const auth = u.username
-        ? `Proxy-Authorization: Basic ${Buffer.from(
-            `${decodeURIComponent(u.username)}:${decodeURIComponent(u.password ?? '')}`,
-          ).toString('base64')}\r\n`
-        : '';
-      const req =
-        `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n` +
-        `Host: ${targetHost}:${targetPort}\r\n` +
-        auth +
-        `\r\n`;
-      socket.write(req);
-
-      let buf = '';
-      const onData = (chunk: Buffer) => {
-        buf += chunk.toString('utf8');
-        const idx = buf.indexOf('\r\n\r\n');
-        if (idx < 0) return;
-        socket.removeListener('data', onData);
-        const head = buf.slice(0, idx);
-        const m = head.match(/^HTTP\/\d\.\d (\d+) (.*?)\r?\n/);
-        if (!m) {
-          clearTimeout(timer);
-          cleanup(socket, new Error(`malformed proxy response: ${head.slice(0, 80)}`));
-          return;
-        }
-        const code = Number(m[1]);
-        if (code !== 200) {
-          clearTimeout(timer);
-          cleanup(socket, new Error(`proxy returned HTTP ${code} ${m[2]} for CONNECT ${targetHost}:${targetPort}`));
-          return;
-        }
-        clearTimeout(timer);
-        // Leftover bytes after headers would be TLS bytes — but we haven't
-        // started TLS yet, so the server shouldn't be sending any.
-        cleanup(socket);
-      };
-      socket.on('data', onData);
-    };
-
-    if (u.protocol === 'https:') {
-      (socket as tls.TLSSocket).once('secureConnect', onReady);
-    } else {
-      socket.once('connect', onReady);
-    }
-  });
-}
-
 async function probeTlsHandshake(
   host: string,
   systemCerts: ReadonlyArray<string>,
@@ -651,33 +565,32 @@ async function probeTlsHandshake(
   const bundled = new Set(tls.rootCertificates);
   const systemSet = new Set(systemCerts);
 
-  // Honor HTTPS_PROXY + NO_PROXY for the raw TLS probe. Without this, the
-  // probe bypasses the proxy and looks like a network failure even when the
-  // proxy is the required egress path.
-  const proxyUrl = proxyForUrl(`https://${host}/`);
+  // The handshake takes the same path a request does (src/net.ts@open-tls-socket):
+  // the proxy chosen per request, the tunnel opened by hostname. Without the
+  // proxy the probe would look like a network failure where the proxy is the
+  // required egress path.
+  const proxyUrl = redactUrl(proxyForUrl(`https://${host}:${port}/`));
   const viaProxy = Boolean(proxyUrl);
 
-  let baseSocket: net.Socket | null = null;
-  if (proxyUrl) {
-    try {
-      baseSocket = await openProxyTunnel(proxyUrl, host, port, timeoutMs);
-    } catch (err) {
-      return {
-        host,
-        port,
-        durationMs: Math.round(performance.now() - start),
-        protocol: null,
-        alpn: null,
-        chain: [],
-        rootInMozillaBundle: false,
-        rootInOsTrustStore: false,
-        rootIssuer: null,
-        mitmSuspected: false,
-        viaProxy: true,
-        proxyUrl,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+  let socket: tls.TLSSocket;
+  try {
+    socket = (await openTlsSocket(`https://${host}:${port}`, { connectTimeoutMs: timeoutMs })).socket;
+  } catch (err) {
+    return {
+      host,
+      port,
+      durationMs: Math.round(performance.now() - start),
+      protocol: null,
+      alpn: null,
+      chain: [],
+      rootInMozillaBundle: false,
+      rootInOsTrustStore: false,
+      rootIssuer: null,
+      mitmSuspected: false,
+      viaProxy,
+      proxyUrl: proxyUrl || undefined,
+      error: classifyNetError(err)?.line ?? (err instanceof Error ? err.message : String(err)),
+    };
   }
 
   return new Promise<TlsHandshakeResult>((resolve) => {
@@ -688,40 +601,12 @@ async function probeTlsHandshake(
       resolve(r);
     };
 
-    let socket: tls.TLSSocket;
-    try {
-      socket = tls.connect({
-        host: baseSocket ? undefined : host,
-        port: baseSocket ? undefined : port,
-        socket: baseSocket ?? undefined,
-        servername: host,
-        ALPNProtocols: ['h2', 'http/1.1'],
-        rejectUnauthorized: false, // capture chain even if invalid
-      });
-    } catch (err) {
-      finish({
-        host,
-        port,
-        durationMs: Math.round(performance.now() - start),
-        protocol: null,
-        alpn: null,
-        chain: [],
-        rootInMozillaBundle: false,
-        rootInOsTrustStore: false,
-        rootIssuer: null,
-        mitmSuspected: false,
-        viaProxy,
-        proxyUrl: proxyUrl || undefined,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return;
-    }
-
     const timer = setTimeout(() => {
       socket.destroy(new Error('handshake timeout'));
     }, timeoutMs);
 
-    socket.on('secureConnect', () => {
+    // The handshake is complete: inspect the chain served.
+    void Promise.resolve().then(() => {
       try {
         const peer = socket.getPeerCertificate(true);
         const chain: PeerCertSummary[] = [];
@@ -848,12 +733,11 @@ async function probeHttps(
   timeoutMs: number,
 ): Promise<HttpsProbeResult> {
   const start = performance.now();
-  const proxyUrl = proxyForUrl(url);
+  const proxyUrl = redactUrl(proxyForUrl(url));
   const viaProxy = Boolean(proxyUrl);
 
-  // Read NODE_EXTRA_CA_CERTS into PEM string(s) once. Node's globalAgent
-  // already injects this on its own, but custom agents (HttpsProxyAgent) need
-  // it passed explicitly so we don't drop the user's bundle.
+  // Read NODE_EXTRA_CA_CERTS into PEM string(s) once: an explicit root list
+  // replaces the runtime's defaults, so the user's bundle is passed along.
   let nodeExtraCaPems: string[] = [];
   if (process.env.NODE_EXTRA_CA_CERTS) {
     try {
@@ -864,50 +748,20 @@ async function probeHttps(
     }
   }
 
+  // One GET on the one outbound path (src/net.ts@net-request) with the roots
+  // given: the proxy, the tunnel and the error classification are the server's.
   const doOne = async (extraCa: string[] | undefined): Promise<{ status: number | null; error?: string }> => {
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (r: { status: number | null; error?: string }) => {
-        if (settled) return;
-        settled = true;
-        resolve(r);
-      };
-
-      const u = new URL(url);
-      const opts: https.RequestOptions = {
-        method: 'GET',
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname + u.search,
-        timeout: timeoutMs,
-      };
-      // Merge extra CAs with NODE_EXTRA_CA_CERTS so the OS-trust probe and the
-      // default-trust probe both honor the user's explicit bundle.
-      const mergedCa = [...(extraCa ?? []), ...nodeExtraCaPems];
-      if (mergedCa.length > 0) {
-        opts.ca = mergedCa;
-      }
-      if (proxyUrl) {
-        opts.agent = new HttpsProxyAgent(proxyUrl, {
-          ca: opts.ca,
-          timeout: timeoutMs,
-        });
-      }
-      const req = https.request(opts, (res) => {
-        // Drain response to free socket
-        res.on('data', () => undefined);
-        res.on('end', () => settle({ status: res.statusCode ?? null }));
-        res.on('error', (err) => settle({ status: null, error: err.message }));
+    try {
+      const res = await request(url, {
+        timeoutMs,
+        connectTimeoutMs: timeoutMs,
+        ca: [...(extraCa ?? tls.rootCertificates), ...nodeExtraCaPems],
       });
-      req.on('timeout', () => {
-        req.destroy(new Error('request timeout'));
-      });
-      req.on('error', (err) => {
-        const code = (err as NodeJS.ErrnoException).code;
-        settle({ status: null, error: code ? `${code}: ${err.message}` : err.message });
-      });
-      req.end();
-    });
+      await res.arrayBuffer().catch(() => undefined);
+      return { status: res.status };
+    } catch (err) {
+      return { status: null, error: classifyNetError(err)?.line ?? (err instanceof Error ? err.message : String(err)) };
+    }
   };
 
   // Default trust = Mozilla bundled only.
@@ -931,7 +785,7 @@ async function probeHttps(
 }
 
 function snapshotConfig(): ConfigSnapshot {
-  const configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath();
+  const configPath = resolveConfigPath();
   const knownHostsPath = path.join(os.homedir(), '.metabob', 'known-hosts.json');
 
   let apiKeyConfigured = false;
@@ -1316,6 +1170,9 @@ export function renderReport(report: DoctorReport): string {
     if (report.proxy.noProxyExcludesMetabob.length > 0) {
       lines.push(`  ${warn} NO_PROXY excludes: ${report.proxy.noProxyExcludesMetabob.join(', ')}`);
     }
+    if (report.proxy.effectiveNoProxy?.length && (report.proxy.httpProxy || report.proxy.httpsProxy)) {
+      lines.push(`  NO_PROXY in force: ${report.proxy.effectiveNoProxy.join(',')} (loopback always goes direct)`);
+    }
     if (report.proxy.nodeExtraCaCerts) {
       const e = report.proxy.nodeExtraCaCerts;
       if (!e.exists) {
@@ -1329,6 +1186,9 @@ export function renderReport(report: DoctorReport): string {
         }
       }
     }
+  }
+  if (report.proxy.osProxyNote) {
+    lines.push(`  ${warn} ${report.proxy.osProxyNote}`);
   }
   lines.push('');
 
@@ -1437,6 +1297,23 @@ export function renderReport(report: DoctorReport): string {
       ? `  ${check} auth: authenticated orgId=${a.auth.orgId}`
       : `  ${cross} auth: ${a.auth.status}`);
     if (a.message) lines.push(`  ${cross} ${a.message}`);
+    // The network diagnosis: how the anchor is reached, what the network did,
+    // the TLS issuer, and the last outcome per family. CONFORMANCE §c9-fail-visibly
+    const n = a.network;
+    if (n) {
+      const route = n.anchorRoute;
+      lines.push(`  route:     ${route?.via ? `through ${route.via}` : `direct (${route?.bypass ?? 'no proxy configured'})`}`);
+      if (n.tls) {
+        lines.push(n.tls.authorized
+          ? `  ${check} tls: verified, chain issued by ${n.tls.issuer ?? 'unknown'}`
+          : `  ${cross} tls: intercepted, chain signed by ${n.tls.issuer ?? 'an unknown issuer'} (TLS_INTERCEPTED)`);
+      }
+      if (n.cause) lines.push(`  ${cross} network: ${n.causeLine ?? n.cause}`);
+      if (n.osProxy) lines.push(`  ${warn} ${n.osProxy}`);
+      for (const [family, o] of Object.entries(n.lastByFamily ?? {})) {
+        lines.push(o.ok ? `  ${check} last ${family}: ok${o.shape ? ` (${o.shape})` : ''}` : `  ${cross} last ${family}: ${o.cause}${o.shape ? ` (${o.shape})` : ''}`);
+      }
+    }
     lines.push('');
   }
 
@@ -1519,9 +1396,10 @@ export function renderReport(report: DoctorReport): string {
  */
 function resolveSubstrateTargets(): SubstrateTargets & { tlsPorts: Record<string, number>; env: NodeJS.ProcessEnv } {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  applySubstrateEnvAliases(env);
   const envConfig = loadMetabobEnvConfig(env);
   applyConfigDefaults(env, envConfig);
-  const fileConfig = loadMetabobCLIConfig(env.METABOB_CONFIG_PATH ?? getDefaultConfigPath());
+  const fileConfig = loadMetabobCLIConfig(resolveConfigPath(env));
   applyConfigDefaults(env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
 
   const urls = configuredSubstrateUrls(env);
@@ -1575,7 +1453,7 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<{
 
   // Environment + proxy + trust store are synchronous.
   const environment = snapshotEnvironment();
-  const proxy = snapshotProxy(hosts);
+  const proxy = await snapshotProxy(hosts);
   const { snapshot: trustStore, systemCerts } = snapshotTrustStore();
 
   // DNS in parallel.

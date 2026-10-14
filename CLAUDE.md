@@ -23,6 +23,7 @@ bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
 bun test                            # run tests
 bun run build                       # compile src/ → dist/cli.js (required for npm link)
+bun src/cli.ts attach --check       # attach once and print each hop: proxy, TLS, /bootstrap, identity, org check, one resolve
 npm link                            # register metabob-mcp bin globally for local testing
 bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
 node scripts/doclinks.mjs check     # docs ↔ code links: must report 0 errors
@@ -39,7 +40,10 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `src/index.ts` | Entry point — the one "not attached" message, starts the attachment, MCP server (with the substrate-tool gate), loopback resolver, shutdown |
 | `src/attachment.ts` | The attachment: `{discovery, key}` → `/bootstrap` → identity selection → org check; its typed state for `/health` and `doctor`; `resolve(pointer)` through discovery `POST /resolve` — the one ingress every substrate tool takes, with named failures (`no_producer`, `producer_timeout`, …), per-family timeouts and read retries; the gate keyed calls pass |
 | `src/api-client.ts` | The context handed to every tool handler; carries no substrate address and makes no requests |
-| `src/config.ts` | Config loading: env, then the config file; the discovery derivation and whether discovery was derived (H1); `unattachedMessage` |
+| `src/config.ts` | Config loading: the installer's `SUBSTRATE_*` names, env, then the config file (lookup order below); the discovery derivation and whether discovery was derived (H1); `unattachedMessage` |
+| `src/net.ts` | The one outbound HTTP path: proxy selection per request (`HTTP(S)_PROXY`, `NO_PROXY`, loopback always direct), trust (bundled + OS store + `NODE_EXTRA_CA_CERTS`), the connect budget, transient retries on reads, and the named network causes (`proxy_auth_required(NTLM)`, `tls_intercepted(issuer)`, `connect_timeout`, …). Identical under Bun and Node (docs/SPEC.md § Network) |
+| `src/os-proxy.ts` | Reads the OS proxy / PAC settings (scutil, registry, gsettings) to name them when a direct connection fails; never applies them |
+| `src/attach-check.ts` | `metabob-mcp attach --check`: the attachment once, hop by hop, with the named cause; exit 0 when attached |
 | `src/auth-service.ts` | Identity-vessel org check (`POST /v1/auth/resolve`, classified) and the key-issuance heartbeat, against the attachment's identity |
 | `src/vessel-server.ts` | Hono HTTP server on `127.0.0.1` — `/health` (with the attachment state), `/v2/capabilities`, `POST /v2/impulses/resolve`, for local callers |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
@@ -75,7 +79,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `pull_assigned_work` | Resolver | Claim `human_input` tasks queued on this machine (by a local caller of the loopback resolver). Durable + keyed by the stable vesselId. The substrate dispatches nothing to a client-only session, so with the queue empty it reports that no task can arrive. |
 | `submit_resolution` | Resolver | Answer a pulled task (`{task_id, outcome, answer?}`). Recorded durably, then delivered to goal-host as `solicitationResponse_write` to unblock its walk; retried on a later session if the substrate was unreachable. An unknown `task_id` is reported, with the note that nothing is dispatched to this session. |
 
-**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`, and the substrate half of `record_finding` / `get_problems` / `get_analysis_context` / `mark_complete` / `submit_resolution`) reach the substrate through **one ingress**: each operation is a shape resolved through discovery `POST /resolve` (`src/attachment.ts@attachment-resolve`), which picks the shape's producer — goal-host (`goalDispatchAsync`, `goalWalkState`, `solicitationResponse_write`), activity-api (`activityExecutionTrace`, `goal_verification_label_write`), concept-db (`conceptSearch`, `conceptGraph`, `concept_create_write`, …) or discovery itself (`vesselRegistry`, `vesselCapability`) — and forwards the pointer with the key. No service URL is configured, derived or discovered for a call; the one exception is `concept_usage_stats`'s recent rows, which no shape serves (CONFORMANCE §c11). Discovery's own failures are one named line (`no_producer(shape)`, `producer_timeout(shape, ms)`, …); every request is capped below 60 s, and reads cut at a producer's timeout are retried. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://127.0.0.1:18080`, what the installer writes) needs only `metabob.apiKey` + `metabob.endpoint` — it derives `DISCOVERY_ENDPOINT=…:18100` (census class H1 interim debt, warned about once at startup); a remote endpoint derives **nothing**, so a remote substrate needs an explicit `DISCOVERY_ENDPOINT` / `metabob.discoveryEndpoint`. An explicit `METABOB_ENDPOINT` takes only the credentials from a config file, never its endpoints, so the two can't split across substrates.
+**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`, and the substrate half of `record_finding` / `get_problems` / `get_analysis_context` / `mark_complete` / `submit_resolution`) reach the substrate through **one ingress**: each operation is a shape resolved through discovery `POST /resolve` (`src/attachment.ts@attachment-resolve`), which picks the shape's producer — goal-host (`goalDispatchAsync`, `goalWalkState`, `solicitationResponse_write`), activity-api (`activityExecutionTrace`, `goal_verification_label_write`), concept-db (`conceptSearch`, `conceptGraph`, `concept_create_write`, …) or discovery itself (`vesselRegistry`, `vesselCapability`) — and forwards the pointer with the key. No service URL is configured, derived or discovered for a call; the one exception is `concept_usage_stats`'s recent rows, which no shape serves (CONFORMANCE §c11). Discovery's own failures are one named line (`no_producer(shape)`, `producer_timeout(shape, ms)`, …), and so is the network's (`proxy_auth_required(NTLM)`, `tls_intercepted(issuer)`, `connect_timeout(host:port)`, …: docs/SPEC.md § Network); every request is capped below 60 s, and reads cut at a producer's timeout are retried. Config resolution is directory-aware, like git: `SUBSTRATE_CONFIG_PATH` → `METABOB_CONFIG_PATH` → `./.substrate/config.json` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.substrate/config.json` (what the installer writes) → `~/.metabob/config.json`. A local substrate endpoint (`http://127.0.0.1:18080`, what the installer writes) needs only `metabob.apiKey` + `metabob.endpoint` — it derives `DISCOVERY_ENDPOINT=…:18100` (census class H1 interim debt, warned about once at startup); a remote endpoint derives **nothing**, so a remote substrate needs an explicit `DISCOVERY_ENDPOINT` / `metabob.discoveryEndpoint`. An explicit `METABOB_ENDPOINT` takes only the credentials from a config file, never its endpoints, so the two can't split across substrates.
 
 **The surface is a complete operator cockpit — no host access needed.** Three planes + a coverage set: ACT (`run_goal*`), TRACK (`goal_status`), REASON (`goal_reasoning`), FEEDBACK (`provide_feedback`), INSPECT (`registry_query` / `execution_trace` / `resolve_impulse`). The last three replace `docker exec` / `journalctl` / raw `curl` for reading the running substrate. Canonical loop:
 
@@ -101,7 +105,10 @@ Resolver endpoint: `POST /v2/impulses/resolve` on `127.0.0.1` — `Authorization
 
 **The configuration is two values: `METABOB_API_KEY` and `METABOB_ENDPOINT`** (or `metabob.apiKey` and
 `metabob.endpoint` in a config file — the installer writes both into `~/.substrate/config.json`, which
-`~/.metabob/config.json` links to). Neither has a default. With either missing the server starts with local
+`~/.metabob/config.json` links to; the installer's env names `SUBSTRATE_API_KEY` / `SUBSTRATE_ENDPOINT`
+are accepted too). Neither has a default. Proxy and trust are never configuration: they come from the
+environment (`HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`) and the OS trust store. When the server
+does not attach, run `metabob-mcp attach --check` first. With either missing the server starts with local
 tools only and logs one message naming the missing input and the config lookup order
 (`src/config.ts@unattachedMessage`). A local endpoint derives discovery at its port offset; a remote
 endpoint derives nothing, and discovery is set explicitly. No other service URL is configuration: every
@@ -112,7 +119,13 @@ wins over its derived value only when set explicitly.
 |----------|---------|---------|
 | `METABOB_API_KEY` | — | API key — sent as `Authorization: ApiKey` on every substrate request; validates calls to the loopback resolver |
 | `METABOB_ENDPOINT` | — | Substrate endpoint. A local `http://…:18080` derives discovery `:18100`; a remote one derives nothing. Env-var mirror of `metabob.endpoint` |
-| `METABOB_CONFIG_PATH` | — | Config file to read instead of `./.metabob/config.json` → `~/.metabob/config.json` |
+| `SUBSTRATE_API_KEY`, `SUBSTRATE_ENDPOINT` | — | The installer's names for the key and endpoint; fill `METABOB_*` when unset. When both are set and differ, `METABOB_*` wins, with one warning |
+| `SUBSTRATE_CONFIG_PATH`, `METABOB_CONFIG_PATH` | — | Config file to read (in that order) instead of the lookup `./.substrate` → `./.metabob` → `~/.substrate` → `~/.metabob` (`config.json` in each) |
+| `HTTPS_PROXY`, `HTTP_PROXY` | — | HTTP CONNECT proxy, chosen per request: https uses `HTTPS_PROXY` (falling back to `HTTP_PROXY`), http uses `HTTP_PROXY`; lowercase names win. Basic credentials go in the URL and are redacted everywhere they are reported. PAC / WPAD is not evaluated: set the proxy it names |
+| `NO_PROXY` | — | Hosts that go direct (`*`, host and subdomains, `host:port`, IPv4 CIDR). Whenever a proxy is set, `localhost`, `127.0.0.1` and `::1` are added, and every loopback host goes direct |
+| `NODE_EXTRA_CA_CERTS` | — | Extra trusted roots (PEM), on top of the bundled roots and the OS store; read by the server itself, so it applies under Bun too |
+| `METABOB_CONNECT_TIMEOUT_MS` | `5000` | Connect budget (TCP connect, proxy `CONNECT`, TLS handshake), separate from each call's response budget |
+| `METABOB_NO_SYSTEM_CA` | _(unset)_ | `1` skips the OS trust store (also `--no-system-ca`) |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | The anchor: discovery-vessel base URL (also `metabob.discoveryEndpoint`, the preferred form). Required with a remote endpoint; derived from a local one with a WARN naming census class H1 |
 | `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Advanced: identity vessel for the org check, overriding the `identity_endpoint` discovery's `/bootstrap` advertises |
 | `RUN_GOAL_TIMEOUT_MS` | `290000` | `run_goal`'s polling deadline: how long it waits for a dispatched goal before handing back its `dispatchId` |
@@ -141,7 +154,9 @@ from an outside vantage, and none exists for host vessels, so it offers nothing:
   discovery `POST /resolve`.
 - **Loopback resolver.** `/health`, `/v2/capabilities` and `POST /v2/impulses/resolve` bind `127.0.0.1`
   for local callers. `/health` reports the attachment state: anchor and its source, `/bootstrap` result,
-  identity (chosen, advertised, tried), the org check (`orgId`), the named cause, and advertised: none.
+  identity (chosen, advertised, tried), the org check (`orgId`), the named cause, advertised: none, and
+  the network diagnosis (proxy in use, redacted; the network cause; the TLS issuer; the last outcome per
+  producer family).
 - **Agent-task queue.** A `human_input` impulse that reaches the loopback resolver is durably enqueued
   (`~/.metabob/sidecar.db`, keyed by the stable vesselId); the agent drains it with `pull_assigned_work`
   and answers with `submit_resolution`, which delivers `solicitationResponse_write` to goal-host. Undelivered

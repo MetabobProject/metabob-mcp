@@ -157,13 +157,30 @@ describe('concept_usage_stats', () => {
     }
   });
 
-  test('without history the stats still render', async () => {
+  test('without history the stats still render, and say why the history is missing', async () => {
     await installShapeStub({
       conceptUsageStats: () => ({ body: { content: { total_uses: 0, success_rate: 0, failure_rate: 0 } } }),
     });
     const out = await conceptUsageStats({ concept_id: 'c_1', include_history: true, history_limit: 10 }, apiClient);
     expect(out).toContain('  total_uses:   0');
-    expect(out).toContain('No recent usage rows.');
+    expect(out).toContain('Recent usage: unavailable — no_producer(vesselCapability)');
+  });
+
+  test('an unreachable concept-db names the cause of the missing history', async () => {
+    await installShapeStub({
+      conceptUsageStats: () => ({ body: { content: { total_uses: 1 } } }),
+      vesselCapability: (p) => ({ body: { content: { shape: p.shape, found: true, vessels: [{ endpoint: 'http://127.0.0.1:1' }] } } }),
+    }, { discovery: 'http://127.0.0.1:2' });
+    const realFetch = globalThis.fetch;
+    // The stub falls through to the global fetch for this read; take it onto the one outbound path.
+    const { netFetch } = await import('../../src/net');
+    globalThis.fetch = netFetch();
+    try {
+      const out = await conceptUsageStats({ concept_id: 'c_1', include_history: true, history_limit: 10 }, apiClient);
+      expect(out).toContain('Recent usage: unavailable — connect_refused(127.0.0.1:1)');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
 

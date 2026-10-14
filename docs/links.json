@@ -59,7 +59,12 @@
         "src/agent-delivery.ts",
         "src/cochange-predictor.ts",
         "src/attachment.ts",
-        "src/auth-service.ts"
+        "src/auth-service.ts",
+        "src/net.ts",
+        "src/os-proxy.ts",
+        "src/attach-check.ts",
+        "src/tls-trust.ts",
+        "src/doctor-cli.ts"
       ],
       "CLAUDE.md": [
         "src/index.ts",
@@ -72,7 +77,9 @@
         "src/cli.ts",
         "src/vessel-identity.ts",
         "scripts/doclinks.mjs",
-        "src/attachment.ts"
+        "src/attachment.ts",
+        "src/net.ts",
+        "src/attach-check.ts"
       ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs"
@@ -94,7 +101,11 @@
         "src/doctor.ts",
         "src/tools/pull-assigned-work.ts",
         "src/tools/submit-resolution.ts",
-        "src/attachment.ts"
+        "src/attachment.ts",
+        "src/net.ts",
+        "src/os-proxy.ts",
+        "src/attach-check.ts",
+        "src/cert-fingerprint.ts"
       ]
     },
     "retired": {},
@@ -137,6 +148,16 @@
           "substrate-goal-tools"
         ]
       },
+      "src/attach-check.ts": {
+        "CONFORMANCE": [
+          "c3-identity",
+          "c9-fail-visibly"
+        ],
+        "SPEC": [
+          "attach-check",
+          "runtime"
+        ]
+      },
       "src/attachment.ts": {
         "CONFORMANCE": [
           "c11-attachment-model",
@@ -158,7 +179,10 @@
           "environment-variables"
         ],
         "SPEC": [
-          "precedence"
+          "attach-check",
+          "configuration-lookup",
+          "precedence",
+          "runtime"
         ]
       },
       "src/config.ts": {
@@ -166,8 +190,14 @@
           "c4-anchoring"
         ],
         "SPEC": [
+          "configuration-lookup",
           "endpoint-derivation",
           "precedence"
+        ]
+      },
+      "src/doctor-cli.ts": {
+        "SPEC": [
+          "attach-check"
         ]
       },
       "src/doctor.ts": {
@@ -177,7 +207,8 @@
           "c9-fail-visibly"
         ],
         "SPEC": [
-          "attachment"
+          "attachment",
+          "network"
         ]
       },
       "src/index.ts": {
@@ -195,6 +226,22 @@
         ],
         "SPEC": [
           "attachment"
+        ]
+      },
+      "src/net.ts": {
+        "CONFORMANCE": [
+          "c8-proxy-and-tls-in-the-vessel-role"
+        ],
+        "SPEC": [
+          "network"
+        ]
+      },
+      "src/os-proxy.ts": {
+        "CONFORMANCE": [
+          "c8-proxy-and-tls-in-the-vessel-role"
+        ],
+        "SPEC": [
+          "network"
         ]
       },
       "src/tls-trust.ts": {
@@ -467,6 +514,14 @@
           "substrate-goal-tools"
         ]
       },
+      "tests/unit/net.test.ts": {
+        "CONFORMANCE": [
+          "c8-proxy-and-tls-in-the-vessel-role"
+        ],
+        "SPEC": [
+          "network"
+        ]
+      },
       "tests/unit/resolve-dispatch.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -475,6 +530,15 @@
       "tests/unit/traces-by-shape.test.ts": {
         "SPEC": [
           "execution_trace"
+        ]
+      },
+      "tests/workflows/networks/matrix.test.ts": {
+        "CONFORMANCE": [
+          "c8-proxy-and-tls-in-the-vessel-role"
+        ],
+        "SPEC": [
+          "network",
+          "runtime"
         ]
       },
       "tests/workflows/w1-operator-loop.test.ts": {
@@ -501,16 +565,20 @@
         "scripts/doclinks.mjs",
         "scripts/git-hooks/install.sh",
         "src/api-client.ts",
+        "src/attach-check.ts",
         "src/attachment.ts",
         "src/attachment.ts@attach",
         "src/attachment.ts@attachment-resolve",
         "src/auth-service.ts",
+        "src/cli.ts",
         "src/cochange-predictor.ts@addFile",
         "src/config.ts",
         "src/config.ts@unattachedMessage",
         "src/cpg-inference.ts",
         "src/index.ts",
         "src/local-index.ts",
+        "src/net.ts",
+        "src/os-proxy.ts",
         "src/tools/index.ts",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
@@ -592,29 +660,47 @@
         "docs/DOCLINKS.md",
         "src/agent-delivery.ts@deliverResolution",
         "src/agent-delivery.ts@reconcileUndelivered",
+        "src/attach-check.ts@attachCheck",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
         "src/attachment.ts@attachment-resolve",
         "src/attachment.ts@classifyDiscoveryAnswer",
+        "src/attachment.ts@network-diagnosis",
         "src/attachment.ts@rehost-h1",
         "src/attachment.ts@resolve-timeouts",
         "src/attachment.ts@resolveShape",
         "src/auth-service.ts@AuthService",
         "src/auth-service.ts@org-check",
+        "src/cli.ts",
         "src/cli.ts@main",
         "src/cochange-predictor.ts@addFile",
         "src/cochange-predictor.ts@generateSimpleFeatures",
         "src/cochange-predictor.ts@predictCochanges",
+        "src/config.ts@apply-configuration",
         "src/config.ts@applyConfigDefaults",
+        "src/config.ts@config-lookup",
         "src/config.ts@deriveLocalDiscoveryEndpoint",
         "src/config.ts@derivedDiscoveryWarning",
-        "src/config.ts@getDefaultConfigPath",
+        "src/config.ts@resolveConfigPath",
+        "src/config.ts@substrate-env-aliases",
         "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
         "src/cpg-inference.ts",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
+        "src/net.ts",
+        "src/net.ts@classify-error",
+        "src/net.ts@connect-budget",
+        "src/net.ts@net-causes",
+        "src/net.ts@net-request",
+        "src/net.ts@open-tls-socket",
+        "src/net.ts@redact-credentials",
+        "src/net.ts@select-proxy",
+        "src/net.ts@trusted-cas",
+        "src/os-proxy.ts@detect-os-proxy",
         "src/resolver-identity.ts@getResolverVesselId",
+        "src/tls-trust.ts@installSystemTrustStoreSync",
+        "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_concept-content.ts@renderConceptContent",
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts@NO_SERVER_ANALYSIS",
@@ -668,7 +754,8 @@
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
         "src/vessel-server.ts@resolveImpulseContent",
-        "src/vessel-server.ts@resolvePointerToTool"
+        "src/vessel-server.ts@resolvePointerToTool",
+        "tests/workflows/networks/matrix.test.ts"
       ],
       "openspec/changes/2026-07-19-local-index-persistence/proposal.md": [
         "graph-builder.ts",
@@ -688,6 +775,9 @@
         "src/cli.ts",
         "tests/workflows/harness/fake-substrate.ts",
         "tests/workflows/harness/mcp-client.ts",
+        "tests/workflows/networks/corp-proxy.ts",
+        "tests/workflows/networks/matrix.test.ts",
+        "tests/workflows/networks/test-ca.ts",
         "tests/workflows/w1-operator-loop.test.ts",
         "tests/workflows/w2-ledger.test.ts",
         "tests/workflows/w3-attachment.test.ts",
@@ -699,10 +789,12 @@
       "scripts/doclinks.mjs@symbolRegions": "57ce027154cc",
       "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
+      "src/attach-check.ts@attachCheck": "92725a3de110",
       "src/attachment.ts@AttachmentState": "932e31e10472",
       "src/attachment.ts@attach": "ba8daa75d093",
       "src/attachment.ts@attachment-resolve": "2dccda2acc14",
       "src/attachment.ts@classifyDiscoveryAnswer": "e69b73b4936e",
+      "src/attachment.ts@network-diagnosis": "8d64a30d9de1",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
       "src/attachment.ts@resolve-timeouts": "784f64c1544e",
       "src/attachment.ts@resolveShape": "ea88ab26b8c9",
@@ -712,10 +804,13 @@
       "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
       "src/cochange-predictor.ts@predictCochanges": "9c7b4dc703d1",
+      "src/config.ts@apply-configuration": "8d64a30d9de1",
       "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
+      "src/config.ts@config-lookup": "8d64a30d9de1",
       "src/config.ts@deriveLocalDiscoveryEndpoint": "d53214fa1716",
       "src/config.ts@derivedDiscoveryWarning": "cf7563f3af62",
-      "src/config.ts@getDefaultConfigPath": "b2314fb60be6",
+      "src/config.ts@resolveConfigPath": "9a34f654ef33",
+      "src/config.ts@substrate-env-aliases": "8d64a30d9de1",
       "src/config.ts@unattachedMessage": "c37187992372",
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
       "src/doctor.ts@probeAttachment": "d514e5f837ea",
@@ -724,9 +819,19 @@
       "src/index.ts@main": "7d5d3f63a3bd",
       "src/index.ts@stdout-is-transport": "11f9a2ac527f",
       "src/index.ts@tls-intercepted-report": "a0bd592ac9b4",
+      "src/net.ts@classify-error": "8d64a30d9de1",
+      "src/net.ts@connect-budget": "8d64a30d9de1",
+      "src/net.ts@net-causes": "2ff03885e936",
+      "src/net.ts@net-request": "8d64a30d9de1",
+      "src/net.ts@open-tls-socket": "8d64a30d9de1",
+      "src/net.ts@redact-credentials": "b1266944610f",
+      "src/net.ts@select-proxy": "8d64a30d9de1",
+      "src/net.ts@trusted-cas": "8d64a30d9de1",
+      "src/os-proxy.ts@detect-os-proxy": "79ed88b1bb1d",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/tls-error.ts@translateTlsError": "0ecf7178bdcf",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
+      "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
       "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",

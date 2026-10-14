@@ -13,6 +13,19 @@
  */
 
 import { resolveTenant, type AuthService, type TenantResolution } from './auth-service.js';
+import {
+  causeOfLine,
+  classifyNetError,
+  lastConnection,
+  netFetch,
+  proxySummary,
+  selectProxy,
+  redactUrl,
+  type NetCauseKind,
+  type NetInit,
+  type ProxySummary,
+} from './net.js';
+import { describeOsProxy, detectOsProxy, type OsProxySettings } from './os-proxy.js';
 
 // ── Named causes ─────────────────────────────────────────────────────────────
 
@@ -24,6 +37,39 @@ export type AttachCause =
   | 'key_rejected';
 
 export type AnchorSource = 'explicit' | 'derived-h1' | 'none';
+
+/** The last outcome of one family of calls: the attachment itself, or one producer family. */
+export interface FamilyOutcome {
+  ok: boolean;
+  /** The named cause, e.g. `connect_timeout` or `no_producer`; null when ok. */
+  cause: string | null;
+  /** The one line reported for it; null when ok. */
+  line: string | null;
+  shape?: string;
+  at: string;
+}
+
+// @anchor network-diagnosis
+/**
+ * What the network did, next to the attachment state: the proxy configuration
+ * (credentials redacted), how the anchor is reached, the named network cause of
+ * a failed attachment, the TLS issuer seen, and the last outcome per family.
+ * CONFORMANCE §c9-fail-visibly
+ */
+export interface NetworkDiagnosis {
+  proxy: ProxySummary;
+  /** How a request to the anchor travels: through which proxy (redacted), or direct and why. */
+  anchorRoute: { via: string | null; bypass: string | null } | null;
+  /** The network-level cause of a failed attachment (e.g. `tls_intercepted`), or null. */
+  cause: NetCauseKind | null;
+  causeLine: string | null;
+  /** The anchor's TLS, when it is https: verified, or intercepted and by which issuer. */
+  tls: { host: string; authorized: boolean; issuer: string | null } | null;
+  /** OS proxy settings the process does not see, named when a direct connection failed. */
+  osProxy: string | null;
+  /** The last outcome per family: `attachment`, `discovery`, `trace`, `concept`, `goal`, `other`. */
+  lastByFamily: Record<string, FamilyOutcome>;
+}
 export type IdentitySource = 'explicit' | 'bootstrap' | 'rehosted-h1' | 'none';
 
 export interface AttachmentState {
@@ -55,6 +101,7 @@ export interface AttachmentState {
   message: string | null;
   /** The process makes no inbound offer (CONFORMANCE §c11-attachment-model). */
   advertised: 'none (client-only)';
+  network: NetworkDiagnosis;
   startedAt: string;
   settledAt: string | null;
   /** The last org check, including the periodic key-issuance heartbeat. */
@@ -80,7 +127,12 @@ export interface AttachOptions {
   authService?: AuthService;
   /** Key-issuance heartbeat interval; 0 disables it. */
   heartbeatMs?: number;
+  /** The request path; default the one outbound path, src/net.ts, reading proxy and trust from `env`. */
   fetchImpl?: typeof fetch;
+  /** Where proxy and trust settings are read; default process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** OS proxy settings for a failure message; default src/os-proxy.ts@detect-os-proxy. */
+  osProxy?: () => Promise<OsProxySettings | null>;
   /** The backoff sleep between read retries; injectable so tests do not wait. */
   sleep?: (ms: number) => Promise<void>;
 }
@@ -100,6 +152,8 @@ export interface Attachment {
    * a producer cut at its timeout, an unreachable producer or anchor).
    */
   resolve(pointer: Record<string, unknown>, options?: ResolveOptions): Promise<ResolveResult>;
+  /** The attachment's request path (src/net.ts by default), for the one direct read no shape serves. */
+  fetch: typeof fetch;
   stop(): void;
 }
 
@@ -126,12 +180,27 @@ export interface ResolveResult<T = any> {
 
 export type ResolveFailure = 'no_producer' | 'producer_timeout' | 'producer_unreachable' | 'anchor_unreachable';
 
-/** Discovery's own failure to resolve a shape, as one named line. */
+/** Discovery's own failure to resolve a shape, or the network's, as one named line. */
 export class ResolveError extends Error {
-  constructor(readonly kind: ResolveFailure, readonly shape: string, message: string) {
+  constructor(
+    readonly kind: ResolveFailure,
+    readonly shape: string,
+    message: string,
+    /** The network cause when the network produced no answer (src/net.ts@net-causes). */
+    readonly netCause?: NetCauseKind,
+  ) {
     super(message);
     this.name = 'ResolveError';
   }
+}
+
+/** The family a shape's producer belongs to, for the per-family outcome /health reports. */
+export function shapeFamily(shape: string): 'discovery' | 'trace' | 'concept' | 'goal' | 'other' {
+  if (/^vessel/.test(shape)) return 'discovery';
+  if (/^concept/i.test(shape)) return 'concept';
+  if (/^goal(?!_verification)|^solicitation/i.test(shape)) return 'goal';
+  if (/trace|execution|goal_verification/i.test(shape)) return 'trace';
+  return 'other';
 }
 
 export class AttachmentRefusedError extends Error {
@@ -265,11 +334,21 @@ export function rehostH1Identity(advertised: string, discovery: string): string 
 /** One quick dial: any HTTP answer from GET /health means the address is dialable. */
 async function dialable(url: string, fetchImpl: typeof fetch): Promise<boolean> {
   try {
-    await fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(DIAL_TIMEOUT_MS) });
+    await fetchImpl(`${url}/health`, {
+      signal: AbortSignal.timeout(DIAL_TIMEOUT_MS + 500),
+      net: { timeoutMs: DIAL_TIMEOUT_MS, connectTimeoutMs: DIAL_TIMEOUT_MS },
+    } as NetInit);
     return true;
   } catch {
     return false;
   }
+}
+
+/** A direct connection failure that a proxy the process does not see would explain. */
+const PROXY_SHAPED_FAILURES: ReadonlySet<string> = new Set(['connect_timeout', 'dns_failed', 'connect_refused']);
+
+function osNote(state: AttachmentState): string {
+  return state.network.osProxy ? ` — ${state.network.osProxy}` : '';
 }
 
 function refusalMessage(state: AttachmentState): string | null {
@@ -280,15 +359,18 @@ function refusalMessage(state: AttachmentState): string | null {
     case 'not_configured':
       return `not_configured: ${state.auth.detail ?? 'the attachment is not configured'}; ${LOCAL_TOOLS_NOTE}`;
     case 'anchor_unreachable':
-      return `anchor_unreachable: discovery ${state.anchor.discovery} did not answer GET /bootstrap (${state.bootstrap.detail ?? 'no response'}); ${LOCAL_TOOLS_NOTE}`;
+      return `anchor_unreachable: discovery ${state.anchor.discovery} did not answer GET /bootstrap — ${state.bootstrap.detail ?? 'no response'}${osNote(state)}; ${LOCAL_TOOLS_NOTE}`;
     case 'blocked_by_portal': {
+      if (state.network.cause === 'blocked_by_portal' && state.network.causeLine) {
+        return `${state.network.causeLine}; ${LOCAL_TOOLS_NOTE}`;
+      }
       const where = state.bootstrap.status === 'not_substrate'
         ? `GET ${state.anchor.discovery}/bootstrap`
         : `POST ${id.endpoint}/v1/auth/resolve`;
       return `blocked_by_portal: ${where} answered with something other than the substrate (non-JSON or HTML — a captive portal or block page?); ${LOCAL_TOOLS_NOTE}`;
     }
     case 'identity_unreachable':
-      return `identity_unreachable(advertised=${id.advertised ?? 'none'}, tried=[${id.tried.join(', ')}])${state.auth.detail ? `: ${state.auth.detail}` : ''}; ${LOCAL_TOOLS_NOTE}`;
+      return `identity_unreachable(advertised=${id.advertised ?? 'none'}, tried=[${id.tried.join(', ')}])${state.auth.detail ? `: ${state.auth.detail}` : ''}${osNote(state)}; ${LOCAL_TOOLS_NOTE}`;
     case 'key_rejected':
       return `key_rejected: the substrate's identity (${id.endpoint}) rejected the API key${state.auth.detail ? ` (${state.auth.detail})` : ''}; ${LOCAL_TOOLS_NOTE}`;
   }
@@ -299,7 +381,8 @@ function refusalMessage(state: AttachmentState): string | null {
  * sequence runs in the background (see Attachment.settled).
  */
 export function attach(options: AttachOptions): Attachment {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const env = options.env ?? process.env;
+  const fetchImpl = options.fetchImpl ?? netFetch(env);
   const log = options.log ?? ((level, message) => {
     if (level !== 'debug') console.error(`[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}`);
   });
@@ -316,15 +399,80 @@ export function attach(options: AttachOptions): Attachment {
     cause: null,
     message: null,
     advertised: 'none (client-only)',
+    network: {
+      proxy: proxySummary(env),
+      anchorRoute: null,
+      cause: null,
+      causeLine: null,
+      tls: null,
+      osProxy: null,
+      lastByFamily: {},
+    },
     startedAt: new Date().toISOString(),
     settledAt: null,
     lastCheckedAt: null,
+  };
+
+  if (discovery) {
+    try {
+      const choice = selectProxy(discovery, env);
+      state.network.anchorRoute = { via: choice.proxy ? redactUrl(choice.proxy) : null, bypass: choice.bypass };
+    } catch {
+      // A malformed anchor is reported by the bootstrap step.
+    }
+  }
+
+  const record = (family: string, outcome: Omit<FamilyOutcome, 'at'>) => {
+    state.network.lastByFamily[family] = { ...outcome, at: new Date().toISOString() };
+  };
+
+  /** Name a request failure with its network cause, and note it as the attachment's. */
+  const netLine = (err: unknown): string => {
+    const named = classifyNetError(err);
+    if (!named) return err instanceof Error ? err.message : String(err);
+    state.network.cause = named.kind;
+    state.network.causeLine = named.line;
+    if (named.kind === 'tls_intercepted') {
+      try {
+        state.network.tls = { host: new URL(discovery ?? '').host, authorized: false, issuer: named.issuer ?? null };
+      } catch {
+        // no anchor host to name
+      }
+    }
+    return named.line;
+  };
+
+  const noteTls = (url: string | null) => {
+    if (!url) return;
+    try {
+      const u = new URL(url);
+      const info = lastConnection(u.origin);
+      if (info?.tls) state.network.tls = { host: u.host, authorized: info.tls.authorized, issuer: info.tls.issuer };
+    } catch {
+      // not a URL
+    }
+  };
+
+  /** OS proxy settings the process does not see, when a direct connection failed in a proxy-shaped way. */
+  const explainDirectFailure = async () => {
+    const pe = state.network.proxy;
+    if (!state.network.cause || !PROXY_SHAPED_FAILURES.has(state.network.cause) || pe.httpsProxy || pe.httpProxy) return;
+    try {
+      const os = await (options.osProxy ?? (() => detectOsProxy()))();
+      state.network.osProxy = describeOsProxy(os)
+        ?? (state.network.cause === 'connect_timeout'
+          ? 'no proxy is configured here; if this network reaches the internet only through a proxy (a PAC / WPAD setup), set HTTPS_PROXY'
+          : null);
+    } catch {
+      // best-effort
+    }
   };
 
   const settle = (cause: AttachCause | null) => {
     state.cause = cause;
     state.message = refusalMessage(state);
     state.settledAt = new Date().toISOString();
+    record('attachment', cause ? { ok: false, cause: state.network.cause ?? cause, line: state.message } : { ok: true, cause: null, line: null });
   };
 
   const applyResolution = (r: TenantResolution) => {
@@ -362,7 +510,11 @@ export function attach(options: AttachOptions): Attachment {
     let advertised: string | null = null;
     if (discovery) {
       try {
-        const res = await fetchImpl(`${discovery}/bootstrap`, { signal: AbortSignal.timeout(BOOTSTRAP_TIMEOUT_MS) });
+        const res = await fetchImpl(`${discovery}/bootstrap`, {
+          signal: AbortSignal.timeout(BOOTSTRAP_TIMEOUT_MS + 1_000),
+          net: { timeoutMs: BOOTSTRAP_TIMEOUT_MS, retryStatus: true },
+        } as NetInit);
+        noteTls(discovery);
         const text = await res.text();
         if (looksLikeHtmlOrNonJson(res.headers.get('content-type'), text)) {
           state.bootstrap = { status: 'not_substrate', detail: `HTTP ${res.status}, ${res.headers.get('content-type') ?? 'no content-type'}` };
@@ -375,7 +527,8 @@ export function attach(options: AttachOptions): Attachment {
           state.bootstrap = { status: 'ok', identityEndpoint: advertised };
         }
       } catch (err) {
-        state.bootstrap = { status: 'unreachable', detail: err instanceof Error ? err.message : String(err) };
+        const line = netLine(err);
+        state.bootstrap = { status: state.network.cause === 'blocked_by_portal' ? 'not_substrate' : 'unreachable', detail: line };
       }
     }
     state.identity.advertised = advertised;
@@ -390,6 +543,7 @@ export function attach(options: AttachOptions): Attachment {
       return settle('blocked_by_portal');
     } else if (state.bootstrap.status === 'unreachable') {
       state.auth = { status: 'identity_unreachable' };
+      await explainDirectFailure();
       return settle('anchor_unreachable');
     } else if (!advertised) {
       state.auth = { status: 'identity_unreachable', detail: '/bootstrap advertises no identity_endpoint' };
@@ -421,9 +575,18 @@ export function attach(options: AttachOptions): Attachment {
     if (state.identity.source !== 'bootstrap') state.identity.tried.push(chosen);
     const check = (endpoint: string) =>
       options.authService ? options.authService.resolveTenant(endpoint, key, fetchImpl) : resolveTenant(endpoint, key, fetchImpl);
-    const cause = applyResolution(await check(chosen));
+    let cause = applyResolution(await check(chosen));
     if (cause === 'identity_unreachable' && state.identity.source === 'rehosted-h1' && !state.auth.detail) {
       state.auth.detail = 'the rehosted identity is not dialable either';
+    }
+    if (cause === 'identity_unreachable' && state.auth.detail) {
+      const kind = causeOfLine(state.auth.detail);
+      if (kind) {
+        state.network.cause = kind;
+        state.network.causeLine = state.auth.detail;
+        if (kind === 'blocked_by_portal') cause = 'blocked_by_portal';
+      }
+      await explainDirectFailure();
     }
     settle(cause);
 
@@ -440,12 +603,13 @@ export function attach(options: AttachOptions): Attachment {
           } else if (r.kind === 'key_rejected') {
             applyResolution(r);
             settle('key_rejected');
-            log('warn', state.message!);
+            log('warn', `${state.message!} (CONFORMANCE §c3-identity)`);
           }
         }, fetchImpl);
       }
     } else {
-      log('warn', state.message!);
+      // One WARN per refusal, naming the requirement it serves.
+      log('warn', `${state.message!} (CONFORMANCE §${cause === 'key_rejected' ? 'c3-identity' : 'c9-fail-visibly'})`);
     }
   };
 
@@ -479,15 +643,21 @@ export function attach(options: AttachOptions): Attachment {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${key}` },
             body: JSON.stringify({ pointer }),
-            signal: AbortSignal.timeout(timeoutMs),
-          });
+            signal: AbortSignal.timeout(timeoutMs + 1_000),
+            net: { timeoutMs, idempotent: opts?.read === true },
+          } as NetInit);
         } catch (err) {
           const elapsedMs = Date.now() - started;
+          const named = classifyNetError(err);
           const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-          if (isTimeoutText(msg)) {
-            throw new ResolveError('producer_timeout', shape, `producer_timeout(${shape}, ${elapsedMs}ms): no answer within the ${timeoutMs}ms client cap`);
+          if (named?.kind === 'response_timeout' || (!named && isTimeoutText(msg))) {
+            throw new ResolveError('producer_timeout', shape, `producer_timeout(${shape}, ${elapsedMs}ms): no answer within the ${timeoutMs}ms client cap`, 'response_timeout');
           }
-          throw new ResolveError('anchor_unreachable', shape, `anchor_unreachable: POST ${url} failed (${err instanceof Error ? err.message : String(err)})`);
+          if (named?.kind === 'blocked_by_portal') {
+            throw new AttachmentRefusedError('blocked_by_portal', `${named.line} (POST ${url})`);
+          }
+          const line = named?.line ?? (err instanceof Error ? err.message : String(err));
+          throw new ResolveError('anchor_unreachable', shape, `anchor_unreachable: POST ${url} failed — ${line}`, named?.kind);
         }
         const text = await res.text();
         const elapsedMs = Date.now() - started;
@@ -501,16 +671,25 @@ export function attach(options: AttachOptions): Attachment {
       };
 
       const delays = opts?.read ? READ_RETRY_DELAYS_MS : [];
+      const family = shapeFamily(shape);
       for (let attempt = 0; ; attempt++) {
         try {
-          return await once();
+          const result = await once();
+          record(family, { ok: true, cause: null, line: null, shape });
+          return result;
         } catch (err) {
           const retryable = err instanceof ResolveError && err.kind === 'producer_timeout' && attempt < delays.length;
-          if (!retryable) throw err;
+          if (!retryable) {
+            const line = err instanceof Error ? err.message : String(err);
+            const cause = err instanceof ResolveError ? err.netCause ?? err.kind : err instanceof AttachmentRefusedError ? err.attachCause : 'error';
+            record(family, { ok: false, cause, line, shape });
+            throw err;
+          }
           await sleep(delays[attempt]!);
         }
       }
     },
+    fetch: fetchImpl,
     stop() {
       options.authService?.stopKeyHeartbeat();
     },

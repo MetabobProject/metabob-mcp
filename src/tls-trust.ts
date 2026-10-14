@@ -23,11 +23,34 @@
 
 import * as tls from 'node:tls';
 import * as https from 'node:https';
-import { configuredSubstrateUrls } from './config.js';
 
 let installed = false;
 let appendedCount = 0;
 let lastSummary: TrustInstallSummary | null = null;
+let systemAdditions: string[] | null = null;
+let systemReadError: string | undefined;
+
+/**
+ * The OS trust store's roots that the bundled Mozilla roots lack, read once and
+ * cached. src/net.ts@trusted-cas checks every substrate certificate against
+ * them, whether or not `installSystemTrustStoreSync` ran or managed to extend
+ * `tls.rootCertificates`.
+ */
+export function systemCaAdditions(): string[] {
+  if (systemAdditions) return systemAdditions;
+  let systemCerts: string[] = [];
+  try {
+    // Lazy require so an install-time failure of system-ca doesn't crash
+    // the whole module load.
+    const { systemCertsSync } = require('system-ca') as typeof import('system-ca');
+    systemCerts = systemCertsSync({ includeNodeCertificates: false });
+  } catch (err) {
+    systemReadError = err instanceof Error ? err.message : String(err);
+  }
+  const bundled = new Set(tls.rootCertificates);
+  systemAdditions = systemCerts.filter((pem) => !bundled.has(pem));
+  return systemAdditions;
+}
 
 export interface TrustInstallSummary {
   attempted: boolean;
@@ -60,20 +83,9 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
     };
   }
 
-  let systemCerts: string[] = [];
-  let readError: string | undefined;
-  try {
-    // Lazy require so an install-time failure of system-ca doesn't crash
-    // the whole module load.
-    const { systemCertsSync } = require('system-ca') as typeof import('system-ca');
-    systemCerts = systemCertsSync({ includeNodeCertificates: false });
-  } catch (err) {
-    readError = err instanceof Error ? err.message : String(err);
-  }
-
   // Deduplicate against bundled Mozilla roots so we don't double-count.
-  const bundled = new Set(tls.rootCertificates);
-  const additions = systemCerts.filter((pem) => !bundled.has(pem));
+  const additions = [...systemCaAdditions()];
+  const readError = systemReadError;
 
   // Detect a corporate forward proxy from the environment. This matters even
   // when the OS store has no extra CA: Node's native `fetch` (undici) does NOT
@@ -154,27 +166,18 @@ export function installSystemTrustStoreSync(opts: { disabled?: boolean } = {}): 
         dispatcher = new undici.EnvHttpProxyAgent(
           caList ? { requestTls: { ca: caList } } : {},
         );
-      } else if (proxyPresent && typeof undici.ProxyAgent === 'function') {
-        // Older undici without EnvHttpProxyAgent: resolve the proxy URL ourselves,
-        // for the configured substrate anchor (one proxy for every host — the
-        // CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role gap).
-        const { getProxyForUrl } = require('proxy-from-env') as {
-          getProxyForUrl: (u: string | URL) => string;
-        };
-        // Pass a WHATWG URL (not a string) so getProxyForUrl skips the legacy
-        // url.parse() that emits DEP0169 under Node ≥21. Fields it reads
-        // (.protocol/.host/.port) are byte-compatible with the legacy Url.
-        const anchor = configuredSubstrateUrls()[0];
-        let proxyUri = proxyEnv;
-        try {
-          if (anchor) proxyUri = getProxyForUrl(new URL(anchor)) || proxyEnv;
-        } catch {
-          // Malformed anchor: fall back to the proxy environment as given.
-        }
-        dispatcher = new undici.ProxyAgent({
-          uri: proxyUri,
-          ...(caList ? { requestTls: { ca: caList } } : {}),
-        });
+      } else if (proxyPresent) {
+        // An undici without EnvHttpProxyAgent cannot choose a proxy per request
+        // (one ProxyAgent sends every host through one proxy and ignores
+        // NO_PROXY). The process's own requests never use this dispatcher —
+        // they go through src/net.ts, which selects the proxy per request — so
+        // third-party fetch gets a plain Agent, and says so.
+        // CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role
+        dispatcher = new undici.Agent(caList ? { connect: { ca: caList } } : {});
+        console.error(
+          '[metabob-mcp] system-ca: this undici has no EnvHttpProxyAgent, so global fetch from third-party code ' +
+            'goes direct; substrate requests use the proxy, chosen per request (CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role)',
+        );
       } else {
         // No proxy (or no proxy-agent support): plain Agent carrying the CA.
         dispatcher = new undici.Agent(caList ? { connect: { ca: caList } } : {});

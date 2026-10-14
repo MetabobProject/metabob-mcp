@@ -25,6 +25,10 @@ human-readable report. Also writes a JSON artifact (metabob-mcp-doctor-<ts>.json
 in the current directory) that you can attach to a support ticket.
 
 OPTIONS:
+  --attach          Run \`attach --check\` instead: the attachment once, hop by
+                    hop (proxy, TLS, /bootstrap, identity, org check, one
+                    resolve), naming the cause on failure. Exit 0 when attached.
+  --json            With --attach: print the report as JSON
   --help, -h        Show this help message
 
 ENVIRONMENT:
@@ -38,6 +42,12 @@ Exit code: 0 if every https substrate host is reachable (even if
 TLS-intercepted), 1 if any is unreachable or no endpoint is configured.
 `);
     process.exit(0);
+  }
+
+  // The front door to `attach --check` (SPEC §attach-check).
+  if (args.includes('--attach')) {
+    const { runAttachCheck } = await import('./attach-check.js');
+    process.exit(await runAttachCheck(['--check', ...args.filter((a) => a === '--json')]));
   }
 
   try {

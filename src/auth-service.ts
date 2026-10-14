@@ -16,6 +16,8 @@
  *   IDENTITY_API_KEY  — an extra key the loopback resolver accepts from local callers
  */
 
+import { classifyNetError, netFetch, type NetInit } from './net.js';
+
 const RESOLVE_TIMEOUT_MS = 5_000;
 const BEARER_REFRESH_MARGIN_MS = 60_000;
 
@@ -42,19 +44,24 @@ export type TenantResolution =
 export async function resolveTenant(
   endpoint: string,
   apiKey: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = netFetch(),
 ): Promise<TenantResolution> {
   let res: Response;
   try {
+    // The org check asks; it changes nothing, so a reset connection is retried.
     res = await fetchImpl(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${apiKey}` },
       body: '{}',
-      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
-    });
+      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS + 1_000),
+      net: { timeoutMs: RESOLVE_TIMEOUT_MS, idempotent: true },
+    } as NetInit);
   } catch (err) {
+    // The detail starts with the named network cause (src/net.ts@classify-error).
+    const named = classifyNetError(err);
+    if (named) return { kind: 'unreachable', detail: named.line };
     const msg = err instanceof Error ? err.message : String(err);
-    return { kind: 'unreachable', detail: /abort|timeout|timed out/i.test(msg) ? `timed out after ${RESOLVE_TIMEOUT_MS}ms` : msg };
+    return { kind: 'unreachable', detail: /abort|timeout|timed out/i.test(msg) ? `response_timeout: timed out after ${RESOLVE_TIMEOUT_MS}ms` : msg };
   }
 
   const text = await res.text().catch(() => '');
@@ -112,7 +119,7 @@ export class AuthService {
   }
 
   /** Run one org check and hold its tenant when it authenticates. */
-  async resolveTenant(endpoint: string, apiKey: string, fetchImpl: typeof fetch = fetch): Promise<TenantResolution> {
+  async resolveTenant(endpoint: string, apiKey: string, fetchImpl: typeof fetch = netFetch()): Promise<TenantResolution> {
     const r = await resolveTenant(endpoint, apiKey, fetchImpl);
     if (r.kind === 'authenticated') {
       const { kind: _kind, ...identity } = r;
@@ -133,7 +140,7 @@ export class AuthService {
     endpoint: string,
     apiKey: string,
     onResult: (r: TenantResolution) => void = () => {},
-    fetchImpl: typeof fetch = fetch,
+    fetchImpl: typeof fetch = netFetch(),
   ): void {
     this.stopKeyHeartbeat();
     this.heartbeatTimer = setInterval(() => {

@@ -28,19 +28,58 @@ export interface MetabobCLIConfig {
   sourcePath: string;
 }
 
+// @anchor config-lookup
 /**
  * Config resolution is directory-aware, like git: a project pins its own
- * backend by keeping .metabob/config.json in the directory the server is
- * launched from (MCP clients spawn stdio servers with cwd = project root).
- * Falls back to the per-user config when the project has none.
- * METABOB_CONFIG_PATH still overrides both (see loadMetabobCLIConfig).
+ * backend by keeping .substrate/config.json or .metabob/config.json in the
+ * directory the server is launched from (MCP clients spawn stdio servers with
+ * cwd = project root). Falls back to the per-user config — `~/.substrate`,
+ * which the substrate installer writes, then `~/.metabob` — when the project
+ * has none. SUBSTRATE_CONFIG_PATH, then METABOB_CONFIG_PATH, override all of
+ * them (configPathFromEnv). SPEC §configuration-lookup
  */
 export function getDefaultConfigPath(): string {
-  const projectConfig = join(process.cwd(), '.metabob', 'config.json');
-  if (existsSync(projectConfig)) {
-    return projectConfig;
+  const candidates = [
+    join(process.cwd(), '.substrate', 'config.json'),
+    join(process.cwd(), '.metabob', 'config.json'),
+    join(homedir(), '.substrate', 'config.json'),
+    join(homedir(), '.metabob', 'config.json'),
+  ];
+  // None exists: name the installer's path, the one to create.
+  return candidates.find((c) => existsSync(c)) ?? candidates[2]!;
+}
+
+/** An explicit config path from the environment: SUBSTRATE_CONFIG_PATH, then METABOB_CONFIG_PATH. */
+export function configPathFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.SUBSTRATE_CONFIG_PATH?.trim() || env.METABOB_CONFIG_PATH?.trim() || undefined;
+}
+
+/** The config file this process reads: the explicit path, else the first that exists in the lookup order. */
+export function resolveConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  return configPathFromEnv(env) ?? getDefaultConfigPath();
+}
+
+// @anchor substrate-env-aliases
+/**
+ * The installer's environment names, accepted alongside this server's:
+ * SUBSTRATE_API_KEY and SUBSTRATE_ENDPOINT fill METABOB_API_KEY and
+ * METABOB_ENDPOINT when those are unset. When both names are set and differ,
+ * the METABOB_* value wins, and the conflict is returned as one warning to log
+ * once. Runs before the config loaders. SPEC §configuration-lookup
+ */
+export function applySubstrateEnvAliases(env: NodeJS.ProcessEnv = process.env): string[] {
+  const warnings: string[] = [];
+  for (const [alias, name] of [['SUBSTRATE_API_KEY', 'METABOB_API_KEY'], ['SUBSTRATE_ENDPOINT', 'METABOB_ENDPOINT']] as const) {
+    const aliasValue = env[alias]?.trim();
+    if (!aliasValue) continue;
+    const value = env[name]?.trim();
+    if (!value) {
+      env[name] = aliasValue;
+    } else if (value !== aliasValue) {
+      warnings.push(`${alias} and ${name} are both set and differ; using ${name}.`);
+    }
   }
-  return join(homedir(), '.metabob', 'config.json');
+  return warnings;
 }
 
 function normalizeUrl(urlString: string): string | undefined {
@@ -127,7 +166,7 @@ export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): Meta
   };
 }
 
-export function loadMetabobCLIConfig(configPath = process.env.METABOB_CONFIG_PATH ?? getDefaultConfigPath()): MetabobCLIConfig | null {
+export function loadMetabobCLIConfig(configPath = resolveConfigPath()): MetabobCLIConfig | null {
   if (!existsSync(configPath)) {
     return null;
   }
@@ -247,7 +286,9 @@ export function applyConfigDefaults(
 }
 
 /** Where a config file is looked for, in order — named in every "not attached" message. */
-export const CONFIG_LOOKUP_ORDER = '$METABOB_CONFIG_PATH, then ./.metabob/config.json, then ~/.metabob/config.json';
+export const CONFIG_LOOKUP_ORDER =
+  '$SUBSTRATE_CONFIG_PATH, then $METABOB_CONFIG_PATH, then ./.substrate/config.json, then ./.metabob/config.json, ' +
+  'then ~/.substrate/config.json, then ~/.metabob/config.json';
 
 /**
  * The one message for a process that is not attached to a substrate, or null
@@ -263,8 +304,8 @@ export function unattachedMessage(env: NodeJS.ProcessEnv = process.env): string 
     return null;
   }
   const missing = [
-    hasKey ? null : 'an API key (METABOB_API_KEY, or metabob.apiKey in a config file)',
-    hasEndpoint ? null : 'a substrate endpoint (METABOB_ENDPOINT, or metabob.endpoint in a config file)',
+    hasKey ? null : 'an API key (METABOB_API_KEY or SUBSTRATE_API_KEY, or metabob.apiKey in a config file)',
+    hasEndpoint ? null : 'a substrate endpoint (METABOB_ENDPOINT or SUBSTRATE_ENDPOINT, or metabob.endpoint in a config file)',
   ].filter(Boolean).join(' and ');
   return (
     `Not attached to a substrate: missing ${missing}. ` +
@@ -286,4 +327,23 @@ export function configuredSubstrateUrls(env: NodeJS.ProcessEnv = process.env): s
     env.IDENTITY_ENDPOINT,
   ].map((u) => u?.trim()).filter((u): u is string => Boolean(u));
   return [...new Set(urls)];
+}
+
+// @anchor apply-configuration
+/**
+ * Fill `env` with the attachment's inputs, lowest precedence last: the
+ * installer's env names (applySubstrateEnvAliases), then METABOB_ENDPOINT's
+ * derivation, then the config file — whose endpoints are ignored when an
+ * explicit endpoint already chose the substrate (withoutEndpoints). Proxy and
+ * trust are never configuration: they come from the environment and the OS.
+ * Answers the config file read and any warnings to log once. SPEC §precedence
+ */
+export function applyConfiguration(env: NodeJS.ProcessEnv = process.env): { configPath: string; warnings: string[] } {
+  const warnings = applySubstrateEnvAliases(env);
+  const envConfig = loadMetabobEnvConfig(env);
+  applyConfigDefaults(env, envConfig);
+  const configPath = resolveConfigPath(env);
+  const fileConfig = loadMetabobCLIConfig(configPath);
+  applyConfigDefaults(env, envConfig ? withoutEndpoints(fileConfig) : fileConfig);
+  return { configPath, warnings };
 }

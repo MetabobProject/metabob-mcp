@@ -58,7 +58,9 @@ export async function installShapeStub(
       const answer = await handler(pointer);
       return Response.json(answer.body, { status: answer.status ?? 200 });
     }
-    throw new TypeError(`fetch failed: connect ECONNREFUSED ${url.host}`);
+    // Anything else (concept-db's usage history, which no shape serves) goes to
+    // the global fetch, so a test can serve it or stub it.
+    return globalThis.fetch(input, init);
   }) as typeof fetch;
 
   const attachment = attach({

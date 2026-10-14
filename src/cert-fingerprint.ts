@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as tls from 'node:tls';
 import * as crypto from 'node:crypto';
+import { openTlsSocket } from './net.js';
 
 export interface KnownHostEntry {
   fingerprint: string;
@@ -100,88 +101,71 @@ export async function probeHostFingerprint(opts: ProbeOpts): Promise<ProbeResult
   const systemRoots = opts.systemRoots ?? [];
   const storePath = opts.storePath ?? defaultStorePath();
 
-  const result: ProbeResult = await new Promise((resolve, reject) => {
-    const socket = tls.connect({
-      host,
-      port,
-      servername: host,
-      rejectUnauthorized: false, // probe captures whatever chain the proxy serves
-    });
-    const timer = setTimeout(() => {
-      socket.destroy(new Error('probe timeout'));
-    }, timeout);
-    socket.on('secureConnect', () => {
-      try {
-        const peer = socket.getPeerCertificate(true);
-        const der = peer.raw;
-        const leafFp = spkiFingerprint(der);
+  // The same path a request takes: the proxy is chosen per request and the
+  // tunnel opened by hostname (src/net.ts@open-tls-socket); the chain is
+  // captured whatever it is — this probe watches for a change, it does not trust.
+  const { socket } = await openTlsSocket(`https://${host}:${port}`, { connectTimeoutMs: timeout });
+  let result: ProbeResult;
+  try {
+    const peer = socket.getPeerCertificate(true);
+    const der = peer.raw;
+    const leafFp = spkiFingerprint(der);
 
-        // Walk to the root.
-        const seen = new Set<string>();
-        let cur: typeof peer | undefined = peer;
-        let rootPem: string | undefined;
-        let rootSubject: string | undefined;
-        while (cur && !seen.has(cur.fingerprint256)) {
-          seen.add(cur.fingerprint256);
-          if (cur.issuerCertificate && cur.issuerCertificate !== cur) {
-            cur = cur.issuerCertificate;
-          } else {
-            // self-signed — this is the root we received
-            rootPem = derToPem(cur.raw);
-            rootSubject = describeSubject(cur.subject);
-            cur = undefined;
-          }
-        }
-
-        const inBundled = rootPem ? bundled.has(rootPem) : false;
-        const inSystem = rootPem ? systemRoots.includes(rootPem) : false;
-
-        clearTimeout(timer);
-        socket.end();
-
-        const known = readKnownHosts(storePath);
-        const prior = known.hosts[host];
-        const firstSeen = !prior;
-        const changed = !!prior && prior.fingerprint !== leafFp;
-        const mitmSuspected = changed && !inBundled && inSystem;
-
-        if (firstSeen || changed) {
-          known.hosts[host] = {
-            fingerprint: leafFp,
-            recordedAt: new Date().toISOString(),
-          };
-          writeKnownHosts(known, storePath);
-        }
-
-        if (mitmSuspected) {
-          console.error(
-            `[metabob-mcp] WARNING: TLS fingerprint for ${host} changed and the ` +
-              `new chain's root (${rootSubject ?? 'unknown'}) is in your OS trust ` +
-              `store but NOT in Mozilla's bundled CA list. This is consistent with ` +
-              `corporate SSL inspection (Zscaler / Netskope / proxy MITM). ` +
-              `Connections will still proceed; if this is unexpected, contact your IT team.`,
-          );
-        }
-
-        resolve({
-          host,
-          fingerprint: leafFp,
-          changed,
-          firstSeen,
-          mitmSuspected,
-          rootSubject,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        socket.destroy();
-        reject(err);
+    // Walk to the root.
+    const seen = new Set<string>();
+    let cur: typeof peer | undefined = peer;
+    let rootPem: string | undefined;
+    let rootSubject: string | undefined;
+    while (cur && !seen.has(cur.fingerprint256)) {
+      seen.add(cur.fingerprint256);
+      if (cur.issuerCertificate && cur.issuerCertificate !== cur) {
+        cur = cur.issuerCertificate;
+      } else {
+        // self-signed — this is the root we received
+        rootPem = derToPem(cur.raw);
+        rootSubject = describeSubject(cur.subject);
+        cur = undefined;
       }
-    });
-    socket.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
+    }
+
+    const inBundled = rootPem ? bundled.has(rootPem) : false;
+    const inSystem = rootPem ? systemRoots.includes(rootPem) : false;
+
+    const known = readKnownHosts(storePath);
+    const prior = known.hosts[host];
+    const firstSeen = !prior;
+    const changed = !!prior && prior.fingerprint !== leafFp;
+    const mitmSuspected = changed && !inBundled && inSystem;
+
+    if (firstSeen || changed) {
+      known.hosts[host] = {
+        fingerprint: leafFp,
+        recordedAt: new Date().toISOString(),
+      };
+      writeKnownHosts(known, storePath);
+    }
+
+    if (mitmSuspected) {
+      console.error(
+        `[metabob-mcp] WARNING: TLS fingerprint for ${host} changed and the ` +
+          `new chain's root (${rootSubject ?? 'unknown'}) is in your OS trust ` +
+          `store but NOT in Mozilla's bundled CA list. This is consistent with ` +
+          `corporate SSL inspection (Zscaler / Netskope / proxy MITM). ` +
+          `Connections will still proceed; if this is unexpected, contact your IT team.`,
+      );
+    }
+
+    result = {
+      host,
+      fingerprint: leafFp,
+      changed,
+      firstSeen,
+      mitmSuspected,
+      rootSubject,
+    };
+  } finally {
+    socket.destroy();
+  }
 
   return result;
 }

@@ -10,6 +10,7 @@ the workflows work end to end, not that each function is correct in isolation.
 | `w2-ledger.test.ts` | session A records a finding; session B (another process, another home directory) recalls it and closes it by concept id; A then sees it closed and not offered as open work | `skills/metabob/SKILL.md` |
 | `w3-attachment.test.ts` | starting and using the server never registers with discovery (under any configuration), offers `human_input` or sends workspace content; the HTTP server answers on loopback only and reports its attachment state; a foreign key is refused at the org check, after which substrate tools answer `key_rejected` in one line and local tools still work; an undialable `/bootstrap` identity is rehosted (H1), warned about, and proven | `docs/CONFORMANCE.md` |
 | `w4-skill-contract.test.ts` | every tool the skill names exists, and every step it prescribes works under the default configuration | `skills/metabob/SKILL.md` |
+| `networks/matrix.test.ts` | the network matrix: for each corporate-network condition (direct; CONNECT proxy; `NO_PROXY`; loopback bypass; Basic, NTLM and Negotiate auth; CONNECT only to 443; plain-http anchor through a proxy; idle cuts; HTML block page; captive portal; TLS interception with the CA untrusted and trusted; blackholed proxy; refused and silent anchors) the attachment attaches and resolves one read, or fails within a bound with the named cause — under Bun in process and under Node (`attach --check --json`) | `docs/SPEC.md` § Network |
 
 A `test.todo` marks a requirement the code does not meet yet; its comment names the requirement or the
 pending change. `bun test --todo tests/workflows/` runs them.
@@ -51,6 +52,13 @@ the operation it reached (`null` when none matched; `discoveryResolve` for disco
 and a request discovery forwarded is recorded on the producer with `forwarded: true`, so a scenario can
 assert on what was called, on what never was, and that nothing reached a producer directly. For a shape
 route the recorded `body` is the operation's input; `rawBody` is what was sent.
+
+`networks/corp-proxy.ts` is a configurable corporate proxy on `node:net` (CONNECT and absolute-form;
+port allow-list, Basic / NTLM / Negotiate challenges, idle cuts, a block page, TLS interception,
+blackhole), with a TLS terminator and silent and closed ports; `networks/test-ca.ts` mints the test CAs
+and leaves with `node:crypto`. The proxied host names end in `.invalid`, so only a proxy reaches them.
+Every row runs concurrently; the matrix takes about as long as its slowest row (the 5 s default connect
+budget).
 
 `harness/mcp-client.ts` spawns the server, sends `initialize` and then `tools/call` requests, times each
 request out, and records any non-JSON-RPC line on stdout.

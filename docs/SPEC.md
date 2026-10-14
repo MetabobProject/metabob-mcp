@@ -54,18 +54,21 @@ own sections below.
 
 **The attachment is two values: an API key and an endpoint.** Neither has a default. The substrate
 installer writes both into `~/.substrate/config.json` (`~/.metabob/config.json` is a symlink to it),
-so a machine it has set up needs no environment and no flags.
+so a machine it has set up needs no environment and no flags: an MCP client entry of
+`{ "command": "metabob-mcp" }` attaches. The installer writes `endpoint`, `apiKey` and
+`gapStoreEndpoint` (which this server does not use) and never a proxy or a CA: those come from the
+environment and the OS (§ Network).
 
 Two equivalent ways to supply them:
 
 ```bash
-# Environment (typical .mcp.json / MCP-client setup)
+# Environment (typical .mcp.json / MCP-client setup); SUBSTRATE_API_KEY / SUBSTRATE_ENDPOINT are accepted too
 METABOB_API_KEY=mb_live_...
 METABOB_ENDPOINT=http://127.0.0.1:18080
 ```
 
 ```jsonc
-// .metabob/config.json, ~/.metabob/config.json, or METABOB_CONFIG_PATH
+// ~/.substrate/config.json (what the installer writes), or another file in the lookup order below
 {
   "metabob": {
     "apiKey": "mb_live_...",
@@ -74,18 +77,34 @@ METABOB_ENDPOINT=http://127.0.0.1:18080
 }
 ```
 
-Config resolution is **directory-aware, like git**: a project can pin its own
-backend with `.metabob/config.json` in the directory the server is launched
-from (MCP clients spawn stdio servers with cwd = project root). Lookup order:
-`METABOB_CONFIG_PATH` → `./.metabob/config.json` → `~/.metabob/config.json`
-(`src/config.ts@getDefaultConfigPath`).
-
 With the key or the endpoint missing, the server still starts — the local tools work — and logs one
 message naming the missing input and this lookup order (`src/config.ts@unattachedMessage`); `/health`
 and `doctor` report the same.
 
 `metabob.discoveryEndpoint` (or `DISCOVERY_ENDPOINT`) is the preferred, explicit form of the anchor.
 `metabob.endpoint` stays: the installer writes it, and a local one derives discovery (below).
+
+When the server does not attach, `metabob-mcp attach --check` is the first step (§ attach --check).
+
+### Configuration lookup
+
+Config resolution is **directory-aware, like git**: a project can pin its own backend with
+`.substrate/config.json` or `.metabob/config.json` in the directory the server is launched from (MCP
+clients spawn stdio servers with cwd = project root). The first that exists wins
+(`src/config.ts@config-lookup`, `src/config.ts@resolveConfigPath`):
+
+1. `SUBSTRATE_CONFIG_PATH`, then `METABOB_CONFIG_PATH` — an explicit file;
+2. `./.substrate/config.json`, then `./.metabob/config.json`;
+3. `~/.substrate/config.json` — what the substrate installer writes;
+4. `~/.metabob/config.json`.
+
+When none exists, `~/.substrate/config.json` is the path named as the one to create.
+
+The installer's environment names are accepted alongside this server's: `SUBSTRATE_API_KEY` and
+`SUBSTRATE_ENDPOINT` fill `METABOB_API_KEY` and `METABOB_ENDPOINT` when those are unset
+(`src/config.ts@substrate-env-aliases`). When both names of a pair are set and differ, the `METABOB_*`
+value wins and one warning says so. Every entry point — the server, `doctor` and `attach --check` —
+reads the configuration the same way (`src/config.ts@apply-configuration`).
 
 ### Endpoint derivation
 
@@ -128,7 +147,7 @@ wins over the discovery derived from the same source's endpoint, and
 Each loader fills only variables that are still unset (`src/config.ts@applyConfigDefaults`), applied in this order (`src/cli.ts@main`) — so earlier wins:
 
 1. CLI flags — `--api-key` and `--endpoint` are written into the environment before the loaders run
-2. Environment — explicit variables, then the discovery derived from `METABOB_ENDPOINT`
+2. Environment — explicit variables (`METABOB_*`, then the `SUBSTRATE_*` names for whichever is unset), then the discovery derived from `METABOB_ENDPOINT`
 3. The config file (lookup order above) — its explicit keys, then the discovery derived from its `endpoint`. When `METABOB_ENDPOINT` is set, only the file's credentials (`apiKey`, `vesselId`) apply, never its endpoints (`src/config.ts@withoutEndpoints`)
 
 There is no built-in default after these. Consequences worth knowing:
@@ -178,12 +197,18 @@ the missing input, or `attaching` while pending). Neither carries the key.
 | `cause` | the named cause keyed calls are refused with, or `null` |
 | `message` | that cause as the one line a substrate tool returns |
 | `advertised` | `none (client-only)` |
+| `network` | the network diagnosis (`src/attachment.ts@network-diagnosis`): `proxy` (`HTTPS_PROXY` / `HTTP_PROXY` with credentials redacted, `NO_PROXY` and the entries in force), `anchorRoute` (`{ via, bypass }`: the proxy a request to the anchor takes, or why it goes direct), `cause` and `causeLine` (the network cause of a failed attachment, § Network), `tls` (`{ host, authorized, issuer }` for an https anchor), `osProxy` (OS proxy settings the process does not see, named after a direct connection failed), and `lastByFamily` (the last outcome of the attachment and of each producer family — `discovery`, `trace`, `concept`, `goal`, `other` — with its cause) |
 | `startedAt`, `settledAt`, `lastCheckedAt` | timestamps; `lastCheckedAt` moves with each org check, the heartbeat's included |
 
 **Named causes** — `not_configured` (no key, or neither a discovery endpoint nor an explicit identity),
 `anchor_unreachable` (discovery does not answer `/bootstrap`), `blocked_by_portal` (`/bootstrap` or
-the org check answers non-JSON or HTML — a captive portal or block page), `identity_unreachable`, and
-`key_rejected`.
+the org check answers non-JSON or HTML, or a proxy answers with its own page — a captive portal or
+block page), `identity_unreachable`, and `key_rejected`. When the network produced no answer, the line
+carries the network cause (§ Network) — `anchor_unreachable: discovery https://hub.example did not
+answer GET /bootstrap — proxy_auth_required(NTLM): …` — and `network.cause` names it. A refusal is
+logged once at WARN when the attachment settles, naming the requirement it serves
+(CONFORMANCE §c9-fail-visibly, or CONFORMANCE §c3-identity for `key_rejected`); each refused call after
+it is logged at debug.
 
 **The gate.** Every substrate tool passes one check before it runs, on both dispatch planes — MCP
 stdio (`src/index.ts`) and the loopback resolver (`src/vessel-server.ts@resolveImpulseContent`):
@@ -208,12 +233,144 @@ names discovery's own failures in one line (`src/attachment.ts@classifyDiscovery
 | `no_producer(shape)` | discovery answers `404 { error: "Not found", shape }`: nothing produces the shape. A producer's own 404 (a pruned dispatch, a missing trace) passes through to the tool |
 | `producer_timeout(shape, ms)` | discovery answers `502 forward_failed` because it cut the forward at the producer's `resolve_timeout_ms`, or the request outlives its client cap |
 | `producer_unreachable(shape)` | any other `502 forward_failed` |
-| `anchor_unreachable` | discovery itself does not answer |
+| `anchor_unreachable` | discovery itself does not answer; the line carries the network cause (§ Network) |
 
 Each request carries a client cap just above discovery's cut for the producer family
 (`src/attachment.ts@resolve-timeouts`: discovery's own shapes 10 s, traces 15 s, concept-db 35 s,
 goal-host 60 s), so no request is held open past 60 s. A read cut at its producer's timeout is retried
 twice, after 0.5 s and 1.5 s; a write is never retried.
+
+---
+
+## Network
+
+Every request this process makes to a substrate takes one path, `src/net.ts@net-request`: the
+attachment's `/bootstrap`, identity dial and org check, discovery `POST /resolve`, the key-issuance
+heartbeat, `concept_usage_stats`'s history read, doctor's HTTPS and TLS probes, and the
+certificate-fingerprint self-probe (`src/net.ts@open-tls-socket`). It is a small HTTP/1.1 client on
+`node:net` and `node:tls`, not `fetch`: it behaves the same under Bun and Node, it sees a proxy's own
+answer to `CONNECT` (which `fetch` hides), and it never follows a redirect, so a captive portal's 302
+is seen rather than followed. Proxy selection, trust, the connect budget, retries and error
+classification live there and nowhere else (CONFORMANCE §c8-proxy-and-tls-in-the-vessel-role).
+
+### Runtime
+
+The npm bin (`dist/cli.js`) starts under Node (`#!/usr/bin/env node`). Which runtime makes the network
+calls depends on the command:
+
+| launch | the MCP server's calls | `doctor`, `attach --check` |
+|---|---|---|
+| `bun src/cli.ts` (development) | Bun | Bun |
+| `node dist/cli.js` / `npx @metabob/mcp`, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node: they are Node-safe and stay in-process |
+| `node dist/cli.js`, no Bun on PATH | none: the server exits 1 with the "requires the Bun runtime" message | Node |
+
+So both runtimes make real calls, and the network matrix runs under both
+(`tests/workflows/networks/matrix.test.ts`: Bun in process, Node by spawning `attach --check --json`
+from `dist/cli.js`, or from a Node bundle of the source). Because `src/net.ts` uses only `node:net` and `node:tls`, a row behaves the same in
+either; neither runtime's own `HTTP(S)_PROXY` handling is involved. `attach --check` prints the runtime
+it ran under.
+
+Under Node, a system resolver that drops queries delays the process's exit: `attach --check` prints its
+report within the connect budget, but Node's exit waits for the pending `getaddrinfo` to give up. The
+server, under Bun and long-lived, is unaffected.
+
+### Proxy selection
+
+Chosen per request from the environment (`src/net.ts@select-proxy`); never from a config file:
+
+- an `https:` URL uses `HTTPS_PROXY`, falling back to `HTTP_PROXY`; an `http:` URL uses `HTTP_PROXY`
+  only (so a plain-http anchor with only `HTTPS_PROXY` set goes direct, and `attach --check` says why).
+  Lowercase names win over uppercase. A proxy URL without a scheme is `http://`.
+- `NO_PROXY` entries: `*`; a host, which matches its subdomains too (`hub.corp`, `.hub.corp`); a
+  `host:port`; an IPv4 CIDR (`10.0.0.0/8`).
+- Whenever a proxy is set, `localhost`, `127.0.0.1` and `::1` are added to `NO_PROXY`, and every
+  loopback host (`127.0.0.0/8`, `::1`, `*.localhost`) goes direct: local substrate traffic never goes
+  through a corporate proxy.
+- An `https:` target is reached with `CONNECT host:port` **by hostname**, so the proxy resolves it and
+  the client needs no DNS for it; an `http:` target is sent to the proxy in absolute form
+  (`GET http://host:port/path`), so a proxy that tunnels only to 443 still carries a plain-http anchor.
+- Basic credentials go in the proxy URL (`http://user:password@proxy:3128`) and are sent as
+  `Proxy-Authorization: Basic`. They are never logged: every proxy URL in a log line, `/health`,
+  `doctor`'s report and artifact, and `attach --check` is redacted to `http://***@proxy:3128`
+  (`src/net.ts@redact-credentials`).
+- Only `http://` and `https://` proxies are supported; another scheme (`socks5://`) is
+  `proxy_unsupported(socks5)`.
+
+### Trust
+
+A certificate is checked against the bundled roots, the OS trust store (read once by
+`src/tls-trust.ts@systemCaAdditions`; `METABOB_NO_SYSTEM_CA=1` skips it) and `NODE_EXTRA_CA_CERTS`,
+which `src/net.ts@trusted-cas` reads itself because Bun does not. The chain and the host name are both
+verified before any byte of the request is sent; an untrusted chain is `tls_intercepted(<issuer>)`,
+naming the issuer at the top of the chain served. The process-wide undici dispatcher
+(`src/tls-trust.ts@installSystemTrustStoreSync`) covers third-party `fetch` only: with an undici that
+has no `EnvHttpProxyAgent` it installs a plain Agent and warns, since it cannot choose a proxy per
+request.
+
+### Budgets and retries
+
+- **Connect budget** (`src/net.ts@connect-budget`): 5 s (`METABOB_CONNECT_TIMEOUT_MS` overrides) for
+  the TCP connect to the first hop, the proxy's `CONNECT` answer and the TLS handshake. A blackholed
+  anchor or proxy fails as `connect_timeout` within it, apart from the response budget.
+- **Response budget**: the caller's, covering the whole request — `/bootstrap` and the org check 5 s,
+  the identity dial 2 s, `resolve()` its family's cap (§ Attachment, never above 60 s), the history
+  read 10 s. A connected target that does not answer in time is `response_timeout` — slow, not blocked.
+- **Retries**: on idempotent requests only (reads, and the org check), within the response budget, at
+  most twice (after 0.25 s and 0.75 s), for transient failures: a reset connection, a proxy's 5xx to
+  `CONNECT`, and — for `/bootstrap` — a 502/503/504. Never on a write, a 4xx, an auth failure or a
+  classification (`blocked_by_portal`, `tls_intercepted`, …).
+
+### Named network causes
+
+`src/net.ts@net-causes`. Each failure is one line that starts with its cause; the attachment's refusal
+(§ Attachment), every substrate tool's error text, `/health`, `doctor` and `attach --check` all carry
+it.
+
+| cause | what the network did |
+|---|---|
+| `proxy_auth_required(<schemes>)` | the proxy answered 407. For `Basic` without credentials, the line says to put them in the proxy URL; with credentials, that it rejected them. For `NTLM` / `Negotiate`, which this process does not speak, the line names the workaround: a local authenticating relay (a px- or cntlm-style proxy) with `HTTPS_PROXY` pointing at it |
+| `proxy_port_blocked(<port>)` | the proxy refused `CONNECT` to a port other than 443 (403 / 405) — Squid's `SSL_ports` default |
+| `proxy_unsupported(<scheme>)` | the proxy URL is not `http://` / `https://`, or does not parse |
+| `tls_intercepted(<issuer>)` | the chain is signed by an issuer this process does not trust — TLS inspection (`TLS_INTERCEPTED`), or an untrusted substrate CA |
+| `tls_name_mismatch(<host>)` | a trusted chain for another name |
+| `tls_failed(<host:port>)` | the TLS handshake failed for another reason |
+| `dns_failed(<host>)` | the first hop's name does not resolve — with no proxy, the anchor's |
+| `connect_timeout(<host:port>)` | no connection (or no tunnel) within the connect budget: packets dropped |
+| `connect_refused(<host:port>)` | nothing accepts connections there |
+| `connection_reset(<host>)` | the connection closed before a complete answer — a proxy cutting idle or long requests |
+| `response_timeout(<host>, <ms>)` | connected, but no complete answer within the response budget |
+| `blocked_by_portal` | a proxy or portal answered with its own page: HTML or a body instead of a tunnel, or a non-HTTP answer. `/bootstrap` and the org check also name a non-JSON or HTML answer this way, and only the org check — which needs the key — makes the anchor trusted |
+| `anchor_unreachable(<host:port>)` | the proxy could not reach the target (a 5xx to `CONNECT`), or any other failure |
+
+`src/net.ts@classify-error` names an error from any other source (a scripted fetch in tests, a runtime
+error) by its code or message.
+
+### attach --check
+
+`metabob-mcp attach --check [--json]` (also `metabob-mcp doctor --attach`) runs the attachment once,
+as the server runs it — the same configuration lookup, request path and sequence — then one read,
+`vesselRegistry`, through discovery `POST /resolve`, and prints each hop (`src/attach-check.ts@attachCheck`):
+
+- `config` — the file read, the key (last four characters), the anchor and its source;
+- `proxy` — direct (and why: loopback, `NO_PROXY`, none configured, `HTTP_PROXY` unset) or through
+  which proxy, redacted, with the `NO_PROXY` entries in force;
+- `tls` — verified (and the issuer), intercepted (and by whom), or plain http;
+- `bootstrap`, `identity` (endpoint, source, advertised, tried), `org check` (`orgId`), `resolve`;
+- `result` — `attached`, or the one line with the named cause.
+
+Exit 0 when attached and the read resolved, 1 otherwise; with nothing configured it prints the one
+instruction naming the missing input. It writes nothing: no file, and the read is one discovery answers
+itself. It is Node-safe and runs in the runtime that launched it (§ Runtime).
+
+### PAC and OS proxy settings
+
+PAC and WPAD scripts are not evaluated. When a direct connection fails as `connect_timeout`,
+`dns_failed` or `connect_refused` and no `HTTP(S)_PROXY` is set, the OS proxy settings are read
+(`src/os-proxy.ts@detect-os-proxy`: macOS `scutil --proxy`, the Windows Internet Settings registry key,
+GNOME `gsettings`; best-effort, 1.5 s) and named in the failure — "the OS proxy settings use a PAC
+script (…), which this process does not see; set HTTPS_PROXY". With none found, a `connect_timeout`
+still says that a network reachable only through a proxy needs `HTTPS_PROXY`. `doctor` reports the same
+settings. Nothing here runs at startup or blocks it.
 
 ---
 
@@ -592,7 +749,7 @@ Handler: `src/tools/concept-usage-stats.ts@handle`
 | `include_history` | boolean | `true` | Include recent usage rows |
 | `history_limit` | number | `10` | Max usage rows (max 50) |
 
-`conceptUsageStats { concept_id }` (total uses, success and failure rates) and, with history, the recent usage rows (outcome, time, trace and activity per row). No concept-db shape serves usage history, so the rows are the one direct REST read the substrate tools make (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`): concept-db is located through discovery's `vesselCapability`, through the attachment, and read at `GET /concepts/:id/usage?limit=N` (10 s). A failed history read still returns the stats.
+`conceptUsageStats { concept_id }` (total uses, success and failure rates) and, with history, the recent usage rows (outcome, time, trace and activity per row). No concept-db shape serves usage history, so the rows are the one direct REST read the substrate tools make (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`): concept-db is located through discovery's `vesselCapability`, through the attachment, and read at `GET /concepts/:id/usage?limit=N` (10 s) on the attachment's request path (§ Network). A failed history read still returns the stats, with `Recent usage: unavailable — <cause>` naming why.
 
 ### concept_sequence
 

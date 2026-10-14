@@ -15,7 +15,8 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { RESOLVE_TIMEOUT_MS, getAttachment, resolveShape } from '../attachment.js';
+import { RESOLVE_TIMEOUT_MS, describeResolveFailure, getAttachment, resolveShape } from '../attachment.js';
+import { classifyNetError, netFetch, type NetInit } from '../net.js';
 import { conceptUsageStats } from './_concept-db.js';
 
 export const ConceptUsageStatsTool = {
@@ -81,9 +82,12 @@ const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
  * reads `GET /concepts/:id/usage` from concept-db itself. concept-db is located
  * through discovery's own `vesselCapability` shape (through the attachment);
  * a loopback endpoint from a remote discovery is taken onto discovery's host.
- * Best-effort: any failure answers null and the stats still render.
+ * Best-effort: a failure is reported in one line naming its cause, and the
+ * stats still render. It takes the attachment's request path — the one
+ * outbound path (src/net.ts@net-request) — so the proxy, trust and connect
+ * budget are those of every other request.
  */
-async function fetchUsageHistory(conceptId: string, limit: number): Promise<UsageRow[] | null> {
+async function fetchUsageHistory(conceptId: string, limit: number): Promise<{ rows: UsageRow[] } | { error: string }> {
   let base: string | undefined;
   try {
     const cap = await resolveShape(
@@ -93,10 +97,10 @@ async function fetchUsageHistory(conceptId: string, limit: number): Promise<Usag
     const vessel = (cap.body as { content?: { vessels?: Array<{ endpoint?: string; public_endpoint?: string }> } })
       ?.content?.vessels?.[0];
     base = (vessel?.public_endpoint || vessel?.endpoint)?.replace(/\/+$/, '');
-  } catch {
-    return null;
+  } catch (err) {
+    return { error: describeResolveFailure(err) };
   }
-  if (!base) return null;
+  if (!base) return { error: 'no vessel advertises conceptUsageStats, so concept-db has no endpoint to read history from' };
 
   const discovery = getAttachment()?.state().anchor.discovery;
   try {
@@ -106,21 +110,24 @@ async function fetchUsageHistory(conceptId: string, limit: number): Promise<Usag
       base = url.toString().replace(/\/+$/, '');
     }
   } catch {
-    return null;
+    return { error: `concept-db's advertised endpoint ${base} does not parse` };
   }
 
   const headers: Record<string, string> = {};
   const apiKey = process.env.METABOB_API_KEY;
   if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
+  const fetchImpl = getAttachment()?.fetch ?? netFetch();
+  const url = `${base}/concepts/${encodeURIComponent(conceptId)}/usage?limit=${limit}`;
   try {
-    const res = await fetch(`${base}/concepts/${encodeURIComponent(conceptId)}/usage?limit=${limit}`, {
+    const res = await fetchImpl(url, {
       headers,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    return ((await res.json()) as HistoryResponse).usage ?? [];
-  } catch {
-    return null;
+      signal: AbortSignal.timeout(11_000),
+      net: { timeoutMs: 10_000 },
+    } as NetInit);
+    if (!res.ok) return { error: `GET ${url} answered HTTP ${res.status}` };
+    return { rows: ((await res.json()) as HistoryResponse).usage ?? [] };
+  } catch (err) {
+    return { error: classifyNetError(err)?.line ?? (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -137,9 +144,12 @@ export async function handle(
   const stats = statsRead.value as StatsResponse;
 
   let history: UsageRow[] = [];
+  let historyError: string | null = null;
   if (input.include_history) {
-    // history is non-fatal; carry on with stats only
-    history = (await fetchUsageHistory(input.concept_id, input.history_limit)) ?? [];
+    // history is non-fatal; carry on with stats only, and name why it is missing
+    const read = await fetchUsageHistory(input.concept_id, input.history_limit);
+    if ('rows' in read) history = read.rows;
+    else historyError = read.error;
   }
 
   const duration = Date.now() - start;
@@ -154,7 +164,9 @@ export async function handle(
   text += `  failure_rate: ${fr}\n\n`;
 
   if (input.include_history) {
-    if (history.length === 0) {
+    if (historyError) {
+      text += `Recent usage: unavailable — ${historyError}\n\n`;
+    } else if (history.length === 0) {
       text += 'No recent usage rows.\n';
     } else {
       text += `Recent usage (${history.length}):\n`;

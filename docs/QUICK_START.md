@@ -4,7 +4,17 @@
 
 The server attaches to a substrate with two inputs: an API key and the substrate's endpoint (for a
 local substrate, `http://127.0.0.1:18080`). Neither has a default. The substrate installer writes both into
-`~/.metabob/config.json`; on such a machine, drop the `-e` flags below.
+`~/.substrate/config.json`; on such a machine, drop the `-e` flags below — the installer's config is all
+the setup there is. Proxy and trust come from the environment (`HTTPS_PROXY`, `NO_PROXY`) and the OS
+trust store, never from a config file.
+
+Check the attachment before adding the server to a client:
+
+```bash
+npx @metabob/mcp@latest attach --check
+```
+
+`ok result attached (orgId=…)` and exit 0 mean it works. Otherwise the last line names the cause.
 
 ## 2. Add to your AI tool
 
@@ -54,6 +64,12 @@ init_workspace        # parse files added since the last call
 Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, `provide_feedback` for goal verdicts, and `submit_resolution` for a task queued on this machine (the substrate dispatches nothing to a client-only session). See [SPEC.md](SPEC.md).
 
 ## Common issues
+
+**First step for any of these: `npx @metabob/mcp attach --check`.** It runs the attachment once and
+names what failed: the proxy (`proxy_auth_required(NTLM)` — use a local px- or cntlm-style relay;
+`proxy_port_blocked(8443)`), TLS inspection (`tls_intercepted(<issuer>)` — trust that CA or set
+`NODE_EXTRA_CA_CERTS`), the network (`connect_timeout`, `dns_failed`, `connect_refused` — with a PAC
+setup, set `HTTPS_PROXY`), a block page (`blocked_by_portal`), or the key (`key_rejected`).
 
 **"Not attached to a substrate: missing …"** — the API key or the endpoint is not configured. The message names which one, and where config files are read from.
 

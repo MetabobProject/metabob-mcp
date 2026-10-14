@@ -4,20 +4,35 @@ MCP server exposing Metabob code analysis to AI agents (Claude Code, Cursor, Con
 
 ## Quick Start
 
+On a machine the substrate installer has set up, there is nothing to configure: the installer writes
+the API key and the substrate endpoint into `~/.substrate/config.json`, and an MCP client entry needs
+only the command:
+
+```json
+{ "mcpServers": { "metabob": { "command": "npx", "args": ["@metabob/mcp@latest"] } } }
+```
+
+Check that it attaches — and, when it does not, see what the network did — with:
+
+```bash
+npx @metabob/mcp@latest attach --check
+```
+
+It prints each hop (proxy, TLS, `/bootstrap`, identity, org check, one read through discovery) and
+names the cause of a failure in one line: `proxy_auth_required(NTLM)`, `proxy_port_blocked(8443)`,
+`tls_intercepted(<issuer>)`, `connect_timeout(host:port)`, `blocked_by_portal`, `key_rejected`, …
+Exit 0 means attached. Without the installer, pass the two inputs:
+
 ```bash
 npx @metabob/mcp@latest --api-key=mb_your_api_key_here --endpoint=http://127.0.0.1:18080
 ```
-
-The server attaches to a substrate with two inputs, an API key and the substrate's endpoint, and
-neither has a default. On a machine the substrate installer has set up, both are already in
-`~/.metabob/config.json` and `npx @metabob/mcp@latest` needs no flags.
 
 **Runtime**: the bin starts under Node like any npm package, and the MCP server
 itself runs on [Bun](https://bun.sh) (≥1.1) — it uses `bun:sqlite` for the local
 analysis cache. A server invocation re-execs into `bun` automatically when it is on
 PATH, and prints an install instruction when it is not. `--help`, `--version`, and
-the `doctor` subcommand run under Node alone, so you can always inspect the install
-and diagnose connectivity without Bun.
+the `doctor` and `attach --check` subcommands run under Node alone, so you can always
+inspect the install and diagnose connectivity without Bun.
 
 On a host that has Bun but *no* Node at all, use `bunx @metabob/mcp` (the
 node-shebanged bin cannot be exec'd without a `node` on PATH).
@@ -51,8 +66,9 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `METABOB_API_KEY` | — | API key, sent as `Authorization: ApiKey` on every substrate request |
-| `METABOB_ENDPOINT` | — | Substrate endpoint. Env mirror of `metabob.endpoint` in the config file |
+| `METABOB_API_KEY` | — | API key, sent as `Authorization: ApiKey` on every substrate request (`SUBSTRATE_API_KEY` is accepted too) |
+| `METABOB_ENDPOINT` | — | Substrate endpoint. Env mirror of `metabob.endpoint` in the config file (`SUBSTRATE_ENDPOINT` is accepted too) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Corporate proxy, chosen per request; loopback always goes direct (§ Corporate proxies) |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; set it with a remote endpoint |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
 | `SESSION_ID` | random UUID | Session identifier |
@@ -61,8 +77,10 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 
 The key and endpoint are read from the environment, else from a config file resolved directory-aware
-like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` in the launch directory →
-`~/.metabob/config.json`. CLI flags override environment variables, which override the config file.
+like git: `SUBSTRATE_CONFIG_PATH` → `METABOB_CONFIG_PATH` → `./.substrate/config.json` →
+`./.metabob/config.json` in the launch directory → `~/.substrate/config.json` (what the installer
+writes) → `~/.metabob/config.json`. When both a `SUBSTRATE_*` and a `METABOB_*` name are set and
+differ, the `METABOB_*` value wins, with one warning. CLI flags override environment variables, which override the config file.
 With either input missing the server still starts with its local tools, and logs one message naming
 what is missing. Run `metabob-mcp --help` for the full flag reference.
 
@@ -72,19 +90,40 @@ still wins. No other service URL is configuration.
 
 ## Corporate proxies & SSL inspection
 
+**First step: `npx @metabob/mcp attach --check`.** It names what the network did.
+
+Proxy and trust come from the environment and the OS, never from a config file. Every request takes
+one path (docs/SPEC.md § Network), identical under Bun and Node:
+
+- **Explicit proxy** — `HTTPS_PROXY` / `HTTP_PROXY` (an HTTP CONNECT proxy), chosen per request and
+  honouring `NO_PROXY`; `localhost`, `127.0.0.1` and `::1` always go direct. The anchor's host name is
+  resolved by the proxy, so a network whose DNS reaches out only through the proxy works.
+- **Basic auth** — put the credentials in the proxy URL (`http://user:password@proxy:3128`); they are
+  redacted in every log line, `/health`, `doctor` and `attach --check`.
+- **NTLM / Negotiate (Kerberos)** — not spoken directly: the failure is
+  `proxy_auth_required(NTLM)` (or `Negotiate`), and the workaround is a local authenticating relay
+  (a px- or cntlm-style proxy) with `HTTPS_PROXY` pointing at it.
+- **PAC / WPAD** — not evaluated. When a direct connection fails, the OS proxy settings are read and
+  named ("the OS proxy settings use a PAC script …; set HTTPS_PROXY").
+- **Ports** — a proxy that tunnels only to 443 fails fast as `proxy_port_blocked(<port>)`; a plain-http
+  anchor goes through the proxy without a tunnel.
+- **Blackholed or slow** — a 5 s connect budget (`METABOB_CONNECT_TIMEOUT_MS`), separate from each
+  call's response budget: a dropped connection fails as `connect_timeout` in seconds, and a connected
+  but silent server as `response_timeout`. No call is held past 60 s.
+
 Many enterprise networks (Zscaler, Netskope, Cisco Umbrella, Forcepoint, Palo Alto Prisma, Sophos, etc.) intercept TLS and re-sign it with an MDM-installed corporate root CA. Node.js ignores the OS trust store by default, so without mitigation every https call to the substrate would fail with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`.
 
 `@metabob/mcp` ships three mitigations out of the box:
 
-1. **OS trust store auto-load** — at startup, the OS root CAs are read (via [`system-ca`](https://www.npmjs.com/package/system-ca)) and merged into `tls.rootCertificates`, `https.globalAgent`, and the global `fetch` dispatcher. No env vars required. Pass `--no-system-ca` (or set `METABOB_NO_SYSTEM_CA=1`) to opt out. Bun's own TLS stack is covered separately by re-execing with `--use-system-ca`, which Bun added in **1.2.23** — on an older Bun the flag is accepted and silently inert, so upgrade Bun if you are behind an intercepting proxy.
-2. **Diagnostic TLS errors** — chain-validation failures are translated into a structured `TLS_INTERCEPTED` error that names the intercepting CA (extracted from the served cert) and tells the user to either trust the corporate root or add the substrate host to the proxy's SSL inspection bypass list. The original error code is preserved as `.cause`.
+1. **OS trust store auto-load** — the OS root CAs are read (via [`system-ca`](https://www.npmjs.com/package/system-ca)) and every substrate certificate is checked against them, the bundled roots and `NODE_EXTRA_CA_CERTS` (read by the server itself, so it applies under Bun too). No env vars required. Pass `--no-system-ca` (or set `METABOB_NO_SYSTEM_CA=1`) to opt out.
+2. **Diagnostic TLS errors** — an untrusted chain fails as `tls_intercepted(<issuer>)` (`TLS_INTERCEPTED`), naming the intercepting CA, in the attachment's refusal, every substrate tool's error text, `/health`, `doctor` and `attach --check`, with what to do: trust the corporate root, set `NODE_EXTRA_CA_CERTS`, or exempt the substrate host from inspection.
 3. **Fingerprint self-probe** — first successful TLS connect to each configured https substrate host records the leaf SPKI SHA-256 in `~/.metabob/known-hosts.json`. If a future connect serves a different fingerprint whose root is in your OS trust but not in the bundled Mozilla bundle, a one-time stderr warning identifies the likely MITM. Never blocks.
 
 If you've installed the corporate root in your OS trust store, metabob-mcp will Just Work. If you haven't, you'll see a diagnostic TLS error telling you exactly what to do.
 
 ### Diagnosing corporate-proxy issues
 
-If you're behind a proxy and the mitigations above don't fully restore connectivity, run the bundled doctor to produce evidence you can hand to your IT team or attach to a support ticket:
+If `attach --check` is not enough, run the bundled doctor to produce evidence you can hand to your IT team or attach to a support ticket:
 
 ```bash
 npx @metabob/mcp doctor

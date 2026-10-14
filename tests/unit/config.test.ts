@@ -280,12 +280,28 @@ test('getDefaultConfigPath prefers project-local .metabob/config.json over the u
   }
 });
 
+test('getDefaultConfigPath prefers the installer-named ./.substrate/config.json over ./.metabob/config.json', () => {
+  const proj = makeTempDir();
+  for (const dir of ['.substrate', '.metabob']) {
+    mkdirSync(join(proj, dir), { recursive: true });
+    writeFileSync(join(proj, dir, 'config.json'), '{}', 'utf-8');
+  }
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    expect(getDefaultConfigPath()).toBe(join(proj, '.substrate', 'config.json'));
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
 test('getDefaultConfigPath falls back to the user config when the project has none', () => {
   const proj = makeTempDir();
   const prevCwd = process.cwd();
   try {
     process.chdir(proj);
-    expect(getDefaultConfigPath()).toContain('.metabob');
+    // The user config: ~/.substrate/config.json (the installer's) when it exists, else ~/.metabob/config.json.
+    expect(getDefaultConfigPath()).toMatch(/[\\/]\.(substrate|metabob)[\\/]config\.json$/);
     expect(getDefaultConfigPath()).not.toContain(proj);
   } finally {
     process.chdir(prevCwd);
@@ -371,7 +387,10 @@ test('an api key alone names no endpoint, and the message says which input is mi
   const message = unattachedMessage(env)!;
   expect(message).toContain('a substrate endpoint (METABOB_ENDPOINT');
   expect(message).not.toContain('API key');
-  expect(message).toContain('$METABOB_CONFIG_PATH, then ./.metabob/config.json, then ~/.metabob/config.json');
+  expect(message).toContain(
+    '$SUBSTRATE_CONFIG_PATH, then $METABOB_CONFIG_PATH, then ./.substrate/config.json, then ./.metabob/config.json, ' +
+      'then ~/.substrate/config.json, then ~/.metabob/config.json',
+  );
 });
 
 test('with nothing configured, one message names both inputs', () => {
