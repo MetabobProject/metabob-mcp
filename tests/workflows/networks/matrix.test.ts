@@ -465,6 +465,12 @@ afterAll(async () => {
 
 // ── Assertions ───────────────────────────────────────────────────────────────
 
+// Windows runners connect, refuse and complete TLS handshakes markedly slower
+// (measured: idle-cut-slow 4.4 s, tls-intercepted 2.7 s on windows-latest), so
+// the "fails within" bounds scale there. The bound still means seconds, not the
+// minutes of the full-timeout-times-retries failure it guards against.
+const PLATFORM_TIME_FACTOR = process.platform === 'win32' ? 2 : 1;
+
 function assertRow(row: Row, r: RowResult | undefined, wallSlackMs: number) {
   expect(r).toBeDefined();
   if ('attaches' in row.expect) {
@@ -474,8 +480,9 @@ function assertRow(row: Row, r: RowResult | undefined, wallSlackMs: number) {
     expect(r!.cause).toBe(row.expect.cause);
     if (row.expect.causeArg) expect(r!.message).toContain(`${row.expect.cause}(`);
     if (row.expect.causeArg) expect(r!.message).toContain(row.expect.causeArg);
-    expect(r!.clientMs).toBeLessThan(row.expect.withinMs);
-    expect(r!.elapsedMs).toBeLessThan(row.expect.withinMs + wallSlackMs);
+    const withinMs = row.expect.withinMs * PLATFORM_TIME_FACTOR;
+    expect(r!.clientMs).toBeLessThan(withinMs);
+    expect(r!.elapsedMs).toBeLessThan(withinMs + wallSlackMs);
   }
 }
 
