@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepoName } from './_findings.js';
+import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepo } from './_findings.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
@@ -82,7 +82,7 @@ export async function handle(
   // any part of this codebase is relevant, not just the files touched so far.
   // Read before the local cache, so a verdict recorded by another session
   // retires this session's seeds of that finding first. SPEC §get_analysis_context
-  const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepoName() });
+  const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepo() });
   retireClosedSeeds(recall, localStore);
   const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
 

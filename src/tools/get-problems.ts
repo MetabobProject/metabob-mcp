@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepoName } from './_findings.js';
+import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepo } from './_findings.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
@@ -59,7 +59,7 @@ export async function handle(
   // verdict another session recorded retires this session's seeds of that
   // finding before the local store is read; it is appended as its own section.
   const recall = await fetchAgentFindings(apiClient, {
-    repo: workspaceRepoName(),
+    repo: workspaceRepo(),
     filePath: input.file_path,
   });
   retireClosedSeeds(recall, localStore);

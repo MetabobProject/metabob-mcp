@@ -12,7 +12,8 @@ import {
   recordConceptUsage,
   conceptDbReachable,
   conceptDbUnavailable,
-  workspaceRepoName,
+  repoLines,
+  workspaceRepo,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
 
@@ -98,7 +99,12 @@ export async function handle(
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
-      const repo = remote.repo || workspaceRepoName() || 'unknown';
+      // The finding's own repo line when it has one; else this workspace's.
+      const here = workspaceRepo();
+      const repoContent = remote.repo
+        ? [`repo: ${remote.repo}`, ...(remote.repoName ? [`repo_name: ${remote.repoName}`] : [])]
+        : repoLines(here);
+      const repoShown = remote.repoName || remote.repo || here?.name || 'unknown';
       // Join on the agf_* id the finding carries, exactly as the local path
       // does. Keying on the concept id writes a verdict no reader can match —
       // measured: the row landed in concept-db and /findings still showed "no
@@ -111,7 +117,7 @@ export async function handle(
         content: [
           `finding: ${findingKey}`,
           `verdict: ${verdict}`,
-          `repo: ${repo}`,
+          ...repoContent,
           `files: ${remote.files}`,
           `finding summary: ${remote.summary}`,
           // Author, then provenance — two separate facts. This line used to be
@@ -121,7 +127,7 @@ export async function handle(
           ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
           `origin: remote`,
         ].join('\n'),
-        summary: `[verdict:${input.action}] ${repo}: ${remote.summary}`,
+        summary: `[verdict:${input.action}] ${repoShown}: ${remote.summary}`,
         shape: VERDICT_SHAPE,
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
@@ -175,19 +181,19 @@ export async function handle(
     if (!(await conceptDbReachable())) {
       conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
     } else {
-      const repo = workspaceRepoName() ?? seed.workspace_id;
+      const here = workspaceRepo();
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept({
         content: [
           `finding: ${seedId}`,
           `verdict: ${verdict}`,
-          `repo: ${repo}`,
+          ...repoLines(here),
           `files: ${seed.file_path}`,
           `finding summary: ${seed.brief}`,
           ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
           `origin: local`,
         ].join('\n'),
-        summary: `[verdict:${input.action}] ${repo}: ${seed.brief}`,
+        summary: `[verdict:${input.action}] ${here?.name ?? seed.workspace_id}: ${seed.brief}`,
         shape: VERDICT_SHAPE,
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },

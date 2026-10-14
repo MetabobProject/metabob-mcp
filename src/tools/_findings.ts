@@ -32,6 +32,7 @@ import {
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
+import { repoIdentity, type RepoIdentity } from '../repo-identity.js';
 
 /**
  * What the analysis tools say where backend detections would otherwise be.
@@ -118,16 +119,38 @@ export function conceptIdFromRefs(refsJson: string | undefined): string | null {
 }
 
 /**
- * Basename of the active workspace root.
+ * Basename of the active workspace root: the legacy ledger key, and the name a
+ * finding's summary line shows.
  *
  * Falls back to WORKSPACE_PATH/cwd rather than returning null when the index
- * is cold: this is the only term the cross-agent recall filters on, so a null
- * here meant `get_problems` silently returned NO "recorded by agents" section
- * at all before `init_workspace` — indistinguishable, to an agent, from "no
- * one has recorded anything here".
+ * is cold: the recall filters on the repository, so a null here meant
+ * `get_problems` silently returned NO "recorded by agents" section at all
+ * before `init_workspace` — indistinguishable, to an agent, from "no one has
+ * recorded anything here".
  */
 export function workspaceRepoName(): string | null {
   return basename(activeWorkspacePath()) || null;
+}
+
+/**
+ * The repository identity of the active workspace (src/repo-identity.ts): the
+ * normalized `origin` URL, else the basename. Same workspace fallback as
+ * workspaceRepoName. SPEC §repository-identity
+ */
+export function workspaceRepo(): RepoIdentity | null {
+  const path = activeWorkspacePath();
+  return basename(path) ? repoIdentity(path) : null;
+}
+
+/**
+ * The `key: value` lines a finding or verdict carries for its repository:
+ * `repo:` is the identity recall matches, `repo_name:` the basename, for
+ * readers. Recall never matches on `repo_name:` — that would rejoin every
+ * same-named repository's ledger.
+ */
+export function repoLines(repo: RepoIdentity | null): string[] {
+  if (!repo) return ['repo: unknown'];
+  return [`repo: ${repo.id}`, `repo_name: ${repo.name}`];
 }
 
 /**
@@ -251,7 +274,7 @@ const FINDINGS_MAX_SCAN = 300;
 export async function fetchConceptById(
   _apiClient: AnalysisAPIClient,
   conceptId: string,
-): Promise<{ summary: string; files: string; repo: string; findingId: string } | null> {
+): Promise<{ summary: string; files: string; repo: string; repoName: string; findingId: string } | null> {
   if (!(await conceptDbAvailable())) return null;
   const plain = plainConceptId(conceptId);
   const read = await getConcept(plain);
@@ -266,6 +289,7 @@ export async function fetchConceptById(
     summary: String(row.summary ?? '').trim(),
     files: headerLine(content, 'files'),
     repo: headerLine(content, 'repo'),
+    repoName: headerLine(content, 'repo_name'),
     findingId,
   };
 }
@@ -357,21 +381,38 @@ function withoutAttribution(text: string): string {
     .join('\n');
 }
 
+/** A recall scope's repository: the keys a `repo:` header may equal, and the basename. */
+interface RepoMatch {
+  keys: Set<string>;
+  name: string;
+}
+
+function repoMatch(repo: string | RepoIdentity | null | undefined): RepoMatch | null {
+  if (!repo) return null;
+  const id = (typeof repo === 'string' ? repo : repo.id).trim().toLowerCase();
+  const name = (typeof repo === 'string' ? repo : repo.name).trim().toLowerCase();
+  if (!id && !name) return null;
+  return { keys: new Set([id, name].filter(Boolean)), name: name || id };
+}
+
 /**
  * Does this concept describe the given repository?
  *
  * The `repo:` header is authoritative when present — an exact match, not a
- * substring, so `metabob-mcp` never claims `metabob-mcp-sandbox`. Concepts
- * minted before that header existed have no declared repo; those fall back to a
- * substring scan of the body with attribution stripped, which keeps them
- * recallable without reintroducing the vessel-id match.
+ * substring, so `metabob-mcp` never claims `metabob-mcp-sandbox`. It matches the
+ * repository's identity (`github.com/org/repo`) or its basename: findings
+ * recorded under the basename stay in the ledger, at the cost that a
+ * basename-keyed finding is shared by every same-named repository (SPEC
+ * §repository-identity). Concepts with no declared repo fall back to the
+ * `workspace:` basename, then to a substring scan of the body with attribution
+ * stripped, which keeps them recallable without reintroducing the vessel-id match.
  */
-function conceptIsAboutRepo(summary: string, content: string, repo: string): boolean {
+function conceptIsAboutRepo(summary: string, content: string, repo: RepoMatch): boolean {
   const declared = headerLine(content, 'repo').toLowerCase();
-  if (declared) return declared === repo;
+  if (declared) return repo.keys.has(declared);
   const workspace = headerLine(content, 'workspace').toLowerCase();
-  if (workspace) return basename(workspace) === repo;
-  return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(repo);
+  if (workspace) return basename(workspace) === repo.name;
+  return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(repo.name);
 }
 
 /** Does this concept touch the requested path? Prefers the `files:` header. */
@@ -382,8 +423,9 @@ function conceptTouchesFile(summary: string, content: string, filePath: string):
 }
 
 export interface FindingsScope {
-  /** Repository the caller is working in — the required scope gate. */
-  repo: string | null | undefined;
+  /** Repository the caller is working in — the required scope gate. A string
+   *  is a single key (identity or basename); a RepoIdentity matches either. */
+  repo: string | RepoIdentity | null | undefined;
   /** Optional narrowing to findings touching this path. */
   filePath?: string | null | undefined;
 }
@@ -400,7 +442,7 @@ export async function fetchAgentFindings(
   _apiClient: AnalysisAPIClient,
   scope: FindingsScope,
 ): Promise<AgentFindingsResult> {
-  const repo = (scope.repo ?? '').trim().toLowerCase();
+  const repo = repoMatch(scope.repo);
   const filePath = (scope.filePath ?? '').trim().toLowerCase();
   // No resolvable repo means no scope; a global recall over every repository's
   // findings is worse than none, so decline rather than return the whole corpus.

@@ -16,7 +16,7 @@
  */
 
 import { z } from 'zod';
-import { basename, isAbsolute, relative } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
@@ -28,6 +28,8 @@ import {
   resolveAuthorVesselId,
   conceptDbReachable,
   conceptDbUnavailable,
+  repoLines,
+  workspaceRepo,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 
@@ -122,7 +124,10 @@ export async function handle(
   // workspace_id this store never queries, so record_finding reported success
   // and get_problems returned nothing.
   const workspaceId = localStore ? localStore.workspaceScope().id : workspacePath;
-  const repoName = basename(workspacePath) || 'unknown';
+  // The ledger key (SPEC §repository-identity): the normalized origin URL, else
+  // the basename. The summary line shows the basename, for readers.
+  const repo = workspaceRepo();
+  const repoName = repo?.name || 'unknown';
 
   const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
   const lineStart = input.line_start ?? 0;
@@ -163,7 +168,7 @@ export async function handle(
     conceptStatus = `${await conceptDbUnavailable()} — finding recorded locally only`;
   } else {
     const contentLines = [
-      `repo: ${repoName}`,
+      ...repoLines(repo),
       `workspace: ${workspaceId}`,
       `files: ${relFiles.join(', ')}`,
     ];
