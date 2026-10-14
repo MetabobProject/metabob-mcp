@@ -305,3 +305,17 @@ test('TOOL_REGISTRY contains all 28 tools', async () => {
     expect(names).toContain(name);
   }
 });
+
+// ===== run_goal / run_goal_async =====
+
+// A Claude Code session handed `edit repos/<vessel>/src/…` looked for the file in its own workspace
+// before dispatching (tests/claude-sessions S4); the goal parameter says where the goal runs.
+test('run_goal and run_goal_async: the goal parameter says the goal runs on the substrate, not in the workspace', async () => {
+  const RunGoal = await import('../../src/tools/run-goal');
+  const RunGoalAsync = await import('../../src/tools/run-goal-async');
+  for (const tool of [RunGoal.RunGoalTool, RunGoalAsync.RunGoalAsyncTool]) {
+    const goal = (tool.inputSchema.properties as any).goal.description as string;
+    expect(goal).toContain('runs on the substrate, not in this workspace');
+    expect(goal).toContain('need not exist locally');
+  }
+});

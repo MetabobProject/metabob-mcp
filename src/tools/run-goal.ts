@@ -42,7 +42,7 @@ export const RunGoalTool = {
       goal: {
         type: 'string',
         description:
-          "Natural-language goal description. Either this or target_template_id is required.",
+          "Natural-language goal description. The goal runs on the substrate, not in this workspace: a code-change goal names its file as repos/<vessel>/src/<path> in the substrate's repositories, which need not exist locally — dispatch it as given rather than looking for the file here. Either this or target_template_id is required.",
       },
       target_template_id: {
         type: 'string',
