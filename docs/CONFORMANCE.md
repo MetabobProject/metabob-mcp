@@ -183,18 +183,41 @@ names the `code:*` family, which would have to become concrete shape names befor
   `NO_PROXY` automatically so local substrate traffic never goes through a corporate proxy.
 - Report an intercepted TLS connection as `TLS_INTERCEPTED`, with the diagnostics to act on it.
 
-**Status: partially met.**
-- Met — `src/tls-trust.ts@installSystemTrustStoreSync` merges the OS trust store into Node's roots
-  and the global fetch dispatcher, after the configuration is read, so the proxy is chosen for the
-  configured substrate host. A certificate chain error a tool throws is reported as
-  `TLS_INTERCEPTED` with the intercepting issuer (`src/index.ts@tls-intercepted-report`,
-  `src/tls-error.ts@translateTlsError`).
-- Not yet met — `127.0.0.1` and `localhost` are not added to `NO_PROXY`. With an undici that has
-  `EnvHttpProxyAgent`, `NO_PROXY` is honoured as the operator set it; with an older undici the
-  fallback resolves one proxy for the configured anchor and sends every host through it, ignoring
-  `NO_PROXY`.
-- Not yet met — tools that catch their own request errors and report them as text (the substrate
-  tools do) report the raw error rather than `TLS_INTERCEPTED`.
+**Status: met.** Every request the vessel makes takes one path, `src/net.ts@net-request` (SPEC
+§ Network), the same under Bun (the server) and Node (`doctor`, `attach --check`):
+- Met — trust: a certificate is checked against the bundled roots, the OS trust store
+  (`src/tls-trust.ts@systemCaAdditions`) and `NODE_EXTRA_CA_CERTS`, which the vessel reads itself so it
+  applies under Bun too (`src/net.ts@trusted-cas`). The chain and the host name are verified before any
+  byte of a request is sent.
+- Met — proxy: `HTTP_PROXY` / `HTTPS_PROXY` and `NO_PROXY` are honoured per request
+  (`src/net.ts@select-proxy`). Whenever a proxy is set, `localhost`, `127.0.0.1` and `::1` are added to
+  `NO_PROXY`, and every loopback host goes direct, so local substrate traffic never goes through a
+  corporate proxy. An https anchor is tunnelled with `CONNECT` by hostname; a plain-http anchor is sent
+  in absolute form. Basic credentials in the proxy URL are redacted wherever a proxy is reported
+  (`src/net.ts@redact-credentials`). The undici dispatcher installed for third-party `fetch`
+  (`src/tls-trust.ts@installSystemTrustStoreSync`) never sends every host through one proxy: with an
+  undici that cannot choose per request, it installs a plain Agent and warns.
+- Met — `TLS_INTERCEPTED`: an untrusted chain is the named cause `tls_intercepted(<issuer>)`, whose line
+  carries `TLS_INTERCEPTED`, the issuer and what to do (`src/net.ts@net-causes`). It reaches the
+  attachment's refusal and `network` state, every substrate tool's error text — including tools that turn
+  their own errors into text, since they all report the attachment's resolve failure
+  (`src/attachment.ts@describeResolveFailure`) — `/health`, `doctor` and `attach --check`; an error a
+  tool throws is reported with the code `TLS_INTERCEPTED` (`src/index.ts@tls-intercepted-report`).
+- Met — the rest of the network is named too, in one line and within seconds: `proxy_auth_required(<scheme>)`
+  (for NTLM / Negotiate, naming a local px- or cntlm-style relay), `proxy_port_blocked(<port>)`,
+  `dns_failed`, `connect_timeout` (a 5 s connect budget apart from each call's response budget,
+  `src/net.ts@connect-budget`), `connect_refused`, `connection_reset`, `response_timeout`,
+  `blocked_by_portal`. PAC / WPAD is not evaluated; when a direct connection fails, the OS proxy settings
+  are read and named (`src/os-proxy.ts@detect-os-proxy`).
+
+Evidence: `tests/workflows/networks/matrix.test.ts` — 22 network conditions, each attaching (and
+resolving one read through discovery) or failing within a bound with the named cause, under Bun in
+process and under Node (`attach --check --json`), including the loopback bypass with `HTTPS_PROXY` set
+(the proxy sees no request), `NO_PROXY`, Basic credentials never appearing in state, logs, output or
+`/health`, and interception with the CA untrusted (`tls_intercepted(Corp Inspection CA)`) and trusted
+(attaches); `tests/unit/net.test.ts` (proxy selection, `NO_PROXY`, redaction, classification, the OS
+proxy readers); `tests/unit/substrate-tools-name-cause.test.ts` (every substrate tool's error text
+carries `tls_intercepted(<issuer>)` and `TLS_INTERCEPTED`).
 
 ## C9 — Fail visibly
 
@@ -213,14 +236,22 @@ is reported, never dropped. It is one typed object (`src/attachment.ts@Attachmen
 - the identity endpoint and its source, with the advertised value and every address tried;
 - the org check (`authenticated` with its `orgId`, `key_rejected`, `identity_unreachable`,
   `not_configured`);
-- the named cause, and timestamps.
+- the named cause, and timestamps;
+- the network diagnosis (`src/attachment.ts@network-diagnosis`): the proxy in use (credentials
+  redacted), how the anchor is reached, the named network cause, the TLS issuer seen, OS proxy settings
+  the process does not see, and the last outcome per producer family.
 
-`/health` carries it (`src/vessel-server.ts@health-attachment`), with `attached` and the reason;
-`doctor` runs the same sequence once and prints it (`src/doctor.ts@probeAttachment`); a refusal and
-each H1 fallback are logged once at WARN; and the startup log states a missing key or endpoint once
+`/health` carries it (`src/vessel-server.ts@health-attachment`), with `attached` and the reason, and
+reports the proxy configuration even before an attachment exists; `doctor` runs the same sequence once
+and prints it with the network diagnosis (`src/doctor.ts@probeAttachment`); `metabob-mcp attach --check`
+prints it hop by hop and exits 1 unless attached (`src/attach-check.ts@attachCheck`). Each refusal is
+logged once at WARN when the attachment settles, naming the requirement it serves (this one, or C3 for
+`key_rejected`), and each refused call after it only at debug; each H1 fallback is logged once at WARN
+naming C4; and the startup log states a missing key or endpoint once, naming C4
 (`src/config.ts@unattachedMessage`). Evidence: `tests/unit/attachment.test.ts` (`/health` for the
-authenticated, `key_rejected`, `identity_unreachable` and pending states) and
-`tests/workflows/w3-attachment.test.ts`.
+authenticated, `key_rejected`, `identity_unreachable` and pending states),
+`tests/workflows/w3-attachment.test.ts`, and `tests/workflows/networks/matrix.test.ts` (the named cause
+and `/health` for each network condition).
 
 ## C10 — One registrant per key and workspace
 
@@ -265,6 +296,7 @@ never written to discovery.
   concept-db through it as `conceptSearch`, `conceptGraph`, `conceptSequence`, `conceptUsageStats`,
   `concept_create_write`, `conceptLink_write` and `conceptUsage_write` (`src/tools/_concept-db.ts`).
 - Not yet met, one read — concept-db serves usage history (`GET /concepts/:id/usage`) under no shape,
-  so `concept_usage_stats` reads its recent rows from concept-db directly, at the endpoint discovery's
-  `vesselCapability` names (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`); the aggregate
+  so `concept_usage_stats` reads its recent rows from concept-db itself, at the endpoint discovery's
+  `vesselCapability` names, on the attachment's request path — the same proxy, trust and named causes
+  as every other request (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`); the aggregate
   is the `conceptUsageStats` shape. It goes when concept-db serves history as a shape.

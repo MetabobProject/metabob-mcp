@@ -49,6 +49,7 @@ import { LocalStore } from './local-store.js';
 import { configuredSubstrateUrls, derivedDiscoveryWarning, discoveryEndpointSource, unattachedMessage } from './config.js';
 import { attach, setAttachment, type Attachment } from './attachment.js';
 import { translateTlsError } from './tls-error.js';
+import { NetError } from './net.js';
 import { ZodError } from 'zod';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
@@ -263,7 +264,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const refusal = await substrateToolRefusal(name);
     if (refusal) {
       await sessionManager.trackUsage(SESSION_ID, name, Date.now() - startTime, false);
-      log('info', `Tool ${name} refused: ${refusal}`);
+      // The attachment logged this refusal once at WARN, naming the requirement,
+      // when it settled (src/attachment.ts@attach); each refused call is debug.
+      log('debug', `Tool ${name} refused: ${refusal}`);
       return { content: [{ type: 'text', text: refusal }], isError: true };
     }
 
@@ -304,6 +307,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const tlsError = translateTlsError(error);
     if (tlsError) {
       error = new McpError(ErrorCode.InternalError, tlsError.message, tlsError.toMcpDetails());
+    } else if (error instanceof NetError) {
+      // A request the network answered for (src/net.ts@net-causes): the named
+      // cause is the message, and the code names it too.
+      error = new McpError(ErrorCode.InternalError, error.message, {
+        code: error.kind === 'tls_intercepted' ? 'TLS_INTERCEPTED' : error.kind.toUpperCase(),
+        cause: error.cause_,
+        via: error.details.via,
+        ...(error.details.issuer ? { intercepting_issuer: error.details.issuer } : {}),
+      });
     }
 
     // Only genuine upstream failures may open the circuit — a client-side
@@ -358,7 +370,7 @@ async function main() {
   // error from each service that would have needed it.
   const notAttached = unattachedMessage();
   if (notAttached) {
-    log('warn', notAttached);
+    log('warn', `${notAttached} (CONFORMANCE §c4-anchoring)`);
   }
 
   // Fire-and-forget TLS fingerprint self-probe of the configured https hosts.

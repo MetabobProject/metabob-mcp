@@ -12,6 +12,7 @@ import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identi
 import { getResolverVesselId, getResolverOperatorId } from './resolver-identity.js';
 import { unattachedMessage } from './config.js';
 import { getAttachment } from './attachment.js';
+import { proxySummary } from './net.js';
 import { ZodError } from 'zod';
 
 /**
@@ -224,9 +225,12 @@ export class VesselServer {
       const missing = unattachedMessage();
       const current = getAttachment();
       if (!current) {
+        // Without an attachment there is still a network to report: the proxy
+        // configuration, credentials redacted (src/net.ts@redact-credentials).
+        const network = { proxy: proxySummary() };
         return missing
-          ? { attached: false, reason: missing, advertised: 'none' as const }
-          : { attached: false, reason: 'the attachment has not started', advertised: 'none (client-only)' as const };
+          ? { attached: false, reason: missing, advertised: 'none' as const, network }
+          : { attached: false, reason: 'the attachment has not started', advertised: 'none (client-only)' as const, network };
       }
       const state = current.state();
       const attached = state.auth.status === 'authenticated' && state.cause === null;

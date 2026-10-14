@@ -527,6 +527,12 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/substrate-tools-name-cause.test.ts": {
+        "CONFORMANCE": [
+          "c8-proxy-and-tls-in-the-vessel-role",
+          "c9-fail-visibly"
+        ]
+      },
       "tests/unit/traces-by-shape.test.ts": {
         "SPEC": [
           "execution_trace"
@@ -592,9 +598,12 @@
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
         "src/agent-delivery.ts@deliverResolution",
+        "src/attach-check.ts@attachCheck",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
         "src/attachment.ts@attachment-resolve",
+        "src/attachment.ts@describeResolveFailure",
+        "src/attachment.ts@network-diagnosis",
         "src/attachment.ts@rehost-h1",
         "src/auth-service.ts@org-check",
         "src/config.ts@applyConfigDefaults",
@@ -607,8 +616,15 @@
         "src/index.ts@health-port-range-warning",
         "src/index.ts@main",
         "src/index.ts@tls-intercepted-report",
-        "src/tls-error.ts@translateTlsError",
+        "src/net.ts@connect-budget",
+        "src/net.ts@net-causes",
+        "src/net.ts@net-request",
+        "src/net.ts@redact-credentials",
+        "src/net.ts@select-proxy",
+        "src/net.ts@trusted-cas",
+        "src/os-proxy.ts@detect-os-proxy",
         "src/tls-trust.ts@installSystemTrustStoreSync",
+        "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts@conceptDbReachable",
         "src/tools/_goal-host.ts@readWalkState",
@@ -623,6 +639,9 @@
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
         "tests/unit/attachment.test.ts",
+        "tests/unit/net.test.ts",
+        "tests/unit/substrate-tools-name-cause.test.ts",
+        "tests/workflows/networks/matrix.test.ts",
         "tests/workflows/w3-attachment.test.ts"
       ],
       "docs/COORDINATION-DEMONSTRATION.md": [
@@ -794,6 +813,7 @@
       "src/attachment.ts@attach": "ba8daa75d093",
       "src/attachment.ts@attachment-resolve": "2dccda2acc14",
       "src/attachment.ts@classifyDiscoveryAnswer": "e69b73b4936e",
+      "src/attachment.ts@describeResolveFailure": "0e89448ae164",
       "src/attachment.ts@network-diagnosis": "8d64a30d9de1",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
       "src/attachment.ts@resolve-timeouts": "784f64c1544e",
@@ -829,7 +849,6 @@
       "src/net.ts@trusted-cas": "8d64a30d9de1",
       "src/os-proxy.ts@detect-os-proxy": "79ed88b1bb1d",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
-      "src/tls-error.ts@translateTlsError": "0ecf7178bdcf",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
