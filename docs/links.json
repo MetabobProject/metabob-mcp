@@ -577,6 +577,7 @@
         "docs/CONFORMANCE.md",
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
+        "lab/lab.sh",
         "scripts/doclinks.mjs",
         "scripts/git-hooks/install.sh",
         "src/api-client.ts",
@@ -795,6 +796,7 @@
       ],
       "scripts/git-hooks/README.md": [
         "index.ts",
+        "lab/lab.sh",
         "scripts/doclinks.mjs",
         "scripts/git-hooks/install.sh",
         "src/cli.ts",

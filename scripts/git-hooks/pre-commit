@@ -23,6 +23,7 @@
 #   scripts/     — operational scripts (incl. scripts/git-hooks/)
 #   openspec/    — change proposals
 #   packages/    — internal sub-packages (if any)
+#   lab/         — the two-node substrate lab (lab/lab.sh) for live testing
 #   .claude/     — shared Claude Code project settings (settings.json and its hooks)
 
 set -euo pipefail
@@ -75,6 +76,7 @@ ROOT_ALLOWLIST=(
 
 ALLOWED_TOPLEVEL_DIRS=(
   src
+  lab
   test
   tests
   scripts

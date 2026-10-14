@@ -1,0 +1,4 @@
+keys/
+manifest.yml
+manifest.yml.new
+*.rendered
