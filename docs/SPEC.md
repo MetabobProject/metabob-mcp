@@ -186,7 +186,8 @@ Once authenticated, the same identity is re-resolved every 5 minutes (the key-is
 **State** — one typed object (`src/attachment.ts@AttachmentState`), reported by `doctor` and in the
 loopback `GET /health` as its `attachment` field (`src/vessel-server.ts@health-attachment`), together
 with `attached` (true only once the key is proven) and, when not attached, `reason` (the cause line,
-the missing input, or `attaching` while pending). Neither carries the key.
+the missing input, or `attaching` while pending). Neither carries the key. Before an attachment exists,
+`/health` still reports `network.proxy` (credentials redacted).
 
 | field | values |
 |---|---|

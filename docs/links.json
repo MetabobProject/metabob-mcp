@@ -120,6 +120,10 @@
       "Node.js"
     ],
     "reviewed": {
+      "CLAUDE.md": {
+        "at": "bdec39b",
+        "why": "index.ts and vessel-server.ts changes (NetError reported with its named cause and code; /health network block; refusal logging) are described in SPEC § Attachment and § Network and in CLAUDE.md's loopback-resolver bullet; nothing in CLAUDE.md is contradicted"
+      },
       "docs/CONFORMANCE.md": {
         "at": "d1142dd",
         "why": "src/index.ts changes are the scheduler/watcher removal and stdout-to-stderr routing; no requirement's status changes (none concerns uploads or logging)"
