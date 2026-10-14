@@ -38,6 +38,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { createConcept } from './_concept-db.js';
+import { plainConceptId } from './_concept-content.js';
 
 const SOURCE_TYPES = [
   'goal',
@@ -149,7 +150,7 @@ export async function handle(
 
   const concept = created.value as ConceptResponse;
   const duration = Date.now() - start;
-  const id = (concept.id ?? '').replace(/^concept:/, '');
+  const id = plainConceptId(concept.id);
 
   let text = `Concept created in ${duration}ms\n\n`;
   text += `  id:          ${id}\n`;

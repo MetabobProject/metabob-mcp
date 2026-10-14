@@ -163,7 +163,9 @@ export interface PostConceptResult {
 export async function postConcept(body: Record<string, unknown>): Promise<PostConceptResult> {
   const created = await createConcept(body);
   if (!created.ok) return { ok: false, error: created.error };
-  return { ok: true, id: String(created.value.id ?? '').replace(/^concept:/, '') };
+  // Plain form: concept-db answers some ids ⟨⟩-wrapped, and this id is printed
+  // for an agent to paste back (src/tools/_concept-content.ts@plainConceptId).
+  return { ok: true, id: plainConceptId(String(created.value.id ?? '')) };
 }
 
 /** Outcome vocabulary accepted by concept-db's usage/relevance chokepoint. */
@@ -251,7 +253,7 @@ export async function fetchConceptById(
   conceptId: string,
 ): Promise<{ summary: string; files: string; repo: string; findingId: string } | null> {
   if (!(await conceptDbAvailable())) return null;
-  const plain = conceptId.replace(/^concept:/, '').replace(/^⟨/, '').replace(/⟩$/, '');
+  const plain = plainConceptId(conceptId);
   const read = await getConcept(plain);
   if (!read.ok || !read.value) return null;
   const row = read.value;

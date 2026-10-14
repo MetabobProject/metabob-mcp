@@ -61,13 +61,14 @@ export async function handle(
   // (see getSeedByConceptRef).
   //
   // Normalise FIRST: concept-db hands back the same id both bare and
-  // ⟨⟩-wrapped (sometimes in one response), and the id get_problems prints
-  // keeps the wrapper, so gating on the raw string would refuse a wrapped id.
+  // ⟨⟩-wrapped (sometimes in one response), and an agent may paste either
+  // form, so gating on the raw string would refuse a wrapped id. Every id this
+  // tool prints is the plain form.
   const plainId = plainConceptId(input.problem_id);
   const isConceptId = plainId.startsWith('concept_');
   if (input.problem_id.startsWith('agf_') || isConceptId) {
     if (!localStore) {
-      return `Finding "${input.problem_id}" cannot be updated — local store unavailable in this session.`;
+      return `Finding "${plainId}" cannot be updated — local store unavailable in this session.`;
     }
     const seed = isConceptId
       // Either stored form matches: getSeedByConceptRef normalises the id and
@@ -89,11 +90,11 @@ export async function handle(
     // skipped — stated in the output rather than pretended.
     if (!seed && isConceptId) {
       if (!(await conceptDbReachable())) {
-        return `Concept "${input.problem_id}" has no local seed and concept-db is unavailable (${await conceptDbUnavailable()}), so no verdict was recorded.`;
+        return `Concept "${plainId}" has no local seed and concept-db is unavailable (${await conceptDbUnavailable()}), so no verdict was recorded.`;
       }
       const remote = await fetchConceptById(apiClient, plainId);
       if (!remote) {
-        return `Concept "${input.problem_id}" could not be read from concept-db, so no verdict was recorded.\n`
+        return `Concept "${plainId}" could not be read from concept-db, so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
@@ -136,7 +137,7 @@ export async function handle(
         ? `\n  keyed on:   the concept id — this finding carries no agf_* id (recorded with no local store), so finding-id joins will not surface this verdict`
         : '';
       return (
-        `Finding ${input.problem_id} ${input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
+        `Finding ${plainId} ${input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         `  relevance:  ${usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
@@ -144,7 +145,7 @@ export async function handle(
       );
     }
     if (!seed) {
-      return `Finding "${input.problem_id}" not found in the local store. Use get_problems to list valid IDs.`;
+      return `Finding "${plainId}" not found in the local store. Use get_problems to list valid IDs.`;
     }
 
     // Always act on the RESOLVED seed id: with a concept id, input.problem_id
@@ -218,7 +219,7 @@ export async function handle(
     const verb = input.action === 'endorse'
       ? 'endorsed (finding resolved, retired from get_problems)'
       : 'discarded (finding retracted and removed)';
-    const shown = isConceptId ? `${seedId} (via ${input.problem_id})` : seedId;
+    const shown = isConceptId ? `${seedId} (via ${plainId})` : seedId;
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
     return out;

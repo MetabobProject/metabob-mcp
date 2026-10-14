@@ -18,6 +18,7 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import { RESOLVE_TIMEOUT_MS, describeResolveFailure, getAttachment, resolveShape } from '../attachment.js';
 import { classifyNetError, netFetch, type NetInit } from '../net.js';
 import { conceptUsageStats } from './_concept-db.js';
+import { plainConceptId } from './_concept-content.js';
 
 export const ConceptUsageStatsTool = {
   name: 'concept_usage_stats',
@@ -137,7 +138,8 @@ export async function handle(
 ): Promise<string> {
   const start = Date.now();
 
-  const statsRead = await conceptUsageStats(input.concept_id);
+  const conceptId = plainConceptId(input.concept_id);
+  const statsRead = await conceptUsageStats(conceptId);
   if (!statsRead.ok) {
     return `concept_usage_stats: ${statsRead.error}`;
   }
@@ -147,7 +149,7 @@ export async function handle(
   let historyError: string | null = null;
   if (input.include_history) {
     // history is non-fatal; carry on with stats only, and name why it is missing
-    const read = await fetchUsageHistory(input.concept_id, input.history_limit);
+    const read = await fetchUsageHistory(conceptId, input.history_limit);
     if ('rows' in read) history = read.rows;
     else historyError = read.error;
   }
@@ -157,7 +159,7 @@ export async function handle(
   const sr = typeof stats.success_rate === 'number' ? stats.success_rate.toFixed(2) : '–';
   const fr = typeof stats.failure_rate === 'number' ? stats.failure_rate.toFixed(2) : '–';
 
-  let text = `Concept ${input.concept_id}\n\n`;
+  let text = `Concept ${conceptId}\n\n`;
   text += `Aggregate:\n`;
   text += `  total_uses:   ${stats.total_uses ?? 0}\n`;
   text += `  success_rate: ${sr}\n`;

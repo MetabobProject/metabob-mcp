@@ -19,6 +19,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { conceptSequence } from './_concept-db.js';
+import { plainConceptId } from './_concept-content.js';
 
 export const ConceptSequenceTool = {
   name: 'concept_sequence',
@@ -66,7 +67,8 @@ export async function handle(
   _apiClient: AnalysisAPIClient,
 ): Promise<string> {
   const start = Date.now();
-  const found = await conceptSequence(input.concept_id, input.direction, input.limit);
+  const conceptId = plainConceptId(input.concept_id);
+  const found = await conceptSequence(conceptId, input.direction, input.limit);
   if (!found.ok) {
     return `concept_sequence: ${found.error}`;
   }
@@ -74,13 +76,13 @@ export async function handle(
   const duration = Date.now() - start;
 
   if (seq.length === 0) {
-    return `No sequence neighbors for concept ${input.concept_id} (direction=${input.direction}).\n\nThe substrate hasn't yet observed enough co-occurrences to predict a sequence step from this concept. Query completed in ${duration}ms.`;
+    return `No sequence neighbors for concept ${conceptId} (direction=${input.direction}).\n\nThe substrate hasn't yet observed enough co-occurrences to predict a sequence step from this concept. Query completed in ${duration}ms.`;
   }
 
-  let text = `${seq.length} sequence ${input.direction === 'prev' ? 'predecessor' : 'successor'}${seq.length === 1 ? '' : 's'} of ${input.concept_id}\n\n`;
+  let text = `${seq.length} sequence ${input.direction === 'prev' ? 'predecessor' : 'successor'}${seq.length === 1 ? '' : 's'} of ${conceptId}\n\n`;
   for (let i = 0; i < seq.length; i++) {
     const s = seq[i]!;
-    const cid = (s.concept_id ?? '').replace(/^concept:/, '');
+    const cid = plainConceptId(s.concept_id);
     const w = typeof s.weight === 'number' ? s.weight.toFixed(2) : '–';
     text += `${i + 1}. ${cid}\n`;
     text += `   weight=${w}  traversed=${s.times_traversed ?? 0}\n\n`;

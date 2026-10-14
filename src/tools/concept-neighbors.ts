@@ -90,7 +90,8 @@ export async function handle(
 ): Promise<string> {
   const start = Date.now();
 
-  const graph = await conceptGraph(input.concept_id, {
+  const conceptId = plainConceptId(input.concept_id);
+  const graph = await conceptGraph(conceptId, {
     direction: input.direction,
     edge_types: input.edge_types,
     limit: input.limit,
@@ -103,10 +104,10 @@ export async function handle(
   const duration = Date.now() - start;
 
   if (neighbors.length === 0) {
-    return `No neighbors for concept ${input.concept_id} (direction=${input.direction}${input.edge_types ? `, edge_types=${input.edge_types.join(',')}` : ''}).\n\nQuery completed in ${duration}ms.`;
+    return `No neighbors for concept ${conceptId} (direction=${input.direction}${input.edge_types ? `, edge_types=${input.edge_types.join(',')}` : ''}).\n\nQuery completed in ${duration}ms.`;
   }
 
-  let text = `${neighbors.length} neighbor${neighbors.length === 1 ? '' : 's'} of ${input.concept_id}\n\n`;
+  let text = `${neighbors.length} neighbor${neighbors.length === 1 ? '' : 's'} of ${conceptId}\n\n`;
   for (let i = 0; i < neighbors.length; i++) {
     const n = neighbors[i]!;
     const cid = plainConceptId(n.concept?.id);

@@ -28,6 +28,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { linkConcepts } from './_concept-db.js';
+import { plainConceptId } from './_concept-content.js';
 
 const EDGE_TYPES = [
   'related_to',
@@ -99,8 +100,8 @@ export async function handle(
   const start = Date.now();
 
   const linkData: Record<string, unknown> = {
-    from_concept_id: input.from_concept_id,
-    to_concept_id: input.to_concept_id,
+    from_concept_id: plainConceptId(input.from_concept_id),
+    to_concept_id: plainConceptId(input.to_concept_id),
     edge_type: input.edge_type,
     ...(input.description ? { description: input.description } : {}),
     ...(input.weight !== undefined ? { weight: input.weight } : {}),
@@ -113,7 +114,8 @@ export async function handle(
 
   const edge = linked.value as LinkResult;
   const duration = Date.now() - start;
-  const edgeId = String(edge.id ?? '').replace(/^concept_edge:/, '');
+  // Same decorations as a concept id: a `concept_edge:` prefix and ⟨⟩ brackets.
+  const edgeId = String(edge.id ?? '').trim().replace(/^concept_edge:/, '').replace(/^⟨/, '').replace(/⟩$/, '').replace(/^concept_edge:/, '');
   const w = typeof edge.new_weight === 'number' ? edge.new_weight.toFixed(2) : '–';
 
   // conceptLink_write upserts: a repeated (from, to, edge_type) moves the
@@ -122,8 +124,8 @@ export async function handle(
     ? `Edge exists; weight updated in ${duration}ms\n\n`
     : `Edge created in ${duration}ms\n\n`;
   text += `  id:          ${edgeId}\n`;
-  text += `  from:        ${input.from_concept_id}\n`;
-  text += `  to:          ${input.to_concept_id}\n`;
+  text += `  from:        ${plainConceptId(input.from_concept_id)}\n`;
+  text += `  to:          ${plainConceptId(input.to_concept_id)}\n`;
   text += `  edge_type:   ${input.edge_type}\n`;
   text += `  weight:      ${w}\n`;
   if (typeof edge.previous_weight === 'number') text += `  previous:    ${edge.previous_weight.toFixed(2)}\n`;
