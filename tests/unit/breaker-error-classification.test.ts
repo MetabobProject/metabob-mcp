@@ -98,7 +98,7 @@ async function sendSequential(requests: Array<Record<string, unknown>>): Promise
       ...process.env,
       SESSION_ID: 'breaker-classification-test',
       // Not attached to any substrate: these exercise the local server only.
-      ACTIVITY_API_URL: '',
+      METABOB_ENDPOINT: '',
       DISCOVERY_ENDPOINT: '',
       // Never bind the port a live sidecar may hold.
       HEALTH_PORT: String(19000 + Math.floor(Math.random() * 900)),

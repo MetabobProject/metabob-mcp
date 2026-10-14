@@ -38,8 +38,8 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 |------|---------|
 | `src/index.ts` | Entry point — the one "not attached" message, starts the attachment, MCP server (with the substrate-tool gate), loopback resolver, shutdown |
 | `src/attachment.ts` | The attachment: `{discovery, key}` → `/bootstrap` → identity selection → org check; its typed state for `/health` and `doctor`; `resolve(pointer)` through discovery `POST /resolve` — the one ingress every substrate tool takes, with named failures (`no_producer`, `producer_timeout`, …), per-family timeouts and read retries; the gate keyed calls pass |
-| `src/api-client.ts` | Substrate routing context for the tools (discovery endpoint, activity-api base); makes no requests of its own |
-| `src/config.ts` | Config loading: env, then the config file; sibling derivation and whether discovery was derived (H1); `unattachedMessage` |
+| `src/api-client.ts` | The context handed to every tool handler; carries no substrate address and makes no requests |
+| `src/config.ts` | Config loading: env, then the config file; the discovery derivation and whether discovery was derived (H1); `unattachedMessage` |
 | `src/auth-service.ts` | Identity-vessel org check (`POST /v1/auth/resolve`, classified) and the key-issuance heartbeat, against the attachment's identity |
 | `src/vessel-server.ts` | Hono HTTP server on `127.0.0.1` — `/health` (with the attachment state), `/v2/capabilities`, `POST /v2/impulses/resolve`, for local callers |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
@@ -69,13 +69,13 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `provide_feedback` | Substrate | The "feedback plane": record an operator verdict (`reached`/`not_reached`/`partial` + rationale + confidence) on a `dispatchId` → records a ground-truth label into the substrate's oracle corpus (`goal_verification_labels`), consumed by offline audit (an obsidian-vessel reach-rate note) rather than by an automated reach-gate. Reads goal/executionId/template from goal-host's dispatch record (`goalWalkState`; `goal` may be supplied) and writes `goal_verification_label_write`; a pruned (404) or still-running dispatch cannot be labelled. Pair with `goal_reasoning`: inspect the walk, then endorse or correct it. Measured feedback, not advice. Folds the operator id into the label notes. |
 | `registry_query` | Substrate | Inspect discovery-vessel's registry without host access, through discovery's own shapes. `mode:"shapes"` lists the advertised shape vocabulary — the union of `vesselRegistry`'s vessel shapes (optional `shape` substring filter, applied client-side); `mode:"vessels"` (requires `shape`) lists vessels advertising a shape (vesselId, endpoint, protocol, resolve_endpoint) via `vesselCapability`. |
 | `execution_trace` | Substrate | Read a durable execution trace by `execution_id` through the `activityExecutionTrace` shape (activity-api's resolver, reached through discovery) — status, activity_template_id, composition_chain, load-bearing tags (`state_signature:`, `reached:`, `completion_shapes:`, `operator:`), and per-task sequence (`#N ✓/✗ resolver/tier inShapes → outShapes` + failure_mode). `goal_reasoning` renders the same trace for a dispatch. 404 (satisfier-only reach) handled gracefully. |
-| `resolve_impulse` | Substrate | ADVANCED escape hatch: general impulse-resolve passthrough for ANY shape (memoryNote, feature_compose, `*_write`, …) instead of raw `curl /v2/impulses/resolve`. `activity_api:true` → activity-api; `vessel_shape` → owning vessel via discovery; else defaults to activity-api. Prefer the dedicated tools when they fit. |
+| `resolve_impulse` | Substrate | ADVANCED escape hatch: a thin passthrough of the attachment's `resolve()` for ANY shape (memoryNote, feature_compose, `*_write`, …) — `{ pointer }` to discovery `POST /resolve`, sent once — instead of a raw `curl`. Prefer the dedicated tools when they fit. |
 | `concept_*` | Substrate | concept-db graph: `concept_search` / `_neighbors` / `_usage_stats` / `_sequence` / `_link` / `_create` / `_record_usage`. See docs/SPEC.md § Concept graph tools. |
 | `concept_record_usage` | Substrate | The direct write into concept-db's **relevance** model — the `conceptUsage_write` shape. Attribute an outcome to a concept you used: `success` credits it (raises relevance), `failure`/`neutral` grow the load count without credit. concept-db folds it into the Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)`. Reads through `conceptSearch` / `conceptGraph` record no load, so this is how a concept the agent relied on gets credit. |
 | `pull_assigned_work` | Resolver | Claim `human_input` tasks queued on this machine (by a local caller of the loopback resolver). Durable + keyed by the stable vesselId. The substrate dispatches nothing to a client-only session, so with the queue empty it reports that no task can arrive. |
 | `submit_resolution` | Resolver | Answer a pulled task (`{task_id, outcome, answer?}`). Recorded durably, then delivered to goal-host as `solicitationResponse_write` to unblock its walk; retried on a later session if the substrate was unreachable. An unknown `task_id` is reported, with the note that nothing is dispatched to this session. |
 
-**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`) locate their targets without assuming a fixed sibling URL: goal-host-vessel is `GOAL_HOST_VESSEL_URL` or else discovered by its `goal_execution` shape (loopback endpoints rehosted onto a remote discovery's host); concept-db is `CONCEPT_DB_URL` (set or derived) or else discovered by its `conceptGraph` shape; activity-api is `ACTIVITY_API_URL` (the endpoint); `registry_query` talks to discovery itself. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://127.0.0.1:18080`, what the installer writes) needs only `metabob.apiKey` + `metabob.endpoint` — it auto-derives `DISCOVERY_ENDPOINT=…:18100` (census class H1 interim debt, warned about once at startup) and `CONCEPT_DB_URL=…:18260`; a remote base endpoint derives **nothing** — no path-prefixed siblings are assumed (no live node serves them), so a remote substrate needs an explicit `DISCOVERY_ENDPOINT` / `metabob.discoveryEndpoint`. An explicit `METABOB_ENDPOINT` takes only the credentials from a config file, never its endpoints, so the two can't split across substrates. Explicit `GOAL_HOST_VESSEL_URL` / `CONCEPT_DB_URL` / `DISCOVERY_ENDPOINT` (or per-service config keys) override derivation.
+**Substrate tools** (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `concept_*` incl. `concept_record_usage`, and the substrate half of `record_finding` / `get_problems` / `get_analysis_context` / `mark_complete` / `submit_resolution`) reach the substrate through **one ingress**: each operation is a shape resolved through discovery `POST /resolve` (`src/attachment.ts@attachment-resolve`), which picks the shape's producer — goal-host (`goalDispatchAsync`, `goalWalkState`, `solicitationResponse_write`), activity-api (`activityExecutionTrace`, `goal_verification_label_write`), concept-db (`conceptSearch`, `conceptGraph`, `concept_create_write`, …) or discovery itself (`vesselRegistry`, `vesselCapability`) — and forwards the pointer with the key. No service URL is configured, derived or discovered for a call; the one exception is `concept_usage_stats`'s recent rows, which no shape serves (CONFORMANCE §c11). Discovery's own failures are one named line (`no_producer(shape)`, `producer_timeout(shape, ms)`, …); every request is capped below 60 s, and reads cut at a producer's timeout are retried. Config resolution is directory-aware, like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` (launch directory; lets a project pin its own backend) → `~/.metabob/config.json`. A local substrate endpoint (`http://127.0.0.1:18080`, what the installer writes) needs only `metabob.apiKey` + `metabob.endpoint` — it derives `DISCOVERY_ENDPOINT=…:18100` (census class H1 interim debt, warned about once at startup); a remote endpoint derives **nothing**, so a remote substrate needs an explicit `DISCOVERY_ENDPOINT` / `metabob.discoveryEndpoint`. An explicit `METABOB_ENDPOINT` takes only the credentials from a config file, never its endpoints, so the two can't split across substrates.
 
 **The surface is a complete operator cockpit — no host access needed.** Three planes + a coverage set: ACT (`run_goal*`), TRACK (`goal_status`), REASON (`goal_reasoning`), FEEDBACK (`provide_feedback`), INSPECT (`registry_query` / `execution_trace` / `resolve_impulse`). The last three replace `docker exec` / `journalctl` / raw `curl` for reading the running substrate. Canonical loop:
 
@@ -103,20 +103,21 @@ Resolver endpoint: `POST /v2/impulses/resolve` on `127.0.0.1` — `Authorization
 `metabob.endpoint` in a config file — the installer writes both into `~/.substrate/config.json`, which
 `~/.metabob/config.json` links to). Neither has a default. With either missing the server starts with local
 tools only and logs one message naming the missing input and the config lookup order
-(`src/config.ts@unattachedMessage`). A local endpoint derives discovery and concept-db at port offsets; a
-remote endpoint derives nothing, and discovery is set explicitly. The remaining variables are advanced
-overrides — each wins over its derived value only when set explicitly.
+(`src/config.ts@unattachedMessage`). A local endpoint derives discovery at its port offset; a remote
+endpoint derives nothing, and discovery is set explicitly. No other service URL is configuration: every
+substrate call resolves a shape through discovery. The remaining variables are advanced overrides — each
+wins over its derived value only when set explicitly.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `METABOB_API_KEY` | — | API key — sent as `Authorization: ApiKey` on every substrate request; validates calls to the loopback resolver |
-| `METABOB_ENDPOINT` | — | Substrate endpoint (its activity-api). A local `http://…:18080` derives discovery `:18100` and concept-db `:18260`; a remote one derives nothing. Env-var mirror of `metabob.endpoint` |
+| `METABOB_ENDPOINT` | — | Substrate endpoint. A local `http://…:18080` derives discovery `:18100`; a remote one derives nothing. Env-var mirror of `metabob.endpoint` |
 | `METABOB_CONFIG_PATH` | — | Config file to read instead of `./.metabob/config.json` → `~/.metabob/config.json` |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | The anchor: discovery-vessel base URL (also `metabob.discoveryEndpoint`, the preferred form). Required with a remote endpoint; derived from a local one with a WARN naming census class H1 |
-| `ACTIVITY_API_URL` | _(the endpoint)_ | Advanced: activity-api base (traces, oracle labels) |
 | `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Advanced: identity vessel for the org check, overriding the `identity_endpoint` discovery's `/bootstrap` advertises |
-| `CONCEPT_DB_URL` | _(derived, else discovered)_ | Advanced: concept-db base URL |
-| `GOAL_HOST_VESSEL_URL` | _(discovered)_ | Advanced: goal-host-vessel base URL |
+| `RUN_GOAL_TIMEOUT_MS` | `290000` | `run_goal`'s polling deadline: how long it waits for a dispatched goal before handing back its `dispatchId` |
+| `RUN_GOAL_POLL_MS` | `2000` | Pause between `run_goal`'s `goalWalkState` polls |
+| `RESOLVE_IMPULSE_TIMEOUT_MS` | `30000` | `resolve_impulse`'s request cap (never above 60 s) |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver. No fixed default: concurrent instances would collide, and 8000–8999 are substrate container ports (8080 is activity-api). Warns if set in that range |
@@ -136,8 +137,8 @@ from an outside vantage, and none exists for host vessels, so it offers nothing:
 
 - **No registration, no heartbeat.** It writes no discovery row under any configuration, so it has no
   endpoint to advertise and no row to keep alive or leave stale.
-- **No overlay node.** It runs no libp2p peer; it reaches the substrate as a client of the endpoints it is
-  configured with.
+- **No overlay node.** It runs no libp2p peer; it reaches the substrate as a client of one ingress,
+  discovery `POST /resolve`.
 - **Loopback resolver.** `/health`, `/v2/capabilities` and `POST /v2/impulses/resolve` bind `127.0.0.1`
   for local callers. `/health` reports the attachment state: anchor and its source, `/bootstrap` result,
   identity (chosen, advertised, tried), the org check (`orgId`), the named cause, and advertised: none.
@@ -183,9 +184,10 @@ Agent (Claude Code / Cursor / custom)
 @metabob/mcp ── client only: no registration, no overlay node ──────────────┐
    │ HTTP, Authorization: ApiKey          │ in-process                       │ loopback only
    ▼                                      ▼                                  ▼
-the configured substrate             cpg-inference-ts                 127.0.0.1 resolver
-(discovery, goal-host, concept-db,   (Tree-sitter, GCN,               (/health, /v2/capabilities,
- activity-api; identity from         vector search)                   /v2/impulses/resolve)
+discovery POST /resolve              cpg-inference-ts                 127.0.0.1 resolver
+(the one ingress: forwards each      (Tree-sitter, GCN,               (/health, /v2/capabilities,
+ shape to goal-host, concept-db,     vector search)                   /v2/impulses/resolve)
+ activity-api; identity from
  /bootstrap, org check first)
 ```
 

@@ -162,18 +162,15 @@ EXAMPLES:
 ENVIRONMENT VARIABLES:
   METABOB_API_KEY              API key
   METABOB_ENDPOINT             Substrate endpoint. A local port-published endpoint
-                               (http://127.0.0.1:18080) derives discovery (:18100)
-                               and concept-db (:18260); a remote endpoint derives
-                               nothing, so set DISCOVERY_ENDPOINT with it.
+                               (http://127.0.0.1:18080) derives discovery (:18100);
+                               a remote endpoint derives nothing, so set
+                               DISCOVERY_ENDPOINT with it.
 
   Advanced overrides (each wins over the derived value when set):
   DISCOVERY_ENDPOINT           Discovery-vessel URL: the anchor (derived from a local
                                endpoint with a warning, census class H1)
-  ACTIVITY_API_URL             Activity API URL (default: the endpoint)
   IDENTITY_ENDPOINT            Identity vessel for the org check (default: the
                                identity_endpoint discovery's /bootstrap advertises)
-  CONCEPT_DB_URL               concept-db URL
-  GOAL_HOST_VESSEL_URL         goal-host-vessel URL
   SESSION_ID                   Same as --session-id
   LOG_LEVEL                    Same as --log-level
   HEALTH_PORT                  Same as --health-port
@@ -193,9 +190,7 @@ CONFIGURATION FILE:
       "endpoint": "http://127.0.0.1:18080",     // the substrate endpoint
       // Advanced pins, each winning over its derived value when set:
       "discoveryEndpoint": "...",               // discovery-vessel: the anchor (preferred)
-      "identityEndpoint": "...",                // identity, overriding /bootstrap's
-      "conceptDbUrl": "...",                    // concept-db
-      "goalHostVesselUrl": "..."                // goal-host-vessel
+      "identityEndpoint": "..."                 // identity, overriding /bootstrap's
     }
   }
   All keys optional; unknown keys ignored.

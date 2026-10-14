@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, configuredSubstrateUrls, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
+import { applyConfigDefaults, configuredSubstrateUrls, deriveLocalDiscoveryEndpoint, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -32,12 +32,10 @@ test('loadMetabobCLIConfig reads api key and activity endpoint from metabob conf
 
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
-    activityApiUrl: 'https://activity.metabob.com',
+    endpoint: 'https://activity.metabob.com',
     discoveryEndpoint: undefined,
     discoveryDerived: false,
     identityEndpoint: undefined,
-    conceptDbUrl: undefined,
-    goalHostVesselUrl: undefined,
     sourcePath: path,
   });
 });
@@ -52,12 +50,10 @@ test('loadMetabobCLIConfig falls back to instance api key and defaults no endpoi
   // An apiKey-only config names no substrate: nothing is defaulted.
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_instance_key',
-    activityApiUrl: undefined,
+    endpoint: undefined,
     discoveryEndpoint: undefined,
     discoveryDerived: false,
     identityEndpoint: undefined,
-    conceptDbUrl: undefined,
-    goalHostVesselUrl: undefined,
     sourcePath: path,
   });
 });
@@ -72,12 +68,10 @@ test('loadMetabobCLIConfig derives substrate sibling endpoints from local activi
 
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
-    activityApiUrl: 'http://localhost:18080',
+    endpoint: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:18100',
     discoveryDerived: true,
     identityEndpoint: undefined,
-    conceptDbUrl: 'http://localhost:18260',
-    goalHostVesselUrl: undefined,
     sourcePath: path,
   });
 });
@@ -98,12 +92,10 @@ test('loadMetabobCLIConfig derives sibling endpoints from a REMOTE port-publishe
 
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: 'mb_test_key',
-    activityApiUrl: 'http://syzygy.host:18080',
+    endpoint: 'http://syzygy.host:18080',
     discoveryEndpoint: 'http://syzygy.host:18100',
     discoveryDerived: true,
     identityEndpoint: undefined,
-    conceptDbUrl: 'http://syzygy.host:18260',
-    goalHostVesselUrl: undefined,
     sourcePath: path,
   });
 });
@@ -121,15 +113,15 @@ test('loadMetabobCLIConfig derives nothing for a portless http endpoint', () => 
 
   const config = loadMetabobCLIConfig(path);
   expect(config?.discoveryEndpoint).toBeUndefined();
-  expect(config?.conceptDbUrl).toBeUndefined();
 });
 
-test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived defaults', () => {
+test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived defaults, and ignores per-service keys', () => {
   const path = writeConfigFile(JSON.stringify({
     metabob: {
       endpoint: 'http://localhost:18080',
       discoveryEndpoint: 'http://localhost:9990',
       identityEndpoint: 'http://localhost:9992',
+      // Per-service URLs are not configuration: every substrate call resolves by shape.
       conceptDbUrl: 'http://localhost:9993',
       goalHostVesselUrl: 'http://localhost:9994',
     },
@@ -137,12 +129,10 @@ test('loadMetabobCLIConfig prefers explicit substrate endpoints over derived def
 
   expect(loadMetabobCLIConfig(path)).toEqual({
     apiKey: undefined,
-    activityApiUrl: 'http://localhost:18080',
+    endpoint: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:9990',
     discoveryDerived: false,
     identityEndpoint: 'http://localhost:9992',
-    conceptDbUrl: 'http://localhost:9993',
-    goalHostVesselUrl: 'http://localhost:9994',
     sourcePath: path,
   });
 });
@@ -155,12 +145,10 @@ test('loadMetabobEnvConfig treats METABOB_ENDPOINT as the gateway and derives si
 
   expect(config).toEqual({
     apiKey: 'mb_env_key',
-    activityApiUrl: 'https://substrate.example',
+    endpoint: 'https://substrate.example',
     discoveryEndpoint: undefined,
     discoveryDerived: false,
     identityEndpoint: undefined,
-    conceptDbUrl: undefined,
-    goalHostVesselUrl: undefined,
     sourcePath: '<env:METABOB_ENDPOINT>',
   });
 });
@@ -173,12 +161,10 @@ test('loadMetabobEnvConfig derives local substrate ports from METABOB_ENDPOINT',
 
   expect(config).toEqual({
     apiKey: 'mb_env_key',
-    activityApiUrl: 'http://localhost:18080',
+    endpoint: 'http://localhost:18080',
     discoveryEndpoint: 'http://localhost:18100',
     discoveryDerived: true,
     identityEndpoint: undefined,
-    conceptDbUrl: 'http://localhost:18260',
-    goalHostVesselUrl: undefined,
     sourcePath: '<env:METABOB_ENDPOINT>',
   });
 });
@@ -198,7 +184,7 @@ test('env-var path derives the same endpoints as the config-file path', () => {
   const envB: NodeJS.ProcessEnv = {};
   applyConfigDefaults(envB, loadMetabobCLIConfig(path));
 
-  for (const key of ['ACTIVITY_API_URL', 'DISCOVERY_ENDPOINT', 'IDENTITY_ENDPOINT', 'CONCEPT_DB_URL']) {
+  for (const key of ['METABOB_ENDPOINT', 'DISCOVERY_ENDPOINT', 'IDENTITY_ENDPOINT']) {
     expect(envA[key]).toBe(envB[key]);
   }
 });
@@ -224,20 +210,16 @@ test('applyConfigDefaults fills only missing environment values', () => {
 
   applyConfigDefaults(env, {
     apiKey: 'config_key',
-    activityApiUrl: 'https://activity.metabob.com',
+    endpoint: 'https://activity.metabob.com',
     discoveryEndpoint: 'http://localhost:18100',
     identityEndpoint: 'http://localhost:18101',
-    conceptDbUrl: 'http://localhost:18260',
-    goalHostVesselUrl: 'http://localhost:18210',
     sourcePath: '/tmp/config.json',
   });
 
   expect(env.METABOB_API_KEY).toBe('existing_key');
-  expect(env.ACTIVITY_API_URL).toBe('https://activity.metabob.com');
+  expect(env.METABOB_ENDPOINT).toBe('https://activity.metabob.com');
   expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
   expect(env.IDENTITY_ENDPOINT).toBe('http://localhost:18101');
-  expect(env.CONCEPT_DB_URL).toBe('http://localhost:18260');
-  expect(env.GOAL_HOST_VESSEL_URL).toBe('http://localhost:18210');
 });
 
 test('an env-supplied key keeps the file endpoint (env apiKey via MCP client)', () => {
@@ -251,7 +233,7 @@ test('an env-supplied key keeps the file endpoint (env apiKey via MCP client)', 
   applyConfigDefaults(env, loadMetabobEnvConfig(env));      // cli.ts order
   applyConfigDefaults(env, loadMetabobCLIConfig(path));
 
-  expect(env.ACTIVITY_API_URL).toBe('http://localhost:18080');
+  expect(env.METABOB_ENDPOINT).toBe('http://localhost:18080');
   expect(env.DISCOVERY_ENDPOINT).toBe('http://localhost:18100');
   expect(env.METABOB_API_KEY).toBe('mb_env_key'); // env key still wins
 });
@@ -269,11 +251,10 @@ test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
   applyConfigDefaults(env, envConfig);
   applyConfigDefaults(env, envConfig ? withoutEndpoints(loadMetabobCLIConfig(path)) : loadMetabobCLIConfig(path));
 
-  expect(env.ACTIVITY_API_URL).toBe('https://substrate.example');
+  expect(env.METABOB_ENDPOINT).toBe('https://substrate.example');
   // The file's local discovery must not fill the gap the remote gateway
   // leaves — that would split activity and discovery across two substrates.
   expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
-  expect(env.CONCEPT_DB_URL).toBeUndefined();
 });
 
 // ===== project-local config resolution (directory-aware, like git) =====
@@ -327,7 +308,7 @@ test('loadMetabobCLIConfig picks up the project-local config from the launch dir
     process.chdir(proj);
     const config = loadMetabobCLIConfig();
     expect(config?.apiKey).toBe('mb_project_key');
-    expect(config?.activityApiUrl).toBe('http://localhost:18080');
+    expect(config?.endpoint).toBe('http://localhost:18080');
     expect(config?.discoveryEndpoint).toBe('http://localhost:18100');
     expect(config?.sourcePath).toBe(join(proj, '.metabob', 'config.json'));
   } finally {
@@ -371,9 +352,11 @@ test('the installer-written config attaches: key + local endpoint, nothing else'
   applyConfigDefaults(env, loadMetabobCLIConfig(path));
 
   expect(env.METABOB_API_KEY).toBe('mb_installer_key');
-  expect(env.ACTIVITY_API_URL).toBe('http://127.0.0.1:18080');
+  expect(env.METABOB_ENDPOINT).toBe('http://127.0.0.1:18080');
   expect(env.DISCOVERY_ENDPOINT).toBe('http://127.0.0.1:18100');
-  expect(env.CONCEPT_DB_URL).toBe('http://127.0.0.1:18260');
+  // Only the anchor derives: no per-service URL is configuration.
+  expect(env.CONCEPT_DB_URL).toBeUndefined();
+  expect(env.GOAL_HOST_VESSEL_URL).toBeUndefined();
   expect(env.IDENTITY_ENDPOINT).toBeUndefined();
   expect(unattachedMessage(env)).toBeNull();
   expect(configuredSubstrateUrls(env)[0]).toBe('http://127.0.0.1:18100');
@@ -383,7 +366,7 @@ test('an api key alone names no endpoint, and the message says which input is mi
   const env: NodeJS.ProcessEnv = { METABOB_API_KEY: 'mb_env_key' };
   applyConfigDefaults(env, loadMetabobEnvConfig(env));
 
-  expect(env.ACTIVITY_API_URL).toBeUndefined();
+  expect(env.METABOB_ENDPOINT).toBeUndefined();
   expect(env.DISCOVERY_ENDPOINT).toBeUndefined();
   const message = unattachedMessage(env)!;
   expect(message).toContain('a substrate endpoint (METABOB_ENDPOINT');
@@ -402,4 +385,18 @@ test('an endpoint without a key names the key', () => {
   const message = unattachedMessage({ DISCOVERY_ENDPOINT: 'http://127.0.0.1:18100' })!;
   expect(message).toContain('an API key (METABOB_API_KEY');
   expect(message).not.toContain('substrate endpoint');
+});
+
+// ===== the H1 discovery derivation =====
+
+test('port-published substrates derive discovery from the port block, remote ones included', () => {
+  expect(deriveLocalDiscoveryEndpoint('http://syzygy.host:18080')).toBe('http://syzygy.host:18100');
+  expect(deriveLocalDiscoveryEndpoint('http://localhost:18080')).toBe('http://localhost:18100');
+  expect(deriveLocalDiscoveryEndpoint('http://127.0.0.1:19080')).toBe('http://127.0.0.1:19100');
+  // A portless host is not port-published, so it derives nothing.
+  expect(deriveLocalDiscoveryEndpoint('http://substrate.example')).toBeUndefined();
+  // https:// is never port-published.
+  expect(deriveLocalDiscoveryEndpoint('https://substrate.example')).toBeUndefined();
+  // A port outside the convention derives nothing.
+  expect(deriveLocalDiscoveryEndpoint('http://127.0.0.1:18081')).toBeUndefined();
 });

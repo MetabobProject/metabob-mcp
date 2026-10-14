@@ -17,6 +17,7 @@ import {
 } from '../../src/attachment';
 import { installShapeStub, STUB_DISCOVERY } from '../helpers/shape-stub';
 import { handle as registryQuery } from '../../src/tools/registry-query';
+import { handle as resolveImpulse } from '../../src/tools/resolve-impulse';
 import type { AnalysisAPIClient } from '../../src/api-client';
 
 const apiClient = {} as AnalysisAPIClient;
@@ -161,5 +162,27 @@ describe('registry_query', () => {
     expect(await registryQuery({ mode: 'shapes' }, apiClient)).toBe(
       'registry_query: no_producer(vesselRegistry): discovery has no producer for this shape',
     );
+  });
+});
+
+describe('resolve_impulse', () => {
+  test('passes the pointer through discovery /resolve once and prints the producer answer', async () => {
+    const stub = await installShapeStub({
+      memoryNote: (p) => ({ status: 201, body: { success: true, content: `note ${p.note_type}` } }),
+    });
+    const out = await resolveImpulse({ shape: 'memoryNote', pointer: { note_type: 'feedback', limit: 2 } }, apiClient);
+    expect(stub.calls('memoryNote')).toEqual([{ type: 'memoryNote', note_type: 'feedback', limit: 2 }]);
+    expect(out).toBe([
+      'resolve_impulse memoryNote → discovery /resolve [201]',
+      JSON.stringify({ success: true, content: 'note feedback' }, null, 2),
+    ].join('\n'));
+  });
+
+  test('a write cut at its producer timeout is named and not retried', async () => {
+    const stub = await installShapeStub({
+      feature_compose: () => ({ status: 502, body: { error: 'forward_failed', shape: 'feature_compose', detail: 'The operation timed out.' } }),
+    });
+    expect(await resolveImpulse({ shape: 'feature_compose' }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(feature_compose, \d+ms\)/);
+    expect(stub.calls('feature_compose')).toHaveLength(1);
   });
 });

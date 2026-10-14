@@ -34,7 +34,6 @@ let dbPath: string;
 let workspace: string;
 let apiClient: AnalysisAPIClient;
 let savedWorkspacePath: string | undefined;
-let savedConceptDb: string | undefined;
 
 beforeEach(() => {
   dbPath = join(tmpdir(), `scope-binding-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);
@@ -47,12 +46,11 @@ beforeEach(() => {
   writeFileSync(join(workspace, 'src', 'target.ts'), 'export function target(): number { return 1; }\n');
 
   savedWorkspacePath = process.env.WORKSPACE_PATH;
-  savedConceptDb = process.env.CONCEPT_DB_URL;
   // Point the fallback somewhere that is definitively NOT the workspace, so a
   // test that passes can only be passing because the binding happened.
   process.env.WORKSPACE_PATH = tmpdir();
-  // Unreachable: the concept-db write is best-effort and irrelevant here.
-  process.env.CONCEPT_DB_URL = 'http://127.0.0.1:9';
+  // No attachment is installed, so the concept-db write is skipped: it is
+  // best-effort and irrelevant here.
 
   apiClient = {
     get: mock(async () => ({})),
@@ -66,8 +64,6 @@ afterEach(() => {
   rmSync(workspace, { recursive: true, force: true });
   if (savedWorkspacePath === undefined) delete process.env.WORKSPACE_PATH;
   else process.env.WORKSPACE_PATH = savedWorkspacePath;
-  if (savedConceptDb === undefined) delete process.env.CONCEPT_DB_URL;
-  else process.env.CONCEPT_DB_URL = savedConceptDb;
 });
 
 test('a finding recorded after init_workspace({workspace_path}) is recallable by get_problems', async () => {

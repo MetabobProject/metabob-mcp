@@ -81,12 +81,11 @@ beforeEach(() => {
   store = new LocalStore(dbPath);
   store.init();
 
-  // Point the cross-agent recall at a closed port: it must stay out of these
-  // assertions (and off the network) without being mocked away entirely.
-  for (const k of ['CONCEPT_DB_URL', 'VESSEL_ID', 'METABOB_API_KEY', 'WORKSPACE_PATH']) {
+  // No attachment is installed, so the cross-agent recall stays out of these
+  // assertions (and off the network) without being mocked away.
+  for (const k of ['VESSEL_ID', 'METABOB_API_KEY', 'WORKSPACE_PATH']) {
     savedEnv[k] = process.env[k];
   }
-  process.env['CONCEPT_DB_URL'] = 'http://127.0.0.1:9';
   delete process.env['VESSEL_ID'];
   delete process.env['METABOB_API_KEY'];
 });

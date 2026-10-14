@@ -87,7 +87,7 @@ export class McpServer {
     }
     // Nothing from the developer's or the CI's environment may steer routing.
     for (const k of Object.keys(env)) {
-      if (/^(METABOB_|MB_|ACTIVITY_API_URL|DISCOVERY_ENDPOINT|IDENTITY_|CONCEPT_DB_URL|GOAL_HOST_VESSEL_URL|VESSEL_|HEALTH_PORT|SESSION_|WORKSPACE_PATH)/.test(k)) {
+      if (/^(METABOB_|MB_|DISCOVERY_ENDPOINT|IDENTITY_|VESSEL_|HEALTH_PORT|SESSION_|WORKSPACE_PATH|RUN_GOAL_|RESOLVE_IMPULSE_)/.test(k)) {
         delete env[k];
       }
     }

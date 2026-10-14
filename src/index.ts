@@ -54,7 +54,7 @@ import { ZodError } from 'zod';
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
 // unattachedMessage reports it once at startup.
-const ACTIVITY_API_URL = process.env.ACTIVITY_API_URL || undefined;
+const METABOB_ENDPOINT = process.env.METABOB_ENDPOINT || undefined;
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT || undefined;
 
 /** Stable session identifier — callers may inject SESSION_ID; otherwise a fresh UUID. */
@@ -72,11 +72,8 @@ const METABOB_API_KEY = process.env.METABOB_API_KEY;
 // is no public default. CONFORMANCE §c4-anchoring
 const IDENTITY_ENDPOINT = process.env.IDENTITY_ENDPOINT || undefined;
 
-// Substrate routing context for the tools.
-const apiClient = new AnalysisAPIClient({
-  discoveryEndpoint: DISCOVERY_ENDPOINT,
-  activityApiUrl: ACTIVITY_API_URL,
-});
+// The tools' context. Substrate calls go through the attachment, not through it.
+const apiClient = new AnalysisAPIClient();
 
 const sessionManager = new SessionManager({
   timeoutMs: 3600000, // 1 hour
@@ -350,7 +347,7 @@ let attachment: Attachment | null = null;
 async function main() {
   log('info', 'Starting metabob-mcp', {
     discovery: DISCOVERY_ENDPOINT ?? null,
-    activityAPIURL: ACTIVITY_API_URL ?? null,
+    endpoint: METABOB_ENDPOINT ?? null,
     sessionId: SESSION_ID,
     logLevel: LOG_LEVEL,
     auth: METABOB_API_KEY ? 'api_key' : 'none',

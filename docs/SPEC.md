@@ -89,13 +89,14 @@ and `doctor` report the same.
 
 ### Endpoint derivation
 
-`endpoint` / `METABOB_ENDPOINT` is the substrate endpoint (its activity-api) from
-which the sibling services are derived (`src/config.ts@deriveSubstrateDefaults`).
+`endpoint` / `METABOB_ENDPOINT` is the substrate endpoint. The only address
+derived from it is discovery, the anchor (`src/config.ts@deriveLocalDiscoveryEndpoint`);
+every substrate call then resolves a shape through discovery (§ Attachment), so no
+other service has a URL to configure or derive.
 
 - **Local substrate** — an `http:` URL whose explicit port ends in `80` (`8080`,
-  `18080`, `28080`, …; `src/discovery.ts@deriveLocalDiscoveryEndpoint`) derives
-  port-offset siblings: discovery `+20`, concept-db `+180` (so
-  `http://127.0.0.1:18080` gives `:18100` and `:18260`). Deriving discovery
+  `18080`, `28080`, …) derives discovery at the same block's `…100` (so
+  `http://127.0.0.1:18080` gives `:18100`). Deriving discovery
   this way is census class H1, which CONFORMANCE §c4-anchoring forbids; it is
   kept as interim debt until the substrate installer writes the discovery
   endpoint, and the server logs one WARN saying so whenever discovery was
@@ -105,8 +106,6 @@ which the sibling services are derived (`src/config.ts@deriveSubstrateDefaults`)
 - **Remote gateway** — any other endpoint derives nothing: no path-prefixed
   siblings are assumed, so a remote substrate is anchored by an explicit
   `discoveryEndpoint` / `DISCOVERY_ENDPOINT`.
-- goal-host-vessel is never derived: the goal tools find it through discovery
-  (`goal_execution` shape) unless `GOAL_HOST_VESSEL_URL` pins it.
 
 ### Config-file schema
 
@@ -115,32 +114,29 @@ All keys are optional.
 | Key | Purpose |
 |-----|---------|
 | `metabob.apiKey` | API key (also accepted at `instance.apiKey`) |
-| `metabob.endpoint` | Substrate endpoint — the derived siblings above come from it |
+| `metabob.endpoint` | Substrate endpoint — a local one derives discovery (above) |
 | `metabob.vesselId` | Pins `VESSEL_ID` (the agent-task queue key and finding author) |
 | `metabob.discoveryEndpoint` | The anchor, explicitly: discovery-vessel's URL. Preferred over deriving it from `endpoint` |
 | `metabob.identityEndpoint` | Advanced: pin the identity endpoint, overriding the one `/bootstrap` advertises |
-| `metabob.conceptDbUrl` | Advanced: pin concept-db explicitly |
-| `metabob.goalHostVesselUrl` | Advanced: pin goal-host-vessel explicitly |
 
-Unknown keys are ignored (passthrough). Each config key and each corresponding
-env var (`ACTIVITY_API_URL`, `DISCOVERY_ENDPOINT`, `IDENTITY_ENDPOINT`,
-`CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`) wins over the
-value derived from the same source's endpoint.
+Unknown keys are ignored (passthrough). `metabob.discoveryEndpoint` / `DISCOVERY_ENDPOINT`
+wins over the discovery derived from the same source's endpoint, and
+`metabob.identityEndpoint` / `IDENTITY_ENDPOINT` over the identity `/bootstrap` advertises.
 
 ### Precedence
 
 Each loader fills only variables that are still unset (`src/config.ts@applyConfigDefaults`), applied in this order (`src/cli.ts@main`) — so earlier wins:
 
 1. CLI flags — `--api-key` and `--endpoint` are written into the environment before the loaders run
-2. Environment — explicit variables, then the siblings derived from `METABOB_ENDPOINT`
-3. The config file (lookup order above) — its explicit keys, then the siblings derived from its `endpoint`. When `METABOB_ENDPOINT` is set, only the file's credentials (`apiKey`, `vesselId`) apply, never its endpoints (`src/config.ts@withoutEndpoints`)
+2. Environment — explicit variables, then the discovery derived from `METABOB_ENDPOINT`
+3. The config file (lookup order above) — its explicit keys, then the discovery derived from its `endpoint`. When `METABOB_ENDPOINT` is set, only the file's credentials (`apiKey`, `vesselId`) apply, never its endpoints (`src/config.ts@withoutEndpoints`)
 
 There is no built-in default after these. Consequences worth knowing:
 
 - An MCP client that injects only `METABOB_API_KEY` keeps the config file's endpoint.
 - An explicit `METABOB_ENDPOINT` chooses the substrate: the config file's
-  endpoints never fill a sibling it left underived, so activity and discovery
-  cannot split across two substrates.
+  endpoints never fill a discovery it left underived, so the attachment cannot
+  split across two substrates.
 
 ### Attachment
 
@@ -547,10 +543,8 @@ The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `fe
 |-----------|------|---------|-------------|
 | `shape` | string | **required** | `pointer.type` to resolve |
 | `pointer` | object | — | Extra pointer fields, merged after `type` (so `pointer.type` overrides `shape`) |
-| `vessel_shape` | string | — | Discovery shape of the owning vessel, when it differs from `shape` |
-| `activity_api` | boolean | `true` unless `vessel_shape` is set | `true` POSTs to activity-api; `false` routes through discovery |
 
-POSTs `{ impulse: { pointer } }` to activity-api `/v2/impulses/resolve`, or — through discovery, by `vessel_shape` or else `shape` — to the owning vessel's resolve endpoint (timeout `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s). Returns the target URL, the HTTP status and the response body (pretty-printed JSON, truncated at 2048 characters) for any status. It adds no `operator` field.
+A thin passthrough of the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. The shape may be a write, so it is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
 ---
 

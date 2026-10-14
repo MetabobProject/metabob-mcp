@@ -106,8 +106,8 @@ accepted, and does not count as meeting C3.
 - Met — nothing defaults to a public host. With the key or the endpoint missing, the vessel reports
   the missing input once, naming the config lookup order (`src/config.ts@unattachedMessage`), and
   runs with local tools only.
-- Met — no path-prefix derivation: `src/config.ts@deriveSubstrateDefaults` derives port-offset
-  siblings only for a port-published endpoint and nothing for a remote one, and
+- Met — no path-prefix derivation: `src/config.ts@deriveLocalDiscoveryEndpoint` derives discovery
+  only for a port-published endpoint and nothing for a remote one, and
   `src/config.ts@withoutEndpoints` keeps a config file's endpoints from mixing with an explicit
   `METABOB_ENDPOINT`.
 - Met — identity is learned from `/bootstrap`: `src/attachment.ts@attach` reads `identity_endpoint`
@@ -127,9 +127,14 @@ accepted, and does not count as meeting C3.
   (`src/config.ts@derivedDiscoveryWarning`) and the attachment state records `anchor.source:
   "derived-h1"`; `metabob.discoveryEndpoint` / `DISCOVERY_ENDPOINT` is the explicit form. It goes
   when the installer writes the discovery endpoint into the client config.
-- Not yet met — the inputs are more than two. `METABOB_ENDPOINT` still feeds activity-api and the
-  concept-db derivation, and `ACTIVITY_API_URL`, `CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL` and
-  `IDENTITY_ENDPOINT` each still feed routing when set.
+- Met, apart from the H1 interim debts above — the inputs are two: the key and the discovery
+  endpoint. Every substrate call resolves a shape through discovery (C11), so no other service has a
+  URL to configure, derive or discover (`src/config.ts@applyConfigDefaults` sets only the key, the
+  vessel id, the endpoint, discovery and an explicit identity). `METABOB_ENDPOINT` /
+  `metabob.endpoint` routes nothing: it is the source of the H1 discovery derivation and a host for
+  the TLS probe and doctor to name. `IDENTITY_ENDPOINT` / `metabob.identityEndpoint` remains an
+  optional override of the identity `/bootstrap` advertises, for a substrate whose advertised identity
+  the host cannot dial (the H1 rehost's explicit form).
 
 ## C5 — What breaks under enforcement
 

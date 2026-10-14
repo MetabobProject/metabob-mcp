@@ -53,7 +53,9 @@
         "src/vessel-server.ts",
         "src/config.ts",
         "src/cli.ts",
-        "src/discovery.ts",
+        "src/tools/_traces.ts",
+        "src/tools/_goal-host.ts",
+        "src/tools/_concept-db.ts",
         "src/agent-delivery.ts",
         "src/cochange-predictor.ts",
         "src/attachment.ts",
@@ -166,11 +168,6 @@
         "SPEC": [
           "endpoint-derivation",
           "precedence"
-        ]
-      },
-      "src/discovery.ts": {
-        "SPEC": [
-          "endpoint-derivation"
         ]
       },
       "src/doctor.ts": {
@@ -399,6 +396,9 @@
         ]
       },
       "src/tools/resolve-impulse.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "resolve_impulse"
         ]
@@ -503,6 +503,7 @@
         "src/api-client.ts",
         "src/attachment.ts",
         "src/attachment.ts@attach",
+        "src/attachment.ts@attachment-resolve",
         "src/auth-service.ts",
         "src/cochange-predictor.ts@addFile",
         "src/config.ts",
@@ -528,7 +529,8 @@
         "src/attachment.ts@attachment-resolve",
         "src/attachment.ts@rehost-h1",
         "src/auth-service.ts@org-check",
-        "src/config.ts@deriveSubstrateDefaults",
+        "src/config.ts@applyConfigDefaults",
+        "src/config.ts@deriveLocalDiscoveryEndpoint",
         "src/config.ts@derivedDiscoveryWarning",
         "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
@@ -604,13 +606,12 @@
         "src/cochange-predictor.ts@generateSimpleFeatures",
         "src/cochange-predictor.ts@predictCochanges",
         "src/config.ts@applyConfigDefaults",
-        "src/config.ts@deriveSubstrateDefaults",
+        "src/config.ts@deriveLocalDiscoveryEndpoint",
         "src/config.ts@derivedDiscoveryWarning",
         "src/config.ts@getDefaultConfigPath",
         "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
         "src/cpg-inference.ts",
-        "src/discovery.ts@deriveLocalDiscoveryEndpoint",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
         "src/resolver-identity.ts@getResolverVesselId",
@@ -712,12 +713,11 @@
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
       "src/cochange-predictor.ts@predictCochanges": "9c7b4dc703d1",
       "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
-      "src/config.ts@deriveSubstrateDefaults": "b1540b144e4b",
+      "src/config.ts@deriveLocalDiscoveryEndpoint": "d53214fa1716",
       "src/config.ts@derivedDiscoveryWarning": "cf7563f3af62",
       "src/config.ts@getDefaultConfigPath": "b2314fb60be6",
       "src/config.ts@unattachedMessage": "c37187992372",
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
-      "src/discovery.ts@deriveLocalDiscoveryEndpoint": "3582fa0db678",
       "src/doctor.ts@probeAttachment": "d514e5f837ea",
       "src/index.ts@HEALTH_PORT": "3b0f11787db8",
       "src/index.ts@health-port-range-warning": "fa8dd2a85884",
@@ -767,7 +767,7 @@
       "src/tools/record-finding.ts@handle": "4bdf740420c9",
       "src/tools/registry-query.ts@fetchShapeVocabulary": "1e475956530a",
       "src/tools/registry-query.ts@handle": "1b0d833303dc",
-      "src/tools/resolve-impulse.ts@handle": "d2893d44938d",
+      "src/tools/resolve-impulse.ts@handle": "1279075bef96",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@run-goal-poll": "3ef046198332",

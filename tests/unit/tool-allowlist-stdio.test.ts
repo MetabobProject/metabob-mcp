@@ -46,7 +46,7 @@ async function drive(
       ...process.env,
       SESSION_ID: 'allowlist-stdio-test',
       // Not attached to any substrate: these exercise the local server only.
-      ACTIVITY_API_URL: '',
+      METABOB_ENDPOINT: '',
       DISCOVERY_ENDPOINT: '',
       // Never bind the port a live sidecar may hold.
       HEALTH_PORT: String(19900 + Math.floor(Math.random() * 90)),

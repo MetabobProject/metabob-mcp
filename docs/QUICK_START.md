@@ -61,4 +61,6 @@ Every read has a write half: `record_finding` + `mark_complete` for findings, `c
 
 **"Rate limit exceeded"** — Default is 60 requests/min per session. Set `MAX_REQUESTS_PER_MINUTE=120` to raise it.
 
-**"concept_* could not find concept-db via discovery"** — discovery-vessel is reachable, but concept-db is not registered there yet. Check discovery's `/health` (local substrate: `http://localhost:18100`) and verify concept-db is registered, or set `CONCEPT_DB_URL` explicitly to bypass discovery.
+**"no_producer(conceptSearch)"** (or any shape) — discovery is reachable, but no vessel producing that shape is registered with it. Check with `registry_query` (`mode: "vessels"`, `shape: "conceptSearch"`), or discovery's `/health` (local substrate: `http://localhost:18100`).
+
+**"producer_timeout(shape, ms)"** — discovery reached the producer but cut the request at the producer's advertised timeout. Reads are retried twice before this is reported; retry later, or narrow the query.

@@ -45,7 +45,7 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 
 **Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → embeddings → vector search) and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first.
 
-**Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `concept_*` (incl. `concept_record_usage`), `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach their target vessel through discovery. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
+**Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `concept_*` (incl. `concept_record_usage`), `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Configuration
 
@@ -54,7 +54,6 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 | `METABOB_API_KEY` | — | API key, sent as `Authorization: ApiKey` on every substrate request |
 | `METABOB_ENDPOINT` | — | Substrate endpoint. Env mirror of `metabob.endpoint` in the config file |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; set it with a remote endpoint |
-| `ACTIVITY_API_URL` | _(the endpoint)_ | Advanced: activity API base URL override |
 | `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
 | `SESSION_ID` | random UUID | Session identifier |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver |
@@ -67,9 +66,9 @@ like git: `METABOB_CONFIG_PATH` → `./.metabob/config.json` in the launch direc
 With either input missing the server still starts with its local tools, and logs one message naming
 what is missing. Run `metabob-mcp --help` for the full flag reference.
 
-A local substrate endpoint (`http://127.0.0.1:18080`) derives discovery (`:18100`) and concept-db (`:18260`) by
-port offset; a remote endpoint derives nothing, so set `DISCOVERY_ENDPOINT` with it. Explicit
-`CONCEPT_DB_URL`, `GOAL_HOST_VESSEL_URL`, or `DISCOVERY_ENDPOINT` values still win.
+A local substrate endpoint (`http://127.0.0.1:18080`) derives discovery (`:18100`) by port offset; a
+remote endpoint derives nothing, so set `DISCOVERY_ENDPOINT` with it. An explicit `DISCOVERY_ENDPOINT`
+still wins. No other service URL is configuration.
 
 ## Corporate proxies & SSL inspection
 

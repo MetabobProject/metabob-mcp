@@ -41,7 +41,7 @@ async function sendMCPRequest(request: MCPRequest): Promise<MCPResponse> {
         ...process.env,
         SESSION_ID: 'integration-test-session',
         // Not attached to any substrate: these exercise the local server only.
-        ACTIVITY_API_URL: '',
+        METABOB_ENDPOINT: '',
         DISCOVERY_ENDPOINT: '',
         LOG_LEVEL: 'error',
       },
@@ -341,7 +341,7 @@ async function driveSession(
       METABOB_API_KEY: '',
       SESSION_ID: 'integration-success-session',
       // Not attached to any substrate: these exercise the local server only.
-      ACTIVITY_API_URL: '',
+      METABOB_ENDPOINT: '',
       DISCOVERY_ENDPOINT: '',
       HEALTH_PORT: String(19800 + Math.floor(Math.random() * 90)),
       LOG_LEVEL: 'error',
