@@ -58,6 +58,8 @@ export interface ServerOptions {
   /** Extra environment; `undefined` values remove a variable. */
   env?: Record<string, string | undefined>;
   home?: string;
+  /** How long `initialize` may take; a live substrate can be slower than the fake. */
+  initTimeoutMs?: number;
 }
 
 export interface ToolResult {
@@ -125,7 +127,7 @@ export class McpServer {
       protocolVersion: '2024-11-05',
       capabilities: {},
       clientInfo: { name: 'workflow-tests', version: '1' },
-    });
+    }, opts.initTimeoutMs);
     if (!init.result?.serverInfo) {
       throw new Error(`initialize failed: ${JSON.stringify(init)}\n--- stderr ---\n${server.stderr}`);
     }

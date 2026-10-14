@@ -11,7 +11,7 @@
  * text, cost and duration.
  *
  * Targets: the in-process fake substrate (../workflows/harness/fake-substrate.ts) or a live lab
- * (`LAB_DISCOVERY`, `LAB_KEY_FILE`, optional `LAB_IDENTITY`). Proxy leg: the corporate proxy fixture
+ * (`LAB_DISCOVERY`, `LAB_KEY_FILE`, `LAB_IDENTITY`, defaulting to lab/lab.sh's lab: `labEnv`). Proxy leg: the corporate proxy fixture
  * (../workflows/networks/corp-proxy.ts) maps `.invalid` host names onto the target's 127.0.0.1 ports,
  * so the MCP reaches the substrate only through the proxy.
  */
@@ -102,6 +102,22 @@ function localPort(url: string): number {
   return Number(u.port || (u.protocol === 'https:' ? 443 : 80));
 }
 
+/**
+ * Where the lab target lives. Defaults are lab/lab.sh's host view (lab/README.md): the spoke's discovery
+ * as the anchor, the hub's identity, the hub-issued read-write key and both nodes for NET. Each one is
+ * overridden by its LAB_* variable, for a lab elsewhere.
+ */
+export function labEnv(): { discovery: string; identity: string | null; keyFile: string; nodes: string } {
+  const strip = (u: string) => u.replace(/\/+$/, '');
+  const identity = process.env.LAB_IDENTITY ?? 'http://127.0.0.1:24101';
+  return {
+    discovery: strip(process.env.LAB_DISCOVERY ?? 'http://127.0.0.1:25100'),
+    identity: identity ? strip(identity) : null,
+    keyFile: process.env.LAB_KEY_FILE ?? join(process.env.LAB_KEYS_DIR ?? join(REPO_ROOT, 'lab', 'keys'), 'mcp-rw.key'),
+    nodes: process.env.LAB_NODES ?? 'hub,spoke',
+  };
+}
+
 export async function startTarget(kind: TargetKind, proxyMode: ProxyMode): Promise<Target> {
   const stoppers: Array<() => unknown> = [];
   const notes: string[] = [];
@@ -117,17 +133,18 @@ export async function startTarget(kind: TargetKind, proxyMode: ProxyMode): Promi
     discovery = fake.url('discovery');
     identity = fake.url('identity');
   } else {
-    const disc = process.env.LAB_DISCOVERY;
-    const keyFile = process.env.LAB_KEY_FILE;
-    if (!disc || !keyFile) throw new Error('--target lab needs LAB_DISCOVERY and LAB_KEY_FILE');
-    key = readFileSync(keyFile, 'utf-8').trim();
-    discovery = disc.replace(/\/+$/, '');
-    identity = process.env.LAB_IDENTITY?.replace(/\/+$/, '') ?? null;
+    const lab = labEnv();
+    if (!existsSync(lab.keyFile)) throw new Error(`--target lab: no key at ${lab.keyFile} (bring the lab up with lab/lab.sh up, or set LAB_KEY_FILE)`);
+    key = readFileSync(lab.keyFile, 'utf-8').trim();
+    discovery = lab.discovery;
+    identity = lab.identity;
   }
 
   if (proxyMode === 'none') {
     return {
-      kind, proxyMode, fake, proxy: null, anchor: discovery, identityEndpoint: null, key, netEnv: {},
+      // A lab's /bootstrap advertises the hub's lab-network identity, which the host cannot dial: the lab's
+      // identity is pinned on every leg. The fake advertises a loopback identity and needs no pin.
+      kind, proxyMode, fake, proxy: null, anchor: discovery, identityEndpoint: kind === 'lab' ? identity : null, key, netEnv: {},
       describe: `${kind} at ${discovery}, direct`, notes,
       stop: async () => { for (const s of stoppers.reverse()) await s(); },
     };

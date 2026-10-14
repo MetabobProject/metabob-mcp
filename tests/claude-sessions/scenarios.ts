@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  FOREIGN_KEY, SERVER_NAME, buildPluginDir, check, idsIn, makeWorkspace, metabobCalls, runSession, skipped,
+  FOREIGN_KEY, SERVER_NAME, buildPluginDir, check, idsIn, labEnv, makeWorkspace, metabobCalls, runSession, skipped,
   tempDir, type Check, type Target, type Transcript,
 } from './harness';
 
@@ -506,7 +506,7 @@ async function net(ctx: Ctx): Promise<ScenarioResult> {
   });
   const reg = metabobCalls(t, 'registry_query');
   const regText = reg.map((c) => c.result ?? '').join('\n');
-  const nodes = (process.env.LAB_NODES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const nodes = labEnv().nodes.split(',').map((s) => s.trim()).filter(Boolean);
   const concepts = metabobCalls(t, 'concept_search');
   const traces = metabobCalls(t, 'execution_trace');
   ctx.evidence['NET.registry'] = regText.slice(0, 2000);
