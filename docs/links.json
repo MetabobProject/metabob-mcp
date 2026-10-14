@@ -131,16 +131,16 @@
         "why": "183d06c rewords no_producer's sentence only (token and kind unchanged); the tool-description commit changes description text only; behaviour the docs state is unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "703a2c1",
-        "why": "183d06c rewords no_producer's sentence only (token and kind unchanged); the tool-description commit changes description text only; behaviour the docs state is unchanged"
+        "at": "e551c35",
+        "why": "e551c35 only spaces out goalWalkState/goal_status polls (3 quick, then up to 15 s); every request stays short and within 60 s (CONFORMANCE c11), and lab check still polls until reached: yes as lab/README states"
       },
       "docs/SPEC.md": {
         "at": "703a2c1",
         "why": "183d06c rewords no_producer's sentence only (token and kind unchanged); the tool-description commit changes description text only; behaviour the docs state is unchanged"
       },
       "lab/README.md": {
-        "at": "375cff0",
-        "why": "375cff0 makes check's temp-config removal actually happen, matching what the README already states; no behaviour the README describes changes"
+        "at": "e551c35",
+        "why": "e551c35 only spaces out goalWalkState/goal_status polls (3 quick, then up to 15 s); every request stays short and within 60 s (CONFORMANCE c11), and lab check still polls until reached: yes as lab/README states"
       }
     }
   },
