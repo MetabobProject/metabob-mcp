@@ -22,6 +22,7 @@
 import * as net from 'node:net';
 import * as tls from 'node:tls';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { systemCaAdditions } from './tls-trust.js';
 
 // ── Named causes ─────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ function rootIssuer(peer: tls.DetailedPeerCertificate): string | null {
 let secureContextCache: { key: string; ctx: tls.SecureContext } | null = null;
 
 function secureContextFor(cas: string[]): tls.SecureContext | undefined {
-  const key = `${cas.length}:${cas[cas.length - 1]?.slice(-80) ?? ''}`;
+  const key = createHash('sha256').update(cas.join('\n')).digest('hex');
   if (secureContextCache?.key === key) return secureContextCache.ctx;
   try {
     const ctx = tls.createSecureContext({ ca: cas });
