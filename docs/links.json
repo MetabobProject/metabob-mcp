@@ -127,12 +127,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "97fdeee",
-        "why": "src/index.ts passes SERVER_INSTRUCTIONS to the MCP Server and run-goal.ts changed a description only; no participation requirement or key-file description changes"
+        "at": "2864d84",
+        "why": "no_producer keeps its token and kind; only the sentence after it changed, which neither doc quotes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "0a603db",
-        "why": "10edf65 changes only run_goal/run_goal_async's goal-parameter description (the edited file lives in the substrate's repos, not the workspace); behaviour, shapes and timing unchanged"
+        "at": "2864d84",
+        "why": "no_producer keeps its token and kind; only the sentence after it changed, which neither doc quotes"
       },
       "docs/SPEC.md": {
         "at": "0a603db",
