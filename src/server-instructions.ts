@@ -9,6 +9,8 @@ export const SERVER_INSTRUCTIONS = `metabob: a shared work ledger and code-struc
 
 Start of session: load the \`metabob\` skill when it is available; it sequences everything below. Without it: \`get_analysis_context\`, then \`get_problems\` for the work queue.
 
+First calls: \`get_analysis_context\`, \`get_problems\`, \`record_finding\` and \`mark_complete\` are the tools a session needs first; when your client defers tool schemas, load these four in one tool search.
+
 Ledger:
 - \`record_finding\` attributes an issue you noticed to code, so it outlives this session and other agents recall it.
 - \`mark_complete\` closes a finding: \`endorse\` when fixed, \`discard\` when it is a false positive.

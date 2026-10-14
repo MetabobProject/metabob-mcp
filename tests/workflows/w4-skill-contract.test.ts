@@ -84,6 +84,15 @@ describe('W4 skill contract', () => {
     expect(named.filter(id => !toolNames.has(id))).toEqual([]);
   });
 
+  test('the instructions name the first-call set in one sentence, so one tool search loads it', () => {
+    const instructions: string = server.initializeResult?.instructions ?? '';
+    const line = instructions.split('\n').find(l => l.startsWith('First calls:')) ?? '';
+    for (const tool of ['get_analysis_context', 'get_problems', 'record_finding', 'mark_complete']) {
+      expect(line).toContain(`\`${tool}\``);
+      expect(toolNames.has(tool)).toBe(true);
+    }
+  });
+
   test('every tool the skill names exists in tools/list', () => {
     const named = backtickedIdentifiers(SKILL).filter(id => !paramNames.has(id) && !NOT_TOOLS.has(id));
     expect(named.length).toBeGreaterThan(10);
