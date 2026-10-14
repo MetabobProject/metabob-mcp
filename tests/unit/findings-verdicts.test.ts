@@ -23,14 +23,14 @@ import {
   type AgentFindingsResult,
 } from '../../src/tools/_findings';
 import * as GetProblems from '../../src/tools/get-problems';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub } from '../helpers/shape-stub';
 
 const SESSION = 'test-session';
 
 let mockApiClient: AnalysisAPIClient;
 let localStore: LocalStore;
 let dbPath: string;
-let savedConceptDbUrl: string | undefined;
-const servers: Array<{ stop: (force?: boolean) => void }> = [];
 
 beforeEach(() => {
   mockApiClient = {
@@ -42,8 +42,6 @@ beforeEach(() => {
   localStore = new LocalStore(dbPath);
   localStore.init();
 
-  savedConceptDbUrl = process.env.CONCEPT_DB_URL;
-  delete process.env.CONCEPT_DB_URL;
 });
 
 afterEach(() => {
@@ -51,9 +49,7 @@ afterEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     rmSync(dbPath + suffix, { force: true });
   }
-  if (savedConceptDbUrl === undefined) delete process.env.CONCEPT_DB_URL;
-  else process.env.CONCEPT_DB_URL = savedConceptDbUrl;
-  for (const s of servers.splice(0)) s.stop(true);
+  setAttachment(null);
 });
 
 function makeSeed(overrides: Partial<SeedRecord>): SeedRecord {
@@ -124,31 +120,21 @@ test('parseVerdictConcept: falls back to the summary tag; null without a finding
 
 // ===== fetchAgentFindings verdict join =====
 
-function conceptDbServer(
+/** concept-db behind the attachment: conceptSearch by shape answers the findings and the verdicts. */
+async function conceptDbServer(
   findingRows: Array<Record<string, unknown>>,
   verdictRows: Array<Record<string, unknown>> | 'fail',
 ) {
-  const server = Bun.serve({
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
-      if (url.pathname === '/concepts/search') {
-        const shape = url.searchParams.get('shape');
-        const offset = Number(url.searchParams.get('offset') ?? '0');
-        if (shape === 'code_finding') {
-          return Response.json({ concepts: offset === 0 ? findingRows : [] });
-        }
-        if (shape === 'finding_verdict') {
-          if (verdictRows === 'fail') return new Response('boom', { status: 500 });
-          return Response.json({ concepts: offset === 0 ? verdictRows : [] });
-        }
+  return installShapeStub({
+    conceptSearch: (p) => {
+      if (p.shape === 'code_finding') return { body: { content: findingRows } };
+      if (p.shape === 'finding_verdict') {
+        if (verdictRows === 'fail') return { status: 500, body: { error: 'Resolution failed', shape: 'conceptSearch', message: 'boom' } };
+        return { body: { content: verdictRows } };
       }
-      return new Response('not found', { status: 404 });
+      return { body: { content: [] } };
     },
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
-  return server;
 }
 
 const FINDING_ROW = {
@@ -163,7 +149,7 @@ const CLOSED_ROW = {
 };
 
 test('fetchAgentFindings: joins finding_verdict concepts on the shared agf id', async () => {
-  conceptDbServer(
+  await conceptDbServer(
     [FINDING_ROW, CLOSED_ROW],
     [
       {
@@ -184,7 +170,7 @@ test('fetchAgentFindings: joins finding_verdict concepts on the shared agf id', 
 });
 
 test('fetchAgentFindings: endorse verdict tags the finding fixed; retraction wins over endorse', async () => {
-  conceptDbServer(
+  await conceptDbServer(
     [CLOSED_ROW],
     [
       {
@@ -204,14 +190,14 @@ test('fetchAgentFindings: endorse verdict tags the finding fixed; retraction win
 });
 
 test('fetchAgentFindings: failed verdict scan degrades to unverdicted rendering', async () => {
-  conceptDbServer([CLOSED_ROW], 'fail');
+  await conceptDbServer([CLOSED_ROW], 'fail');
   const result = await fetchAgentFindings(mockApiClient, { repo: 'metabob-mcp' });
   expect(result.status).toBe('ok');
   expect(result.findings[0]?.verdict).toBeUndefined();
 });
 
 test('fetchAgentFindings: emits plain concept ids (concept: prefix and ⟨⟩ wrapping stripped)', async () => {
-  conceptDbServer(
+  await conceptDbServer(
     [{ ...FINDING_ROW, id: '⟨concept:cf_wrapped⟩' }],
     [],
   );

@@ -18,18 +18,29 @@ import * as GetProblems from '../../src/tools/get-problems';
 import { workspaceRepoName } from '../../src/tools/_findings';
 import * as AnnotateComponent from '../../src/tools/annotate-component';
 import { setResolverIdentity } from '../../src/resolver-identity';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub, type ShapeHandler } from '../helpers/shape-stub';
 
 const SESSION = 'test-session';
 
 let mockApiClient: AnalysisAPIClient;
 let localStore: LocalStore;
 let dbPath: string;
-let savedConceptDbUrl: string | undefined;
 // Author resolution reads these; a developer machine with a real key set would
 // otherwise make the "no identity → no recorded_by line" test pass vacuously.
 let savedVesselId: string | undefined;
 let savedApiKey: string | undefined;
-const servers: Array<{ stop: (force?: boolean) => void }> = [];
+
+/** concept-db's write answer: the result row as JSON in `content`. */
+const written = (row: Record<string, unknown>) => ({ body: { success: true, content: JSON.stringify(row) } });
+
+/** concept-db behind the attachment, answering these shapes (discovery's 404 for any other). */
+function conceptDb(handlers: Record<string, ShapeHandler>) {
+  return installShapeStub(handlers);
+}
+
+/** Discovery's answer when it cannot reach concept-db: every shape is producer_unreachable. */
+const unreachable: ShapeHandler = (p) => ({ status: 502, body: { error: 'forward_failed', shape: p.type, detail: 'Unable to connect' } });
 
 beforeEach(() => {
   mockApiClient = {
@@ -41,8 +52,6 @@ beforeEach(() => {
   localStore = new LocalStore(dbPath);
   localStore.init();
 
-  savedConceptDbUrl = process.env.CONCEPT_DB_URL;
-  delete process.env.CONCEPT_DB_URL;
 
   savedVesselId = process.env.VESSEL_ID;
   savedApiKey = process.env.METABOB_API_KEY;
@@ -58,14 +67,12 @@ afterEach(() => {
   for (const suffix of ['', '-wal', '-shm']) {
     rmSync(dbPath + suffix, { force: true });
   }
-  if (savedConceptDbUrl === undefined) delete process.env.CONCEPT_DB_URL;
-  else process.env.CONCEPT_DB_URL = savedConceptDbUrl;
   if (savedVesselId === undefined) delete process.env.VESSEL_ID;
   else process.env.VESSEL_ID = savedVesselId;
   if (savedApiKey === undefined) delete process.env.METABOB_API_KEY;
   else process.env.METABOB_API_KEY = savedApiKey;
   setResolverIdentity({ vesselId: undefined });
-  for (const s of servers.splice(0)) s.stop(true);
+  setAttachment(null);
 });
 
 // ===== schema =====
@@ -122,7 +129,7 @@ test('record_finding: writes a seed per file that get_problems cache serves', as
 });
 
 test('record_finding: concept-db unreachable is non-fatal and reported', async () => {
-  process.env.CONCEPT_DB_URL = 'http://127.0.0.1:9'; // nothing listens here
+  await conceptDb({ concept_create_write: unreachable }); // discovery cannot reach concept-db
   const input = RecordFinding.InputSchema.parse({
     files: ['src/a.ts'], summary: 'off-by-one', severity: 'LOW', category: 'correctness',
   });
@@ -134,18 +141,12 @@ test('record_finding: concept-db unreachable is non-fatal and reported', async (
 
 test('record_finding: pushes a code_finding concept when concept-db is up', async () => {
   let received: Record<string, unknown> | null = null;
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      if (req.method === 'POST' && new URL(req.url).pathname === '/concepts') {
-        received = (await req.json()) as Record<string, unknown>;
-        return Response.json({ id: 'concept:cf_test1', shape: 'code_finding' });
-      }
-      return new Response('not found', { status: 404 });
+  await conceptDb({
+    concept_create_write: (p) => {
+      received = p.conceptData;
+      return written({ id: 'concept:cf_test1', shape: 'code_finding' });
     },
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
 
   const input = RecordFinding.InputSchema.parse({
     files: ['src/db/client.ts'], summary: 'SQL injection', severity: 'HIGH', category: 'security',
@@ -164,17 +165,7 @@ test('record_finding: pushes a code_finding concept when concept-db is up', asyn
 });
 
 test('record_finding: stashes the minted concept id on the seed refs', async () => {
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      if (req.method === 'POST' && new URL(req.url).pathname === '/concepts') {
-        return Response.json({ id: 'concept:cf_refs1', shape: 'code_finding' });
-      }
-      return new Response('not found', { status: 404 });
-    },
-  });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
+  await conceptDb({ concept_create_write: () => written({ id: 'concept:cf_refs1', shape: 'code_finding' }) });
 
   const output = await RecordFinding.handle(
     RecordFinding.InputSchema.parse({
@@ -189,23 +180,10 @@ test('record_finding: stashes the minted concept id on the seed refs', async () 
 // ===== mark_complete on agf_* ids =====
 
 test('mark_complete: endorse records a success usage on the finding concept', async () => {
-  const usageHits: Array<{ path: string; body: Record<string, unknown> }> = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (req.method === 'POST' && url.pathname === '/concepts') {
-        return Response.json({ id: 'concept:cf_usage1', shape: 'code_finding' });
-      }
-      if (req.method === 'POST' && url.pathname === '/concepts/cf_usage1/usage') {
-        usageHits.push({ path: url.pathname, body: (await req.json()) as Record<string, unknown> });
-        return Response.json({ id: 'usage_x', outcome: 'success' }, { status: 201 });
-      }
-      return new Response('not found', { status: 404 });
-    },
+  const stub = await conceptDb({
+    concept_create_write: () => written({ id: 'concept:cf_usage1', shape: 'code_finding' }),
+    conceptUsage_write: () => written({ id: 'usage_x', outcome: 'success' }),
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
 
   const recordOut = await RecordFinding.handle(
     RecordFinding.InputSchema.parse({ files: ['src/x.ts'], summary: 'off by one', severity: 'MEDIUM', category: 'correctness' }),
@@ -218,30 +196,19 @@ test('mark_complete: endorse records a success usage on the finding concept', as
     mockApiClient, SESSION, localStore,
   );
 
+  const usageHits = stub.calls('conceptUsage_write').map((p) => p.usageData);
   expect(usageHits.length).toBe(1);
-  expect(usageHits[0]!.body['outcome']).toBe('success');
-  expect(String(usageHits[0]!.body['trace_id'])).not.toMatch(/^\{\{/);
+  expect(usageHits[0]!['concept_id']).toBe('cf_usage1');
+  expect(usageHits[0]!['outcome']).toBe('success');
+  expect(String(usageHits[0]!['trace_id'])).not.toMatch(/^\{\{/);
   expect(out).toContain('relevance: recorded success on concept cf_usage1');
 });
 
 test('mark_complete: discard records a failure usage on the finding concept', async () => {
-  const usageHits: Array<Record<string, unknown>> = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (req.method === 'POST' && url.pathname === '/concepts') {
-        return Response.json({ id: 'concept:cf_usage2', shape: 'code_finding' });
-      }
-      if (req.method === 'POST' && url.pathname === '/concepts/cf_usage2/usage') {
-        usageHits.push((await req.json()) as Record<string, unknown>);
-        return Response.json({ id: 'usage_y', outcome: 'failure' }, { status: 201 });
-      }
-      return new Response('not found', { status: 404 });
-    },
+  const stub = await conceptDb({
+    concept_create_write: () => written({ id: 'concept:cf_usage2', shape: 'code_finding' }),
+    conceptUsage_write: () => written({ id: 'usage_y', outcome: 'failure' }),
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
 
   const recordOut = await RecordFinding.handle(
     RecordFinding.InputSchema.parse({ files: ['src/y.ts'], summary: 'false alarm', severity: 'LOW', category: 'noise' }),
@@ -254,7 +221,9 @@ test('mark_complete: discard records a failure usage on the finding concept', as
     mockApiClient, SESSION, localStore,
   );
 
+  const usageHits = stub.calls('conceptUsage_write').map((p) => p.usageData);
   expect(usageHits.length).toBe(1);
+  expect(usageHits[0]!['concept_id']).toBe('cf_usage2');
   expect(usageHits[0]!['outcome']).toBe('failure');
   expect(out).toContain('relevance: recorded failure on concept cf_usage2');
 });
@@ -306,32 +275,19 @@ test('mark_complete: unknown agf_* id reports not found', async () => {
 // else; `origin` is a separate provenance note. An unresolvable identity must
 // OMIT the author line rather than write a placeholder.
 
-/** Capture every POST /concepts body; serve GET /concepts/:id from `remote`. */
-function conceptCaptureServer(opts: { remoteContent?: string; remoteSummary?: string } = {}) {
+/** Capture every concept written; answer a concept read (the conceptGraph root) from `remote`. */
+async function conceptCaptureServer(opts: { remoteContent?: string; remoteSummary?: string } = {}) {
   const posts: Array<Record<string, unknown>> = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (req.method === 'POST' && url.pathname === '/concepts') {
-        posts.push((await req.json()) as Record<string, unknown>);
-        return Response.json({ id: 'concept:cf_attr', shape: 'code_finding' });
-      }
-      if (req.method === 'GET' && url.pathname.startsWith('/concepts/') && opts.remoteContent) {
-        return Response.json({
-          id: url.pathname.slice('/concepts/'.length),
-          summary: opts.remoteSummary ?? 'recalled finding',
-          content: opts.remoteContent,
-        });
-      }
-      if (req.method === 'POST' && url.pathname.endsWith('/usage')) {
-        return Response.json({ id: 'usage_z', outcome: 'success' }, { status: 201 });
-      }
-      return new Response('not found', { status: 404 });
+  await conceptDb({
+    concept_create_write: (p) => {
+      posts.push(p.conceptData);
+      return written({ id: 'concept:cf_attr', shape: 'code_finding' });
     },
+    conceptGraph: (p) => (opts.remoteContent
+      ? { body: { content: { root: { id: p.concept_id, summary: opts.remoteSummary ?? 'recalled finding', content: opts.remoteContent }, edges: [] } } }
+      : { status: 404, body: { error: `Concept not found: ${p.concept_id}` } }),
+    conceptUsage_write: () => written({ id: 'usage_z', outcome: 'success' }),
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
   return posts;
 }
 
@@ -339,7 +295,7 @@ const contentOf = (body: Record<string, unknown> | undefined): string => String(
 
 test('record_finding: stamps recorded_by (vesselId) and session on the shared concept', async () => {
   process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
-  const posts = conceptCaptureServer();
+  const posts = await conceptCaptureServer();
 
   await RecordFinding.handle(
     RecordFinding.InputSchema.parse({
@@ -360,7 +316,7 @@ test('record_finding: stamps recorded_by (vesselId) and session on the shared co
 
 test('record_finding: unresolvable identity omits recorded_by entirely but keeps session', async () => {
   // No VESSEL_ID, no METABOB_API_KEY, no boot-set resolver identity → undefined.
-  const posts = conceptCaptureServer();
+  const posts = await conceptCaptureServer();
 
   await RecordFinding.handle(
     RecordFinding.InputSchema.parse({
@@ -377,7 +333,7 @@ test('record_finding: unresolvable identity omits recorded_by entirely but keeps
 
 test('record_finding: the boot-resolved vesselId is used when no env id is set', async () => {
   setResolverIdentity({ vesselId: 'metabob-mcp-000111222333' });
-  const posts = conceptCaptureServer();
+  const posts = await conceptCaptureServer();
 
   await RecordFinding.handle(
     RecordFinding.InputSchema.parse({
@@ -390,7 +346,7 @@ test('record_finding: the boot-resolved vesselId is used when no env id is set',
 
 test('mark_complete (local-seed path): verdict carries reviewed_by, session and origin: local', async () => {
   process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
-  const posts = conceptCaptureServer();
+  const posts = await conceptCaptureServer();
 
   const recordOut = await RecordFinding.handle(
     RecordFinding.InputSchema.parse({ files: ['src/x.ts'], summary: 'off by one', severity: 'MEDIUM', category: 'correctness' }),
@@ -419,7 +375,7 @@ test('mark_complete (local-seed path): verdict carries reviewed_by, session and 
 
 test('mark_complete (remote/recalled path): verdict carries reviewed_by, session and origin: remote', async () => {
   process.env.VESSEL_ID = 'metabob-mcp-aabbccddeeff';
-  const posts = conceptCaptureServer({
+  const posts = await conceptCaptureServer({
     remoteSummary: '[HIGH][security] repo-x: SQL injection',
     remoteContent: [
       'repo: repo-x',
@@ -452,7 +408,7 @@ test('mark_complete (remote/recalled path): verdict carries reviewed_by, session
 });
 
 test('mark_complete (remote path): unresolvable identity still stamps origin: remote', async () => {
-  const posts = conceptCaptureServer({
+  const posts = await conceptCaptureServer({
     remoteContent: 'repo: repo-x\nfiles: src/a.ts\nfinding_ids: agf_remote02',
   });
 
@@ -479,20 +435,18 @@ test('get_problems: renders findings recorded by agents on this codebase', async
   // process that indexed a workspace would silently win and make this order-dependent.
   const thisRepo = workspaceRepoName() ?? 'unknown-repo';
 
-  const server = Bun.serve({
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
-      if (url.pathname === '/concepts/search') {
-        expect(url.searchParams.get('query')).toBeNull(); // list mode only
-        // Recall scans two shapes: the findings, then the verdicts that close
-        // them. No verdicts here, so every finding below stays open.
-        if (url.searchParams.get('shape') === 'finding_verdict') {
-          return Response.json({ concepts: [] });
-        }
-        expect(url.searchParams.get('shape')).toBe('code_finding');
-        return Response.json({
-          concepts: [
+  await conceptDb({
+    conceptSearch: (p) => {
+      expect(p.query).toBeUndefined(); // list mode only
+      // Recall scans two shapes: the findings, then the verdicts that close
+      // them. No verdicts here, so every finding below stays open.
+      if (p.shape === 'finding_verdict') {
+        return { body: { content: [] } };
+      }
+      expect(p.shape).toBe('code_finding');
+      return {
+        body: {
+          content: [
             {
               id: 'concept:cf_match',
               shape: 'code_finding',
@@ -509,13 +463,10 @@ test('get_problems: renders findings recorded by agents on this codebase', async
               content: 'repo: other-repo\nfiles: src/db/client.ts',
             },
           ],
-        });
-      }
-      return new Response('not found', { status: 404 });
+        },
+      };
     },
   });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
 
   const out = await GetProblems.handle(
     GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
@@ -530,7 +481,7 @@ test('get_problems: renders findings recorded by agents on this codebase', async
 });
 
 test('get_problems: concept-db unreachable is non-fatal', async () => {
-  process.env.CONCEPT_DB_URL = 'http://127.0.0.1:9';
+  await conceptDb({ conceptSearch: unreachable }); // discovery cannot reach concept-db
   const out = await GetProblems.handle(
     GetProblems.InputSchema.parse({ file_path: 'src/db/client.ts' }),
     mockApiClient, SESSION, null,

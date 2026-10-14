@@ -7,7 +7,7 @@
  *    discarded: the tool refuses it and makes no request.
  *
  * 2. The fleet case — a `concept_*` id with no local seed — is asserted here
- *    against a fake concept-db, because it is the case SKILL.md documented
+ *    against a fake concept-db behind the attachment, because it is the case SKILL.md documented
  *    backwards (it claimed the call refuses). The assertions are on what the
  *    server RECEIVED, not on the handler's prose, so they survive rewording of
  *    the output.
@@ -16,6 +16,8 @@ import { test, expect, mock, afterEach } from 'bun:test';
 import type { AnalysisAPIClient } from '../../src/api-client';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import { makeTempStore, cleanupTempStores } from '../helpers/temp-store';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub } from '../helpers/shape-stub';
 
 const SESSION = 'mark-complete-verdict-session';
 
@@ -24,10 +26,7 @@ afterEach(() => {
 });
 
 function makeApiClient(): AnalysisAPIClient {
-  return {
-    hasDiscovery: mock(() => false),
-    getDiscoveryEndpoint: mock(() => undefined),
-  } as unknown as AnalysisAPIClient;
+  return { get: mock(async () => ({})) } as unknown as AnalysisAPIClient;
 }
 
 // ===== Ids that name no finding are refused =====
@@ -58,79 +57,64 @@ for (const action of ['endorse', 'discard'] as const) {
 
 // ===== Finding 14: a concept_* id with no local seed still records a verdict =====
 
-interface CapturedPost {
-  path: string;
-  body: Record<string, unknown>;
-}
-
 const FLEET_CONCEPT = 'concept_FleetRecall01';
 const FLEET_FINDING = 'agf_fleetrecorded1';
 
 /**
- * A concept-db that answers the one GET mark_complete makes and records every
- * write. The GET body must carry `finding_ids:`, `files:` and `repo:` header
- * lines — fetchConceptById parses those out of `content`, and a body it cannot
- * parse yields null, which would send the handler down the "could not be read"
- * branch and make the test assert nothing.
+ * A concept-db, behind the attachment, that answers the one read mark_complete
+ * makes (the `conceptGraph` root) and records every write. The root must carry
+ * `finding_ids:`, `files:` and `repo:` header lines — fetchConceptById parses
+ * those out of `content`, and a body it cannot parse yields null, which would
+ * send the handler down the "could not be read" branch and make the test assert
+ * nothing.
  */
-function startFakeConceptDb(): { url: string; posts: CapturedPost[]; stop: () => void } {
-  const posts: CapturedPost[] = [];
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (req.method === 'GET' && url.pathname === `/concepts/${FLEET_CONCEPT}`) {
-        return Response.json({
-          id: `concept:${FLEET_CONCEPT}`,
-          summary: 'metabob-mcp: retry() retries every 4xx three times',
-          content: [
-            `finding_ids: ${FLEET_FINDING}`,
-            'repo: metabob-mcp',
-            'files: src/api-client.ts',
-            'recorded_by: metabob-mcp-otherhost',
-          ].join('\n'),
-        });
-      }
-      if (req.method === 'POST') {
-        posts.push({ path: url.pathname, body: (await req.json()) as Record<string, unknown> });
-        return Response.json({ id: 'concept:concept_verdict01' });
-      }
-      return new Response('not found', { status: 404 });
-    },
-  });
-  return {
-    url: `http://127.0.0.1:${server.port}`,
-    posts,
-    stop: () => server.stop(true),
-  };
-}
-
 async function markCompleteAgainstFakeDb(
   action: 'endorse' | 'discard',
-): Promise<{ posts: CapturedPost[]; output: string }> {
-  const db = startFakeConceptDb();
-  const previous = process.env.CONCEPT_DB_URL;
-  process.env.CONCEPT_DB_URL = db.url;
+): Promise<{ verdicts: Array<Record<string, unknown>>; usage: Array<Record<string, unknown>>; output: string }> {
+  const stub = await installShapeStub({
+    conceptGraph: (p) => (p.concept_id === FLEET_CONCEPT
+      ? {
+          body: {
+            content: {
+              root: {
+                id: `concept:${FLEET_CONCEPT}`,
+                summary: 'metabob-mcp: retry() retries every 4xx three times',
+                content: [
+                  `finding_ids: ${FLEET_FINDING}`,
+                  'repo: metabob-mcp',
+                  'files: src/api-client.ts',
+                  'recorded_by: metabob-mcp-otherhost',
+                ].join('\n'),
+              },
+              edges: [],
+            },
+          },
+        }
+      : { status: 404, body: { error: `Concept not found: ${p.concept_id}` } }),
+    concept_create_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'concept:concept_verdict01' }) } }),
+    conceptUsage_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'usage_1' }) } }),
+  });
   try {
     // An EMPTY store: this machine has never seen the finding, which is the
     // whole point — another agent recorded it somewhere else.
     const { store } = makeTempStore('mark-complete-verdict-');
     const input = MarkComplete.InputSchema.parse({ problem_id: FLEET_CONCEPT, action });
     const output = await MarkComplete.handle(input, makeApiClient(), SESSION, store);
-    return { posts: db.posts, output };
+    return {
+      verdicts: stub.calls('concept_create_write').map((p) => p.conceptData),
+      usage: stub.calls('conceptUsage_write').map((p) => p.usageData),
+      output,
+    };
   } finally {
-    if (previous === undefined) delete process.env.CONCEPT_DB_URL;
-    else process.env.CONCEPT_DB_URL = previous;
-    db.stop();
+    setAttachment(null);
   }
 }
 
 test('a recalled concept with no local seed still writes a verdict to concept-db', async () => {
-  const { posts, output } = await markCompleteAgainstFakeDb('endorse');
+  const { verdicts, usage, output } = await markCompleteAgainstFakeDb('endorse');
 
-  const verdicts = posts.filter(p => p.path === '/concepts');
   expect(verdicts.length).toBe(1);
-  const content = String(verdicts[0]!.body['content']);
+  const content = String(verdicts[0]!['content']);
   // Keyed on the agf_* id the FINDING carries, not the concept id — the
   // dashboard's verdict join keys on that, so a verdict written against the
   // concept id lands in the database and is invisible to every reader.
@@ -139,13 +123,12 @@ test('a recalled concept with no local seed still writes a verdict to concept-db
   expect(content).toContain('verdict: endorsed (resolved)');
   // Provenance is a separate fact from authorship.
   expect(content).toContain('origin: remote');
-  expect(verdicts[0]!.body['shape']).toBe('finding_verdict');
+  expect(verdicts[0]!['shape']).toBe('finding_verdict');
 
   // …and the relevance signal, which is what moves the concept's posterior.
-  const usage = posts.filter(p => p.path.endsWith('/usage'));
   expect(usage.length).toBe(1);
-  expect(usage[0]!.path).toBe(`/concepts/${FLEET_CONCEPT}/usage`);
-  expect(usage[0]!.body['outcome']).toBe('success');
+  expect(usage[0]!['concept_id']).toBe(FLEET_CONCEPT);
+  expect(usage[0]!['outcome']).toBe('success');
 
   // Not a refusal. SKILL.md told agents this call refuses; it does not.
   expect(output.toLowerCase()).not.toContain('not found in the local store');
@@ -154,15 +137,14 @@ test('a recalled concept with no local seed still writes a verdict to concept-db
 test('discarding a recalled concept records the inverse verdict and a failure signal', async () => {
   // Guards the direction: a handler that hardcoded "endorsed"/"success" would
   // pass the test above.
-  const { posts } = await markCompleteAgainstFakeDb('discard');
+  const { verdicts, usage } = await markCompleteAgainstFakeDb('discard');
 
-  const content = String(posts.filter(p => p.path === '/concepts')[0]!.body['content']);
+  const content = String(verdicts[0]!['content']);
   expect(content).toContain('verdict: discarded (retracted)');
   expect(content).not.toContain('verdict: endorsed (resolved)');
 
-  const usage = posts.filter(p => p.path.endsWith('/usage'));
   expect(usage.length).toBe(1);
-  expect(usage[0]!.body['outcome']).toBe('failure');
+  expect(usage[0]!['outcome']).toBe('failure');
 });
 
 // ===== Finding 14: the doc that ships in the tarball must match the above =====

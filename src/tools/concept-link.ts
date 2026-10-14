@@ -19,11 +19,15 @@
  * Concept-db's upkeep activities (decay-stale-relevance, prune-irrelevant-
  * neighbors) will eventually adjust or retire low-weight edges that don't
  * accumulate evidence, so the agent's writes are advisory not authoritative.
+ *
+ * Written as the `conceptLink_write` shape through discovery `POST /resolve`
+ * (src/tools/_concept-db.ts), once — a write is never retried. concept-db
+ * upserts the edge. CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { linkConcepts } from './_concept-db.js';
 
 const EDGE_TYPES = [
   'related_to',
@@ -80,75 +84,49 @@ export const InputSchema = z.object({
 
 export type ConceptLinkInput = z.infer<typeof InputSchema>;
 
-interface EdgeResponse {
+/** What `conceptLink_write` returns: the edge id, whether it is new, and its weight after the write. */
+interface LinkResult {
   id?: string;
-  from_concept?: string;
-  to_concept?: string;
-  edge_type?: string;
-  weight?: number;
-  description?: string;
-  created_at?: string;
-  error?: string;
+  created?: boolean;
+  new_weight?: number;
+  previous_weight?: number;
 }
 
 export async function handle(
   input: ConceptLinkInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return 'concept_link requires discovery or an explicit CONCEPT_DB_URL.';
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
-  });
-  if (!conceptDbUrl) {
-    return 'concept_link could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
-  }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
-  const body = {
+  const linkData: Record<string, unknown> = {
+    from_concept_id: input.from_concept_id,
     to_concept_id: input.to_concept_id,
     edge_type: input.edge_type,
     ...(input.description ? { description: input.description } : {}),
     ...(input.weight !== undefined ? { weight: input.weight } : {}),
   };
 
-  const url = `${conceptDbUrl}/concepts/${encodeURIComponent(input.from_concept_id)}/link`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_link failed to reach ${conceptDbUrl}: ${msg}`;
-  }
-  if (!res.ok) {
-    return `concept_link: ${res.status} ${(await res.text().catch(() => '')).slice(0, 300)}`;
+  const linked = await linkConcepts(linkData);
+  if (!linked.ok) {
+    return `concept_link: ${linked.error}`;
   }
 
-  const edge = (await res.json()) as EdgeResponse;
+  const edge = linked.value as LinkResult;
   const duration = Date.now() - start;
-  const edgeId = (edge.id ?? '').replace(/^concept_edge:/, '');
-  const w = typeof edge.weight === 'number' ? edge.weight.toFixed(2) : '–';
+  const edgeId = String(edge.id ?? '').replace(/^concept_edge:/, '');
+  const w = typeof edge.new_weight === 'number' ? edge.new_weight.toFixed(2) : '–';
 
-  let text = `Edge created in ${duration}ms\n\n`;
+  // conceptLink_write upserts: a repeated (from, to, edge_type) moves the
+  // existing edge's weight by EMA instead of adding a second edge.
+  let text = edge.created === false
+    ? `Edge exists; weight updated in ${duration}ms\n\n`
+    : `Edge created in ${duration}ms\n\n`;
   text += `  id:          ${edgeId}\n`;
   text += `  from:        ${input.from_concept_id}\n`;
   text += `  to:          ${input.to_concept_id}\n`;
-  text += `  edge_type:   ${edge.edge_type ?? input.edge_type}\n`;
+  text += `  edge_type:   ${input.edge_type}\n`;
   text += `  weight:      ${w}\n`;
-  if (edge.description) text += `  description: ${edge.description}\n`;
-  if (edge.created_at) text += `  created_at:  ${edge.created_at}\n`;
+  if (typeof edge.previous_weight === 'number') text += `  previous:    ${edge.previous_weight.toFixed(2)}\n`;
+  if (input.description) text += `  description: ${input.description}\n`;
   return text;
 }

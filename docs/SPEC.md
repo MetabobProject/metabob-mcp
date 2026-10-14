@@ -269,7 +269,7 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 **Behaviour**
 - Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. If the local store failed to open, the output says so.
 - States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request.
-- It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `GET {conceptDbUrl}/concepts/search?shape=code_finding` in list mode (no `query=`), paged 50 rows at a time via `offset` up to 300 scanned rows, kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Hitting the scan cap is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
+- It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): one `conceptSearch { shape: "code_finding", limit: 300 }` read in list mode (no `query`; the shape takes no offset), kept when the concept belongs to the current repo (its `repo:` header, else its `workspace:` basename) and, when `file_path` is given, names that file. Returning the full 300 rows is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts, read the same way, close findings, which move to a separate "Closed findings" list. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 - The recall runs before the local cache is read, and retires this session's seeds of every finding it shows closed (`src/tools/_findings.ts@retireClosedSeeds`), matched by the seed's linked concept id or by the `agf_*` ids the concept carries: a fixed finding's seeds go stale, a retracted finding's are deleted — the same retirement `mark_complete` applies. A verdict another session recorded therefore removes the finding from this session's open list too.
 
 ---
@@ -293,7 +293,7 @@ The write half of agent-side analysis: LLM processing lives on the agent; the se
 | `line_end` | number | — | End line |
 | `status` | string | `open` | Finding status; anything but `open` stores the seed already stale |
 
-**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) best-effort `POST {conceptDbUrl}/concepts` with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, and content carrying `repo`, `workspace`, workspace-relative `files`, `lines`, `severity`, `category`, `status`, `finding_ids` and the details — so other agents' sessions recall it org-wide. The minted concept id is stored back on the seeds (`refs_json`), which is what lets `mark_complete` fold a verdict into that concept's relevance. The concept content also carries the author: `recorded_by: <vesselId>` (the stable `metabob-mcp-<12 hex>` identity, `src/vessel-identity.ts@resolveVesselId`) and `session: <sessionId>`. When no vessel identity resolves — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's (`src/tools/_findings.ts@attributionLines`). concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
+**Behaviour** — (1) upserts one LocalStore seed per file (id `agf_<random>`, confidence 1) so `get_problems` surfaces it immediately in-session — repo/workspace attribution resolves via `activeWorkspacePath()` (index → `WORKSPACE_PATH` → cwd), so it does not require `init_workspace` in the same process; (2) a best-effort concept mint — the `concept_create_write` shape (`src/tools/_findings.ts@postConcept`), written once — with shape `code_finding`, source_type `metabob_annotation`, summary `[severity][category] <repo>: <summary>`, and content carrying `repo`, `workspace`, workspace-relative `files`, `lines`, `severity`, `category`, `status`, `finding_ids` and the details — so other agents' sessions recall it org-wide. The minted concept id is stored back on the seeds (`refs_json`), which is what lets `mark_complete` fold a verdict into that concept's relevance. The concept content also carries the author: `recorded_by: <vesselId>` (the stable `metabob-mcp-<12 hex>` identity, `src/vessel-identity.ts@resolveVesselId`) and `session: <sessionId>`. When no vessel identity resolves — no `VESSEL_ID`, no `METABOB_API_KEY` — the `recorded_by` line is **omitted entirely** rather than filled with a placeholder, so an unattributed finding reads as unattributed instead of as someone's (`src/tools/_findings.ts@attributionLines`). concept-db unreachable is non-fatal and reported in the output. Close the loop with `mark_complete` on the returned `agf_*` id.
 
 ---
 
@@ -385,7 +385,7 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 | `problem_id` | string | **required** | Problem ID from `get_problems` — a backend id, an `agf_*` finding id, or a `concept_*` id |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 
-Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a message saying nothing was recorded, since there are no backend detections for it to name. A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings, endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`POST /concepts/:id/usage`, `src/tools/_findings.ts@recordConceptUsage`).
+Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a message saying nothing was recorded, since there are no backend detections for it to name. A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings, endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`conceptUsage_write`, `src/tools/_findings.ts@recordConceptUsage`). A recalled concept is read as the `conceptGraph` root (`src/tools/_findings.ts@fetchConceptById`).
 
 ---
 
@@ -556,7 +556,7 @@ POSTs `{ impulse: { pointer } }` to activity-api `/v2/impulses/resolve`, or — 
 
 ## Concept graph tools
 
-concept-db's graph of concepts, edges and usage. The URL is `CONCEPT_DB_URL` (set directly or derived, see § Configuration), else the first vessel discovery returns for the `conceptGraph` shape; with neither a concept-db URL nor discovery the tools return a configuration message and make no request. Requests time out after 10 s (15 s for `concept_create`); an unreachable concept-db or a non-2xx reply is returned as text, never thrown. Bodies render through `src/tools/_concept-content.ts@renderConceptContent`: `preview` is the first ~700 characters, cut back to a line boundary with the truncation disclosed; `full` is the whole body; `none` omits it.
+concept-db's graph of concepts, edges and usage, reached through the attachment (§ Attachment) as concept-db's own shapes (`src/tools/_concept-db.ts`) — never `concept`, which development-vessel also advertises, so the vessel answering it depends on registry order. Each request is capped at 35 s (discovery cuts concept-db at 30 s); a read cut there is retried with backoff, a write is sent once. A discovery failure, or concept-db's refusal, is returned as one line, never thrown. Reads through these shapes record no load event on the concepts they return; `concept_record_usage` is the relevance signal. Bodies render through `src/tools/_concept-content.ts@renderConceptContent`: `preview` is the first ~700 characters, cut back to a line boundary with the truncation disclosed; `full` is the whole body; `none` omits it.
 
 ### concept_search
 
@@ -572,7 +572,7 @@ Handler: `src/tools/concept-search.ts@handle`
 | `min_relevance` | number | — | Relevance threshold, 0..1 |
 | `limit` | number | `10` | Max results (max 50) |
 
-`GET {conceptDb}/concepts/:id` for `concept_id`; otherwise `GET {conceptDb}/concepts/search` with the filters set. Each result shows source type, shape, id, summary, relevance / loaded / succeeded / failed counts, last update and the body.
+For `concept_id`, the root of `conceptGraph { concept_id, limit: 1 }` — the row `GET /concepts/:id` returns; otherwise `conceptSearch` with the filters set (relevance first). Each result shows source type, shape, id, summary, relevance / loaded / succeeded / failed counts, last update and the body.
 
 ### concept_neighbors
 
@@ -586,7 +586,7 @@ Handler: `src/tools/concept-neighbors.ts@handle`
 | `edge_types` | string[] | — | Edge-type filter |
 | `limit` | number | `10` | Max neighbours (max 50) |
 
-`GET {conceptDb}/concepts/:id/neighbors`. One entry per edge: edge type, shape, neighbour id, summary, edge weight and traversal count, relevance and the body.
+`conceptGraph { concept_id, direction, edge_types?, limit }`, whose edges carry the full edge and neighbour rows; concept-db's 404 for an unknown concept reads as no neighbours. One entry per edge: edge type, shape, neighbour id, summary, edge weight and traversal count, relevance and the body.
 
 ### concept_usage_stats
 
@@ -598,7 +598,7 @@ Handler: `src/tools/concept-usage-stats.ts@handle`
 | `include_history` | boolean | `true` | Include recent usage rows |
 | `history_limit` | number | `10` | Max usage rows (max 50) |
 
-`GET {conceptDb}/concepts/:id/stats` (total uses, success and failure rates) and, with history, `GET {conceptDb}/concepts/:id/usage?limit=N` (outcome, time, trace and activity per row). A failed history call still returns the stats.
+`conceptUsageStats { concept_id }` (total uses, success and failure rates) and, with history, the recent usage rows (outcome, time, trace and activity per row). No concept-db shape serves usage history, so the rows are the one direct REST read the substrate tools make (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`): concept-db is located through discovery's `vesselCapability`, through the attachment, and read at `GET /concepts/:id/usage?limit=N` (10 s). A failed history read still returns the stats.
 
 ### concept_sequence
 
@@ -610,7 +610,7 @@ Handler: `src/tools/concept-sequence.ts@handle`
 | `direction` | `next\|prev\|both` | `next` | Direction along the sequence chain |
 | `limit` | number | `10` | Max neighbours (max 50) |
 
-`GET {conceptDb}/concepts/:id/sequence`: the concepts observed to follow (or precede) this one, with weight and traversal count.
+`conceptSequence { concept_id, direction, limit }`: the concepts observed to follow (or precede) this one, with weight and traversal count.
 
 ### concept_link
 
@@ -624,7 +624,7 @@ Handler: `src/tools/concept-link.ts@handle`
 | `description` | string | — | Rationale |
 | `weight` | number | concept-db's default | Initial edge weight, 0..1 |
 
-`POST {conceptDb}/concepts/:from/link` with the fields set; renders the created edge.
+Writes `conceptLink_write { linkData: { from_concept_id, to_concept_id, edge_type, description?, weight? } }` once. concept-db upserts: a new edge is created, and a repeated `(from, to, edge_type)` moves the existing edge's weight by EMA (the reply then says the edge exists, with its previous weight). Renders the edge id, endpoints, type, weight and description.
 
 ### concept_create
 
@@ -640,7 +640,7 @@ Handler: `src/tools/concept-create.ts@handle`
 | `budget` | number | concept-db's default | Token budget for resolution snapshots |
 | `priority` | number | concept-db's default | Initial priority, 0..1 |
 
-`POST {conceptDb}/concepts`; renders the created concept's id, shape, source type, summary, budget and priority.
+Writes `concept_create_write { conceptData }` once — the body `POST /concepts` takes; renders the created concept's id, shape, source type, summary, budget and priority.
 
 ### concept_record_usage
 
@@ -656,7 +656,7 @@ The direct write into concept-db's relevance model.
 | `activity_id` | string | — | Activity id |
 | `task_id` | string | — | Task id within the activity |
 
-`POST {conceptDb}/concepts/:id/usage` with `{ trace_id, outcome, activity_id?, task_id? }`. The client computes no relevance: concept-db folds the outcome into its Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` — `success` credits the concept, `failure` and `neutral` grow the load count without credit. `mark_complete` on a finding writes through this same endpoint.
+Writes `conceptUsage_write { usageData: { concept_id, trace_id, outcome, activity_id?, task_id? } }` once, with the concept id in its plain form. The client computes no relevance: concept-db folds the outcome into its Bayesian posterior mean `(times_succeeded+1)/(times_loaded+2)` — `success` credits the concept, `failure` and `neutral` grow the load count without credit. `mark_complete` on a finding writes through this same shape.
 
 ---
 

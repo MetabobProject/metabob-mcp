@@ -29,11 +29,15 @@
  *
  * Concepts are embedded server-side; embedding model is shared across the
  * substrate so cross-concept similarity search works out of the box.
+ *
+ * Written as the `concept_create_write` shape through discovery `POST /resolve`
+ * (src/tools/_concept-db.ts), once — a write is never retried.
+ * CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { createConcept } from './_concept-db.js';
 
 const SOURCE_TYPES = [
   'goal',
@@ -120,58 +124,30 @@ interface ConceptResponse {
 
 export async function handle(
   input: ConceptCreateInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return 'concept_create requires discovery or an explicit CONCEPT_DB_URL.';
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
-  });
-  if (!conceptDbUrl) {
-    return 'concept_create could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
-  }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
-  // Pointer defaults: use source_type as pointer.type if caller didn't pass one.
-  // concept-db's CreateConceptRequestSchema requires pointer.
+  // Pointer defaults: use the shape as pointer.type if caller didn't pass one.
+  // concept-db's CreateConceptRequestSchema takes the pointer verbatim.
   const pointer = input.pointer ?? { type: input.shape };
 
-  const body: Record<string, unknown> = {
+  const conceptData: Record<string, unknown> = {
     content: input.content,
     shape: input.shape,
     source_type: input.source_type,
     pointer,
   };
-  if (input.summary) body.summary = input.summary;
-  if (input.budget !== undefined) body.budget = input.budget;
-  if (input.priority !== undefined) body.priority = input.priority;
+  if (input.summary) conceptData.summary = input.summary;
+  if (input.budget !== undefined) conceptData.budget = input.budget;
+  if (input.priority !== undefined) conceptData.priority = input.priority;
 
-  const url = `${conceptDbUrl}/concepts`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_create failed to reach ${conceptDbUrl}: ${msg}`;
-  }
-  if (!res.ok) {
-    return `concept_create: ${res.status} ${(await res.text().catch(() => '')).slice(0, 300)}`;
+  const created = await createConcept(conceptData);
+  if (!created.ok) {
+    return `concept_create: ${created.error}`;
   }
 
-  const concept = (await res.json()) as ConceptResponse;
+  const concept = created.value as ConceptResponse;
   const duration = Date.now() - start;
   const id = (concept.id ?? '').replace(/^concept:/, '');
 

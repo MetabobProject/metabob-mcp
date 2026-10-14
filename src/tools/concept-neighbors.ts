@@ -6,11 +6,15 @@
  * walk the substrate's learned graph. Edges are typed (related_to,
  * derived_from, resolves_to, sequence_next/prev, description_of, example_of,
  * contradicts) so traversal can be intent-scoped.
+ *
+ * Read as the `conceptGraph` shape through discovery `POST /resolve`
+ * (src/tools/_concept-db.ts): its edges carry the full edge and neighbour rows.
+ * CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { conceptGraph } from './_concept-db.js';
 import { renderConceptContent, plainConceptId, PREVIEW_CHAR_BUDGET } from './_concept-content.js';
 
 export const ConceptNeighborsTool = {
@@ -80,52 +84,22 @@ interface NeighborEntry {
   };
 }
 
-interface NeighborsResponse {
-  neighbors?: NeighborEntry[];
-  error?: string;
-}
-
 export async function handle(
   input: ConceptNeighborsInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return 'concept_neighbors requires discovery or an explicit CONCEPT_DB_URL.';
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
+
+  const graph = await conceptGraph(input.concept_id, {
+    direction: input.direction,
+    edge_types: input.edge_types,
+    limit: input.limit,
   });
-  if (!conceptDbUrl) {
-    return 'concept_neighbors could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
+  if (!graph.ok) {
+    return `concept_neighbors: ${graph.error}`;
   }
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-
-  const params = new URLSearchParams();
-  params.set('direction', input.direction);
-  params.set('limit', String(input.limit));
-  if (input.edge_types) for (const t of input.edge_types) params.append('edge_types', t);
-
-  const url = `${conceptDbUrl}/concepts/${encodeURIComponent(input.concept_id)}/neighbors?${params.toString()}`;
-  let res: Response;
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_neighbors failed to reach ${conceptDbUrl}: ${msg}`;
-  }
-  if (!res.ok) {
-    return `concept_neighbors: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`;
-  }
-
-  const payload = (await res.json()) as NeighborsResponse;
-  const neighbors = payload.neighbors ?? [];
+  // concept-db answers 404 for an unknown root: no concept, so no neighbours.
+  const neighbors: NeighborEntry[] = (graph.value?.edges ?? []).map((e) => ({ concept: e.neighbor, edge: e.edge }));
   const duration = Date.now() - start;
 
   if (neighbors.length === 0) {

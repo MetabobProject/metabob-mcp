@@ -10,7 +10,7 @@ import {
   resolveAuthorVesselId,
   postConcept,
   recordConceptUsage,
-  resolveConceptDbUrl,
+  conceptDbReachable,
   conceptDbUnavailable,
   workspaceRepoName,
 } from './_findings.js';
@@ -88,14 +88,13 @@ export async function handle(
     // The LOCAL half (retire/delete the seed) is genuinely local and is simply
     // skipped — stated in the output rather than pretended.
     if (!seed && isConceptId) {
-      const remoteDbUrl = await resolveConceptDbUrl(apiClient);
-      if (!remoteDbUrl) {
+      if (!(await conceptDbReachable())) {
         return `Concept "${input.problem_id}" has no local seed and concept-db is unavailable (${await conceptDbUnavailable()}), so no verdict was recorded.`;
       }
       const remote = await fetchConceptById(apiClient, plainId);
       if (!remote) {
         return `Concept "${input.problem_id}" could not be read from concept-db, so no verdict was recorded.\n`
-          + `  Check CONCEPT_DB_URL / discovery, or use get_problems to list findings with local agf_* ids.`;
+          + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const repo = remote.repo || workspaceRepoName() || 'unknown';
@@ -107,7 +106,7 @@ export async function handle(
       // had no LocalStore, and a truthy placeholder collides EVERY stateless
       // finding's verdict onto one shared key. Require the real shape.
       const findingKey = /^agf_/.test(remote.findingId) ? remote.findingId : plainId;
-      const posted = await postConcept(remoteDbUrl, {
+      const posted = await postConcept({
         content: [
           `finding: ${findingKey}`,
           `verdict: ${verdict}`,
@@ -127,7 +126,6 @@ export async function handle(
         pointer: { type: VERDICT_SHAPE },
       });
       const usage = await recordConceptUsage(
-        remoteDbUrl,
         plainId,
         input.action === 'endorse' ? 'success' : 'failure',
       );
@@ -173,13 +171,12 @@ export async function handle(
     // Best-effort verdict into concept-db so other agents see the outcome.
     let conceptStatus = 'concept-db not configured — verdict recorded locally only';
     let relevanceStatus = '';
-    const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-    if (!conceptDbUrl) {
+    if (!(await conceptDbReachable())) {
       conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
     } else {
       const repo = workspaceRepoName() ?? seed.workspace_id;
       const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
-      const result = await postConcept(conceptDbUrl, {
+      const result = await postConcept({
         content: [
           `finding: ${seedId}`,
           `verdict: ${verdict}`,
@@ -208,7 +205,7 @@ export async function handle(
       const conceptId = linkedRef ? plainConceptId(linkedRef) : null;
       if (conceptId) {
         const outcome = input.action === 'endorse' ? 'success' : 'failure';
-        const usage = await recordConceptUsage(conceptDbUrl, conceptId, outcome);
+        const usage = await recordConceptUsage(conceptId, outcome);
         relevanceStatus = usage.ok
           ? `relevance: recorded ${outcome} on concept ${conceptId}`
           : `relevance: could not record ${outcome} on concept ${conceptId} (${usage.error})`;

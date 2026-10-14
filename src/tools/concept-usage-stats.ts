@@ -7,11 +7,16 @@
  * agents distinguish "concept has high lifetime relevance" from "concept
  * is currently active." Pairs with concept_search (find what's there)
  * and concept_neighbors (find what's related).
+ *
+ * The aggregate is the `conceptUsageStats` shape through discovery
+ * `POST /resolve` (src/tools/_concept-db.ts). The recent rows have no shape;
+ * see fetchUsageHistory. CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { RESOLVE_TIMEOUT_MS, getAttachment, resolveShape } from '../attachment.js';
+import { conceptUsageStats } from './_concept-db.js';
 
 export const ConceptUsageStatsTool = {
   name: 'concept_usage_stats',
@@ -66,55 +71,75 @@ interface HistoryResponse {
   usage?: UsageRow[];
 }
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
+
+// @anchor usage-history-direct-edge
+/**
+ * Recent usage rows: the one direct REST call the substrate tools still make
+ * (CONFORMANCE §c11-attachment-model records it). No concept-db shape serves
+ * usage history — `conceptUsageStats` answers only the aggregate — so this
+ * reads `GET /concepts/:id/usage` from concept-db itself. concept-db is located
+ * through discovery's own `vesselCapability` shape (through the attachment);
+ * a loopback endpoint from a remote discovery is taken onto discovery's host.
+ * Best-effort: any failure answers null and the stats still render.
+ */
+async function fetchUsageHistory(conceptId: string, limit: number): Promise<UsageRow[] | null> {
+  let base: string | undefined;
+  try {
+    const cap = await resolveShape(
+      { type: 'vesselCapability', shape: 'conceptUsageStats' },
+      { timeoutMs: RESOLVE_TIMEOUT_MS.discovery, read: true },
+    );
+    const vessel = (cap.body as { content?: { vessels?: Array<{ endpoint?: string; public_endpoint?: string }> } })
+      ?.content?.vessels?.[0];
+    base = (vessel?.public_endpoint || vessel?.endpoint)?.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+  if (!base) return null;
+
+  const discovery = getAttachment()?.state().anchor.discovery;
+  try {
+    const url = new URL(base);
+    if (discovery && LOOPBACK_HOSTS.includes(url.hostname) && !LOOPBACK_HOSTS.includes(new URL(discovery).hostname)) {
+      url.hostname = new URL(discovery).hostname;
+      base = url.toString().replace(/\/+$/, '');
+    }
+  } catch {
+    return null;
+  }
+
+  const headers: Record<string, string> = {};
+  const apiKey = process.env.METABOB_API_KEY;
+  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
+  try {
+    const res = await fetch(`${base}/concepts/${encodeURIComponent(conceptId)}/usage?limit=${limit}`, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as HistoryResponse).usage ?? [];
+  } catch {
+    return null;
+  }
+}
+
 export async function handle(
   input: ConceptUsageStatsInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return 'concept_usage_stats requires discovery or an explicit CONCEPT_DB_URL.';
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
-  });
-  if (!conceptDbUrl) {
-    return 'concept_usage_stats could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
-  }
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
-  const idEnc = encodeURIComponent(input.concept_id);
-  const statsUrl = `${conceptDbUrl}/concepts/${idEnc}/stats`;
-
-  let statsRes: Response;
-  try {
-    statsRes = await fetch(statsUrl, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_usage_stats failed to reach ${conceptDbUrl}: ${msg}`;
+  const statsRead = await conceptUsageStats(input.concept_id);
+  if (!statsRead.ok) {
+    return `concept_usage_stats: ${statsRead.error}`;
   }
-  if (!statsRes.ok) {
-    return `concept_usage_stats: ${statsRes.status} ${(await statsRes.text().catch(() => '')).slice(0, 200)}`;
-  }
-  const stats = (await statsRes.json()) as StatsResponse;
+  const stats = statsRead.value as StatsResponse;
 
   let history: UsageRow[] = [];
   if (input.include_history) {
-    const historyUrl = `${conceptDbUrl}/concepts/${idEnc}/usage?limit=${input.history_limit}`;
-    try {
-      const histRes = await fetch(historyUrl, { headers, signal: AbortSignal.timeout(10_000) });
-      if (histRes.ok) {
-        const histPayload = (await histRes.json()) as HistoryResponse;
-        history = histPayload.usage ?? [];
-      }
-    } catch {
-      // history is non-fatal; carry on with stats only
-    }
+    // history is non-fatal; carry on with stats only
+    history = (await fetchUsageHistory(input.concept_id, input.history_limit)) ?? [];
   }
 
   const duration = Date.now() - start;

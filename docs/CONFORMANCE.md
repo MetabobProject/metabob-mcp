@@ -73,14 +73,16 @@ the vessel's own network namespace.
   it. Until the check passes, every substrate tool passes one gate on both dispatch planes
   (`src/tools/index.ts@substrateToolRefusal`) and answers with the named cause in one line, the
   substrate half of the mixed tools and answer delivery check the same attachment
-  (`src/tools/_findings.ts@resolveConceptDbUrl`, `src/agent-delivery.ts@deliverResolution`), and the
+  (`src/tools/_findings.ts@conceptDbReachable`, `src/agent-delivery.ts@deliverResolution`), and the
   local tools work. Evidence: `tests/unit/attachment.test.ts` (a rehosted address that rejects the key
   → `key_rejected`, with the org check the only keyed call); `tests/workflows/w3-attachment.test.ts`
   (a foreign key: discovery sees only `GET /bootstrap`, identity only `/health` and the org check, and
   every substrate tool answers `key_rejected: …` in one line).
-- Not yet met — cross-node calls do not go through the local egress: the substrate tools send the key
-  directly to the vessels discovery names (concept-db, goal-host-vessel) and to activity-api, rather
-  than resolving through discovery so the key travels as `_fedAuth` (C11).
+- Partially met — the substrate tools send the key only to discovery `POST /resolve` (C11), apart from
+  one read of concept-db's usage history (C11); they never send it to a vessel discovery names. Discovery
+  forwards it to the producer, or to a peer discovery, as a plain `Authorization` header rather than
+  through the transport egress as `_fedAuth` — the substrate's side of the path (the accepted risk
+  below).
 
 **Accepted risk, not conformance: cleartext key on plain-http anchors.** The vessel sends its key to
 whatever anchor it is configured with, including non-loopback plain-http anchors such as a hub's
@@ -253,6 +255,11 @@ never written to discovery.
 - Met — every call ends within 60 s: `run_goal` dispatches asynchronously and polls with short
   `goalWalkState` reads until its deadline (`src/tools/run-goal.ts@run-goal-poll`); no request is held
   open for a goal.
-- Not yet met — the concept tools and the concept-db half of the mixed tools call concept-db over
-  direct REST (see [SPEC.md](SPEC.md) § Concept graph tools); discovery locates it but is not the path
-  the calls take.
+- Met — the concept tools and the concept-db half of the mixed tools (`record_finding`,
+  `get_problems` / `get_analysis_context` recall, `mark_complete` verdicts and relevance signals) reach
+  concept-db through it as `conceptSearch`, `conceptGraph`, `conceptSequence`, `conceptUsageStats`,
+  `concept_create_write`, `conceptLink_write` and `conceptUsage_write` (`src/tools/_concept-db.ts`).
+- Not yet met, one read — concept-db serves usage history (`GET /concepts/:id/usage`) under no shape,
+  so `concept_usage_stats` reads its recent rows from concept-db directly, at the endpoint discovery's
+  `vesselCapability` names (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`); the aggregate
+  is the `conceptUsageStats` shape. It goes when concept-db serves history as a shape.

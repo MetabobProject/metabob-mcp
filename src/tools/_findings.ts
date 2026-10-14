@@ -20,8 +20,15 @@ import { randomUUID } from 'node:crypto';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore, SeedRecord } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
 import { substrateRefusal } from '../attachment.js';
+import {
+  conceptDbAvailable,
+  createConcept,
+  getConcept,
+  recordUsage,
+  searchConcepts,
+  type ConceptRow,
+} from './_concept-db.js';
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
@@ -123,40 +130,15 @@ export function workspaceRepoName(): string | null {
   return basename(activeWorkspacePath()) || null;
 }
 
-function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const apiKey = process.env.METABOB_API_KEY;
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
-}
-
 /**
- * Resolve the concept-db base URL (explicit CONCEPT_DB_URL, else discovery via
- * the `conceptGraph` shape). Returns null when neither is configured or
- * discovery fails — callers treat null as "concept-db not configured".
+ * Whether the concept-db half of a mixed tool may run: concept-db is reached
+ * through the attachment (src/tools/_concept-db.ts), so it is available exactly
+ * when the attachment may make keyed calls. The substrate half makes no keyed
+ * call until the key is proven (CONFORMANCE §c3-identity); conceptDbUnavailable
+ * names why.
  */
-export async function resolveConceptDbUrl(apiClient: AnalysisAPIClient): Promise<string | null> {
-  // The substrate half of a mixed tool makes no keyed call until the key is
-  // proven (CONFORMANCE §c3-identity); conceptDbUnavailable names why.
-  if (await substrateRefusal()) return null;
-  try {
-    const client = apiClient as unknown as {
-      hasDiscovery?: () => boolean;
-      getDiscoveryEndpoint?: () => string | undefined;
-    };
-    const hasDiscovery = typeof client.hasDiscovery === 'function' && client.hasDiscovery();
-    if (!hasDiscovery && !process.env.CONCEPT_DB_URL) return null;
-    const url = await resolveServiceEndpointByShape({
-      explicitUrl: process.env.CONCEPT_DB_URL,
-      discoveryEndpoint:
-        typeof client.getDiscoveryEndpoint === 'function' ? client.getDiscoveryEndpoint() : undefined,
-      shape: 'conceptGraph',
-      apiKey: process.env.METABOB_API_KEY,
-    });
-    return url ?? null;
-  } catch {
-    return null;
-  }
+export async function conceptDbReachable(): Promise<boolean> {
+  return conceptDbAvailable();
 }
 
 /**
@@ -174,30 +156,14 @@ export interface PostConceptResult {
 }
 
 /**
- * Best-effort POST {conceptDbUrl}/concepts — mirrors the body contract used
- * by concept_create (content/shape/source_type/pointer [+ summary]).
+ * Best-effort concept mint — the `concept_create_write` shape, with the body
+ * concept_create sends (content/shape/source_type/pointer [+ summary]).
  * Never throws.
  */
-export async function postConcept(
-  conceptDbUrl: string,
-  body: Record<string, unknown>,
-): Promise<PostConceptResult> {
-  try {
-    const res = await fetch(`${conceptDbUrl}/concepts`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      return { ok: false, error: `${res.status} ${text.slice(0, 200)}` };
-    }
-    const concept = (await res.json().catch(() => ({}))) as { id?: string };
-    return { ok: true, id: (concept.id ?? '').replace(/^concept:/, '') };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+export async function postConcept(body: Record<string, unknown>): Promise<PostConceptResult> {
+  const created = await createConcept(body);
+  if (!created.ok) return { ok: false, error: created.error };
+  return { ok: true, id: String(created.value.id ?? '').replace(/^concept:/, '') };
 }
 
 /** Outcome vocabulary accepted by concept-db's usage/relevance chokepoint. */
@@ -218,41 +184,25 @@ export function makeUsageTraceId(prefix = 'mcp'): string {
 }
 
 /**
- * Best-effort POST {conceptDbUrl}/concepts/:id/usage — the direct relevance
- * signal. concept-db folds the outcome into the Beta-Binomial posterior mean
- * `(times_succeeded + 1) / (times_loaded + 2)`: `success` raises relevance,
- * `failure`/`neutral` grow the load denominator. Never throws.
+ * Best-effort relevance signal — the `conceptUsage_write` shape, concept-db's
+ * usage chokepoint. concept-db folds the outcome into the Beta-Binomial
+ * posterior mean `(times_succeeded + 1) / (times_loaded + 2)`: `success` raises
+ * relevance, `failure`/`neutral` grow the load denominator. Never throws.
  */
 export async function recordConceptUsage(
-  conceptDbUrl: string,
   conceptId: string,
   outcome: UsageOutcome,
   opts: { traceId?: string; activityId?: string; taskId?: string } = {},
 ): Promise<RecordUsageResult> {
-  try {
-    const body: Record<string, unknown> = {
-      trace_id: opts.traceId ?? makeUsageTraceId(),
-      outcome,
-    };
-    if (opts.activityId) body.activity_id = opts.activityId;
-    if (opts.taskId) body.task_id = opts.taskId;
-    const res = await fetch(
-      `${conceptDbUrl}/concepts/${encodeURIComponent(conceptId)}/usage`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      return { ok: false, error: `${res.status} ${text.slice(0, 200)}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const usageData: Record<string, unknown> = {
+    concept_id: conceptId,
+    trace_id: opts.traceId ?? makeUsageTraceId(),
+    outcome,
+  };
+  if (opts.activityId) usageData.activity_id = opts.activityId;
+  if (opts.taskId) usageData.task_id = opts.taskId;
+  const recorded = await recordUsage(usageData);
+  return recorded.ok ? { ok: true } : { ok: false, error: recorded.error };
 }
 
 /** Verdict a `finding_verdict` concept records against a finding:
@@ -278,26 +228,15 @@ export interface AgentFindingsResult {
   /** True when the scan hit MAX_SCAN before exhausting the shape — older
    *  concepts (below the scanned window) were not examined by the term filter. */
   truncated?: boolean;
-  /** Concept rows scanned (across all pages) before the client-side filter. */
+  /** Concept rows scanned before the client-side filter. */
   scanned?: number;
 }
 
-/** Page size for the paginated `code_finding` scan. */
-const FINDINGS_PAGE_SIZE = 50;
-/** Hard cap on concept rows scanned per recall — 6 pages. Bounds the number of
- *  round-trips while letting the client-side term filter see a fuller set than
- *  the top-50-by-relevance window. */
+/** Hard cap on concept rows scanned per shape per recall, in one `conceptSearch`
+ *  read. Lets the client-side term filter see a fuller set than a top-50 window
+ *  while bounding the answer (concept-db's rows carry their embeddings). */
 const FINDINGS_MAX_SCAN = 300;
 
-/**
- * Fetch `code_finding` concepts from concept-db (list mode — deliberately no
- * `query=` param: semantic search is unstable on the local vessel) and filter
- * client-side to concepts whose summary/content mention any of `matchTerms`
- * (repo name, requested file paths). Pages through the relevance-DESC list via
- * the `offset` query param (FINDINGS_PAGE_SIZE rows/page, up to FINDINGS_MAX_SCAN)
- * so a real finding below the top-50 window is still recallable; sets
- * `truncated` when the cap is reached with more pages likely pending. Never throws.
- */
 /**
  * Fetch one concept by id, for the fields a verdict needs.
  *
@@ -305,42 +244,28 @@ const FINDINGS_MAX_SCAN = 300;
  * repo — the same three fields the local seed supplied. Reading them back is
  * what lets an agent endorse a finding another agent recorded, which is the
  * normal case in a fleet where a manager assigns work someone else found.
+ * Read as the `conceptGraph` root (src/tools/_concept-db.ts@getConcept).
  */
 export async function fetchConceptById(
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
   conceptId: string,
 ): Promise<{ summary: string; files: string; repo: string; findingId: string } | null> {
-  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-  if (!conceptDbUrl) return null;
+  if (!(await conceptDbAvailable())) return null;
   const plain = conceptId.replace(/^concept:/, '').replace(/^⟨/, '').replace(/⟩$/, '');
-  try {
-    const res = await fetch(`${conceptDbUrl}/concepts/${encodeURIComponent(plain)}`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    const row = (await res.json()) as { summary?: string | null; content?: string | null };
-    const content = String(row.content ?? '');
-    // The agf_* id the finding was minted with. The dashboard's verdict join
-    // keys on THIS, not on the concept id — a verdict recorded against the
-    // concept id is written but invisible to every reader.
-    const findingId = (headerLine(content, 'finding_ids').split(',')[0] ?? '').trim();
-    return {
-      summary: String(row.summary ?? '').trim(),
-      files: headerLine(content, 'files'),
-      repo: headerLine(content, 'repo'),
-      findingId,
-    };
-  } catch {
-    return null;
-  }
-}
-
-interface ConceptRow {
-  id?: string;
-  summary?: string | null;
-  content?: string | null;
-  updated_at?: string;
+  const read = await getConcept(plain);
+  if (!read.ok || !read.value) return null;
+  const row = read.value;
+  const content = String(row.content ?? '');
+  // The agf_* id the finding was minted with. The dashboard's verdict join
+  // keys on THIS, not on the concept id — a verdict recorded against the
+  // concept id is written but invisible to every reader.
+  const findingId = (headerLine(content, 'finding_ids').split(',')[0] ?? '').trim();
+  return {
+    summary: String(row.summary ?? '').trim(),
+    files: headerLine(content, 'files'),
+    repo: headerLine(content, 'repo'),
+    findingId,
+  };
 }
 
 type ConceptScan =
@@ -348,59 +273,30 @@ type ConceptScan =
   | { ok: false; detail: string };
 
 /**
- * Page one concept shape out of concept-db in list mode.
- *
- * Paginates the relevance-DESC list via `offset` so a client-side filter sees
- * more than the top-50 window; stops on a short page (shape exhausted) or at
- * FINDINGS_MAX_SCAN, which sets `truncated`. A first-page failure is fatal to
- * the caller; a later-page failure keeps what was already read and discloses it.
+ * Read one concept shape out of concept-db in list mode: `conceptSearch` by
+ * shape, relevance DESC, up to FINDINGS_MAX_SCAN rows in one read (the shape
+ * takes no offset), so a client-side filter sees more than the top window;
+ * `truncated` is set when the cap is reached.
  *
  * Shared by the finding scan and the verdict scan so the two cannot disagree
- * about paging, deduplication or how far back they look — a verdict the finding
- * scan can see but the verdict scan cannot would silently render a closed
- * finding as open.
+ * about how far back they look — a verdict the finding scan can see but the
+ * verdict scan cannot would silently render a closed finding as open.
  */
-async function scanConceptShape(conceptDbUrl: string, shape: string): Promise<ConceptScan> {
+async function scanConceptShape(shape: string): Promise<ConceptScan> {
+  const found = await searchConcepts({ shape, limit: FINDINGS_MAX_SCAN });
+  if (!found.ok) return { ok: false, detail: found.error };
   const rows: ConceptRow[] = [];
   const seen = new Set<string>();
-  let offset = 0;
-  let truncated = false;
-  for (;;) {
-    let res: Response;
-    try {
-      res = await fetch(
-        `${conceptDbUrl}/concepts/search?shape=${encodeURIComponent(shape)}&limit=${FINDINGS_PAGE_SIZE}&offset=${offset}`,
-        { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
-      );
-    } catch (err) {
-      if (offset === 0) return { ok: false, detail: err instanceof Error ? err.message : String(err) };
-      truncated = true;
-      break;
-    }
-    if (!res.ok) {
-      if (offset === 0) return { ok: false, detail: `HTTP ${res.status}` };
-      truncated = true;
-      break;
-    }
-    const payload = (await res.json().catch(() => ({}))) as { concepts?: ConceptRow[] };
-    const page = payload.concepts ?? [];
-    // Dedup by concept id: a relevance/ordering write between offset-paged calls
-    // can shift a row across the page boundary and re-surface it. Skip repeats so
-    // the rendered recall and its "top N of M" count stay honest.
-    for (const row of page) {
-      const key = (row.id ?? '').replace(/^concept:/, '');
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      rows.push(row);
-    }
-    offset += page.length;
-    if (page.length < FINDINGS_PAGE_SIZE) break;
-    if (offset >= FINDINGS_MAX_SCAN) {
-      truncated = true;
-      break;
-    }
+  // Dedup by concept id: one answer can carry a row twice (bare and ⟨⟩-wrapped
+  // ids name the same concept). Skip repeats so the rendered recall and its
+  // "top N of M" count stay honest.
+  for (const row of found.value) {
+    const key = plainConceptId(row.id);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    rows.push(row);
   }
-  return { ok: true, rows, truncated };
+  return { ok: true, rows, truncated: found.value.length >= FINDINGS_MAX_SCAN };
 }
 
 /**
@@ -490,8 +386,16 @@ export interface FindingsScope {
   filePath?: string | null | undefined;
 }
 
+/**
+ * Recall `code_finding` concepts from concept-db (list mode — deliberately no
+ * query: semantic search is unstable on the local vessel) and keep those whose
+ * summary/content name the repo (and, when given, the file), then join the
+ * `finding_verdict` concepts so a closed finding renders closed. One
+ * `conceptSearch` read per shape, up to FINDINGS_MAX_SCAN rows (scanConceptShape).
+ * Never throws.
+ */
 export async function fetchAgentFindings(
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
   scope: FindingsScope,
 ): Promise<AgentFindingsResult> {
   const repo = (scope.repo ?? '').trim().toLowerCase();
@@ -500,13 +404,12 @@ export async function fetchAgentFindings(
   // findings is worse than none, so decline rather than return the whole corpus.
   if (!repo) return { status: 'skipped', findings: [] };
 
-  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-  if (!conceptDbUrl) {
+  if (!(await conceptDbAvailable())) {
     const refusal = await substrateRefusal();
     return refusal ? { status: 'refused', findings: [], detail: refusal } : { status: 'skipped', findings: [] };
   }
 
-  const scan = await scanConceptShape(conceptDbUrl, FINDING_SHAPE);
+  const scan = await scanConceptShape(FINDING_SHAPE);
   if (!scan.ok) return { status: 'unreachable', findings: [], detail: scan.detail };
 
   const findings: AgentFinding[] = [];
@@ -537,7 +440,7 @@ export async function fetchAgentFindings(
   // Only worth a round-trip when something matched, and a failed verdict scan
   // degrades to unverdicted rendering rather than failing the whole recall.
   if (findings.length > 0) {
-    const verdictScan = await scanConceptShape(conceptDbUrl, VERDICT_SHAPE);
+    const verdictScan = await scanConceptShape(VERDICT_SHAPE);
     if (verdictScan.ok) {
       const verdictById = new Map<string, FindingVerdict>();
       for (const row of verdictScan.rows) {

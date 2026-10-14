@@ -11,6 +11,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { fetchAgentFindings } from '../../src/tools/_findings.js';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub } from '../helpers/shape-stub';
 
 type Row = { id: string; summary: string; content: string };
 
@@ -36,24 +38,12 @@ function finding(id: string, repo: string, files: string, body = 'detail'): Row 
   };
 }
 
-/** Stub concept-db: one page of rows, then exhaustion. */
-function withCorpus<T>(rows: Row[], run: () => Promise<T>): Promise<T> {
-  const realFetch = globalThis.fetch;
-  const prevUrl = process.env.CONCEPT_DB_URL;
-  process.env.CONCEPT_DB_URL = 'http://concept-db.test';
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const url = String(input instanceof Request ? input.url : input);
-    const offset = Number(new URL(url).searchParams.get('offset') ?? '0');
-    return new Response(JSON.stringify({ concepts: offset === 0 ? rows : [] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
-  return run().finally(() => {
-    globalThis.fetch = realFetch;
-    if (prevUrl === undefined) delete process.env.CONCEPT_DB_URL;
-    else process.env.CONCEPT_DB_URL = prevUrl;
+/** Stub concept-db behind the attachment: conceptSearch answers the corpus, with no verdicts. */
+async function withCorpus<T>(rows: Row[], run: () => Promise<T>): Promise<T> {
+  await installShapeStub({
+    conceptSearch: (p) => ({ body: { content: p.shape === 'code_finding' ? rows : [], metadata: { shape: 'conceptSearch' } } }),
   });
+  return run().finally(() => setAttachment(null));
 }
 
 const apiClient = {} as never;

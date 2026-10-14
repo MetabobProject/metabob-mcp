@@ -15,10 +15,10 @@ import type { AnalysisAPIClient } from '../../src/api-client';
 import * as ConceptSearch from '../../src/tools/concept-search';
 import * as ConceptNeighbors from '../../src/tools/concept-neighbors';
 import { truncateBody, renderConceptContent, PREVIEW_CHAR_BUDGET } from '../../src/tools/_concept-content';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub } from '../helpers/shape-stub';
 
 let mockApiClient: AnalysisAPIClient;
-let savedConceptDbUrl: string | undefined;
-const servers: Array<{ stop: (force?: boolean) => void }> = [];
 
 /** A body with structured lines first, then prose, then more structured lines. */
 const STRUCTURED_AND_PROSE = [
@@ -36,31 +36,11 @@ const STRUCTURED_AND_PROSE = [
 ].join('\n');
 
 beforeEach(() => {
-  mockApiClient = {
-    get: mock(async () => ({})),
-    hasDiscovery: mock(() => false),
-    getDiscoveryEndpoint: mock(() => undefined),
-  } as unknown as AnalysisAPIClient;
-  savedConceptDbUrl = process.env.CONCEPT_DB_URL;
+  mockApiClient = { get: mock(async () => ({})) } as unknown as AnalysisAPIClient;
 });
 
-afterEach(() => {
-  if (savedConceptDbUrl === undefined) delete process.env.CONCEPT_DB_URL;
-  else process.env.CONCEPT_DB_URL = savedConceptDbUrl;
-  for (const s of servers.splice(0)) s.stop(true);
-});
-
-/** Stand up a concept-db stub and point CONCEPT_DB_URL at it. */
-function serveConceptDb(handler: (req: Request, url: URL) => Response | Promise<Response>): void {
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      return handler(req, new URL(req.url));
-    },
-  });
-  servers.push(server);
-  process.env.CONCEPT_DB_URL = `http://127.0.0.1:${server.port}`;
-}
+// concept-db is reached through the attachment's one ingress (discovery POST /resolve).
+afterEach(() => setAttachment(null));
 
 // ===== the truncation primitive =====
 
@@ -108,25 +88,26 @@ test("renderConceptContent mode 'full' emits the whole body and no disclosure", 
 
 // ===== concept_search =====
 
+/** concept-db's conceptSearch answer for these rows. */
+const searchAnswer = (rows: unknown[]) => ({ body: { content: rows, metadata: { shape: 'conceptSearch', count: rows.length } } });
+
+/** concept-db's conceptGraph answer: the root row and its edges. */
+const graphAnswer = (root: unknown, edges: unknown[] = []) => ({ body: { content: { root, edges }, metadata: { shape: 'conceptGraph' } } });
+
 test('concept_search renders the concept body by default', async () => {
-  serveConceptDb((_req, url) =>
-    url.pathname === '/concepts/search'
-      ? Response.json({
-          concepts: [
-            {
-              id: 'concept:cd_migrate1',
-              source_type: 'human_input',
-              shape: 'design_constraint',
-              summary: 'migrations run in one transaction',
-              content: STRUCTURED_AND_PROSE,
-              relevance: 0.62,
-              updated_at: '2026-08-19T00:00:00Z',
-            },
-          ],
-          count: 1,
-        })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({
+    conceptSearch: () => searchAnswer([
+      {
+        id: 'concept:cd_migrate1',
+        source_type: 'human_input',
+        shape: 'design_constraint',
+        summary: 'migrations run in one transaction',
+        content: STRUCTURED_AND_PROSE,
+        relevance: 0.62,
+        updated_at: '2026-08-19T00:00:00Z',
+      },
+    ]),
+  });
 
   const out = await ConceptSearch.handle(
     ConceptSearch.InputSchema.parse({ shape: 'design_constraint' }),
@@ -146,11 +127,7 @@ test('concept_search renders the concept body by default', async () => {
 
 test('concept_search discloses truncation of a long body and names the escape hatch', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
-  serveConceptDb((_req, url) =>
-    url.pathname === '/concepts/search'
-      ? Response.json({ concepts: [{ id: 'concept:cd_long1', shape: 'gotcha', content: long }] })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:cd_long1', shape: 'gotcha', content: long }]) });
 
   const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({}), mockApiClient);
 
@@ -161,11 +138,7 @@ test('concept_search discloses truncation of a long body and names the escape ha
 });
 
 test("concept_search content:'none' suppresses the body", async () => {
-  serveConceptDb((_req, url) =>
-    url.pathname === '/concepts/search'
-      ? Response.json({ concepts: [{ id: 'concept:cd_x', shape: 'gotcha', content: STRUCTURED_AND_PROSE }] })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:cd_x', shape: 'gotcha', content: STRUCTURED_AND_PROSE }]) });
   const out = await ConceptSearch.handle(
     ConceptSearch.InputSchema.parse({ content: 'none' }),
     mockApiClient,
@@ -176,18 +149,9 @@ test("concept_search content:'none' suppresses the body", async () => {
 
 test('concept_search concept_id does a direct read and returns the whole body untruncated', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
-  let searchCalls = 0;
-  let readPath = '';
-  serveConceptDb((_req, url) => {
-    if (url.pathname === '/concepts/search') {
-      searchCalls++;
-      return Response.json({ concepts: [] });
-    }
-    if (url.pathname.startsWith('/concepts/')) {
-      readPath = url.pathname;
-      return Response.json({ id: 'concept:cd_long1', shape: 'gotcha', content: long });
-    }
-    return new Response('not found', { status: 404 });
+  const stub = await installShapeStub({
+    conceptSearch: () => searchAnswer([]),
+    conceptGraph: () => graphAnswer({ id: 'concept:cd_long1', shape: 'gotcha', content: long }),
   });
 
   const out = await ConceptSearch.handle(
@@ -196,15 +160,15 @@ test('concept_search concept_id does a direct read and returns the whole body un
     mockApiClient,
   );
 
-  expect(readPath).toBe('/concepts/cd_long1');
-  expect(searchCalls).toBe(0);
+  expect(stub.calls('conceptGraph')).toEqual([{ type: 'conceptGraph', concept_id: 'cd_long1', limit: 1 }]);
+  expect(stub.calls('conceptSearch')).toEqual([]);
   expect(out).toContain('direct read by id');
   expect(out).toContain('filler prose line.');
   expect(out).not.toContain('truncated');
 });
 
 test('concept_search concept_id reports a missing concept as a 404, not as an empty search', async () => {
-  serveConceptDb(() => new Response('no such concept', { status: 404 }));
+  await installShapeStub({ conceptGraph: (p) => ({ status: 404, body: { error: `Concept not found: ${p.concept_id}` } }) });
   const out = await ConceptSearch.handle(
     ConceptSearch.InputSchema.parse({ concept_id: 'cd_nope' }),
     mockApiClient,
@@ -213,21 +177,14 @@ test('concept_search concept_id reports a missing concept as a 404, not as an em
 });
 
 test('concept_search still sends an empty query in list mode and passes the shape filter through', async () => {
-  let seen = '';
-  serveConceptDb((_req, url) => {
-    seen = url.search;
-    return Response.json({ concepts: [] });
-  });
+  const stub = await installShapeStub({ conceptSearch: () => searchAnswer([]) });
   await ConceptSearch.handle(
     ConceptSearch.InputSchema.parse({ shape: 'code_finding', limit: 5 }),
     mockApiClient,
   );
-  // list mode: NO query param at all (concept-db 0.3.0 needs it empty/absent);
+  // list mode: NO query at all (concept-db needs it empty/absent);
   // and `content` must never leak into the upstream request.
-  expect(seen).not.toContain('query=');
-  expect(seen).toContain('shape=code_finding');
-  expect(seen).toContain('limit=5');
-  expect(seen).not.toContain('content=');
+  expect(stub.calls('conceptSearch')).toEqual([{ type: 'conceptSearch', shape: 'code_finding', limit: 5 }]);
 });
 
 test('concept_search strips the ⟨⟩ id decoration so the escape hatch is pasteable', async () => {
@@ -235,60 +192,57 @@ test('concept_search strips the ⟨⟩ id decoration so the escape hatch is past
   // and a ⟨…⟩-wrapped one. The wrapped form must not be what the tool tells the
   // agent to paste back as concept_id.
   const long = 'a'.repeat(1500);
-  serveConceptDb((_req, url) =>
-    url.pathname === '/concepts/search'
-      ? Response.json({ concepts: [{ id: 'concept:⟨cd_wrapped1⟩', shape: 'gotcha', content: long }] })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:⟨cd_wrapped1⟩', shape: 'gotcha', content: long }]) });
   const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({}), mockApiClient);
   expect(out).toContain('id:       cd_wrapped1');
   expect(out).toContain('concept_id="cd_wrapped1"');
   expect(out).not.toContain('⟨');
 });
 
+test('concept_search names a discovery failure in one line', async () => {
+  await installShapeStub({});
+  expect(await ConceptSearch.handle(ConceptSearch.InputSchema.parse({}), mockApiClient)).toBe(
+    'concept_search: no_producer(conceptSearch): discovery has no producer for this shape',
+  );
+});
+
 // ===== concept_neighbors =====
 
 test('concept_neighbors renders the neighbour body by default', async () => {
-  serveConceptDb((_req, url) =>
-    url.pathname.endsWith('/neighbors')
-      ? Response.json({
-          neighbors: [
-            {
-              concept: {
-                id: 'concept:cd_migrate1',
-                shape: 'design_constraint',
-                summary: 'migrations run in one transaction',
-                content: STRUCTURED_AND_PROSE,
-                relevance: 0.5,
-              },
-              edge: { edge_type: 'related_to', weight: 0.9, times_traversed: 2 },
-            },
-          ],
-        })
-      : new Response('not found', { status: 404 }),
-  );
+  const stub = await installShapeStub({
+    conceptGraph: () => graphAnswer({ id: 'concept:cd_seed1' }, [
+      {
+        neighbor: {
+          id: 'concept:cd_migrate1',
+          shape: 'design_constraint',
+          summary: 'migrations run in one transaction',
+          content: STRUCTURED_AND_PROSE,
+          relevance: 0.5,
+        },
+        edge: { edge_type: 'related_to', weight: 0.9, times_traversed: 2 },
+      },
+    ]),
+  });
 
   const out = await ConceptNeighbors.handle(
     ConceptNeighbors.InputSchema.parse({ concept_id: 'cd_seed1' }),
     mockApiClient,
   );
 
+  expect(stub.calls('conceptGraph')).toEqual([{ type: 'conceptGraph', concept_id: 'cd_seed1', direction: 'both', limit: 10 }]);
   expect(out).toContain('repo: metabob-dashboard');
   expect(out).toContain('rollback the whole batch on any failure');
   expect(out).toContain('[related_to]');
+  expect(out).toContain('edge:     weight=0.90  traversed=2');
 });
 
 test('concept_neighbors discloses truncation and points at concept_search for the full body', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
-  serveConceptDb((_req, url) =>
-    url.pathname.endsWith('/neighbors')
-      ? Response.json({
-          neighbors: [
-            { concept: { id: 'concept:cd_long1', shape: 'gotcha', content: long }, edge: { edge_type: 'derived_from' } },
-          ],
-        })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({
+    conceptGraph: () => graphAnswer({ id: 'concept:cd_seed1' }, [
+      { neighbor: { id: 'concept:cd_long1', shape: 'gotcha', content: long }, edge: { edge_type: 'derived_from' } },
+    ]),
+  });
 
   const out = await ConceptNeighbors.handle(
     ConceptNeighbors.InputSchema.parse({ concept_id: 'cd_seed1' }),
@@ -300,19 +254,21 @@ test('concept_neighbors discloses truncation and points at concept_search for th
 });
 
 test("concept_neighbors content:'none' suppresses the neighbour body", async () => {
-  serveConceptDb((_req, url) =>
-    url.pathname.endsWith('/neighbors')
-      ? Response.json({
-          neighbors: [
-            { concept: { id: 'concept:cd_x', shape: 'gotcha', content: STRUCTURED_AND_PROSE }, edge: {} },
-          ],
-        })
-      : new Response('not found', { status: 404 }),
-  );
+  await installShapeStub({
+    conceptGraph: () => graphAnswer({ id: 'concept:cd_seed1' }, [
+      { neighbor: { id: 'concept:cd_x', shape: 'gotcha', content: STRUCTURED_AND_PROSE }, edge: {} },
+    ]),
+  });
   const out = await ConceptNeighbors.handle(
     ConceptNeighbors.InputSchema.parse({ concept_id: 'cd_seed1', content: 'none' }),
     mockApiClient,
   );
   expect(out).toContain('cd_x');
   expect(out).not.toContain('repo: metabob-dashboard');
+});
+
+test('concept_neighbors of an unknown concept (concept-db 404) has no neighbours', async () => {
+  await installShapeStub({ conceptGraph: (p) => ({ status: 404, body: { error: `Concept not found: ${p.concept_id}` } }) });
+  const out = await ConceptNeighbors.handle(ConceptNeighbors.InputSchema.parse({ concept_id: 'cd_nope' }), mockApiClient);
+  expect(out).toStartWith('No neighbors for concept cd_nope (direction=both).');
 });

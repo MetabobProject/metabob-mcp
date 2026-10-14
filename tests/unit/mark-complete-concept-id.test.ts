@@ -10,8 +10,8 @@
  *     `finding_ids:` when it has no LocalStore, so the `||` never fell back and
  *     every stateless finding's verdict collided on one un-joinable key.
  *
- * The assertions are on the WIRE and on the STORE: which URL was fetched, what
- * the posted verdict body says, which seed mutation ran. "The mock was called"
+ * The assertions are on the WIRE and on the STORE: which pointer was resolved
+ * through discovery, what the written verdict says, which seed mutation ran. "The mock was called"
  * is precisely the assertion that cannot catch either bug.
  */
 import { test, expect, afterEach, beforeEach } from 'bun:test';
@@ -19,25 +19,27 @@ import * as MarkComplete from '../../src/tools/mark-complete';
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { LocalStore, SeedRecord } from '../../src/local-store';
 import { plainConceptId } from '../../src/tools/_concept-content';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub, type ShapeStub } from '../helpers/shape-stub';
 
-const realFetch = globalThis.fetch;
-const realConceptDbUrl = process.env.CONCEPT_DB_URL;
 const realVesselId = process.env.VESSEL_ID;
 
 const SESSION = 'sess-1';
 const WRAPPED = '⟨concept_ABC⟩';
 const PLAIN = 'concept_ABC';
 
-interface Call { url: string; method: string; body?: string }
-
-function stubFetch(handler: (url: string) => Response): Call[] {
-  const calls: Call[] = [];
-  globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
-    const url = String(input);
-    calls.push({ url, method: String(init?.method ?? 'GET'), body: init?.body as string | undefined });
-    return handler(url);
-  }) as unknown as typeof fetch;
-  return calls;
+/**
+ * concept-db behind the attachment: `conceptGraph` answers `row` as the root
+ * for PLAIN (404 otherwise), and the writes succeed.
+ */
+function stubConceptDb(row: Record<string, unknown> | null = null): Promise<ShapeStub> {
+  return installShapeStub({
+    conceptGraph: (p) => (row && p.concept_id === PLAIN
+      ? { body: { content: { root: row, edges: [] } } }
+      : { status: 404, body: { error: `Concept not found: ${p.concept_id}` } }),
+    concept_create_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'concept_v1' }) } }),
+    conceptUsage_write: (p) => ({ body: { success: true, content: JSON.stringify({ id: 'usage_1', outcome: p.usageData?.outcome }) } }),
+  });
 }
 
 function seed(overrides: Partial<SeedRecord> = {}): SeedRecord {
@@ -92,33 +94,28 @@ function storeSpy(byRef: Record<string, SeedRecord>): StoreSpy {
   return spy;
 }
 
-/** apiClient stub: no discovery, so concept-db is reached only via CONCEPT_DB_URL. */
+/** apiClient stub: concept-db is reached through the attachment, never the client. */
 function apiStub(): { client: AnalysisAPIClient } {
-  const client = {
-    hasDiscovery: () => false,
-    getDiscoveryEndpoint: () => undefined,
-  } as unknown as AnalysisAPIClient;
-  return { client };
+  return { client: {} as AnalysisAPIClient };
 }
 
 /** A concept-db row whose `finding_ids:` line holds `ids`. */
-function conceptRow(ids: string): Response {
-  return new Response(
-    JSON.stringify({
-      summary: 'a recorded finding',
-      content: [
-        'repo: metabob-mcp',
-        'files: src/x.ts',
-        'severity: HIGH',
-        `finding_ids: ${ids}`,
-      ].join('\n'),
-    }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  );
+function conceptRow(ids: string): Record<string, unknown> {
+  return {
+    id: `concept:${PLAIN}`,
+    summary: 'a recorded finding',
+    content: [
+      'repo: metabob-mcp',
+      'files: src/x.ts',
+      'severity: HIGH',
+      `finding_ids: ${ids}`,
+    ].join('\n'),
+  };
 }
 
-function findingLine(body: string | undefined): string | undefined {
-  const content = String((JSON.parse(body ?? '{}') as { content?: string }).content ?? '');
+/** The `finding:` line of the verdict concept a stub received. */
+function findingLine(stub: ShapeStub): string | undefined {
+  const content = String(stub.calls('concept_create_write')[0]?.conceptData?.content ?? '');
   return content.split('\n').find((l) => l.startsWith('finding: '));
 }
 
@@ -128,9 +125,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globalThis.fetch = realFetch;
-  if (realConceptDbUrl === undefined) delete process.env.CONCEPT_DB_URL;
-  else process.env.CONCEPT_DB_URL = realConceptDbUrl;
+  setAttachment(null);
   if (realVesselId === undefined) delete process.env.VESSEL_ID;
   else process.env.VESSEL_ID = realVesselId;
 });
@@ -138,7 +133,7 @@ afterEach(() => {
 // ── Finding 12 ──────────────────────────────────────────────────────────────
 
 test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed', async () => {
-  delete process.env.CONCEPT_DB_URL; // isolate the local half
+  // No attachment installed: the local half alone.
   const spy = storeSpy({ [PLAIN]: seed() });
   const { client } = apiStub();
 
@@ -158,7 +153,6 @@ test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed', async 
 });
 
 test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store', async () => {
-  delete process.env.CONCEPT_DB_URL;
   const spy = storeSpy({ [PLAIN]: seed() });
   const { client } = apiStub();
 
@@ -174,14 +168,11 @@ test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store', 
 });
 
 test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and the usage id is not percent-encoded', async () => {
-  process.env.CONCEPT_DB_URL = 'http://conceptdb.test';
   // The seed is reachable by the id as GIVEN, not by the canonical one — this
   // is what postConcept's `^concept:`-only strip leaves in refs_json.
   const spy = storeSpy({ [WRAPPED]: seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) });
   const { client } = apiStub();
-  const calls = stubFetch(() => new Response('{"id":"concept_v1"}', {
-    status: 200, headers: { 'Content-Type': 'application/json' },
-  }));
+  const stub = await stubConceptDb();
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'agf_local1', action: 'endorse' }),
@@ -190,20 +181,15 @@ test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and
     { ...spy.store, getSeedById: () => seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) } as unknown as LocalStore,
   );
 
-  const usage = calls.find((c) => c.url.includes('/usage'));
-  // HEAD: http://conceptdb.test/concepts/%E2%9F%A8concept_ABC%E2%9F%A9/usage → 404
-  expect(usage?.url).toBe('http://conceptdb.test/concepts/concept_ABC/usage');
+  const usage = stub.calls('conceptUsage_write')[0];
+  // A wrapped id resolves to nothing at the usage chokepoint.
+  expect(usage?.usageData?.concept_id).toBe('concept_ABC');
 });
 
 test('mark_complete: a wrapped id with no local seed reads the concept by its bare id', async () => {
-  process.env.CONCEPT_DB_URL = 'http://conceptdb.test';
   const spy = storeSpy({});
   const { client } = apiStub();
-  const calls = stubFetch((url) =>
-    url.endsWith(`/concepts/${PLAIN}`)
-      ? conceptRow('agf_remote9')
-      : new Response('{"id":"concept_v1"}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
-  );
+  const stub = await stubConceptDb(conceptRow('agf_remote9'));
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'endorse' }),
@@ -214,22 +200,17 @@ test('mark_complete: a wrapped id with no local seed reads the concept by its ba
 
   // The wrapped id must reach concept-db by its plain form.
   expect(out).not.toContain('is not a finding id');
-  expect(calls.some((c) => c.url === `http://conceptdb.test/concepts/${PLAIN}`)).toBe(true);
-  expect(calls.some((c) => c.url.includes('%E2%9F%A8'))).toBe(false);
+  expect(stub.calls('conceptGraph')).toEqual([{ type: 'conceptGraph', concept_id: PLAIN, limit: 1 }]);
+  expect(JSON.stringify(stub.pointers)).not.toContain('⟨');
   expect(out).toContain('endorsed');
 });
 
 // ── Finding 24 ──────────────────────────────────────────────────────────────
 
 test('mark_complete: a concept carrying no agf_* id keys its verdict on the concept, never on the placeholder', async () => {
-  process.env.CONCEPT_DB_URL = 'http://conceptdb.test';
   const spy = storeSpy({});
   const { client } = apiStub();
-  const calls = stubFetch((url) =>
-    url.endsWith(`/concepts/${PLAIN}`)
-      ? conceptRow('(not cached locally)') // record_finding's stateless placeholder
-      : new Response('{"id":"concept_v1"}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
-  );
+  const stub = await stubConceptDb(conceptRow('(not cached locally)')); // record_finding's stateless placeholder
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: PLAIN, action: 'endorse' }),
@@ -238,24 +219,18 @@ test('mark_complete: a concept carrying no agf_* id keys its verdict on the conc
     spy.store,
   );
 
-  const posted = calls.find((c) => c.method === 'POST' && c.url === 'http://conceptdb.test/concepts');
-  expect(posted).toBeDefined();
-  // HEAD: `finding: (not cached locally)` — one shared key every such verdict
+  expect(stub.calls('concept_create_write')).toHaveLength(1);
+  // `finding: (not cached locally)` would be one shared key every such verdict
   // collides on, joinable to nothing.
-  expect(findingLine(posted?.body)).toBe(`finding: ${PLAIN}`);
+  expect(findingLine(stub)).toBe(`finding: ${PLAIN}`);
   // And the caller is told the join key is not a finding id.
   expect(out).toContain('keyed on');
 });
 
 test('mark_complete: a concept carrying a real agf_* id still keys the verdict on it, with no caveat', async () => {
-  process.env.CONCEPT_DB_URL = 'http://conceptdb.test';
   const spy = storeSpy({});
   const { client } = apiStub();
-  const calls = stubFetch((url) =>
-    url.endsWith(`/concepts/${PLAIN}`)
-      ? conceptRow('agf_remote9, agf_other')
-      : new Response('{"id":"concept_v1"}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
-  );
+  const stub = await stubConceptDb(conceptRow('agf_remote9, agf_other'));
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: PLAIN, action: 'endorse' }),
@@ -264,7 +239,6 @@ test('mark_complete: a concept carrying a real agf_* id still keys the verdict o
     spy.store,
   );
 
-  const posted = calls.find((c) => c.method === 'POST' && c.url === 'http://conceptdb.test/concepts');
-  expect(findingLine(posted?.body)).toBe('finding: agf_remote9');
+  expect(findingLine(stub)).toBe('finding: agf_remote9');
   expect(out).not.toContain('keyed on');
 });

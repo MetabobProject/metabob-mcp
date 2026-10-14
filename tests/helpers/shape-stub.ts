@@ -32,21 +32,25 @@ export interface ShapeStub {
   restore(): void;
 }
 
-export async function installShapeStub(handlers: Record<string, ShapeHandler>): Promise<ShapeStub> {
+export async function installShapeStub(
+  handlers: Record<string, ShapeHandler>,
+  opts: { discovery?: string } = {},
+): Promise<ShapeStub> {
+  const discovery = opts.discovery ?? STUB_DISCOVERY;
   const pointers: Array<Record<string, any>> = [];
   const urls: string[] = [];
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const req = new Request(input as string, init);
     urls.push(req.url);
     const url = new URL(req.url);
-    if (url.origin === STUB_DISCOVERY && url.pathname === '/bootstrap') {
+    if (url.origin === discovery && url.pathname === '/bootstrap') {
       return Response.json({ relay_multiaddrs: [], identity_endpoint: STUB_IDENTITY, discovery_endpoint: '', prefer_transport: 'libp2p' });
     }
     if (url.origin === STUB_IDENTITY && url.pathname === '/health') return Response.json({ status: 'ok' });
     if (url.origin === STUB_IDENTITY && url.pathname === '/v1/auth/resolve') {
       return Response.json({ valid: true, org_id: 'org_stub', key_id: 'key_stub' });
     }
-    if (url.origin === STUB_DISCOVERY && url.pathname === '/resolve') {
+    if (url.origin === discovery && url.pathname === '/resolve') {
       const { pointer } = (await req.json()) as { pointer: Record<string, any> };
       pointers.push(pointer);
       const handler = handlers[String(pointer.type)];
@@ -58,7 +62,7 @@ export async function installShapeStub(handlers: Record<string, ShapeHandler>): 
   }) as typeof fetch;
 
   const attachment = attach({
-    discovery: STUB_DISCOVERY,
+    discovery,
     key: STUB_KEY,
     heartbeatMs: 0,
     log: () => {},

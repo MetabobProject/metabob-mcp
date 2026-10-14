@@ -11,11 +11,14 @@
  * (find the seed). Empty results today because sequence edges accumulate
  * over many successful traces; mostly useful once concept_sequence_record
  * has been called repeatedly by ribosome-style observers.
+ *
+ * Read as the `conceptSequence` shape through discovery `POST /resolve`
+ * (src/tools/_concept-db.ts). CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { conceptSequence } from './_concept-db.js';
 
 export const ConceptSequenceTool = {
   name: 'concept_sequence',
@@ -58,51 +61,16 @@ interface SequenceEntry {
   times_traversed?: number;
 }
 
-interface SequenceResponse {
-  sequence?: SequenceEntry[];
-  error?: string;
-}
-
 export async function handle(
   input: ConceptSequenceInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return 'concept_sequence requires discovery or an explicit CONCEPT_DB_URL.';
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
-  });
-  if (!conceptDbUrl) {
-    return 'concept_sequence could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
+  const found = await conceptSequence(input.concept_id, input.direction, input.limit);
+  if (!found.ok) {
+    return `concept_sequence: ${found.error}`;
   }
-  const headers: Record<string, string> = {};
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-
-  const params = new URLSearchParams();
-  params.set('direction', input.direction);
-  params.set('limit', String(input.limit));
-
-  const url = `${conceptDbUrl}/concepts/${encodeURIComponent(input.concept_id)}/sequence?${params.toString()}`;
-  let res: Response;
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_sequence failed to reach ${conceptDbUrl}: ${msg}`;
-  }
-  if (!res.ok) {
-    return `concept_sequence: ${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`;
-  }
-
-  const payload = (await res.json()) as SequenceResponse;
-  const seq = payload.sequence ?? [];
+  const seq = found.value as SequenceEntry[];
   const duration = Date.now() - start;
 
   if (seq.length === 0) {

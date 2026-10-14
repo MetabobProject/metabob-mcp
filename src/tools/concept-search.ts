@@ -8,13 +8,14 @@
  * so over time this becomes a per-shape leaderboard of "which analysis
  * surfaces does the substrate actually exercise."
  *
- * Auth: talks directly to concept-db (CONCEPT_DB_URL, or discovered by its
- * shape) with METABOB_API_KEY as the ApiKey bearer.
+ * Reaches concept-db through discovery `POST /resolve` (src/tools/_concept-db.ts):
+ * `conceptSearch` for a search, the `conceptGraph` root for a read by id.
+ * CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { getConcept, searchConcepts, type ConceptRow } from './_concept-db.js';
 import { renderConceptContent, plainConceptId, PREVIEW_CHAR_BUDGET } from './_concept-content.js';
 
 export const ConceptSearchTool = {
@@ -74,26 +75,6 @@ export const InputSchema = z.object({
 
 export type ConceptSearchInput = z.infer<typeof InputSchema>;
 
-interface ConceptRow {
-  id?: string;
-  source_type?: string;
-  shape?: string;
-  summary?: string | null;
-  content?: string | null;
-  times_loaded?: number;
-  times_succeeded?: number;
-  times_failed?: number;
-  relevance?: number;
-  updated_at?: string;
-  pointer?: { type?: string; metadata?: Record<string, unknown> };
-}
-
-interface ConceptSearchResponse {
-  concepts?: ConceptRow[];
-  count?: number;
-  error?: string;
-}
-
 /**
  * Render one concept as the tool's text block, body included.
  *
@@ -118,89 +99,45 @@ function renderConceptRow(c: ConceptRow, index: number, mode: 'preview' | 'full'
 
 export async function handle(
   input: ConceptSearchInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.CONCEPT_DB_URL) {
-    return [
-      'concept_search requires discovery or an explicit CONCEPT_DB_URL.',
-      'Configure DISCOVERY_ENDPOINT to point at discovery-vessel,',
-      'or set CONCEPT_DB_URL directly.',
-    ].join(' ');
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const conceptDbUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.CONCEPT_DB_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'conceptGraph',
-    apiKey,
-  });
-  if (!conceptDbUrl) {
-    return 'concept_search could not find concept-db via discovery. Set CONCEPT_DB_URL explicitly or register concept-db with discovery.';
-  }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
   // Direct single-concept read. This is the guaranteed whole-body path: a
   // relevance-ordered search cannot deterministically target one concept, so
   // an agent that has an id (from a previous search, or from concept_neighbors)
-  // reads it here. GET /concepts/:id is the same endpoint mark_complete's
-  // verdict path already relies on.
+  // reads it here — the conceptGraph root, the row mark_complete's verdict
+  // path also reads.
   if (input.concept_id) {
     const plain = plainConceptId(input.concept_id);
-    let one: Response;
-    try {
-      one = await fetch(`${conceptDbUrl}/concepts/${encodeURIComponent(plain)}`, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return `concept_search failed to reach ${conceptDbUrl}: ${msg}`;
+    const one = await getConcept(plain);
+    if (!one.ok) {
+      return `concept_search: ${one.error}`;
     }
-    if (one.status === 404) {
+    if (!one.value) {
       return `No concept ${plain} (404 from concept-db).\n\nQuery completed in ${Date.now() - start}ms.`;
     }
-    if (!one.ok) {
-      const text = await one.text().catch(() => '');
-      return `concept_search: ${one.status} ${text.slice(0, 200)}`;
-    }
-    const row = (await one.json()) as ConceptRow;
     // A direct read by id is an explicit request for THIS concept — always the
     // whole body, unless the caller explicitly asked for no content.
     const mode = input.content === 'none' ? 'none' : 'full';
     return (
       `1 concept (direct read by id)\n\n` +
-      renderConceptRow(row, 0, mode) +
+      renderConceptRow(one.value, 0, mode) +
       `Query completed in ${Date.now() - start}ms.`
     );
   }
 
-  const params = new URLSearchParams();
-  if (input.query) params.set('query', input.query);
-  if (input.source_type) params.set('source_type', input.source_type);
-  if (input.shape) params.set('shape', input.shape);
-  if (input.min_relevance !== undefined) params.set('min_relevance', String(input.min_relevance));
-  params.set('limit', String(input.limit));
-
-  const url = `${conceptDbUrl}/concepts/search?${params.toString()}`;
-
-  let res: Response;
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `concept_search failed to reach ${conceptDbUrl}: ${msg}`;
+  const found = await searchConcepts({
+    query: input.query,
+    source_type: input.source_type,
+    shape: input.shape,
+    min_relevance: input.min_relevance,
+    limit: input.limit,
+  });
+  if (!found.ok) {
+    return `concept_search: ${found.error}`;
   }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    return `concept_search: ${res.status} ${text.slice(0, 200)}`;
-  }
-
-  const payload = (await res.json()) as ConceptSearchResponse;
-  const concepts = payload.concepts ?? [];
+  const concepts = found.value;
   const duration = Date.now() - start;
 
   if (concepts.length === 0) {
@@ -216,9 +153,6 @@ export async function handle(
   }
 
   let text = `${concepts.length} concept${concepts.length === 1 ? '' : 's'}`;
-  if (typeof payload.count === 'number' && payload.count > concepts.length) {
-    text += ` (showing ${concepts.length} of ${payload.count})`;
-  }
   text += '\n\n';
 
   for (let i = 0; i < concepts.length; i++) {

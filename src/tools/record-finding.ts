@@ -26,7 +26,7 @@ import {
   attributionLines,
   postConcept,
   resolveAuthorVesselId,
-  resolveConceptDbUrl,
+  conceptDbReachable,
   conceptDbUnavailable,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
@@ -159,8 +159,7 @@ export async function handle(
 
   // ── 2. Best-effort org-wide share via concept-db ────────────────────────────
   let conceptStatus: string;
-  const conceptDbUrl = await resolveConceptDbUrl(apiClient);
-  if (!conceptDbUrl) {
+  if (!(await conceptDbReachable())) {
     conceptStatus = `${await conceptDbUnavailable()} — finding recorded locally only`;
   } else {
     const contentLines = [
@@ -184,7 +183,7 @@ export async function handle(
     contentLines.push(...attributionLines('recorded_by', await resolveAuthorVesselId(), sessionId));
     if (input.details) contentLines.push('', input.details);
 
-    const result = await postConcept(conceptDbUrl, {
+    const result = await postConcept({
       content: contentLines.join('\n'),
       summary: `[${input.severity}][${input.category}] ${repoName}: ${input.summary}`,
       shape: FINDING_SHAPE,

@@ -205,6 +205,14 @@
           "c8-proxy-and-tls-in-the-vessel-role"
         ]
       },
+      "src/tools/_concept-db.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
+        "SPEC": [
+          "concept-graph-tools"
+        ]
+      },
       "src/tools/_findings.ts": {
         "CONFORMANCE": [
           "c3-identity"
@@ -246,36 +254,57 @@
       },
       "src/tools/concept-create.ts": {
         "CLAUDE": [],
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_create"
         ]
       },
       "src/tools/concept-link.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_link"
         ]
       },
       "src/tools/concept-neighbors.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_neighbors"
         ]
       },
       "src/tools/concept-record-usage.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_record_usage"
         ]
       },
       "src/tools/concept-search.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_search"
         ]
       },
       "src/tools/concept-sequence.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_sequence"
         ]
       },
       "src/tools/concept-usage-stats.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "concept_usage_stats"
         ]
@@ -422,6 +451,14 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/concepts-by-shape.test.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
+        "SPEC": [
+          "concept-graph-tools"
+        ]
+      },
       "tests/unit/goal-tools-by-shape.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -502,9 +539,11 @@
         "src/index.ts@tls-intercepted-report",
         "src/tls-error.ts@translateTlsError",
         "src/tls-trust.ts@installSystemTrustStoreSync",
-        "src/tools/_findings.ts@resolveConceptDbUrl",
+        "src/tools/_concept-db.ts",
+        "src/tools/_findings.ts@conceptDbReachable",
         "src/tools/_goal-host.ts@readWalkState",
         "src/tools/_traces.ts@readExecutionTrace",
+        "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/run-goal.ts@run-goal-poll",
@@ -576,9 +615,12 @@
         "src/index.ts@stdout-is-transport",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/tools/_concept-content.ts@renderConceptContent",
+        "src/tools/_concept-db.ts",
         "src/tools/_findings.ts@NO_SERVER_ANALYSIS",
         "src/tools/_findings.ts@attributionLines",
         "src/tools/_findings.ts@fetchAgentFindings",
+        "src/tools/_findings.ts@fetchConceptById",
+        "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
         "src/tools/_goal-host.ts@dispatchGoal",
@@ -594,6 +636,7 @@
         "src/tools/concept-search.ts@handle",
         "src/tools/concept-sequence.ts@handle",
         "src/tools/concept-usage-stats.ts@handle",
+        "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/execution-trace.ts@handle",
         "src/tools/get-analysis-context.ts@handle",
         "src/tools/get-metrics.ts@handle",
@@ -687,9 +730,11 @@
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
       "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
+      "src/tools/_findings.ts@conceptDbReachable": "1c46b7236612",
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
+      "src/tools/_findings.ts@fetchConceptById": "b9349d47d051",
+      "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
-      "src/tools/_findings.ts@resolveConceptDbUrl": "beaa1b050a8e",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
       "src/tools/_goal-host.ts@dispatchGoal": "996354463c1e",
       "src/tools/_goal-host.ts@readWalkState": "387c097b2d0f",
@@ -704,6 +749,7 @@
       "src/tools/concept-search.ts@handle": "4bdf740420c9",
       "src/tools/concept-sequence.ts@handle": "4bdf740420c9",
       "src/tools/concept-usage-stats.ts@handle": "4bdf740420c9",
+      "src/tools/concept-usage-stats.ts@usage-history-direct-edge": "8d64a30d9de1",
       "src/tools/execution-trace.ts@handle": "7339be11146a",
       "src/tools/get-analysis-context.ts@handle": "4bdf740420c9",
       "src/tools/get-metrics.ts@handle": "4bdf740420c9",

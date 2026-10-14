@@ -349,11 +349,66 @@ export const ROUTES: Route[] = [
   { service: 'activity', method: 'POST', path: '/v2/mcp/analysis/run', operation: 'mcpAnalysisRun' },
   { service: 'activity', method: 'POST', path: '/v2/events/mcp', operation: 'mcpEvents' },
 
-  { service: 'conceptDb', method: 'POST', path: '/concepts', operation: 'conceptCreate' },
-  { service: 'conceptDb', method: 'GET', path: '/concepts/search', operation: 'conceptSearch' },
-  { service: 'conceptDb', method: 'GET', path: '/concepts/:id', operation: 'conceptGet' },
-  { service: 'conceptDb', method: 'POST', path: '/concepts/:id/usage', operation: 'conceptUsage' },
-  { service: 'conceptDb', method: 'POST', path: '/concepts/:id/link', operation: 'conceptLink' },
+  {
+    service: 'conceptDb', method: 'POST', path: '/v2/impulses/resolve', operation: {
+      // concept-db answers reads as { content, metadata }.
+      conceptSearch: {
+        operation: 'conceptSearch',
+        request: (p) => ({
+          query: Object.fromEntries(
+            ['query', 'shape', 'source_type', 'limit'].filter(k => p[k] !== undefined).map(k => [k, String(p[k])]),
+          ),
+          body: p,
+        }),
+        response: (r) => {
+          const rows = (r.body as any)?.concepts ?? [];
+          return { body: { content: rows, metadata: { shape: 'conceptSearch', count: rows.length } } };
+        },
+      },
+      // The root is the row GET /concepts/:id returns; edges pair each edge with its neighbour row.
+      conceptGraph: {
+        operation: 'conceptGet',
+        request: (p) => ({ params: { id: String(p.concept_id ?? '') }, body: p }),
+        response: (r, p, fake) => {
+          if ((r.status ?? 200) !== 200) return { status: 404, body: { error: `Concept not found: ${p.concept_id}` } };
+          const id = String(p.concept_id ?? '').replace(/^concept:/, '');
+          const direction = String(p.direction ?? 'both');
+          const edges = fake.state.edges
+            .filter(e => (direction !== 'incoming' && e.from === id) || (direction !== 'outgoing' && e.to === id))
+            .slice(0, Number(p.limit ?? 25))
+            .map(e => ({
+              edge: { id: e.id, edge_type: e.edge_type, weight: 0.5, times_traversed: 0 },
+              neighbor: fake.state.concepts.find(c => c.id === (e.from === id ? e.to : e.from)) ?? {},
+            }));
+          return { body: { content: { root: r.body, edges }, metadata: { shape: 'conceptGraph', root_id: p.concept_id } } };
+        },
+      },
+      // Writes answer { success, content: <result as JSON> }, or 400 { success:false, error }.
+      concept_create_write: {
+        operation: 'conceptCreate',
+        request: (p) => ({ body: p.conceptData }),
+        response: (r) => (r.status ?? 200) < 300
+          ? { body: { success: true, content: JSON.stringify(r.body), metadata: { shape: 'concept_create_write_result' } } }
+          : { status: 400, body: { success: false, error: (r.body as any)?.error } },
+      },
+      conceptLink_write: {
+        operation: 'conceptLink',
+        request: (p) => ({ params: { id: String(p.linkData?.from_concept_id ?? '') }, body: p.linkData }),
+        response: (r) => {
+          if ((r.status ?? 200) >= 300) return { status: 400, body: { success: false, error: (r.body as any)?.error } };
+          const edge = r.body as any;
+          return { body: { success: true, content: JSON.stringify({ id: edge.id, created: true, new_weight: edge.weight }) } };
+        },
+      },
+      conceptUsage_write: {
+        operation: 'conceptUsage',
+        request: (p) => ({ params: { id: String(p.usageData?.concept_id ?? '') }, body: p.usageData }),
+        response: (r, p) => (r.status ?? 200) < 300
+          ? { body: { success: true, content: JSON.stringify({ id: `usage_${p.usageData?.trace_id}`, outcome: p.usageData?.outcome }) } }
+          : { status: 400, body: { success: false, error: `concept not found: ${p.usageData?.concept_id} — usage row refused` } },
+      },
+    },
+  },
 ];
 
 function matchPath(pattern: string, path: string): Record<string, string> | null {
@@ -392,6 +447,10 @@ export class FakeSubstrate {
   readonly shapeOwners: Record<string, Service> = {
     goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
+    conceptSearch: 'conceptDb',
+    concept_create_write: 'conceptDb',
+    conceptLink_write: 'conceptDb',
+    conceptUsage_write: 'conceptDb',
     activityExecutionTrace: 'activity',
     goal_verification_label_write: 'activity',
     goalDispatchAsync: 'goalHost',
