@@ -2,7 +2,15 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepo } from './_findings.js';
+import {
+  NO_SERVER_ANALYSIS,
+  fetchAgentFindings,
+  openFindingsHeadline,
+  renderFindingsSection,
+  retireClosedSeeds,
+  workspaceRepo,
+} from './_findings.js';
+import type { SeedRecord } from '../local-store.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
@@ -63,20 +71,20 @@ export async function handle(
     filePath: input.file_path,
   });
   retireClosedSeeds(recall, localStore);
-  const core = `${localFindings(input, localStore)}\n\n${NO_SERVER_ANALYSIS}`;
+  const startTime = Date.now();
+  const local = localStore ? filteredSeeds(input, localStore) : null;
+  // Lead with one count across both sources: a reader of the first line must
+  // not take "none in the local store" for "no open findings".
+  const headline = openFindingsHeadline(local?.filtered ?? null, recall);
+  const core = `${headline}\n\n${localFindings(input, localStore, local, startTime)}\n\n${NO_SERVER_ANALYSIS}`;
   const section = renderFindingsSection(recall, { max: 10 });
   return section ? `${core}\n\n${section}` : core;
 }
 
-/** The local store's open seeds for this workspace (or matching files), filtered. */
-function localFindings(input: GetProblemsInput, localStore?: LocalStore | null): string {
-  if (!localStore) {
-    return 'Local findings: unavailable. The local store failed to open in this session (see the startup log).';
-  }
-  const startTime = Date.now();
+/** The local store's open seeds for this workspace (or matching files), then the input's filters. */
+function filteredSeeds(input: GetProblemsInput, localStore: LocalStore): { seeds: SeedRecord[]; filtered: SeedRecord[] } {
   // Both reads return seeds ordered by severity, then location.
   const seeds = input.file_path ? localStore.getCachedSeeds(input.file_path) : localStore.getAllCachedSeeds();
-
   let filtered = seeds;
   if (input.severity?.length) {
     const sevSet = new Set<string>(input.severity);
@@ -86,7 +94,21 @@ function localFindings(input: GetProblemsInput, localStore?: LocalStore | null):
     const catSet = new Set(input.category.map(c => c.toLowerCase()));
     filtered = filtered.filter(s => catSet.has(s.category.toLowerCase()));
   }
+  return { seeds, filtered };
+}
 
+/** The local store's section: the filtered seeds, capped at the limit. */
+function localFindings(
+  input: GetProblemsInput,
+  localStore: LocalStore | null | undefined,
+  local: { seeds: SeedRecord[]; filtered: SeedRecord[] } | null,
+  startTime: number,
+): string {
+  if (!localStore || !local) {
+    return 'Local findings: unavailable. The local store failed to open in this session (see the startup log).';
+  }
+  const { seeds } = local;
+  let filtered = local.filtered;
   const total = filtered.length;
   filtered = filtered.slice(0, input.limit);
 

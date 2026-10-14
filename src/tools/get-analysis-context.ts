@@ -3,7 +3,15 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS, fetchAgentFindings, renderFindingsSection, retireClosedSeeds, workspaceRepo } from './_findings.js';
+import {
+  NO_SERVER_ANALYSIS,
+  fetchAgentFindings,
+  openFindingsHeadline,
+  renderFindingsSection,
+  retireClosedSeeds,
+  workspaceRepo,
+} from './_findings.js';
+import type { SeedRecord } from '../local-store.js';
 
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
@@ -85,6 +93,7 @@ export async function handle(
   const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepo() });
   retireClosedSeeds(recall, localStore);
   const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
+  const sharedOpen = recall.status === 'ok' ? recall.findings.filter(f => !f.verdict).length : 0;
 
   // ── Open problems in the local store (same source as get_problems) ───────
   let cacheTag: string | null = null;
@@ -92,10 +101,12 @@ export async function handle(
   let criticalCount = 0;
   let highCount = 0;
   const recentProblems: string[] = [];
+  let localSeeds: SeedRecord[] | null = null;
 
   if (localStore) {
     // Seeds arrive ordered by severity, then location.
     const seeds = localStore.getAllCachedSeeds();
+    localSeeds = seeds;
     for (const s of seeds) {
       if (s.severity.toUpperCase() === 'CRITICAL') criticalCount++;
       if (s.severity.toUpperCase() === 'HIGH') highCount++;
@@ -126,8 +137,10 @@ export async function handle(
     text += `CPG index: not initialised (run init_workspace)\n\n`;
   }
 
-  // Problems
-  text += `Open problems (local store): ${problemsText}\n`;
+  // Problems: one count across the local store and the recall first, so the
+  // first line never reads "0" while shared findings are open.
+  text += `${openFindingsHeadline(localSeeds, recall)}\n`;
+  text += `  local store: ${problemsText}\n`;
   if (recentProblems.length > 0) {
     text += `\nTop by severity (${recentProblems.length} shown):\n`;
     text += recentProblems.join('\n') + '\n';
@@ -152,18 +165,25 @@ export async function handle(
 
   // Guidance for LLM
   text += `Suggested next actions:\n`;
-  if (!cpgStats) {
-    text += `  1. Run init_workspace to enable local CPG analysis\n`;
-  } else if (criticalCount > 0) {
-    text += `  1. Address ${criticalCount} CRITICAL problem${criticalCount > 1 ? 's' : ''} — use get_problems for details\n`;
-    text += `  2. Check co-change predictions above to avoid incomplete fixes\n`;
+  const actions: string[] = [];
+  if (!cpgStats) actions.push('Run init_workspace to enable local CPG analysis');
+  if (criticalCount > 0) {
+    actions.push(`Address ${criticalCount} CRITICAL problem${criticalCount > 1 ? 's' : ''} — use get_problems for details`);
+    if (cpgStats) actions.push('Check co-change predictions above to avoid incomplete fixes');
   } else if (highCount > 0) {
-    text += `  1. Review ${highCount} HIGH severity problem${highCount > 1 ? 's' : ''} — use get_problems for details\n`;
-  } else if (cochangePredictions.length > 0) {
-    text += `  1. Update co-change candidates listed above before committing\n`;
-  } else {
-    text += `  1. No critical or high problems recorded — continue current work, and record what you notice with record_finding\n`;
+    actions.push(`Review ${highCount} HIGH severity problem${highCount > 1 ? 's' : ''} — use get_problems for details`);
   }
+  // Open shared findings are work too, whatever the local store holds.
+  if (sharedOpen > 0) {
+    actions.push(`Review ${sharedOpen} open finding${sharedOpen > 1 ? 's' : ''} recorded by agents on this codebase — use get_problems for details`);
+  }
+  if (cpgStats && actions.length === 0 && cochangePredictions.length > 0) {
+    actions.push('Update co-change candidates listed above before committing');
+  }
+  if (actions.length === 0) {
+    actions.push('No critical or high problems recorded — continue current work, and record what you notice with record_finding');
+  }
+  text += actions.map((a, i) => `  ${i + 1}. ${a}\n`).join('');
 
   text += `\nContext generated in ${duration}ms`;
   if (cacheTag) text += `\n\n${cacheTag}`;

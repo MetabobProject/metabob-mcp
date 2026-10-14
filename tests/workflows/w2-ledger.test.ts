@@ -84,11 +84,15 @@ describe('W2 ledger across two sessions', () => {
 
   test('B recalls it through get_problems and get_analysis_context', async () => {
     const problems = await b.text('get_problems');
+    // The first line counts both sources: B's empty local store must not read as "none".
+    expect(problems.split('\n')[0]).toBe('Open findings: 2 (0 in the local store, 2 recorded by agents on this codebase)');
     expect(localPart(problems)).not.toContain(SUMMARY); // B has no seed of its own
     expect(openRecall(problems)).toContain(SUMMARY);
     expect(openRecall(problems)).toContain(`concept: ${conceptId}`);
 
     const context = await b.text('get_analysis_context');
+    expect(context).toContain('Open findings: 2 (0 in the local store, 2 recorded by agents on this codebase)');
+    expect(context).toContain('Review 2 open findings recorded by agents on this codebase');
     expect(openRecall(context)).toContain(SUMMARY);
   });
 
@@ -115,6 +119,8 @@ describe('W2 ledger across two sessions', () => {
     // The finding nobody closed stays open, in both places.
     expect(localPart(problems)).toContain(SECOND);
     expect(openRecall(problems)).toContain(SECOND);
+    // A's seed and the shared concept are one finding, counted once.
+    expect(problems.split('\n')[0]).toBe('Open findings: 1 (1 in the local store, 1 recorded by agents on this codebase; 1 in both)');
   });
 
   test('a finding B retracts leaves A\'s get_analysis_context too', async () => {
@@ -125,6 +131,7 @@ describe('W2 ledger across two sessions', () => {
     expect(context).toContain('closed findings suppressed');
     expect(openRecall(context)).not.toContain(SECOND);
     expect(localPart(context)).not.toContain(SECOND);
-    expect(context).toMatch(/Open problems \(local store\): 0 open/);
+    expect(context).toContain('Open findings: 0 (0 in the local store, 0 recorded by agents on this codebase)');
+    expect(context).toMatch(/local store: 0 open/);
   });
 });

@@ -610,3 +610,54 @@ export function renderFindingsSection(
   }
   return text.trimEnd();
 }
+
+/**
+ * The line get_problems and get_analysis_context lead with: one count of open
+ * findings across the local store and the cross-agent recall, so an agent that
+ * reads only the first line does not take "none in the local store" for "none".
+ *
+ * A finding this session recorded is in both places, so it is counted once:
+ * local seeds group by their linked concept id (a multi-file finding is one
+ * finding) and a recalled finding overlaps a group when it is that concept or
+ * carries one of the group's `agf_*` ids. Only unverdicted recall counts as open.
+ * `localSeeds` null means the local store is unavailable. SPEC §get_problems
+ */
+export function openFindingsHeadline(
+  localSeeds: SeedRecord[] | null,
+  recall: AgentFindingsResult,
+): string {
+  const groups = new Map<string, { conceptId: string | null; seedIds: Set<string> }>();
+  for (const s of localSeeds ?? []) {
+    const ref = conceptIdFromRefs(s.refs_json);
+    const conceptId = ref ? plainConceptId(ref) : null;
+    const key = conceptId ? `concept:${conceptId}` : `seed:${s.id}`;
+    const g = groups.get(key) ?? { conceptId, seedIds: new Set<string>() };
+    g.seedIds.add(s.id);
+    groups.set(key, g);
+  }
+  const local = groups.size;
+  const localPart = localSeeds ? `${local} in the local store` : 'local store unavailable';
+
+  if (recall.status !== 'ok') {
+    const why = recall.status === 'skipped'
+      ? 'not attached to a substrate, so findings recorded by other agents are not recalled'
+      : 'findings recorded by other agents could not be recalled (see below)';
+    return localSeeds ? `Open findings: ${local} in the local store; ${why}` : `Open findings: unknown (${localPart}; ${why})`;
+  }
+
+  const open = recall.findings.filter(f => !f.verdict);
+  let both = 0;
+  for (const f of open) {
+    const ids = new Set(parseFindingIds(f.content));
+    for (const g of groups.values()) {
+      if (g.conceptId === f.id || [...g.seedIds].some(id => ids.has(id))) {
+        both++;
+        break;
+      }
+    }
+  }
+  const total = local + open.length - both;
+  const shared = `${open.length} recorded by agents on this codebase`;
+  const overlap = both > 0 ? `; ${both} in both` : '';
+  return `Open findings: ${total} (${localPart}, ${shared}${overlap})`;
+}
