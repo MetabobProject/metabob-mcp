@@ -121,16 +121,16 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "bdec39b",
-        "why": "index.ts and vessel-server.ts changes (NetError reported with its named cause and code; /health network block; refusal logging) are described in SPEC § Attachment and § Network and in CLAUDE.md's loopback-resolver bullet; nothing in CLAUDE.md is contradicted"
+        "at": "4d140d9",
+        "why": "fda296e and 4d140d9 change only the bypass reason's order (loopback named first) and the TLS-context cache key; SPEC § Network already describes both behaviours, and CLAUDE.md / CONFORMANCE §c8 are unaffected"
       },
       "docs/CONFORMANCE.md": {
-        "at": "d1142dd",
-        "why": "src/index.ts changes are the scheduler/watcher removal and stdout-to-stderr routing; no requirement's status changes (none concerns uploads or logging)"
+        "at": "4d140d9",
+        "why": "fda296e and 4d140d9 change only the bypass reason's order (loopback named first) and the TLS-context cache key; SPEC § Network already describes both behaviours, and CLAUDE.md / CONFORMANCE §c8 are unaffected"
       },
       "docs/SPEC.md": {
-        "at": "3c86708",
-        "why": "src/config.ts gained only a CONFORMANCE citation in a comment; SPEC § Endpoint derivation still matches deriveSubstrateDefaults"
+        "at": "4d140d9",
+        "why": "fda296e and 4d140d9 change only the bypass reason's order (loopback named first) and the TLS-context cache key; SPEC § Network already describes both behaviours, and CLAUDE.md / CONFORMANCE §c8 are unaffected"
       }
     }
   },
