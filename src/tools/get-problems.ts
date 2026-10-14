@@ -15,7 +15,7 @@ import type { SeedRecord } from '../local-store.js';
 export const GetProblemsTool = {
   name: 'get_problems',
   description:
-    'List known problems in this codebase, ranked by severity: findings in the local store (record_finding) plus findings other agents recorded on this codebase (concept-db). There is no server-side detection: no workspace content leaves the machine.',
+    'List open findings in this codebase, led by one count across both sources and ranked by severity: findings in the local store (record_finding) plus findings other agents recorded on this codebase (concept-db). There is no server-side detection: no workspace content leaves the machine.',
   inputSchema: {
     type: 'object' as const,
     properties: {

@@ -16,7 +16,7 @@ import type { SeedRecord } from '../local-store.js';
 export const GetAnalysisContextTool = {
   name: 'get_analysis_context',
   description:
-    'Return the current local analysis state: CPG index stats, open problems in the local store, co-change predictions for recently changed files, and a compact recall of findings other agents recorded on this codebase. Designed to feed an LLM deciding what to do next. There is no server-side analysis: no workspace content leaves the machine.',
+    'Return the current analysis state: one open-findings count across the local store and findings other agents recorded on this codebase, CPG index stats, the local store\'s open problems, co-change predictions for recently changed files, and a compact recall of the shared findings. Designed to feed an LLM deciding what to do next. There is no server-side analysis: no workspace content leaves the machine.',
   inputSchema: {
     type: 'object' as const,
     properties: {
