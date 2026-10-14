@@ -199,9 +199,25 @@ substrate tools are unavailable; local tools still work.` The substrate half of 
 (`submit_resolution`) check the same attachment and report the cause in place of their concept-db or
 goal-host output; their local half runs regardless.
 
-`resolve(pointer)` on the attachment posts `{ pointer }` to discovery `POST /resolve` with
-`Authorization: ApiKey <key>`, and refuses with the named cause (`AttachmentRefusedError`) when the
-attachment is not authenticated.
+**The one ingress.** `resolve(pointer)` on the attachment (`src/attachment.ts@attachment-resolve`) is
+the path substrate tools take to the substrate: it posts `{ pointer }` to discovery `POST /resolve` with
+`Authorization: ApiKey <key>`, and discovery answers its own shapes (`vesselCapability`,
+`vesselRegistry`, …) or forwards the pointer to the shape's producer and returns the producer's status
+and body (CONFORMANCE §c11-attachment-model). Tools reach it through `src/attachment.ts@resolveShape`.
+It refuses with the named cause (`AttachmentRefusedError`) when the attachment is not authenticated, and
+names discovery's own failures in one line (`src/attachment.ts@classifyDiscoveryAnswer`):
+
+| failure | when |
+|---|---|
+| `no_producer(shape)` | discovery answers `404 { error: "Not found", shape }`: nothing produces the shape. A producer's own 404 (a pruned dispatch, a missing trace) passes through to the tool |
+| `producer_timeout(shape, ms)` | discovery answers `502 forward_failed` because it cut the forward at the producer's `resolve_timeout_ms`, or the request outlives its client cap |
+| `producer_unreachable(shape)` | any other `502 forward_failed` |
+| `anchor_unreachable` | discovery itself does not answer |
+
+Each request carries a client cap just above discovery's cut for the producer family
+(`src/attachment.ts@resolve-timeouts`: discovery's own shapes 10 s, traces 15 s, concept-db 35 s,
+goal-host 60 s), so no request is held open past 60 s. A read cut at its producer's timeout is retried
+twice, after 0.5 s and 1.5 s; a write is never retried.
 
 ---
 
@@ -426,7 +442,7 @@ The MCP surface drives the running substrate end-to-end — **dispatch work, und
 
 - **goal-host-vessel** — `GOAL_HOST_VESSEL_URL` when set, else the first vessel discovery returns for the `goal_execution` shape (`src/discovery.ts@resolveServiceEndpointByShape`; loopback endpoints are rehosted onto a remote discovery's host).
 - **activity-api** — `ACTIVITY_API_URL` (the endpoint, unless pinned); never discovered. Unset means not attached (§ Configuration).
-- **discovery** — `DISCOVERY_ENDPOINT` (set directly or derived, see § Configuration).
+- **discovery** — `registry_query` resolves discovery's own shapes through the attachment (§ Attachment).
 
 Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is set. Planes:
 
@@ -509,7 +525,7 @@ Handler: `src/tools/registry-query.ts@handle`
 | `mode` | `shapes\|vessels` | **required** | `shapes` lists the advertised vocabulary; `vessels` lists who serves `shape` |
 | `shape` | string | — | Required in `vessels` mode; in `shapes` mode, a case-insensitive substring filter |
 
-Talks to discovery directly: `DISCOVERY_ENDPOINT`, else the configured discovery, else `http://localhost:18100`. `shapes` mode: `GET /registry/shapes`, filtered client-side and sorted. `vessels` mode: `POST /resolve` with a `vesselCapability` pointer, listing each vessel's id, endpoint (`public_endpoint` when present), protocol and resolve endpoint, plus a warning line when the two registry views disagree about the shape.
+Resolves discovery's own shapes through the attachment (§ Attachment), which discovery answers itself. `shapes` mode: `vesselRegistry`, whose vessels' shapes, unioned, are the advertised vocabulary (the set discovery's `GET /registry/shapes` lists), filtered client-side and sorted (`src/tools/registry-query.ts@fetchShapeVocabulary`). `vessels` mode: `vesselCapability { shape }`, listing each vessel's id, endpoint (`public_endpoint` when present), protocol and resolve endpoint, plus a warning line when the vocabulary and the `vesselCapability` rows disagree about the shape. A discovery failure is one named line.
 
 ### execution_trace
 

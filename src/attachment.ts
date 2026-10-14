@@ -71,7 +71,7 @@ export interface AttachOptions {
   /** An explicit identity endpoint (IDENTITY_ENDPOINT / metabob.identityEndpoint). */
   identityOverride?: string;
   /** Logger for the one-time WARNs; defaults to stderr. */
-  log?: (level: 'info' | 'warn', message: string) => void;
+  log?: (level: 'debug' | 'info' | 'warn', message: string) => void;
   /**
    * Holds the resolved tenant for the process and runs the key-issuance
    * heartbeat against the chosen identity. Without one (doctor) the org check
@@ -81,6 +81,8 @@ export interface AttachOptions {
   /** Key-issuance heartbeat interval; 0 disables it. */
   heartbeatMs?: number;
   fetchImpl?: typeof fetch;
+  /** The backoff sleep between read retries; injectable so tests do not wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface Attachment {
@@ -90,11 +92,46 @@ export interface Attachment {
   /** The one-line refusal for a keyed call, after the attachment settles; null when authenticated. */
   refusal(): Promise<string | null>;
   /**
-   * Resolve a pointer through discovery `POST /resolve` with `Authorization: ApiKey`.
-   * Throws AttachmentRefusedError, naming the cause, when the attachment is not authenticated.
+   * Resolve a pointer through discovery `POST /resolve` with `Authorization: ApiKey` —
+   * the one ingress every substrate call takes (CONFORMANCE §c11-attachment-model).
+   * Answers the producer's status and body as discovery forwarded them. Throws
+   * AttachmentRefusedError, naming the cause, when the attachment is not
+   * authenticated, and ResolveError for discovery's own failures (no producer,
+   * a producer cut at its timeout, an unreachable producer or anchor).
    */
-  resolve(pointer: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown>;
+  resolve(pointer: Record<string, unknown>, options?: ResolveOptions): Promise<ResolveResult>;
   stop(): void;
+}
+
+export interface ResolveOptions {
+  /**
+   * The client-side cap for one request. Set just above discovery's cut for the
+   * producer family, so the named timeout normally comes from discovery; never
+   * above 60 s (RESOLVE_MAX_TIMEOUT_MS).
+   */
+  timeoutMs?: number;
+  /**
+   * A read: retried with bounded backoff when the producer is cut at its
+   * timeout. A write is never retried — it may have landed.
+   */
+  read?: boolean;
+}
+
+/** One resolve as discovery answered it: the producer's HTTP status and JSON body. */
+export interface ResolveResult<T = any> {
+  status: number;
+  body: T;
+  elapsedMs: number;
+}
+
+export type ResolveFailure = 'no_producer' | 'producer_timeout' | 'producer_unreachable' | 'anchor_unreachable';
+
+/** Discovery's own failure to resolve a shape, as one named line. */
+export class ResolveError extends Error {
+  constructor(readonly kind: ResolveFailure, readonly shape: string, message: string) {
+    super(message);
+    this.name = 'ResolveError';
+  }
 }
 
 export class AttachmentRefusedError extends Error {
@@ -106,8 +143,60 @@ export class AttachmentRefusedError extends Error {
 
 const BOOTSTRAP_TIMEOUT_MS = 5_000;
 const DIAL_TIMEOUT_MS = 2_000;
-const RESOLVE_TIMEOUT_MS = 30_000;
 const DEFAULT_HEARTBEAT_MS = 5 * 60_000;
+
+// @anchor resolve-timeouts
+// Client-side caps per producer family, each just above the producer's advertised
+// resolve_timeout_ms — the cut discovery applies to its forward (activity-api 10 s,
+// concept-db 30 s, goal-host 60 s) — so the named timeout normally comes from
+// discovery. No request is held past 60 s. CONFORMANCE §c11-attachment-model
+export const RESOLVE_TIMEOUT_MS = {
+  discovery: 10_000,
+  trace: 15_000,
+  concept: 35_000,
+  goal: 60_000,
+} as const;
+export const RESOLVE_MAX_TIMEOUT_MS = 60_000;
+/** Backoff before each retry of a read cut at its producer's timeout. */
+export const READ_RETRY_DELAYS_MS = [500, 1_500] as const;
+
+function isTimeoutText(text: string): boolean {
+  return /time(d)?\s*out|timeout|abort/i.test(text);
+}
+
+/**
+ * Discovery's own answers, told apart from a producer's: `404 {error:"Not found",
+ * shape}` is "no producer for this shape" (a producer's 404 always carries more or
+ * other fields), and `502 {error:"forward_failed", shape, detail}` is its forward
+ * failing — cut at the producer's resolve_timeout_ms, or unreachable.
+ * discovery-vessel src/index.ts, POST /resolve.
+ */
+export function classifyDiscoveryAnswer(
+  shape: string,
+  status: number,
+  body: unknown,
+  elapsedMs: number,
+): ResolveError | null {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const keys = Object.keys(b).sort().join(',');
+  if (status === 404 && b.error === 'Not found' && b.shape === shape && keys === 'error,shape') {
+    return new ResolveError('no_producer', shape, `no_producer(${shape}): discovery has no producer for this shape`);
+  }
+  if (status === 502 && b.error === 'forward_failed') {
+    const detail = typeof b.detail === 'string' ? b.detail : '';
+    if (isTimeoutText(detail)) {
+      return new ResolveError('producer_timeout', shape, `producer_timeout(${shape}, ${elapsedMs}ms): discovery cut the producer at its timeout`);
+    }
+    return new ResolveError('producer_unreachable', shape, `producer_unreachable(${shape})${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+  }
+  return null;
+}
+
+/** One line for any resolve failure, for a tool's output. */
+export function describeResolveFailure(err: unknown): string {
+  if (err instanceof ResolveError || err instanceof AttachmentRefusedError) return err.message;
+  return err instanceof Error ? err.message : String(err);
+}
 
 const LOCAL_TOOLS_NOTE = 'substrate tools are unavailable; local tools still work.';
 
@@ -211,7 +300,10 @@ function refusalMessage(state: AttachmentState): string | null {
  */
 export function attach(options: AttachOptions): Attachment {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const log = options.log ?? ((level, message) => console.error(`[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}`));
+  const log = options.log ?? ((level, message) => {
+    if (level !== 'debug') console.error(`[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}`);
+  });
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const discovery = options.discovery?.trim() ? trimUrl(options.discovery) : null;
   const key = options.key?.trim() || undefined;
   const identityOverride = options.identityOverride?.trim() ? trimUrl(options.identityOverride) : undefined;
@@ -366,26 +458,58 @@ export function attach(options: AttachOptions): Attachment {
     state: () => structuredClone(state),
     settled: () => done.then(() => structuredClone(state)),
     refusal: () => done.then(() => state.message),
+    // CONFORMANCE §c11-attachment-model
+    // @anchor attachment-resolve
     async resolve(pointer, opts) {
       await done;
       if (state.cause || state.auth.status !== 'authenticated' || !discovery) {
         throw new AttachmentRefusedError(state.cause ?? 'not_configured', state.message ?? 'not_configured: no discovery endpoint');
       }
-      const res = await fetchImpl(`${discovery}/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${key}` },
-        body: JSON.stringify({ pointer }),
-        signal: AbortSignal.timeout(opts?.timeoutMs ?? RESOLVE_TIMEOUT_MS),
-      });
-      const text = await res.text();
-      if (looksLikeHtmlOrNonJson(res.headers.get('content-type'), text)) {
-        throw new AttachmentRefusedError('blocked_by_portal', `blocked_by_portal: POST ${discovery}/resolve answered HTTP ${res.status} with non-JSON`);
+      const shape = typeof pointer.type === 'string' ? pointer.type : '(no type)';
+      const timeoutMs = Math.min(opts?.timeoutMs ?? RESOLVE_TIMEOUT_MS.concept, RESOLVE_MAX_TIMEOUT_MS);
+      const url = `${discovery}/resolve`;
+
+      const once = async (): Promise<ResolveResult> => {
+        const started = Date.now();
+        // The one place a substrate request leaves this process.
+        log('debug', `resolve ${shape} → POST ${url}`);
+        let res: Response;
+        try {
+          res = await fetchImpl(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${key}` },
+            body: JSON.stringify({ pointer }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+        } catch (err) {
+          const elapsedMs = Date.now() - started;
+          const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+          if (isTimeoutText(msg)) {
+            throw new ResolveError('producer_timeout', shape, `producer_timeout(${shape}, ${elapsedMs}ms): no answer within the ${timeoutMs}ms client cap`);
+          }
+          throw new ResolveError('anchor_unreachable', shape, `anchor_unreachable: POST ${url} failed (${err instanceof Error ? err.message : String(err)})`);
+        }
+        const text = await res.text();
+        const elapsedMs = Date.now() - started;
+        if (looksLikeHtmlOrNonJson(res.headers.get('content-type'), text)) {
+          throw new AttachmentRefusedError('blocked_by_portal', `blocked_by_portal: POST ${url} answered HTTP ${res.status} with non-JSON`);
+        }
+        const body = JSON.parse(text) as unknown;
+        const failure = classifyDiscoveryAnswer(shape, res.status, body, elapsedMs);
+        if (failure) throw failure;
+        return { status: res.status, body, elapsedMs };
+      };
+
+      const delays = opts?.read ? READ_RETRY_DELAYS_MS : [];
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await once();
+        } catch (err) {
+          const retryable = err instanceof ResolveError && err.kind === 'producer_timeout' && attempt < delays.length;
+          if (!retryable) throw err;
+          await sleep(delays[attempt]!);
+        }
       }
-      const body = JSON.parse(text) as unknown;
-      if (!res.ok) {
-        throw new Error(`discovery /resolve HTTP ${res.status}: ${text.slice(0, 200)}`);
-      }
-      return body;
     },
     stop() {
       options.authService?.stopKeyHeartbeat();
@@ -404,6 +528,18 @@ export function setAttachment(a: Attachment | null): void {
 
 export function getAttachment(): Attachment | null {
   return current;
+}
+
+/**
+ * Resolve a shape through the process's attachment — the path every substrate
+ * tool takes (CONFORMANCE §c11-attachment-model). With no attachment installed it
+ * refuses as not_configured.
+ */
+export async function resolveShape(pointer: Record<string, unknown>, options?: ResolveOptions): Promise<ResolveResult> {
+  if (!current) {
+    throw new AttachmentRefusedError('not_configured', `not_configured: not attached to a substrate; ${LOCAL_TOOLS_NOTE}`);
+  }
+  return current.resolve(pointer, options);
 }
 
 /**

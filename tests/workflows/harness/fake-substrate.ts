@@ -7,12 +7,20 @@
  * Every operation is ONE handler keyed by operation name (`OPERATIONS`). The
  * HTTP surface the server calls is a separate routing table (`ROUTES`) that
  * maps (service, method, path) — or, for the impulse resolvers, `pointer.type`
- * — to an operation name. A server that reaches the same operation by another
- * route (discovery `POST /resolve` by shape, say) needs only a new routing
- * entry; the operations, their state and every scenario stay as they are.
+ * — to an operation name, with the adapter that turns the shape's pointer into
+ * the operation's input and its result into the producer's envelope. A server
+ * that reaches the same operation by another route needs only a routing entry;
+ * the operations, their state and every scenario stay as they are.
+ *
+ * Discovery `POST /resolve` behaves as discovery-vessel's does: its own shapes
+ * (`vesselCapability`, `vesselRegistry`, …) it answers itself; any other shape
+ * it forwards as `{ impulse: { pointer } }`, with the caller's Authorization,
+ * to the service that owns it (`shapeOwners`), and returns that producer's
+ * status and body; a shape nobody owns is `404 { error: "Not found", shape }`.
  *
  * Every request is recorded, matched or not, so scenarios can assert both what
- * was called and what never was (`/register`, workspace content).
+ * was called and what never was (`/register`, workspace content). A request
+ * discovery forwarded is recorded on the producer with `forwarded: true`.
  */
 
 export type Service = 'discovery' | 'identity' | 'goalHost' | 'activity' | 'conceptDb';
@@ -26,9 +34,15 @@ export interface RecordedRequest {
   query: Record<string, string>;
   /** The operation the request was routed to, or null when nothing matched. */
   operation: string | null;
+  /**
+   * The operation's input: the parsed body, or for a shape route the input its
+   * adapter built from the pointer. `rawBody` is always what was sent.
+   */
   body: unknown;
   rawBody: string;
   status: number;
+  /** True when discovery forwarded this request to the producer. */
+  forwarded: boolean;
 }
 
 export interface OpRequest {
@@ -99,10 +113,28 @@ export const OPERATIONS: Record<string, Handler> = {
       protocol: 'http',
       confidence: 1,
       lastSeen: new Date().toISOString(),
-      resolve_endpoint: '/resolve',
+      resolve_endpoint: RESOLVE_PATHS[owner],
       auth_scheme: 'ApiKey',
     };
     return { body: { content: { shape, found: true, vessels: [vessel] } } };
+  },
+  /** Every registered vessel with the shapes it advertises: one fake vessel per owning service. */
+  vesselRegistry(_s, _req, fake) {
+    const byOwner = new Map<Service, string[]>();
+    for (const [shape, owner] of Object.entries(fake.shapeOwners)) {
+      byOwner.set(owner, [...(byOwner.get(owner) ?? []), shape]);
+    }
+    const vessels = [...byOwner.entries()].map(([owner, shapes]) => ({
+      vesselId: `fake-${owner}`,
+      vesselName: `fake-${owner}`,
+      shapes,
+      endpoint: fake.url(owner),
+      protocol: 'http',
+      resolve_endpoint: RESOLVE_PATHS[owner],
+      status: 'healthy',
+      lastSeen: new Date().toISOString(),
+    }));
+    return { body: { content: { vessels, totalCount: vessels.length } } };
   },
   bootstrap(_s, _req, fake) {
     if (fake.bootstrapHtml) {
@@ -121,9 +153,6 @@ export const OPERATIONS: Record<string, Handler> = {
   register(s, req) {
     s.registrations.push(req.body);
     return { body: { registered: true } };
-  },
-  registryShapes(_s, _req, fake) {
-    return { body: { shapes: Object.keys(fake.shapeOwners).map(shape => ({ shape })) } };
   },
 
   // ── identity ──────────────────────────────────────────────────────────────
@@ -239,13 +268,37 @@ export const OPERATIONS: Record<string, Handler> = {
   },
 };
 
+/** Where each producer serves impulse resolves, as it advertises to discovery. */
+const RESOLVE_PATHS: Record<Service, string> = {
+  discovery: '/resolve',
+  identity: '/v1/impulses/resolve',
+  goalHost: '/resolve',
+  activity: '/v2/impulses/resolve',
+  conceptDb: '/v2/impulses/resolve',
+};
+
+/** The shapes discovery answers itself instead of forwarding (discovery-vessel DISCOVERY_SHAPES). */
+const DISCOVERY_SHAPES = new Set(['vesselCapability', 'vesselEndpoint', 'vesselHealth', 'vesselRegistry']);
+
+/**
+ * How a shape reaches an operation on its producer: the operation, the input
+ * built from the pointer (default: the request body as sent), and the
+ * producer's response envelope built from the operation's result (default:
+ * the result as is).
+ */
+interface ShapeRoute {
+  operation: string;
+  request?: (pointer: any, req: OpRequest) => Partial<Pick<OpRequest, 'params' | 'query' | 'body'>>;
+  response?: (result: OpResult, pointer: any, fake: FakeSubstrate) => OpResult;
+}
+
 interface Route {
   service: Service;
   method: string;
   /** Path pattern; `:name` segments become params. */
   path: string;
-  /** An operation name, or a function choosing one from the request (impulse resolvers). */
-  operation: string | ((req: OpRequest) => string | null);
+  /** An operation name, a function choosing one (impulse resolvers), or shape routes by pointer.type. */
+  operation: string | ((req: OpRequest) => string | null) | Record<string, ShapeRoute>;
 }
 
 /** Impulse envelopes carry the operation in `pointer.type`. */
@@ -256,10 +309,15 @@ const byPointerType = (map: Record<string, string>) => (req: OpRequest): string 
 
 /** How the server under test reaches each operation today. */
 export const ROUTES: Route[] = [
-  { service: 'discovery', method: 'POST', path: '/resolve', operation: byPointerType({ vesselCapability: 'vesselCapability' }) },
+  // Discovery answers its own shapes; any other shape is forwarded (see FakeSubstrate.discoveryResolve).
+  {
+    service: 'discovery', method: 'POST', path: '/resolve', operation: {
+      vesselCapability: { operation: 'vesselCapability' },
+      vesselRegistry: { operation: 'vesselRegistry' },
+    },
+  },
   { service: 'discovery', method: 'GET', path: '/bootstrap', operation: 'bootstrap' },
   { service: 'discovery', method: 'POST', path: '/register', operation: 'register' },
-  { service: 'discovery', method: 'GET', path: '/registry/shapes', operation: 'registryShapes' },
 
   { service: 'identity', method: 'GET', path: '/health', operation: 'identityHealth' },
   { service: 'identity', method: 'POST', path: '/v1/auth/resolve', operation: 'authResolve' },
@@ -308,10 +366,12 @@ function emptyState(): SubstrateState {
   };
 }
 
+const FORWARDED_HEADER = 'x-fake-forwarded-by';
+
 export class FakeSubstrate {
   state: SubstrateState = emptyState();
   readonly requests: RecordedRequest[] = [];
-  /** Which service owns a shape for discovery's `vesselCapability` lookups. */
+  /** Which service owns (produces) each shape: discovery forwards it there, `vesselCapability` reports it. */
   readonly shapeOwners: Record<string, Service> = {
     goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
@@ -368,6 +428,31 @@ export class FakeSubstrate {
     this.servers.clear();
   }
 
+  /**
+   * Discovery's forward of a shape it does not answer itself, as discovery-vessel
+   * does it: to the owning producer's resolve endpoint, as `{ impulse: { pointer } }`,
+   * with the caller's Authorization; the producer's status and body come back as is.
+   */
+  private async discoveryResolve(pointer: any, headers: Headers): Promise<OpResult> {
+    const shape = String(pointer?.type ?? '');
+    const owner = this.shapeOwners[shape];
+    if (!owner) return { status: 404, body: { error: 'Not found', shape } };
+    try {
+      const res = await fetch(`${this.url(owner)}${RESOLVE_PATHS[owner]}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [FORWARDED_HEADER]: 'discovery',
+          ...(headers.get('authorization') ? { Authorization: headers.get('authorization')! } : {}),
+        },
+        body: JSON.stringify({ impulse: { pointer } }),
+      });
+      return { status: res.status, body: await res.json() };
+    } catch (err) {
+      return { status: 502, body: { error: 'forward_failed', shape, detail: (err as Error).message } };
+    }
+  }
+
   private async handle(service: Service, req: Request): Promise<Response> {
     const url = new URL(req.url);
     const rawBody = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text();
@@ -380,25 +465,50 @@ export class FakeSubstrate {
     const query = Object.fromEntries(url.searchParams.entries());
     const record: RecordedRequest = {
       service, method: req.method, path: url.pathname, query, operation: null, body, rawBody, status: 404,
+      forwarded: req.headers.get(FORWARDED_HEADER) === 'discovery',
     };
     this.requests.push(record);
+
+    const respond = (result: OpResult): Response => {
+      record.status = result.status ?? 200;
+      if (result.html !== undefined) {
+        return new Response(result.html, { status: record.status, headers: { 'content-type': 'text/html' } });
+      }
+      return Response.json(result.body ?? {}, { status: record.status });
+    };
 
     for (const route of ROUTES) {
       if (route.service !== service || route.method !== req.method) continue;
       const params = matchPath(route.path, url.pathname);
       if (!params) continue;
       const opReq: OpRequest = { params, query, body, headers: req.headers };
+
+      if (typeof route.operation === 'object') {
+        const pointer = (body as any)?.impulse?.pointer ?? (body as any)?.pointer;
+        const type = typeof pointer?.type === 'string' ? pointer.type : '';
+        const shapeRoute = route.operation[type];
+        if (!shapeRoute) {
+          if (service === 'discovery' && type && !DISCOVERY_SHAPES.has(type)) {
+            record.operation = 'discoveryResolve';
+            return respond(await this.discoveryResolve(pointer, req.headers));
+          }
+          continue;
+        }
+        const handler = OPERATIONS[shapeRoute.operation];
+        if (!handler) continue;
+        const adapted: OpRequest = { ...opReq, ...(shapeRoute.request?.(pointer, opReq) ?? {}) };
+        record.operation = shapeRoute.operation;
+        record.body = adapted.body;
+        const result = await handler(this.state, adapted, this);
+        return respond(shapeRoute.response ? shapeRoute.response(result, pointer, this) : result);
+      }
+
       const operation = typeof route.operation === 'string' ? route.operation : route.operation(opReq);
       if (!operation) continue;
       const handler = OPERATIONS[operation];
       if (!handler) continue;
       record.operation = operation;
-      const result = await handler(this.state, opReq, this);
-      record.status = result.status ?? 200;
-      if (result.html !== undefined) {
-        return new Response(result.html, { status: record.status, headers: { 'content-type': 'text/html' } });
-      }
-      return Response.json(result.body ?? {}, { status: record.status });
+      return respond(await handler(this.state, opReq, this));
     }
     return Response.json({ error: `fake substrate: no operation for ${service} ${req.method} ${url.pathname}` }, { status: 404 });
   }

@@ -39,12 +39,18 @@ and identity accepts only the keys in `validKeys`. It is split in two:
   `conceptLink`, …). Handlers read and write one shared state object, which scenarios script and
   inspect directly.
 - **Routes** (`ROUTES`) — how the server under test reaches each operation: a service, a method and a
-  path, or for an impulse resolver the envelope's `pointer.type`.
+  path, or for an impulse resolver the envelope's `pointer.type`, with the adapter that builds the
+  operation's input from the pointer and the producer's envelope from its result.
 
-When the server reaches an operation another way — every tool resolving a shape through discovery
-`POST /resolve`, for instance — only `ROUTES` changes; the operations and the scenarios stay as they are.
-Every request is recorded with the operation it reached (`null` when none matched), so a scenario can
-assert on what was called and on what never was.
+Discovery `POST /resolve` behaves as discovery-vessel's: it answers its own shapes (`vesselCapability`,
+`vesselRegistry`) and forwards any other shape as `{ impulse: { pointer } }`, with the caller's
+`Authorization`, to the service `shapeOwners` names, returning that producer's status and body; a shape
+nobody owns is `404 { error: "Not found", shape }`. When the server reaches an operation another way,
+only `ROUTES` changes; the operations and the scenarios stay as they are. Every request is recorded with
+the operation it reached (`null` when none matched; `discoveryResolve` for discovery's forwarding hop),
+and a request discovery forwarded is recorded on the producer with `forwarded: true`, so a scenario can
+assert on what was called, on what never was, and that nothing reached a producer directly. For a shape
+route the recorded `body` is the operation's input; `rawBody` is what was sent.
 
 `harness/mcp-client.ts` spawns the server, sends `initialize` and then `tools/call` requests, times each
 request out, and records any non-JSON-RPC line on stdout.

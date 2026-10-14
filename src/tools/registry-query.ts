@@ -1,28 +1,22 @@
 // Contract (input schema, behaviour): SPEC §registry_query
 /**
- * registry_query — inspect discovery-vessel's registry directly through MCP,
- * so an operator agent never has to escape to `docker exec … curl discovery`.
+ * registry_query — inspect discovery-vessel's registry through MCP, so an
+ * operator agent never has to escape to `docker exec … curl discovery`.
  *
- * Two modes:
- *   - "shapes":  GET {discovery}/registry/shapes → the advertised shape vocabulary
- *                (optionally filtered by a `shape` substring). Answers "what shapes
- *                does the substrate know how to resolve right now?".
- *   - "vessels": POST {discovery}/resolve { pointer: { type: "vesselCapability",
- *                shape } } → the vessels advertising a given shape, with their
- *                endpoint / protocol / resolve_endpoint. Answers "who serves this
- *                shape?". Requires `shape`.
- *
- * Discovery endpoint resolution: prefer DISCOVERY_ENDPOINT, else the client's
- * configured discovery endpoint, else the local default (http://localhost:18100).
- *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
+ * Both modes resolve a discovery shape through the attachment — discovery
+ * `POST /resolve`, answered by discovery itself (CONFORMANCE §c11-attachment-model):
+ *   - "shapes":  `vesselRegistry` → every registered vessel with its shapes; the
+ *                vocabulary is their union (optionally filtered by a `shape`
+ *                substring). Answers "what shapes does the substrate know how to
+ *                resolve right now?".
+ *   - "vessels": `vesselCapability { shape }` → the vessels advertising a shape,
+ *                with their endpoint / protocol / resolve_endpoint. Answers "who
+ *                serves this shape?". Requires `shape`.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-
-const TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
-const DEFAULT_DISCOVERY = 'http://localhost:18100';
+import { RESOLVE_TIMEOUT_MS, describeResolveFailure, resolveShape } from '../attachment.js';
 
 export const RegistryQueryTool = {
   name: 'registry_query',
@@ -58,91 +52,52 @@ export const InputSchema = z
 
 export type RegistryQueryInput = z.infer<typeof InputSchema>;
 
-function authHeaders(): Record<string, string> {
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
+interface CapabilityContent {
+  shape?: string;
+  found?: boolean;
+  vessels?: Array<{
+    vesselId?: string;
+    vesselName?: string;
+    endpoint?: string;
+    public_endpoint?: string;
+    protocol?: string;
+    resolve_endpoint?: string;
+  }>;
 }
 
-function resolveDiscoveryEndpoint(apiClient: AnalysisAPIClient): string {
-  const explicit = process.env.DISCOVERY_ENDPOINT;
-  if (explicit) return explicit.replace(/\/$/, '');
-  const fromClient = apiClient.getDiscoveryEndpoint();
-  if (fromClient) return fromClient.replace(/\/$/, '');
-  return DEFAULT_DISCOVERY;
+interface RegistryContent {
+  vessels?: Array<{ shapes?: unknown }>;
 }
 
-interface DiscoveryResolveResponse {
-  content?: {
-    shape?: string;
-    found?: boolean;
-    vessels?: Array<{
-      vesselId?: string;
-      vesselName?: string;
-      endpoint?: string;
-      public_endpoint?: string;
-      protocol?: string;
-      resolve_endpoint?: string;
-    }>;
-  };
-}
-
-// Accept a few payload shapes: bare array, { shapes: [...] }, or { content: { shapes } }.
-function parseShapesPayload(payload: any): string[] {
-  if (Array.isArray(payload)) return payload.map(String);
-  if (Array.isArray(payload?.shapes)) return payload.shapes.map(String);
-  if (Array.isArray(payload?.content?.shapes)) return payload.content.shapes.map(String);
-  if (payload && typeof payload === 'object') {
-    // Fallback: keys of a { shape: count } map.
-    return Object.keys(payload).map(String);
-  }
-  return [];
-}
+type Vocabulary = { ok: true; shapes: string[] } | { ok: false; detail: string };
 
 /**
- * Best-effort fetch of the /registry/shapes vocabulary. Returns null when the
- * list cannot be obtained (unreachable / non-2xx / unparseable) — callers use
- * it only for the cross-view consistency check and must not fail on null.
+ * The advertised vocabulary: the union of every registered vessel's shapes,
+ * from `vesselRegistry` — the same set discovery's `GET /registry/shapes` lists.
  */
-async function fetchShapeList(discovery: string): Promise<string[] | null> {
+export async function fetchShapeVocabulary(): Promise<Vocabulary> {
+  let res;
   try {
-    const res = await fetch(`${discovery}/registry/shapes`, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    return parseShapesPayload(await res.json());
-  } catch {
-    return null;
+    res = await resolveShape({ type: 'vesselRegistry' }, { timeoutMs: RESOLVE_TIMEOUT_MS.discovery, read: true });
+  } catch (err) {
+    return { ok: false, detail: describeResolveFailure(err) };
   }
+  if (res.status !== 200) {
+    return { ok: false, detail: `vesselRegistry answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}` };
+  }
+  const content = (res.body as { content?: RegistryContent } | undefined)?.content;
+  const vessels = Array.isArray(content?.vessels) ? content.vessels : [];
+  const union = new Set<string>();
+  for (const v of vessels) {
+    if (Array.isArray(v?.shapes)) for (const s of v.shapes) union.add(String(s));
+  }
+  return { ok: true, shapes: [...union] };
 }
 
-async function queryShapes(discovery: string, filter?: string): Promise<string> {
-  const url = `${discovery}/registry/shapes`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    return `registry_query failed to reach ${url}: ${err instanceof Error ? err.message : String(err)}`;
-  }
-  if (!res.ok) {
-    return `registry_query: ${res.status} from ${url}: ${(await res.text()).slice(0, 200)}`;
-  }
-
-  let payload: any;
-  try {
-    payload = await res.json();
-  } catch {
-    return `registry_query: unparseable body from ${url}`;
-  }
-
-  const shapes = parseShapesPayload(payload);
+async function queryShapes(filter?: string): Promise<string> {
+  const vocab = await fetchShapeVocabulary();
+  if (!vocab.ok) return `registry_query: ${vocab.detail}`;
+  const shapes = vocab.shapes;
 
   const needle = filter?.toLowerCase();
   const filtered = needle ? shapes.filter((s) => s.toLowerCase().includes(needle)) : shapes;
@@ -157,44 +112,32 @@ async function queryShapes(discovery: string, filter?: string): Promise<string> 
   return [header, ...filtered.map((s) => `  ${s}`)].join('\n');
 }
 
-async function queryVessels(discovery: string, shape: string): Promise<string> {
-  const url = `${discovery}/resolve`;
-  let res: Response;
+async function queryVessels(shape: string): Promise<string> {
+  let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ pointer: { type: 'vesselCapability', shape } }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    res = await resolveShape({ type: 'vesselCapability', shape }, { timeoutMs: RESOLVE_TIMEOUT_MS.discovery, read: true });
   } catch (err) {
-    return `registry_query failed to reach ${url}: ${err instanceof Error ? err.message : String(err)}`;
+    return `registry_query: ${describeResolveFailure(err)}`;
   }
-  if (!res.ok) {
-    return `registry_query: ${res.status} from ${url}: ${(await res.text()).slice(0, 200)}`;
-  }
-
-  let payload: DiscoveryResolveResponse;
-  try {
-    payload = (await res.json()) as DiscoveryResolveResponse;
-  } catch {
-    return `registry_query: unparseable body from ${url}`;
+  if (res.status !== 200) {
+    return `registry_query: vesselCapability answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}`;
   }
 
-  const vessels = payload.content?.vessels ?? [];
+  const vessels = (res.body as { content?: CapabilityContent } | undefined)?.content?.vessels ?? [];
 
-  // Cross-check the vesselCapability view against the /registry/shapes view.
+  // Cross-check the vesselCapability view against the registry vocabulary.
   // The two views disagreeing (shape listed but no vessels, or vessels
   // advertising a shape absent from the vocabulary) was the diagnostic key for
   // the stale-row incident — flag it instead of making operators diff by hand.
-  const shapeList = await fetchShapeList(discovery);
+  // Best-effort: with no vocabulary there is no check.
+  const vocab = await fetchShapeVocabulary();
   let crossCheck: string | undefined;
-  if (shapeList !== null) {
-    const inShapeList = shapeList.includes(shape);
+  if (vocab.ok) {
+    const inShapeList = vocab.shapes.includes(shape);
     if (vessels.length > 0 && !inShapeList) {
-      crossCheck = `WARNING: registry views disagree — ${vessels.length} vessel(s) advertise "${shape}" via vesselCapability, but /registry/shapes does not list it. One view is stale; treat these rows as suspect.`;
+      crossCheck = `WARNING: registry views disagree — ${vessels.length} vessel(s) advertise "${shape}" via vesselCapability, but the registry vocabulary (vesselRegistry) does not list it. One view is stale; treat these rows as suspect.`;
     } else if (vessels.length === 0 && inShapeList) {
-      crossCheck = `WARNING: registry views disagree — /registry/shapes lists "${shape}", but no vesselCapability rows advertise it. One view is stale.`;
+      crossCheck = `WARNING: registry views disagree — the registry vocabulary (vesselRegistry) lists "${shape}", but no vesselCapability rows advertise it. One view is stale.`;
     }
   }
 
@@ -215,11 +158,10 @@ async function queryVessels(discovery: string, shape: string): Promise<string> {
   return lines.join('\n');
 }
 
-export async function handle(input: RegistryQueryInput, apiClient: AnalysisAPIClient): Promise<string> {
-  const discovery = resolveDiscoveryEndpoint(apiClient);
+export async function handle(input: RegistryQueryInput, _apiClient: AnalysisAPIClient): Promise<string> {
   if (input.mode === 'shapes') {
-    return queryShapes(discovery, input.shape);
+    return queryShapes(input.shape);
   }
   // mode === 'vessels' (schema guarantees shape is present)
-  return queryVessels(discovery, input.shape as string);
+  return queryVessels(input.shape as string);
 }

@@ -336,6 +336,9 @@
         ]
       },
       "src/tools/registry-query.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
         "SPEC": [
           "registry_query"
         ]
@@ -382,6 +385,11 @@
         ],
         "SPEC": [
           "impulse-shapes"
+        ]
+      },
+      "tests/unit/resolve-dispatch.test.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
         ]
       },
       "tests/workflows/w1-operator-loop.test.ts": {
@@ -494,7 +502,11 @@
         "src/agent-delivery.ts@reconcileUndelivered",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
+        "src/attachment.ts@attachment-resolve",
+        "src/attachment.ts@classifyDiscoveryAnswer",
         "src/attachment.ts@rehost-h1",
+        "src/attachment.ts@resolve-timeouts",
+        "src/attachment.ts@resolveShape",
         "src/auth-service.ts@AuthService",
         "src/auth-service.ts@org-check",
         "src/cli.ts@main",
@@ -545,6 +557,7 @@
         "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/pull-assigned-work.ts@handle",
         "src/tools/record-finding.ts@handle",
+        "src/tools/registry-query.ts@fetchShapeVocabulary",
         "src/tools/registry-query.ts@handle",
         "src/tools/resolve-impulse.ts@handle",
         "src/tools/run-goal-async.ts@handle",
@@ -590,7 +603,11 @@
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
       "src/attachment.ts@AttachmentState": "932e31e10472",
       "src/attachment.ts@attach": "ba8daa75d093",
+      "src/attachment.ts@attachment-resolve": "2dccda2acc14",
+      "src/attachment.ts@classifyDiscoveryAnswer": "e69b73b4936e",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
+      "src/attachment.ts@resolve-timeouts": "784f64c1544e",
+      "src/attachment.ts@resolveShape": "ea88ab26b8c9",
       "src/auth-service.ts@AuthService": "4358b48b7f51",
       "src/auth-service.ts@org-check": "43179ed4e402",
       "src/cli.ts@main": "7d5d3f63a3bd",
@@ -646,7 +663,8 @@
       "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER": "d379a2d71e1b",
       "src/tools/pull-assigned-work.ts@handle": "4bdf740420c9",
       "src/tools/record-finding.ts@handle": "4bdf740420c9",
-      "src/tools/registry-query.ts@handle": "4206dbda7e7a",
+      "src/tools/registry-query.ts@fetchShapeVocabulary": "1e475956530a",
+      "src/tools/registry-query.ts@handle": "1b0d833303dc",
       "src/tools/resolve-impulse.ts@handle": "d2893d44938d",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS": "fc0c2eaead1f",

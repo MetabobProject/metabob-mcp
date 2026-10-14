@@ -321,7 +321,7 @@ describe('resolve() and the shared gate', () => {
       discovery: 'https://hub.example',
       script: { hosts: { 'https://hub.example': bootstrapAt('https://id.example'), 'https://id.example': identity() } },
     });
-    expect(await a.resolve({ type: 'vesselCapability', shape: 'conceptGraph' })).toEqual({ content: { found: true } });
+    expect(await a.resolve({ type: 'vesselCapability', shape: 'conceptGraph' })).toMatchObject({ status: 200, body: { content: { found: true } } });
     const last = calls.at(-1)!;
     expect(last.url).toBe('https://hub.example/resolve');
     expect(last.auth).toBe(`ApiKey ${KEY}`);
