@@ -38,10 +38,10 @@ try {
     },
   });
 
-  // The server attaches in the background; a dispatch before it has attached is retried.
+  // The server attaches in the background; a dispatch that fails is retried a few times, then reported.
   let dispatchId: string | null = null;
   let last = '';
-  while (!dispatchId && Date.now() < deadline) {
+  for (let attempt = 1; !dispatchId && attempt <= 5 && Date.now() < deadline; attempt++) {
     last = (await server.call('run_goal_async', { goal: LAB_CHECK_GOAL }, 60_000)).text;
     dispatchId = /dispatchId:\s*(\S+)/.exec(last)?.[1] ?? null;
     if (!dispatchId) await Bun.sleep(3_000);

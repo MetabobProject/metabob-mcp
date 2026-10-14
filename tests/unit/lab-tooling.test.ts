@@ -42,6 +42,18 @@ describe('lab/lab.sh', () => {
     expect(dispatch).toMatch(/^\s+\*\) sed -n '2,\d+p' "\$0"; exit 2 ;;/m);
   });
 
+  test('no shell function shadows a command the script runs', () => {
+    const functions = [...script.matchAll(/^([a-z_][a-z0-9_]*)\(\)\s*\{/gm)].map((m) => m[1]!);
+    for (const binary of ['node', 'bun', 'podman', 'docker', 'sed', 'cat', 'find', 'mktemp', 'tail', 'grep']) {
+      expect(functions).not.toContain(binary);
+    }
+  });
+
+  test('destroy removes the lab network and both compose default networks', () => {
+    const destroy = /^cmd_destroy\(\) \{([\s\S]*?)^\}/m.exec(script)?.[1] ?? '';
+    for (const net of ['"$NET"', 'spoke_default', 'hub_default']) expect(destroy).toContain(net);
+  });
+
   test('cycle is destroy, then up, then check', () => {
     const cycle = /^\s+cycle\)([\s\S]*?);;/m.exec(script)?.[1] ?? '';
     expect(cycle).toMatch(/cmd_destroy;\s*cmd_up;\s*cmd_check/);

@@ -22,10 +22,11 @@ otherwise.
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |
 | `lab/lab.sh keys` | Reissues `mcp-read.key` and `mcp-rw.key` from the running hub |
 | `lab/lab.sh down` | Stops and removes both nodes' containers. Volumes and keys stay, so the next `up` reuses the hub's identity and the nodes' state |
-| `lab/lab.sh destroy` | Removes both containers, their volumes, the `metabob-lab` network, `keys/` and `manifest.yml`, then verifies nothing is left. It works without `manifest.yml`, by the names the env files give |
+| `lab/lab.sh destroy` | Removes both containers, their volumes, the `metabob-lab` network, each node's compose default network (`hub_default`, `spoke_default`), `keys/` and `manifest.yml`, then verifies nothing is left. It works without `manifest.yml`, by the names the env files give |
 
 `-q` / `--quiet` keeps only warnings, failures and verdicts. The engine's own output (podman-compose
-banners, pull progress) goes to `lab/lab.log`; a failure prints its last lines.
+banners, pull progress, the commands compose runs) goes to `lab/lab.log`, with any `…API_KEY=`, `…SECRET=` or
+`…TOKEN=` value redacted; a failure prints its last lines.
 
 | variable | default | |
 |---|---|---|

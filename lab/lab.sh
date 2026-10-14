@@ -54,10 +54,12 @@ if command -v podman >/dev/null 2>&1; then ENG=podman; else ENG=docker; fi
 info() { [ "$QUIET" = 1 ] || echo "[lab] $*" >&2; }
 log()  { echo "[lab] $*" >&2; }                  # warnings, failures and verdicts: shown even with --quiet
 fail() { log "FAIL: $*"; [ -s "$LOG" ] && { log "last lines of $LOG:"; tail -n 15 "$LOG" | sed 's/^/      /' >&2; }; exit 1; }
-quietly() { echo "+ $*" >>"$LOG"; "$@" >>"$LOG" 2>&1; }   # the engine's own output (podman-compose banners) goes to LOG
+# The engine's own output (podman-compose banners, the commands it runs) goes to LOG, with any key it echoes redacted.
+redact() { sed -E 's/((API_KEY|SECRET|TOKEN)[A-Z_]*=)[^ ,]+/\1<redacted>/g' >>"$LOG"; }
+quietly() { { echo "+ $*"; "$@" 2>&1; } | redact; }   # pipefail: the command's status
 env_get() { sed -n "s/^$2=//p" "$1.env" | tail -n 1; }   # $1 hub|spoke $2 variable
 c() { echo "$(env_get "$1" SUBSTRATE_NAME)-live"; }
-node() { quietly "$ENG" compose -p "$1" --env-file "$1.env" -f manifest.yml -f lab-net.yml "${@:2}"; }   # $1 hub|spoke
+compose_node() { quietly "$ENG" compose -p "$1" --env-file "$1.env" -f manifest.yml -f lab-net.yml "${@:2}"; }   # $1 hub|spoke
 running() { [ "$("$ENG" inspect --format '{{.State.Running}}' "$(c "$1")" 2>/dev/null)" = true ]; }
 healthy() { [ "$("$ENG" inspect --format '{{.State.Health.Status}}' "$(c "$1")" 2>/dev/null)" = healthy ]; }
 net_exists() { "$ENG" network inspect "$NET" >/dev/null 2>&1; }
@@ -129,10 +131,10 @@ cmd_up() {
   ensure_manifest
   net_exists || { quietly "$ENG" network create --subnet "$SUBNET" "$NET" && info "created network $NET ($SUBNET)"; } \
     || fail "could not create network $NET"
-  SUBSTRATE_IMAGE="$IMAGE" node hub up -d || fail "could not start lab-hub"
+  SUBSTRATE_IMAGE="$IMAGE" compose_node hub up -d || fail "could not start lab-hub"
   wait_level hub seeded || fail "lab-hub not seeded"
   [ -s "$KEYS/lab-spoke.key" ] || issue_key lab-spoke read,write lab-spoke.key || fail "could not issue the spoke's join key"
-  METABOB_API_KEY="$(cat "$KEYS/lab-spoke.key")" SUBSTRATE_IMAGE="$IMAGE" node spoke up -d || fail "could not start lab-spoke"
+  METABOB_API_KEY="$(cat "$KEYS/lab-spoke.key")" SUBSTRATE_IMAGE="$IMAGE" compose_node spoke up -d || fail "could not start lab-spoke"
   wait_level spoke served || fail "lab-spoke not served"
   wait_level hub usable || log "warning: lab-hub not 'usable' (the provider key may have no quota); LLM-free goals still reach"
   [ -s "$KEYS/mcp-read.key" ] || issue_key mcp-read read mcp-read.key || fail "could not issue mcp-read"
@@ -143,8 +145,8 @@ cmd_up() {
 cmd_down() {
   local t0 n; t0=$(date +%s)
   for n in spoke hub; do
-    if [ -s manifest.yml ]; then node "$n" down || true; fi
-    "$ENG" rm -f -t 10 "$(c "$n")" >>"$LOG" 2>&1 || true   # also when manifest.yml is gone
+    if [ -s manifest.yml ]; then compose_node "$n" down || true; fi
+    { "$ENG" stop -t 10 "$(c "$n")"; "$ENG" rm -f "$(c "$n")"; } >>"$LOG" 2>&1 || true   # also when manifest.yml is gone
   done
   log "down ($(elapsed "$t0")): both nodes stopped; volumes and keys kept"
 }
@@ -152,12 +154,13 @@ cmd_down() {
 cmd_destroy() {
   local t0 n name; t0=$(date +%s)
   for n in spoke hub; do
-    if [ -s manifest.yml ]; then node "$n" down -v || true; fi
-    "$ENG" rm -f -t 10 "$(c "$n")" >>"$LOG" 2>&1 || true
+    if [ -s manifest.yml ]; then compose_node "$n" down -v || true; fi
+    { "$ENG" stop -t 10 "$(c "$n")"; "$ENG" rm -f "$(c "$n")"; } >>"$LOG" 2>&1 || true
     name="$(env_get "$n" SUBSTRATE_NAME)"
     "$ENG" volume rm -f "$name-workspace" "$name-surreal" >>"$LOG" 2>&1 || true
   done
-  "$ENG" network rm "$NET" >>"$LOG" 2>&1 || true
+  # The lab network, and each compose project's own default network (lab-net.yml declares it).
+  for n in "$NET" spoke_default hub_default; do "$ENG" network rm "$n" >>"$LOG" 2>&1 || true; done
   rm -rf "$KEYS" manifest.yml manifest.yml.new
   local left=""
   for n in spoke hub; do
@@ -165,7 +168,7 @@ cmd_destroy() {
     "$ENG" container inspect "$(c "$n")" >/dev/null 2>&1 && left+=" container:$(c "$n")"
     for v in workspace surreal; do "$ENG" volume inspect "$name-$v" >/dev/null 2>&1 && left+=" volume:$name-$v"; done
   done
-  net_exists && left+=" network:$NET"
+  for n in "$NET" spoke_default hub_default; do "$ENG" network inspect "$n" >/dev/null 2>&1 && left+=" network:$n"; done
   [ -z "$left" ] || fail "destroy left behind:$left"
   log "destroyed ($(elapsed "$t0")): containers, volumes, network, keys and manifest removed"
 }
