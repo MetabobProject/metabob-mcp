@@ -40,6 +40,9 @@ describe('selectProxy', () => {
     for (const u of ['http://127.0.0.1:18100', 'http://localhost:8080', 'http://[::1]:18100', 'https://127.5.0.1', 'http://app.localhost']) {
       expect(selectProxy(u, { HTTPS_PROXY: P, HTTP_PROXY: P })).toEqual({ proxy: null, bypass: 'loopback' });
     }
+    // Loopback is named as the reason even when the scheme's own proxy is unset.
+    expect(selectProxy('http://127.0.0.1:18100', { HTTPS_PROXY: P })).toEqual({ proxy: null, bypass: 'loopback' });
+    expect(selectProxy('http://hub.corp:18100', { HTTPS_PROXY: P })).toEqual({ proxy: null, bypass: 'http_proxy_unset' });
     expect(readProxyEnv({ HTTPS_PROXY: P }).effectiveNoProxy).toEqual(['localhost', '127.0.0.1', '::1']);
     expect(readProxyEnv({}).effectiveNoProxy).toEqual([]);
   });

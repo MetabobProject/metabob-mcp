@@ -186,9 +186,10 @@ export function selectProxy(target: URL | string, env: NodeJS.ProcessEnv = proce
   const url = typeof target === 'string' ? new URL(target) : target;
   const pe = readProxyEnv(env);
   const proxy = url.protocol === 'https:' ? pe.httpsProxy ?? pe.httpProxy : pe.httpProxy;
-  // A plain-http URL with only HTTPS_PROXY set goes direct (curl / undici semantics), and says why.
-  if (!proxy) return { proxy: null, bypass: pe.httpsProxy ? 'http_proxy_unset' : 'no_proxy_configured' };
+  if (!pe.httpsProxy && !pe.httpProxy) return { proxy: null, bypass: 'no_proxy_configured' };
   if (isLoopback(url.hostname)) return { proxy: null, bypass: 'loopback' };
+  // A plain-http URL with only HTTPS_PROXY set goes direct (curl / undici semantics), and says why.
+  if (!proxy) return { proxy: null, bypass: 'http_proxy_unset' };
   const port = url.port || (url.protocol === 'https:' ? '443' : '80');
   if (matchesNoProxy(url.hostname, port, pe.effectiveNoProxy)) return { proxy: null, bypass: 'no_proxy' };
   return { proxy: /^[a-z][a-z0-9+.-]*:\/\//i.test(proxy) ? proxy : `http://${proxy}`, bypass: null };
