@@ -121,16 +121,16 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "4d140d9",
-        "why": "fda296e and 4d140d9 change only the bypass reason's order (loopback named first) and the TLS-context cache key; SPEC § Network already describes both behaviours, and CLAUDE.md / CONFORMANCE §c8 are unaffected"
+        "at": "97fdeee",
+        "why": "src/index.ts passes SERVER_INSTRUCTIONS to the MCP Server and run-goal.ts changed a description only; no participation requirement or key-file description changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "19c4db7",
-        "why": "src/index.ts gained only the MCP initialize instructions (eb731b6); no requirement's status changes"
+        "at": "97fdeee",
+        "why": "src/index.ts passes SERVER_INSTRUCTIONS to the MCP Server and run-goal.ts changed a description only; no participation requirement or key-file description changes"
       },
       "docs/SPEC.md": {
-        "at": "4d140d9",
-        "why": "fda296e and 4d140d9 change only the bypass reason's order (loopback named first) and the TLS-context cache key; SPEC § Network already describes both behaviours, and CLAUDE.md / CONFORMANCE §c8 are unaffected"
+        "at": "97fdeee",
+        "why": "run_goal/run_goal_async: only the goal parameter's description changed (the goal runs on the substrate); SPEC already states the goal text is forwarded unchanged and goal-host routes repos/<vessel>/src goals"
       }
     }
   },
@@ -801,6 +801,11 @@
         "scripts/git-hooks/install.sh",
         "src/cli.ts",
         "tests/unit/doclinks.test.ts"
+      ],
+      "tests/claude-sessions/README.md": [
+        "tests/claude-sessions/harness.ts",
+        "tests/claude-sessions/run.ts",
+        "tests/workflows/harness/fake-substrate.ts"
       ],
       "tests/workflows/README.md": [
         "src/cli.ts",
