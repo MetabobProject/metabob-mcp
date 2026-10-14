@@ -212,6 +212,14 @@
           "get_problems"
         ]
       },
+      "src/tools/_traces.ts": {
+        "CONFORMANCE": [
+          "c11-attachment-model"
+        ],
+        "SPEC": [
+          "execution_trace"
+        ]
+      },
       "src/tools/analyze-impact.ts": {
         "SPEC": [
           "analyze_impact"
@@ -392,6 +400,11 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/traces-by-shape.test.ts": {
+        "SPEC": [
+          "execution_trace"
+        ]
+      },
       "tests/workflows/w1-operator-loop.test.ts": {
         "SPEC": [
           "substrate-goal-tools"
@@ -455,6 +468,7 @@
         "src/tls-error.ts@translateTlsError",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tools/_findings.ts@resolveConceptDbUrl",
+        "src/tools/_traces.ts@readExecutionTrace",
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS",
@@ -532,6 +546,7 @@
         "src/tools/_findings.ts@fetchAgentFindings",
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
+        "src/tools/_traces.ts@readExecutionTrace",
         "src/tools/analyze-impact.ts@handle",
         "src/tools/annotate-component.ts@handle",
         "src/tools/assign-git-changes.ts@handle",
@@ -639,6 +654,7 @@
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
       "src/tools/_findings.ts@resolveConceptDbUrl": "beaa1b050a8e",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
+      "src/tools/_traces.ts@readExecutionTrace": "a1783a16e202",
       "src/tools/analyze-impact.ts@handle": "4bdf740420c9",
       "src/tools/annotate-component.ts@handle": "4bdf740420c9",
       "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
@@ -649,7 +665,7 @@
       "src/tools/concept-search.ts@handle": "4bdf740420c9",
       "src/tools/concept-sequence.ts@handle": "4bdf740420c9",
       "src/tools/concept-usage-stats.ts@handle": "4bdf740420c9",
-      "src/tools/execution-trace.ts@handle": "8f239da060cb",
+      "src/tools/execution-trace.ts@handle": "7339be11146a",
       "src/tools/get-analysis-context.ts@handle": "4bdf740420c9",
       "src/tools/get-metrics.ts@handle": "4bdf740420c9",
       "src/tools/get-problems.ts@handle": "4bdf740420c9",

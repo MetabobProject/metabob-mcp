@@ -327,8 +327,19 @@ export const ROUTES: Route[] = [
   { service: 'goalHost', method: 'POST', path: '/resolve', operation: byPointerType({ solicitationResponse_write: 'solicitationResponseWrite' }) },
 
   { service: 'activity', method: 'GET', path: '/health', operation: 'health' },
-  { service: 'activity', method: 'GET', path: '/v2/activities/execution-traces/:id', operation: 'executionTrace' },
-  { service: 'activity', method: 'POST', path: '/v2/impulses/resolve', operation: byPointerType({ goal_verification_label_write: 'goalVerificationLabelWrite' }) },
+  {
+    service: 'activity', method: 'POST', path: '/v2/impulses/resolve', operation: {
+      goal_verification_label_write: { operation: 'goalVerificationLabelWrite' },
+      // activity-api's resolver answers { success, content: <the trace row as JSON> }, or 404.
+      activityExecutionTrace: {
+        operation: 'executionTrace',
+        request: (p) => ({ params: { id: String(p.executionId ?? '') }, body: p }),
+        response: (r, p) => (r.status ?? 200) === 200
+          ? { body: { success: true, content: JSON.stringify(r.body) } }
+          : { status: r.status, body: { success: false, error: `Execution trace not found: ${p.executionId}` } },
+      },
+    },
+  },
   { service: 'activity', method: 'POST', path: '/v2/mcp/analysis/run', operation: 'mcpAnalysisRun' },
   { service: 'activity', method: 'POST', path: '/v2/events/mcp', operation: 'mcpEvents' },
 
@@ -375,6 +386,7 @@ export class FakeSubstrate {
   readonly shapeOwners: Record<string, Service> = {
     goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
+    activityExecutionTrace: 'activity',
   };
   /** Keys identity accepts; any other key is a foreign one (401). */
   readonly validKeys = new Set(['mb_test_workflow_key']);

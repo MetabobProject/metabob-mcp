@@ -8,8 +8,8 @@
  *      ({ status, executionId, selectedTemplateId, error }). This is ephemeral
  *      (last ~100 dispatches, pruned) and authoritative for "is it still
  *      running".
- *   2. activity-api `GET /v2/activities/execution-traces/:executionId` — the
- *      durable trace. Best-effort hydration that surfaces the state-space
+ *   2. the `activityExecutionTrace` shape through discovery (src/tools/_traces.ts) —
+ *      the durable trace. Best-effort hydration that surfaces the state-space
  *      signature (the `state_signature:<hash>` tag stamped at dispatch), the
  *      failure mode, produced output shapes, and Thompson α/β selection data.
  *
@@ -24,6 +24,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { readExecutionTrace } from './_traces.js';
 
 const POLL_TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 
@@ -79,32 +80,10 @@ function authHeaders(): Record<string, string> {
 }
 
 /** Best-effort: pull the durable trace and summarise state-space + reach hints. */
-async function hydrateTrace(
-  activityApiUrl: string,
-  executionId: string,
-): Promise<string[] | null> {
-  const url = `${activityApiUrl.replace(/\/$/, '')}/v2/activities/execution-traces/${encodeURIComponent(executionId)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
-    });
-  } catch {
-    return null;
-  }
-  if (!res.ok) return null;
-
-  let trace: any;
-  try {
-    trace = await res.json();
-  } catch {
-    return null;
-  }
-  // Route returns the trace object directly (SELECT *), possibly nested.
-  const t = trace?.trace ?? trace?.execution ?? trace;
-  if (!t || typeof t !== 'object') return null;
+async function hydrateTrace(executionId: string): Promise<string[] | null> {
+  const read = await readExecutionTrace(executionId);
+  if (read.kind !== 'ok') return null;
+  const t = read.trace;
 
   const tags: string[] = Array.isArray(t.tags) ? t.tags.map(String) : [];
   const stateSig = tags.find((x) => x.startsWith('state_signature:'));
@@ -126,7 +105,7 @@ async function hydrateTrace(
   if (Array.isArray(t.output_shapes)) t.output_shapes.forEach((x: unknown) => outShapes.add(String(x)));
 
   const fm = t.failure_mode;
-  const sel = trace?.selection ?? t.selection;
+  const sel = t.selection;
   const alpha = sel?.alpha ?? t.alpha;
   const beta = sel?.beta ?? t.beta;
 
@@ -203,11 +182,10 @@ export async function handle(
   ].filter(Boolean) as string[];
 
   // Hydrate once an execution exists and the run is no longer in flight.
-  const activityApiUrl = apiClient.getActivityApiUrl();
-  if (record.executionId && record.status !== 'running' && activityApiUrl) {
-    const hydrated = await hydrateTrace(activityApiUrl, record.executionId);
+  if (record.executionId && record.status !== 'running') {
+    const hydrated = await hydrateTrace(record.executionId);
     if (hydrated) lines.push(...hydrated);
-    else lines.push('', '  (trace hydration unavailable — query activity-api directly)');
+    else lines.push('', '  (trace hydration unavailable — read it with execution_trace)');
   } else if (record.status === 'running') {
     // The dispatch record carries the live walk log while running — render it.
     // A blank "poll again" over a walk that is visibly deciding things was the

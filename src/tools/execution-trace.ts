@@ -6,22 +6,19 @@
  * (goal_reasoning starts from a dispatchId and reconstructs the walk; this one
  * takes an executionId and renders the stored trace).
  *
- * Source: activity-api `GET /v2/activities/execution-traces/:executionId`.
- * Renders: overall status, activity_template_id, composition_chain, the
- * load-bearing tags (state_signature:, reached:, completion_shapes:, operator:),
- * and the per-task sequence (#N ✓/✗ resolver/tier inShapes → outShapes + any
- * per-task failure_mode).
+ * Source: the `activityExecutionTrace` shape through discovery `POST /resolve`
+ * (src/tools/_traces.ts). Renders: overall status, activity_template_id,
+ * composition_chain, the load-bearing tags (state_signature:, reached:,
+ * completion_shapes:, operator:), and the per-task sequence (#N ✓/✗
+ * resolver/tier inShapes → outShapes + any per-task failure_mode).
  *
  * Note: satisfier-only reaches (a direct vessel-resolve, no template) persist no
  * trace — a 404 is handled gracefully by pointing at goal_reasoning's walkLog.
- *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-
-const TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
+import { readExecutionTrace } from './_traces.js';
 
 export const ExecutionTraceTool = {
   name: 'execution_trace',
@@ -45,36 +42,13 @@ export const InputSchema = z.object({
 
 export type ExecutionTraceInput = z.infer<typeof InputSchema>;
 
-function authHeaders(): Record<string, string> {
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
-}
-
 function shapeList(v: unknown): string[] {
   return Array.isArray(v) ? v.map(String) : [];
 }
 
-export async function handle(input: ExecutionTraceInput, apiClient: AnalysisAPIClient): Promise<string> {
-  const activityApiUrl = apiClient.getActivityApiUrl();
-  if (!activityApiUrl) {
-    return 'execution_trace requires an activity-api URL (configure metabob.endpoint at the local substrate).';
-  }
-
-  const url = `${activityApiUrl.replace(/\/$/, '')}/v2/activities/execution-traces/${encodeURIComponent(input.execution_id)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    return `execution_trace failed to reach ${url}: ${err instanceof Error ? err.message : String(err)}`;
-  }
-
-  if (res.status === 404) {
+export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPIClient): Promise<string> {
+  const read = await readExecutionTrace(input.execution_id);
+  if (read.kind === 'not_found') {
     return [
       `execution_trace: no durable trace for ${input.execution_id}.`,
       '  This is expected for a satisfier-only reach (a direct vessel-resolve with no',
@@ -82,22 +56,10 @@ export async function handle(input: ExecutionTraceInput, apiClient: AnalysisAPIC
       '  renders the goal-host walkLog instead.',
     ].join('\n');
   }
-
-  const text = await res.text();
-  let raw: any;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return `execution_trace: ${res.status} (unparseable body) ${text.slice(0, 200)}`;
+  if (read.kind === 'error') {
+    return `execution_trace: ${read.message}`;
   }
-  if (!res.ok) {
-    return `execution_trace: ${res.status} from ${url}: ${text.slice(0, 200)}`;
-  }
-
-  const t = raw?.trace ?? raw?.execution ?? raw;
-  if (!t || typeof t !== 'object') {
-    return `execution_trace: ${input.execution_id} returned no trace object.`;
-  }
+  const t = read.trace;
 
   const tags = shapeList(t.tags);
   const tagLine = (prefix: string) => tags.find((x) => x.startsWith(prefix));

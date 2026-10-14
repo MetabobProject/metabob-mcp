@@ -17,8 +17,8 @@
  *      goal-host has been extended to carry a structured `walkLog` (the v1.5
  *      walk-decision capture), it is rendered verbatim and is authoritative for
  *      satisfier-only reaches (which produce no template trace).
- *   2. activity-api `GET /v2/activities/execution-traces/:executionId` — the
- *      durable trace. For template-running walks this holds the per-task
+ *   2. the `activityExecutionTrace` shape through discovery (src/tools/_traces.ts) —
+ *      the durable trace. For template-running walks this holds the per-task
  *      decision sequence. NOTE: vessel-resolve ("satisfier") reaches do NOT run
  *      a template, so their trace is thin/empty — in that case the reasoning
  *      lives in the walkLog (source 1) or, failing that, only in the goal-host
@@ -30,6 +30,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { resolveServiceEndpointByShape } from '../discovery.js';
+import { readExecutionTrace } from './_traces.js';
 
 const POLL_TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 
@@ -110,27 +111,10 @@ function renderWalkLog(walkLog: string[]): string[] {
  * walk step: resolver/tier, consumed → produced shapes, success, failure_mode.
  * Returns { lines, taskCount } so the caller can detect a thin (satisfier) trace.
  */
-async function renderTrace(
-  activityApiUrl: string,
-  executionId: string,
-): Promise<{ lines: string[]; taskCount: number } | null> {
-  const url = `${activityApiUrl.replace(/\/$/, '')}/v2/activities/execution-traces/${encodeURIComponent(executionId)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'GET', headers: authHeaders(), signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
-  } catch {
-    return null;
-  }
-  if (!res.ok) return null;
-
-  let raw: any;
-  try {
-    raw = await res.json();
-  } catch {
-    return null;
-  }
-  const t = raw?.trace ?? raw?.execution ?? raw;
-  if (!t || typeof t !== 'object') return null;
+async function renderTrace(executionId: string): Promise<{ lines: string[]; taskCount: number } | null> {
+  const read = await readExecutionTrace(executionId);
+  if (read.kind !== 'ok') return null;
+  const t = read.trace;
 
   const tags = shapeList(t.tags);
   const stateSig = tags.find((x) => x.startsWith('state_signature:'));
@@ -169,7 +153,7 @@ async function renderTrace(
   }
 
   const fm = t.failure_mode;
-  const sel = raw?.selection ?? t.selection;
+  const sel = t.selection;
   const alpha = sel?.alpha ?? t.alpha;
   const beta = sel?.beta ?? t.beta;
 
@@ -246,10 +230,9 @@ export async function handle(input: GoalReasoningInput, apiClient: AnalysisAPICl
   lines.push(...renderWalkLog(walkLog));
 
   // 2. Per-task walk sequence from the durable trace, if an execution landed.
-  const activityApiUrl = apiClient.getActivityApiUrl();
   let traceTaskCount = 0;
-  if (record.executionId && activityApiUrl) {
-    const rendered = await renderTrace(activityApiUrl, record.executionId);
+  if (record.executionId) {
+    const rendered = await renderTrace(record.executionId);
     if (rendered) {
       lines.push(...rendered.lines);
       traceTaskCount = rendered.taskCount;

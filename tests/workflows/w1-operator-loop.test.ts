@@ -145,7 +145,7 @@ describe('W1 operator loop', () => {
     const reasoning = await server.text('goal_reasoning', { dispatch_id: id });
     expect(verdictLine(reasoning)).toMatch(/reached:\s+yes/);
     expect(reasoning).toContain('1. satisfier conceptGraph produced the goal shape');
-    const traceReads = fake.requestsFor('executionTrace').filter(r => r.path.endsWith('/exec-satisfier'));
+    const traceReads = fake.requestsFor('executionTrace').filter(r => (r.body as any)?.executionId === 'exec-satisfier');
     expect(traceReads.length).toBeGreaterThan(0);
     expect(traceReads.every(r => r.status === 404)).toBe(true);
 

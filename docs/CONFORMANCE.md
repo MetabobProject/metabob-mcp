@@ -244,7 +244,9 @@ never written to discovery.
   (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`).
 - Met — the attachment resolves a pointer through discovery `POST /resolve` and nothing else
   (`src/attachment.ts@attachment-resolve`), naming discovery's own failures and capping every request
-  below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it.
+  below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it, and
+  `execution_trace`, `goal_status` and `goal_reasoning` read traces through it
+  (`src/tools/_traces.ts@readExecutionTrace`).
 - Not yet met — the other substrate tools call concept-db, goal-host-vessel and activity-api over
   direct REST (see [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery
   locates some of them but is not the path the calls take.

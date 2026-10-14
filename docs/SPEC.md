@@ -441,7 +441,7 @@ The current analysis state in one snapshot, designed to feed an LLM deciding wha
 The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
 
 - **goal-host-vessel** — `GOAL_HOST_VESSEL_URL` when set, else the first vessel discovery returns for the `goal_execution` shape (`src/discovery.ts@resolveServiceEndpointByShape`; loopback endpoints are rehosted onto a remote discovery's host).
-- **activity-api** — `ACTIVITY_API_URL` (the endpoint, unless pinned); never discovered. Unset means not attached (§ Configuration).
+- **activity-api** — traces are read through the attachment as `activityExecutionTrace` (§ execution_trace).
 - **discovery** — `registry_query` resolves discovery's own shapes through the attachment (§ Attachment).
 
 Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is set. Planes:
@@ -490,7 +490,7 @@ Handler: `src/tools/goal-status.ts@handle`
 |-----------|------|---------|-------------|
 | `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
 
-`GET {goal-host}/executions/:dispatch_id` (timeout `GOAL_STATUS_TIMEOUT_MS`, default 15 s). Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace from activity-api `GET /v2/activities/execution-traces/:executionId`: state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so a 404 means the record was pruned or never existed.
+`GET {goal-host}/executions/:dispatch_id` (timeout `GOAL_STATUS_TIMEOUT_MS`, default 15 s). Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it): state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so a 404 means the record was pruned or never existed.
 
 ### goal_reasoning
 
@@ -535,7 +535,7 @@ Handler: `src/tools/execution-trace.ts@handle`
 |-----------|------|---------|-------------|
 | `execution_id` | string | **required** | The durable trace's execution id |
 
-`GET {activity-api}/v2/activities/execution-traces/:execution_id`. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. `goal_reasoning` renders the same trace for a dispatch.
+Resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it is retried with backoff before a `producer_timeout` line. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. `goal_reasoning` renders the same trace for a dispatch.
 
 ### resolve_impulse
 
