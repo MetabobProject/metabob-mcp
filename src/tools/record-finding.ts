@@ -28,6 +28,8 @@ import {
   resolveAuthorVesselId,
   conceptDbReachable,
   conceptDbUnavailable,
+  fetchAgentFindings,
+  findOpenDuplicate,
   repoLines,
   workspaceRepo,
 } from './_findings.js';
@@ -75,6 +77,11 @@ export const RecordFindingTool = {
         description: 'Finding status (default: open)',
         default: 'open',
       },
+      force: {
+        type: 'boolean',
+        description: 'Record even when an open finding with a near-identical summary is already recorded on one of these files (default: false — the existing finding id is returned instead)',
+        default: false,
+      },
     },
     required: ['files', 'summary', 'severity', 'category'],
   },
@@ -89,6 +96,7 @@ export const InputSchema = z.object({
   line_start: z.number().int().nonnegative().optional(),
   line_end: z.number().int().nonnegative().optional(),
   status: z.string().default('open'),
+  force: z.boolean().default(false),
 });
 
 export type RecordFindingInput = z.infer<typeof InputSchema>;
@@ -132,6 +140,27 @@ export async function handle(
   const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
   const lineStart = input.line_start ?? 0;
   const lineEnd = input.line_end ?? lineStart;
+
+  // ── 0. Already recorded? ────────────────────────────────────────────────────
+  // An agent that skipped orientation re-records what is already open. Check
+  // this machine's store and the shared recall for an open finding on one of
+  // these files with the same summary (_findings.ts@duplicate-finding), and hand
+  // back its id instead of a second finding. SPEC §record_finding
+  if (input.status === 'open' && !input.force) {
+    const recall = await fetchAgentFindings(apiClient, { repo });
+    const dup = findOpenDuplicate(relFiles, input.summary, localStore, recall);
+    if (dup) {
+      const lines = [
+        `Already recorded (open): ${dup.id} — use mark_complete or add details there.`,
+        `  existing: ${dup.summary}`,
+        `  files:    ${dup.files.join(', ')}`,
+        `  where:    ${dup.where}${dup.conceptId && dup.conceptId !== dup.id ? ` (concept ${dup.conceptId})` : ''}`,
+        '',
+        'Nothing new was recorded. Pass force: true to record it as a separate finding.',
+      ];
+      return lines.join('\n');
+    }
+  }
 
   // ── 1. Local seeds — immediate in-session surfacing via get_problems ───────
   const ids: Array<{ file: string; id: string }> = [];

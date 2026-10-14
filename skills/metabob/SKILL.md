@@ -59,7 +59,10 @@ added since the last call (files already parsed are not re-read).
 category, details }` — immediately, not at close-out. Put the *scope* in
 `details`: which files this work owns, what the test bar is, what is out of
 bounds. That detail is what has value to the next agent; a bare summary is not
-enough to act on.
+enough to act on. If the same finding is already open on one of those files, you
+get its id back ("Already recorded (open)") instead of a second copy; work it or
+close it with `mark_complete`, and pass `force: true` only for a genuinely
+separate finding.
 
 ## Phase 3 — The fleet pattern
 

@@ -287,6 +287,7 @@
         ],
         "SPEC": [
           "get_problems",
+          "record_finding",
           "repository-identity"
         ]
       },
@@ -551,6 +552,16 @@
           "network"
         ]
       },
+      "tests/unit/open-findings-headline.test.ts": {
+        "SPEC": [
+          "get_problems"
+        ]
+      },
+      "tests/unit/record-finding-duplicate.test.ts": {
+        "SPEC": [
+          "record_finding"
+        ]
+      },
       "tests/unit/repo-identity.test.ts": {
         "SPEC": [
           "repository-identity"
@@ -764,8 +775,10 @@
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts@NO_SERVER_ANALYSIS",
         "src/tools/_findings.ts@attributionLines",
+        "src/tools/_findings.ts@duplicate-finding",
         "src/tools/_findings.ts@fetchAgentFindings",
         "src/tools/_findings.ts@fetchConceptById",
+        "src/tools/_findings.ts@findOpenDuplicate",
         "src/tools/_findings.ts@openFindingsHeadline",
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
@@ -914,8 +927,10 @@
       "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
       "src/tools/_findings.ts@conceptDbReachable": "1c46b7236612",
+      "src/tools/_findings.ts@duplicate-finding": "8d64a30d9de1",
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
       "src/tools/_findings.ts@fetchConceptById": "b9349d47d051",
+      "src/tools/_findings.ts@findOpenDuplicate": "ac0eceeace32",
       "src/tools/_findings.ts@openFindingsHeadline": "c854e9951c53",
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",

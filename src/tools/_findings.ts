@@ -661,3 +661,84 @@ export function openFindingsHeadline(
   const overlap = both > 0 ? `; ${both} in both` : '';
   return `Open findings: ${total} (${localPart}, ${shared}${overlap})`;
 }
+
+// @anchor duplicate-finding
+/**
+ * Two finding summaries are the same finding when their normalized text is
+ * equal (lowercased, every run of characters other than letters and numbers one
+ * space), or when their word sets overlap with a Jaccard index of at least
+ * DUPLICATE_JACCARD — |A ∩ B| / |A ∪ B| over the normalized words. 0.8 lets a
+ * re-worded article or a reordered clause through as the same finding, while
+ * two findings about one area that share most of their vocabulary
+ * ("token refresh races the session sweep" / "session sweep logs the raw
+ * token": 4 of 8 words, 0.5) stay distinct. SPEC §record_finding
+ */
+export const DUPLICATE_JACCARD = 0.8;
+
+export function normalizeSummary(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+export function sameFindingSummary(a: string, b: string): boolean {
+  const na = normalizeSummary(a);
+  const nb = normalizeSummary(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ta = new Set(na.split(' '));
+  const tb = new Set(nb.split(' '));
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  return shared / (ta.size + tb.size - shared) >= DUPLICATE_JACCARD;
+}
+
+/** The agent's own summary out of a `code_finding` concept's `[SEV][cat] <repo>: <summary>` line. */
+export function findingSummaryText(conceptSummary: string): string {
+  return conceptSummary.replace(/^\[[^\]]*\]\[[^\]]*\]\s*[^:]*:\s*/, '');
+}
+
+function samePath(a: string, b: string): boolean {
+  const clean = (p: string) => p.trim().replace(/^\.\//, '');
+  return clean(a) === clean(b);
+}
+
+export interface OpenDuplicate {
+  /** The id to act on: the local `agf_*` id when this machine holds a seed, else the concept id. */
+  id: string;
+  conceptId: string | null;
+  summary: string;
+  files: string[];
+  where: 'local store' | 'recorded by agents on this codebase';
+}
+
+/**
+ * An open finding already recorded on one of `files` with the same summary
+ * (sameFindingSummary): from the local store first (non-stale seeds), then from
+ * the recall (findings with no verdict). Null when there is none.
+ */
+export function findOpenDuplicate(
+  files: string[],
+  summary: string,
+  localStore: LocalStore | null | undefined,
+  recall: AgentFindingsResult,
+): OpenDuplicate | null {
+  if (localStore) {
+    for (const file of files) {
+      for (const s of localStore.getCachedSeeds(file)) {
+        if (!samePath(s.file_path, file) || !sameFindingSummary(s.brief, summary)) continue;
+        const ref = conceptIdFromRefs(s.refs_json);
+        return { id: s.id, conceptId: ref ? plainConceptId(ref) : null, summary: s.brief, files: [s.file_path], where: 'local store' };
+      }
+    }
+  }
+  if (recall.status === 'ok') {
+    for (const f of recall.findings) {
+      if (f.verdict) continue;
+      const recorded = headerLine(f.content, 'files').split(',').map(x => x.trim()).filter(Boolean);
+      if (!recorded.some(r => files.some(file => samePath(r, file)))) continue;
+      const text = findingSummaryText(f.summary);
+      if (!sameFindingSummary(text, summary)) continue;
+      return { id: f.id, conceptId: f.id, summary: text, files: recorded, where: 'recorded by agents on this codebase' };
+    }
+  }
+  return null;
+}
