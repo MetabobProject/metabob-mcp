@@ -132,3 +132,18 @@ describe('lab/.gitignore', () => {
     for (const entry of ['keys/', 'manifest.yml', 'lab.log']) expect(lines).toContain(entry);
   });
 });
+
+describe('lab.sh cleanup', () => {
+  // An EXIT trap runs after the function that set it returns, so a variable it
+  // names must not be function-local: under `set -u` the trap would fail, and
+  // the temp dir holding the MCP config (with a key) would be left behind.
+  test('no EXIT trap names a function-local variable', () => {
+    const script = read('lab.sh');
+    const locals = new Set([...script.matchAll(/^\s*local\s+([^;\n]+)/gm)]
+      .flatMap(m => m[1]!.split(/\s+/).map(v => v.split('=')[0]!)));
+    const trapped = [...script.matchAll(/trap\s+'([^']*)'\s+EXIT/g)]
+      .flatMap(m => [...m[1]!.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)/g)].map(v => v[1]!));
+    expect(trapped.length).toBeGreaterThan(0);
+    expect(trapped.filter(v => locals.has(v))).toEqual([]);
+  });
+});

@@ -174,7 +174,7 @@ cmd_destroy() {
 }
 
 cmd_check() {
-  local t0 tmp cli rc; t0=$(date +%s)
+  local t0 cli rc; t0=$(date +%s)
   [ -s "$KEYS/mcp-rw.key" ] || fail "check: $KEYS/mcp-rw.key missing (./lab.sh up, or ./lab.sh keys when the lab is up)"
   command -v node >/dev/null 2>&1 || fail "check: node is required"
   command -v bun >/dev/null 2>&1 || fail "check: bun is required"
@@ -183,7 +183,8 @@ cmd_check() {
     info "building dist/cli.js (missing or older than src/)"
     ( cd "$REPO_ROOT" && quietly bun run build ) || fail "check: bun run build failed"
   fi
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  # Global, not local: the EXIT trap runs after this function returns.
+  LAB_CHECK_TMP="$(mktemp -d)"; tmp="$LAB_CHECK_TMP"; trap 'rm -rf "${LAB_CHECK_TMP:-}"' EXIT
   # The MCP config: the key file's contents go into a 0600 file in a 0700 temp dir, removed on exit. Never printed.
   ( umask 077; KEY_FILE="$KEYS/mcp-rw.key" DISC="$SPOKE_DISCOVERY" ID="$HUB_IDENTITY" node -e '
       const fs = require("fs");
