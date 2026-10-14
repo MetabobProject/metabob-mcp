@@ -106,7 +106,7 @@ ensure_provider() {
     export "$name=$pkey"; unset found pkey
     info "provider key: $name from the installer's config ($cfg, providers.$pname.apiKey)"; return 0
   fi
-  log "set a provider key in your environment (e.g. ANTHROPIC_API_KEY=… ./lab.sh up), or install one with the substrate installer ($cfg); the hub needs one to reach 'usable'"
+  log "set a provider key in your environment (e.g. ANTHROPIC_API_KEY=… ./lab.sh up), or install one with the substrate installer ($cfg); the hub needs one for LLM-backed goals"
   exit 2
 }
 ensure_manifest() {
@@ -136,7 +136,9 @@ cmd_up() {
   [ -s "$KEYS/lab-spoke.key" ] || issue_key lab-spoke read,write lab-spoke.key || fail "could not issue the spoke's join key"
   METABOB_API_KEY="$(cat "$KEYS/lab-spoke.key")" SUBSTRATE_IMAGE="$IMAGE" compose_node spoke up -d || fail "could not start lab-spoke"
   wait_level spoke served || fail "lab-spoke not served"
-  wait_level hub usable || log "warning: lab-hub not 'usable' (the provider key may have no quota); LLM-free goals still reach"
+  # Not 'usable': that verdict needs a real LLM completion, which a no-quota provider key never gives. 'served'
+  # on both nodes is readiness; `lab.sh check` (an LLM-free goal through the MCP) is the functional proof.
+  wait_level hub served || fail "lab-hub not served"
   [ -s "$KEYS/mcp-read.key" ] || issue_key mcp-read read mcp-read.key || fail "could not issue mcp-read"
   [ -s "$KEYS/mcp-rw.key" ]   || issue_key mcp-rw read,write mcp-rw.key || fail "could not issue mcp-rw"
   log "up ($(elapsed "$t0")). Anchor for the MCP: $SPOKE_DISCOVERY (hub identity $HUB_IDENTITY). Prove it: ./lab.sh check"

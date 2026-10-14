@@ -16,7 +16,7 @@ otherwise.
 
 | command | what it does |
 |---|---|
-| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for the spoke's `served` and the hub's `usable`, and issues the test keys. Pulls the image only when it is not local (`LAB_PULL=1` pulls anyway). When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
+| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes, and issues the test keys. Pulls the image only when it is not local (`LAB_PULL=1` pulls anyway). When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
 | `lab/lab.sh check` | Proves the lab serves the MCP: writes a temporary MCP config (mode 0600, in a temporary directory removed on exit) from `keys/mcp-rw.key`, the spoke's discovery and the hub's identity; runs `metabob-mcp attach --check` with the repository's `dist/cli.js` (built first when it is missing or older than `src/`); then, through the MCP over stdio (`lab/check-goal.ts`), dispatches the LLM-free goal *How many vessels are currently registered in the discovery registry?* with `run_goal_async` and polls `goal_status` until `reached: yes`. Prints one verdict line; exits nonzero on any failure |
 | `lab/lab.sh cycle` | `destroy`, `up`, `check`: the from-scratch proof |
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |
@@ -40,14 +40,27 @@ banners, pull progress, the commands compose runs) goes to `lab/lab.log`, with a
 
 ## Provider key
 
-The hub needs a provider key to reach `usable`. `up` passes through whichever provider key is in the
+The hub needs a provider key for LLM-backed goals. `up` passes through whichever provider key is in the
 environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`,
 `MISTRAL_API_KEY`, `GOOGLE_API_KEY`, `CHUTES_API_KEY`). With none set, it reads the substrate installer's
 stored key, `providers.<name>.apiKey` in `~/.substrate/config.json` (or `SUBSTRATE_CONFIG_PATH`), into its
 own environment under the matching name (`anthropic` → `ANTHROPIC_API_KEY`). The log names the variable
 and its source, never the value; the key is written nowhere by the lab, and the image keeps it in the
-hub's volume. With neither, `up` exits 2 and says how to provide one. A key without quota is enough:
-the hub reaches `usable`, and `check`'s goal needs no model.
+hub's volume. With neither, `up` exits 2 and says how to provide one. A key without quota is enough
+for the lab: readiness is `served` on both nodes, and `check`'s goal needs no model. The hub's `usable`
+verdict needs a real LLM completion, so `up` does not wait for it.
+
+## Light lab
+
+Each node runs only what metabob-mcp touches, plus the infrastructure their readiness needs. The selection
+lives in the node's env file: the hub runs `PROFILE=hub-minimal` (no autonomy or compute; goals run on the
+spoke) with `DISABLED_VESSELS` masking the rest, keeping surrealdb, valkey, identity, activity-api,
+discovery, concept-db, llm-resolver, the seeders, `substrate-ready` and self-recovery. The spoke keeps
+discovery, goal-host, local-tools (the deterministic `shellResult` satisfier `check` relies on), the
+seeders, `substrate-ready` and self-recovery. The image's own inventory step masks the units at boot, so the
+manifest stays unmodified, and `live`/`served` judge only the selected units. Masked timers and services
+include `substrate-pull-sync`, so the lab runs the code baked into the image that `up` pulls; with
+`git-push-setup` masked, `status` reports per-vessel revisions as unknown.
 
 ## Host view
 
@@ -94,8 +107,7 @@ holds the tooling to its contract instead: the script parses and handles every d
 
 ## Time and cost
 
-The first `up` takes several minutes: the image pull, then the waits for `seeded`, `served` and `usable`,
+The first `up` takes several minutes: the image pull, then the waits for `seeded` and `served`,
 each bounded by `LAB_WAIT_S`. `up` against a healthy lab returns in about a second. `down` takes seconds,
 and `up` after `down` skips the pull and reuses the volumes. `check` takes the time of one `attach --check`
-plus one goal walk, bounded by `LAB_CHECK_TIMEOUT_S`. The lab makes no model calls of its own beyond the
-hub's `usable` probe; the session trials are billed model runs (`tests/claude-sessions/README.md`).
+plus one goal walk, bounded by `LAB_CHECK_TIMEOUT_S`. The lab makes no model calls of its own; the session trials are billed model runs (`tests/claude-sessions/README.md`).

@@ -147,3 +147,35 @@ describe('lab.sh cleanup', () => {
     expect(trapped.filter(v => locals.has(v))).toEqual([]);
   });
 });
+
+describe('light lab', () => {
+  // The lab runs only what metabob-mcp touches; the selection lives in the env files.
+  const disabled = (name: string) =>
+    new Set((/^DISABLED_VESSELS=(.*)$/m.exec(read(name))?.[1] ?? '').split(',').map(s => s.trim()).filter(Boolean));
+
+  test('the hub runs hub-minimal with a DISABLED_VESSELS selection', () => {
+    expect(read('hub.env')).toMatch(/^PROFILE=hub-minimal$/m);
+    expect(disabled('hub.env').size).toBeGreaterThan(20);
+  });
+
+  test('the spoke carries a DISABLED_VESSELS selection', () => {
+    expect(disabled('spoke.env').size).toBeGreaterThan(20);
+  });
+
+  test('nothing the MCP or `lab.sh check` needs is masked', () => {
+    const needs: Record<string, string[]> = {
+      'hub.env': ['identity', 'discovery', 'concept-db', 'activity-api', 'surrealdb', 'valkey', 'bootstrap-seeder', 'substrate-ready'],
+      'spoke.env': ['discovery', 'goal-host', 'local-tools', 'bootstrap-seeder', 'substrate-ready'],
+    };
+    for (const [file, units] of Object.entries(needs)) {
+      const masked = [...disabled(file)];
+      for (const unit of units) {
+        expect(masked.filter(m => m.replace(/\.(service|timer)$/, '').replace(/-vessel$/, '') === unit.replace(/-vessel$/, ''))).toEqual([]);
+      }
+    }
+  });
+
+  test('up waits for served, not usable (usable needs a real LLM completion)', () => {
+    expect(read('lab.sh')).not.toMatch(/wait_level\s+\w+\s+usable/);
+  });
+});
