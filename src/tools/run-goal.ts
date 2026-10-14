@@ -1,44 +1,48 @@
 // Contract (input schema, behaviour): SPEC §run_goal
 /**
- * run_goal — dispatch a goal to the substrate's goal-host-vessel.
+ * run_goal — dispatch a goal to the substrate's goal-host-vessel and wait for
+ * its outcome, for short, one-shot goals.
  *
- * Uses the impulse-resolver contract (POST /resolve with an
- * { impulse: { pointer: { type: "goal_execution", ... } } } envelope) rather
- * than the convenience POST /run-goal HTTP path. This is the compliant route:
- * the goal becomes an impulse with a typed shape, dispatched through the
- * vessel's advertised resolver endpoint exactly as discovery-vessel would
- * route a cross-vessel resolution.
+ * No request is held open for the goal (CONFORMANCE §c11-attachment-model):
+ * the goal is dispatched as `goalDispatchAsync`, then its dispatch record is
+ * polled as `goalWalkState` — each a short resolve through discovery
+ * `POST /resolve` (src/tools/_goal-host.ts) — until it leaves `running` or the
+ * polling deadline passes (`RUN_GOAL_TIMEOUT_MS`, default 290 s). Past the
+ * deadline the goal keeps running on goal-host, and the tool answers with its
+ * dispatchId for goal_status.
  *
- * Synchronous: /resolve blocks until the goal completes or Bun's 300s fetch
- * cap fires. For longer-running goals, callers should use minibob or POST
- * directly to /run-goal (async dispatch + polling) — that path is
- * intentionally not surfaced here so this tool remains a single-shape
- * impulse resolver.
- *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
+ * The dispatch carries `operator: <MB_OPERATOR_ID>`, which goal-host stamps
+ * into the trace's `operator:` tag.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { buildResolverUrl, discoverFirstVesselByShape } from '../discovery.js';
+import { describeResolveFailure } from '../attachment.js';
 import { operatorId } from '../operator-id.js';
+import { dispatchFailure, dispatchGoal, readWalkState, type WalkState } from './_goal-host.js';
 
-const RESOLVE_TIMEOUT_MS = parseInt(
-  process.env.RUN_GOAL_TIMEOUT_MS || '290000',
-  10,
-);
+// @anchor run-goal-deadline
+/** The polling deadline: how long run_goal waits for the goal before handing back its dispatchId. */
+export function runGoalDeadlineMs(): number {
+  return parseInt(process.env.RUN_GOAL_TIMEOUT_MS || '290000', 10);
+}
+
+/** The pause between two goalWalkState polls. */
+export function runGoalPollMs(): number {
+  return parseInt(process.env.RUN_GOAL_POLL_MS || '2000', 10);
+}
 
 export const RunGoalTool = {
   name: 'run_goal',
   description:
-    "Dispatch a goal to the substrate's goal-host-vessel via the impulse-resolver contract (shape: goal_execution). The vessel selects a template via Thompson Sampling, executes it through ias-executor-ts, and returns the executionId + final status. Synchronous: blocks until completion or ~290s timeout. For long-running goals prefer minibob or the /run-goal async path. Provide either goal (natural-language) or targetTemplateId (skip selection). Optional variables seed the execution pool; parent_execution_id + composition_chain thread cross-vessel provenance.",
+    "Dispatch a goal to the substrate's goal-host-vessel and wait for it (shape goalDispatchAsync, then polled with goalWalkState). The vessel selects a template via Thompson Sampling, executes it through ias-executor-ts, and this returns the executionId, the reach verdict and the final status. Waits up to ~290s; a goal still running then keeps running, and the reply carries its dispatchId for goal_status. For long-running goals prefer run_goal_async. Provide either goal (natural-language) or target_template_id (skip selection). Optional variables seed the execution pool; parent_execution_id + composition_chain thread cross-vessel provenance.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       goal: {
         type: 'string',
         description:
-          "Natural-language goal description. Either this or targetTemplateId is required.",
+          "Natural-language goal description. Either this or target_template_id is required.",
       },
       target_template_id: {
         type: 'string',
@@ -80,97 +84,80 @@ export const InputSchema = z
 
 export type RunGoalInput = z.infer<typeof InputSchema>;
 
-interface ResolveResponse {
-  resolved?: boolean;
-  shape?: string;
-  executionId?: string;
-  status?: string;
-  selectedTemplateId?: string;
-  error?: string;
+function reachedText(reached: boolean | null | undefined): string {
+  if (reached === true) return 'yes';
+  if (reached === false) return 'no';
+  return '(unknown — goal-host reported no reach verdict)';
+}
+
+function finished(dispatchId: string, record: WalkState, duration: number): string {
+  return [
+    'Goal dispatched via goalDispatchAsync, completed per goalWalkState.',
+    `  dispatchId:         ${dispatchId}`,
+    `  executionId:        ${record.executionId ?? '(unset)'}`,
+    `  reached:            ${reachedText(record.reached)}`,
+    `  status:             ${record.status ?? '(unset)'}`,
+    record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
+    record.error ? `  error:              ${record.error}` : null,
+    `  duration:           ${duration}ms`,
+  ].filter(Boolean).join('\n');
 }
 
 export async function handle(
   input: RunGoalInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.GOAL_HOST_VESSEL_URL) {
-    return [
-      'run_goal requires discovery or an explicit GOAL_HOST_VESSEL_URL.',
-      'Configure DISCOVERY_ENDPOINT to point at discovery-vessel,',
-      'or set GOAL_HOST_VESSEL_URL directly.',
-    ].join(' ');
-  }
-
   const start = Date.now();
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
+  const deadline = start + runGoalDeadlineMs();
+  const pollMs = runGoalPollMs();
 
-  const pointer: Record<string, unknown> = { type: 'goal_execution', operator: operatorId() };
-  if (input.goal) pointer.goal = input.goal;
-  if (input.target_template_id) pointer.target_template_id = input.target_template_id;
-  if (input.variables) pointer.variables = input.variables;
-  if (input.parent_execution_id) pointer.parent_execution_id = input.parent_execution_id;
-  if (input.composition_chain) pointer.composition_chain = input.composition_chain;
-
-  const body = JSON.stringify({ impulse: { pointer } });
-  const explicitGoalHostUrl = process.env.GOAL_HOST_VESSEL_URL?.replace(/\/$/, '');
-  const discoveredGoalHost = explicitGoalHostUrl
-    ? null
-    : await discoverFirstVesselByShape({
-        discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-        shape: 'goal_execution',
-        apiKey,
-      });
-  const url = explicitGoalHostUrl
-    ? `${explicitGoalHostUrl}/resolve`
-    : discoveredGoalHost
-      ? buildResolverUrl(discoveredGoalHost, apiClient.getDiscoveryEndpoint())
-      : undefined;
-  if (!url) {
-    return 'run_goal could not find goal-host-vessel via discovery. Set GOAL_HOST_VESSEL_URL explicitly or register goal_execution with discovery.';
-  }
-
-  let res: Response;
+  let answer;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS),
+    answer = await dispatchGoal({
+      goal: input.goal,
+      targetTemplateId: input.target_template_id,
+      variables: input.variables,
+      parent_execution_id: input.parent_execution_id,
+      composition_chain: input.composition_chain,
+      operator: operatorId(),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `run_goal failed to reach ${url}: ${msg}`;
+    return `run_goal: ${describeResolveFailure(err)}`;
   }
-
-  const duration = Date.now() - start;
-  const text = await res.text();
-  let payload: ResolveResponse;
-  try {
-    payload = JSON.parse(text) as ResolveResponse;
-  } catch {
-    return `run_goal: ${res.status} (unparseable body) ${text.slice(0, 200)}`;
+  if ((answer.status !== 202 && answer.status !== 200) || !answer.dispatchId) {
+    return `${dispatchFailure('run_goal', answer)}\n  duration: ${Date.now() - start}ms`;
   }
+  const dispatchId = answer.dispatchId;
+  const pollHint = `Poll with: goal_status { "dispatch_id": "${dispatchId}" }`;
 
-  if (!res.ok || payload.resolved === false) {
-    const lines = [
-      `run_goal: ${res.status} ${payload.resolved === false ? '(resolver declined)' : ''}`.trim(),
-      payload.error ? `  error: ${payload.error}` : null,
-      payload.shape ? `  shape: ${payload.shape}` : null,
-      `  duration: ${duration}ms`,
-    ].filter(Boolean);
-    return lines.join('\n');
+  // @anchor run-goal-poll
+  for (;;) {
+    const read = await readWalkState(dispatchId);
+    if (read.kind === 'error') {
+      return [
+        `run_goal: dispatched ${dispatchId}, then could not read its state: ${read.message}`,
+        pollHint,
+      ].join('\n');
+    }
+    if (read.kind === 'not_found') {
+      return [
+        `run_goal: dispatched ${dispatchId}, but goal-host no longer holds its record (dispatch records are in-memory and capped).`,
+        `  duration: ${Date.now() - start}ms`,
+      ].join('\n');
+    }
+    if (read.record.status !== 'running') {
+      return finished(dispatchId, read.record, Date.now() - start);
+    }
+    if (Date.now() + pollMs >= deadline) {
+      return [
+        `Goal dispatched via goalDispatchAsync, still running at the ${runGoalDeadlineMs()}ms deadline (RUN_GOAL_TIMEOUT_MS); it keeps running on goal-host.`,
+        `  dispatchId:         ${dispatchId}`,
+        `  status:             running`,
+        `  duration:           ${Date.now() - start}ms`,
+        '',
+        pollHint,
+      ].join('\n');
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
   }
-
-  const lines = [
-    `Goal dispatched via ${payload.shape ?? 'goal_execution'} resolver.`,
-    `  executionId:        ${payload.executionId ?? '(unset)'}`,
-    `  status:             ${payload.status ?? '(unset)'}`,
-    payload.selectedTemplateId
-      ? `  selectedTemplateId: ${payload.selectedTemplateId}`
-      : null,
-    `  duration:           ${duration}ms`,
-  ].filter(Boolean);
-  return lines.join('\n');
 }

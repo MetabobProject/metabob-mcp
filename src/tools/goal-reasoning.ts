@@ -12,8 +12,9 @@
  * ran under. It is the read-only first slice of treating Claude Code as an
  * implicit vessel — the substrate becomes legible to the operator agent.
  *
- * Sources (both best-effort, degrade gracefully):
- *   1. goal-host `GET /executions/:dispatchId` — the dispatch record. If the
+ * Sources, each a shape resolved through discovery `POST /resolve`
+ * (CONFORMANCE §c11-attachment-model), both best-effort:
+ *   1. `goalWalkState` (src/tools/_goal-host.ts) — the dispatch record. If the
  *      goal-host has been extended to carry a structured `walkLog` (the v1.5
  *      walk-decision capture), it is rendered verbatim and is authoritative for
  *      satisfier-only reaches (which produce no template trace).
@@ -24,15 +25,12 @@
  *      lives in the walkLog (source 1) or, failing that, only in the goal-host
  *      journal. This tool says so explicitly rather than rendering an empty log.
  *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { readWalkState } from './_goal-host.js';
 import { readExecutionTrace } from './_traces.js';
-
-const POLL_TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 
 export const GoalReasoningTool = {
   name: 'goal_reasoning',
@@ -56,34 +54,12 @@ export const InputSchema = z.object({
 
 export type GoalReasoningInput = z.infer<typeof InputSchema>;
 
-interface DispatchRecordResponse {
-  dispatchId?: string;
-  status?: string;
-  executionId?: string;
-  selectedTemplateId?: string;
-  error?: string;
-  stateSignature?: unknown;
-  /** Reason-plane walk decision-log: raw goal-host decision lines, in walk order. */
-  walkLog?: string[];
-  /** Honest goal-reach verdict (distinct from `status`, the template exit status). */
-  reached?: boolean | null;
-  /** Operator identity attributed to this dispatch, if any. */
-  operator?: string | null;
-}
-
 /** Render the honest reach verdict as the primary outcome line. */
 function reachLine(reached: boolean | null | undefined, status?: string): string {
   if (status === 'running') return '  reached:            (running)';
   if (reached === true) return '  reached:            yes';
   if (reached === false) return '  reached:            no';
   return '  reached:            (unknown — goal-host reported no reach verdict)';
-}
-
-function authHeaders(): Record<string, string> {
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
 }
 
 function shapeList(v: unknown): string[] {
@@ -172,41 +148,15 @@ async function renderTrace(executionId: string): Promise<{ lines: string[]; task
   return { lines, taskCount: tasks.length };
 }
 
-export async function handle(input: GoalReasoningInput, apiClient: AnalysisAPIClient): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.GOAL_HOST_VESSEL_URL) {
-    return 'goal_reasoning requires discovery or an explicit GOAL_HOST_VESSEL_URL.';
+export async function handle(input: GoalReasoningInput, _apiClient: AnalysisAPIClient): Promise<string> {
+  const read = await readWalkState(input.dispatch_id);
+  if (read.kind === 'not_found') {
+    return `goal_reasoning: dispatch ${input.dispatch_id} not found. The dispatch record is in-memory and capped (~100 dispatches); it may have been pruned. If you have the executionId, the durable trace is still readable with execution_trace.`;
   }
-
-  const baseUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.GOAL_HOST_VESSEL_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'goal_execution',
-    apiKey: process.env.METABOB_API_KEY,
-  });
-  if (!baseUrl) {
-    return 'goal_reasoning could not find goal-host-vessel via discovery. Set GOAL_HOST_VESSEL_URL explicitly.';
+  if (read.kind === 'error') {
+    return `goal_reasoning: ${read.message}`;
   }
-
-  const url = `${baseUrl}/executions/${encodeURIComponent(input.dispatch_id)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, { method: 'GET', headers: authHeaders(), signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `goal_reasoning failed to reach ${url}: ${msg}`;
-  }
-
-  if (res.status === 404) {
-    return `goal_reasoning: dispatch ${input.dispatch_id} not found. The dispatch record is in-memory and capped (~100 dispatches); it may have been pruned. If you have the executionId, the durable trace still lives in activity-api.`;
-  }
-
-  const text = await res.text();
-  let record: DispatchRecordResponse;
-  try {
-    record = JSON.parse(text) as DispatchRecordResponse;
-  } catch {
-    return `goal_reasoning: ${res.status} (unparseable body) ${text.slice(0, 200)}`;
-  }
+  const record = read.record;
 
   const lines = [
     `Reasoning for dispatch ${record.dispatchId ?? input.dispatch_id}`,

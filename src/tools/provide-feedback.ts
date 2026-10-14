@@ -10,27 +10,27 @@
  * operator becomes an interposable verifier the substrate learns from (the S1→S2→S3
  * arc); measured feedback, not advice.
  *
- * Flow:
- *   1. goal-host `GET /executions/:dispatchId` → the goal text, executionId, and
- *      selectedTemplateId are auto-derived (the operator only supplies a verdict +
- *      rationale). `goal` is stored on the dispatch record for exactly this.
- *   2. activity-api `POST /v2/impulses/resolve` with shape `goal_verification_label_write`
+ * Flow, each a shape resolved through discovery `POST /resolve`
+ * (CONFORMANCE §c11-attachment-model):
+ *   1. `goalWalkState` (goal-host's dispatch record) → the goal text, executionId,
+ *      and selectedTemplateId are auto-derived (the operator only supplies a
+ *      verdict + rationale). `goal` is stored on the dispatch record for exactly this.
+ *   2. `goal_verification_label_write` (activity-api's resolver)
  *      → CREATE goal_verification_labels { goal, execution_id, activity_id,
  *      verdict, confidence, notes, labeler: "human" }.
  *
  * Verdict maps operator-facing terms → oracle-corpus verdicts:
  *   reached → achieved | not_reached → not_achieved | partial → partial
  *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer (activity-api
- * exchanges it for a tenant JWT so the write is org-scoped).
+ * Auth: the attachment's key, which discovery forwards; activity-api exchanges
+ * it for a tenant JWT so the write is org-scoped.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { RESOLVE_TIMEOUT_MS, describeResolveFailure, resolveShape } from '../attachment.js';
 import { operatorId } from '../operator-id.js';
-
-const TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
+import { readWalkState } from './_goal-host.js';
 
 export const ProvideFeedbackTool = {
   name: 'provide_feedback',
@@ -81,56 +81,16 @@ const VERDICT_MAP: Record<string, 'achieved' | 'not_achieved' | 'partial'> = {
   partial: 'partial',
 };
 
-interface DispatchRecordResponse {
-  dispatchId?: string;
-  status?: string;
-  goal?: string;
-  executionId?: string;
-  selectedTemplateId?: string;
-  error?: string;
-}
-
-function authHeaders(): Record<string, string> {
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
-}
-
-export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPIClient): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.GOAL_HOST_VESSEL_URL) {
-    return 'provide_feedback requires discovery or an explicit GOAL_HOST_VESSEL_URL.';
+export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAPIClient): Promise<string> {
+  // 1. The dispatch record (auto-derive goal / exec / template).
+  const read = await readWalkState(input.dispatch_id);
+  if (read.kind === 'not_found') {
+    return `provide_feedback: dispatch ${input.dispatch_id} not found (records are in-memory and capped ~100). Supply an explicit goal + executionId if you still have them.`;
   }
-  const activityApiUrl = apiClient.getActivityApiUrl();
-  if (!activityApiUrl) {
-    return 'provide_feedback requires an activity-api URL to write the verification label.';
+  if (read.kind === 'error') {
+    return `provide_feedback: ${read.message}`;
   }
-
-  // 1. Resolve goal-host and fetch the dispatch record (auto-derive goal / exec / template).
-  const goalHostUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.GOAL_HOST_VESSEL_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'goal_execution',
-    apiKey: process.env.METABOB_API_KEY,
-  });
-  if (!goalHostUrl) {
-    return 'provide_feedback could not find goal-host-vessel via discovery. Set GOAL_HOST_VESSEL_URL explicitly.';
-  }
-
-  let record: DispatchRecordResponse = {};
-  try {
-    const res = await fetch(`${goalHostUrl}/executions/${encodeURIComponent(input.dispatch_id)}`, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (res.status === 404) {
-      return `provide_feedback: dispatch ${input.dispatch_id} not found (records are in-memory and capped ~100). Supply an explicit goal + executionId if you still have them.`;
-    }
-    if (res.ok) record = (await res.json()) as DispatchRecordResponse;
-  } catch (err) {
-    return `provide_feedback failed to reach goal-host: ${err instanceof Error ? err.message : String(err)}`;
-  }
+  const record = read.record;
 
   if (record.status === 'running') {
     return `provide_feedback: dispatch ${input.dispatch_id} is still running — wait for it to complete before recording a verdict.`;
@@ -168,33 +128,22 @@ export async function handle(input: ProvideFeedbackInput, apiClient: AnalysisAPI
     notes,
   };
 
-  let writeRes: Response;
+  let writeRes;
   try {
-    writeRes = await fetch(`${activityApiUrl.replace(/\/$/, '')}/v2/impulses/resolve`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ impulse: { pointer } }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    // A write: never retried (src/attachment.ts@attachment-resolve).
+    writeRes = await resolveShape(pointer, { timeoutMs: RESOLVE_TIMEOUT_MS.trace });
   } catch (err) {
-    return `provide_feedback failed to reach activity-api: ${err instanceof Error ? err.message : String(err)}`;
+    return `provide_feedback: ${describeResolveFailure(err)}`;
   }
 
-  const text = await writeRes.text();
-  let parsed: any;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return `provide_feedback: activity-api returned ${writeRes.status} (unparseable) ${text.slice(0, 200)}`;
-  }
-
-  if (!writeRes.ok || parsed?.success === false) {
-    return `provide_feedback: label write rejected (${writeRes.status}): ${parsed?.error ?? text.slice(0, 200)}`;
+  const parsed = writeRes.body as { success?: boolean; error?: string; content?: string } | undefined;
+  if (writeRes.status !== 200 || parsed?.success === false) {
+    return `provide_feedback: label write rejected (${writeRes.status}): ${parsed?.error ?? JSON.stringify(parsed).slice(0, 200)}`;
   }
 
   let labelId = '(unknown)';
   try {
-    labelId = JSON.parse(parsed.content)?.id ?? labelId;
+    labelId = JSON.parse(String(parsed?.content))?.id ?? labelId;
   } catch { /* content may not be JSON */ }
 
   return [

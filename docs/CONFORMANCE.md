@@ -246,9 +246,13 @@ never written to discovery.
   (`src/attachment.ts@attachment-resolve`), naming discovery's own failures and capping every request
   below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it, and
   `execution_trace`, `goal_status` and `goal_reasoning` read traces through it
-  (`src/tools/_traces.ts@readExecutionTrace`).
-- Not yet met — the other substrate tools call concept-db, goal-host-vessel and activity-api over
-  direct REST (see [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery
-  locates some of them but is not the path the calls take.
-- Not yet met — `src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS` holds a synchronous goal resolve for up
-  to 290 s.
+  (`src/tools/_traces.ts@readExecutionTrace`). The goal tools and answer delivery reach goal-host
+  through it as `goalDispatchAsync`, `goalWalkState` and `solicitationResponse_write`
+  (`src/tools/_goal-host.ts@readWalkState`, `src/agent-delivery.ts@deliverResolution`), and
+  `provide_feedback` writes its label as `goal_verification_label_write`.
+- Met — every call ends within 60 s: `run_goal` dispatches asynchronously and polls with short
+  `goalWalkState` reads until its deadline (`src/tools/run-goal.ts@run-goal-poll`); no request is held
+  open for a goal.
+- Not yet met — the concept tools and the concept-db half of the mixed tools call concept-db over
+  direct REST (see [SPEC.md](SPEC.md) § Concept graph tools); discovery locates it but is not the path
+  the calls take.

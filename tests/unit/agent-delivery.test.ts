@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
 import { deliverResolution, reconcileUndelivered } from '../../src/agent-delivery';
@@ -6,17 +6,13 @@ import { LocalStore, type AgentResolutionRecord } from '../../src/local-store';
 import { setResolverIdentity } from '../../src/resolver-identity';
 import * as PullAssignedWork from '../../src/tools/pull-assigned-work';
 import * as SubmitResolution from '../../src/tools/submit-resolution';
+import { setAttachment } from '../../src/attachment';
+import { installShapeStub, type ShapeHandler } from '../helpers/shape-stub';
 
-const realFetch = globalThis.fetch;
-const prevGoalHost = process.env.GOAL_HOST_VESSEL_URL;
-
-beforeEach(() => {
-  process.env.GOAL_HOST_VESSEL_URL = 'http://goal-host.test';
-});
+// The answer reaches goal-host as the solicitationResponse_write shape, through
+// discovery POST /resolve (CONFORMANCE §c11-attachment-model).
 afterEach(() => {
-  globalThis.fetch = realFetch;
-  if (prevGoalHost === undefined) delete process.env.GOAL_HOST_VESSEL_URL;
-  else process.env.GOAL_HOST_VESSEL_URL = prevGoalHost;
+  setAttachment(null);
   cleanupTempStores();
 });
 
@@ -24,9 +20,12 @@ function freshStore(): LocalStore {
   return makeTempStore('mcp-deliv-').store;
 }
 
-function stubFetch(status: number, body: unknown): void {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+async function stubGoalHost(handler: ShapeHandler) {
+  return installShapeStub({ solicitationResponse_write: handler });
+}
+
+async function stubAnswer(status: number, body: unknown) {
+  return stubGoalHost(() => ({ status, body }));
 }
 
 const apiClient = { getDiscoveryEndpoint: () => undefined } as any;
@@ -40,27 +39,37 @@ function res(over: Partial<AgentResolutionRecord> = {}): AgentResolutionRecord {
 }
 
 describe('deliverResolution', () => {
-  test('200 resolved:true → ok', async () => {
-    stubFetch(200, { resolved: true, shape: 'solicitationResponse_write' });
+  test('200 resolved:true → ok, with the answer on the pointer', async () => {
+    const stub = await stubAnswer(200, { resolved: true, shape: 'solicitationResponse_write' });
     expect(await deliverResolution(apiClient, res())).toEqual({ ok: true });
+    expect(stub.calls('solicitationResponse_write')).toEqual([
+      expect.objectContaining({ type: 'solicitationResponse_write', solicitationId: 'sid-1', outcome: 'answered', answer: 'use B' }),
+    ]);
   });
   test('404 → terminal (solicitation gone)', async () => {
-    stubFetch(404, { resolved: false, error: 'no pending solicitation with that id' });
+    await stubAnswer(404, { resolved: false, error: 'no pending solicitation with that id' });
     const out = await deliverResolution(apiClient, res());
     expect(out.ok).toBe(false);
     expect(out.terminal).toBe(true);
   });
   test('resolved:false → retryable failure', async () => {
-    stubFetch(200, { resolved: false, error: 'bad' });
+    await stubAnswer(200, { resolved: false, error: 'bad' });
     const out = await deliverResolution(apiClient, res());
     expect(out.ok).toBe(false);
     expect(out.terminal).toBeUndefined();
   });
   test('network error → retryable failure', async () => {
-    globalThis.fetch = (async () => { throw new Error('ECONNREFUSED'); }) as typeof fetch;
+    await stubGoalHost(() => { throw new Error('ECONNREFUSED'); });
     const out = await deliverResolution(apiClient, res());
     expect(out.ok).toBe(false);
     expect(out.error).toContain('ECONNREFUSED');
+  });
+  test('no producer for the shape → retryable, not terminal', async () => {
+    await installShapeStub({});
+    const out = await deliverResolution(apiClient, res());
+    expect(out.ok).toBe(false);
+    expect(out.terminal).toBeUndefined();
+    expect(out.error).toStartWith('no_producer(solicitationResponse_write)');
   });
 });
 
@@ -71,12 +80,9 @@ describe('reconcileUndelivered', () => {
     store.recordResolution(res({ task_id: 'gone-1', vessel_id: 'v1' }));
 
     // ok-1 succeeds, gone-1 404s
-    globalThis.fetch = (async (_url: any, init: any) => {
-      const sid = JSON.parse(init.body).impulse.pointer.solicitationId;
-      return sid === 'ok-1'
-        ? new Response(JSON.stringify({ resolved: true }), { status: 200 })
-        : new Response(JSON.stringify({ resolved: false, error: 'gone' }), { status: 404 });
-    }) as typeof fetch;
+    await stubGoalHost((p) => (p.solicitationId === 'ok-1'
+      ? { body: { resolved: true } }
+      : { status: 404, body: { resolved: false, error: 'gone' } }));
 
     const r = await reconcileUndelivered(apiClient, store, 'v1');
     expect(r.delivered).toBe(1);
@@ -94,7 +100,7 @@ describe('submit_resolution tool', () => {
       dispatch_id: null, question_markdown: '## Q', respond_via_json: '{}',
       deadline_ms: Date.now() + 300_000, status: 'pending', enqueued_at: Date.now(), claimed_at: null,
     });
-    stubFetch(200, { resolved: true });
+    await stubAnswer(200, { resolved: true });
 
     const out = await SubmitResolution.handle(
       { task_id: 'sid-1', outcome: 'answered', answer: 'B' }, apiClient, 's', store,
@@ -111,7 +117,7 @@ describe('submit_resolution tool', () => {
       dispatch_id: null, question_markdown: '## Q', respond_via_json: '{}',
       deadline_ms: Date.now() + 300_000, status: 'pending', enqueued_at: Date.now(), claimed_at: null,
     });
-    globalThis.fetch = (async () => { throw new Error('down'); }) as typeof fetch;
+    await stubGoalHost(() => { throw new Error('down'); });
 
     const out = await SubmitResolution.handle(
       { task_id: 'sid-2', outcome: 'answered', answer: 'B' }, apiClient, 's', store,

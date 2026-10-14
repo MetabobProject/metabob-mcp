@@ -301,12 +301,6 @@ interface Route {
   operation: string | ((req: OpRequest) => string | null) | Record<string, ShapeRoute>;
 }
 
-/** Impulse envelopes carry the operation in `pointer.type`. */
-const byPointerType = (map: Record<string, string>) => (req: OpRequest): string | null => {
-  const type = req.body?.impulse?.pointer?.type ?? req.body?.pointer?.type;
-  return typeof type === 'string' ? map[type] ?? null : null;
-};
-
 /** How the server under test reaches each operation today. */
 export const ROUTES: Route[] = [
   // Discovery answers its own shapes; any other shape is forwarded (see FakeSubstrate.discoveryResolve).
@@ -322,9 +316,21 @@ export const ROUTES: Route[] = [
   { service: 'identity', method: 'GET', path: '/health', operation: 'identityHealth' },
   { service: 'identity', method: 'POST', path: '/v1/auth/resolve', operation: 'authResolve' },
 
-  { service: 'goalHost', method: 'POST', path: '/run-goal', operation: 'goalDispatchAsync' },
-  { service: 'goalHost', method: 'GET', path: '/executions/:id', operation: 'goalWalkState' },
-  { service: 'goalHost', method: 'POST', path: '/resolve', operation: byPointerType({ solicitationResponse_write: 'solicitationResponseWrite' }) },
+  {
+    service: 'goalHost', method: 'POST', path: '/resolve', operation: {
+      // goal-host reads the dispatch fields off the pointer, as POST /run-goal reads its body.
+      goalDispatchAsync: { operation: 'goalDispatchAsync', request: (p) => ({ body: p }) },
+      // goal-host wraps the dispatch record: { resolved, shape, body }, or 404 { resolved:false }.
+      goalWalkState: {
+        operation: 'goalWalkState',
+        request: (p) => ({ params: { id: String(p.dispatchId ?? '') }, body: p }),
+        response: (r) => (r.status ?? 200) === 200
+          ? { body: { resolved: true, shape: 'goalWalkState', body: r.body } }
+          : { status: r.status, body: { resolved: false, shape: 'goalWalkState', error: 'dispatch not found' } },
+      },
+      solicitationResponse_write: { operation: 'solicitationResponseWrite' },
+    },
+  },
 
   { service: 'activity', method: 'GET', path: '/health', operation: 'health' },
   {
@@ -387,6 +393,10 @@ export class FakeSubstrate {
     goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
     activityExecutionTrace: 'activity',
+    goal_verification_label_write: 'activity',
+    goalDispatchAsync: 'goalHost',
+    goalWalkState: 'goalHost',
+    solicitationResponse_write: 'goalHost',
   };
   /** Keys identity accepts; any other key is a foreign one (401). */
   readonly validKeys = new Set(['mb_test_workflow_key']);

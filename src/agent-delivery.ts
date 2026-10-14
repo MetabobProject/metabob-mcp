@@ -5,57 +5,39 @@
  * The answer is recorded durably BEFORE delivery (delivered=0), so a failed
  * post-back (network down, goal-host briefly unreachable) is not lost: the
  * startup reconcile drains any undelivered answers on the next session, keyed by
- * the stable vesselId. Targets an explicit GOAL_HOST_VESSEL_URL when set, else
- * the goal-host discovery returns for the `goal_execution` shape (and the
- * resolve endpoint it advertises). Contract: SPEC §submit_resolution.
+ * the stable vesselId. The answer is the `solicitationResponse_write` shape,
+ * resolved through discovery `POST /resolve` to goal-host
+ * (CONFORMANCE §c11-attachment-model). Contract: SPEC §submit_resolution.
  */
 
 import type { AnalysisAPIClient } from './api-client.js';
 import type { LocalStore, AgentResolutionRecord } from './local-store.js';
-import { discoverFirstVesselByShape, buildResolverUrl } from './discovery.js';
 import { operatorId } from './operator-id.js';
-import { substrateRefusal } from './attachment.js';
+import { describeResolveFailure, resolveShape, substrateRefusal } from './attachment.js';
 
 const DELIVERY_TIMEOUT_MS = 20_000;
 
 export interface DeliveryOutcome {
   ok: boolean;
-  /** True when the substrate is no longer waiting (404) — stop retrying. */
+  /** True when the substrate is no longer waiting (goal-host's 404) — stop retrying. */
   terminal?: boolean;
   error?: string;
 }
 
-async function goalHostResolveUrl(apiClient: AnalysisAPIClient): Promise<string | undefined> {
-  const explicit = process.env.GOAL_HOST_VESSEL_URL?.replace(/\/$/, '');
-  if (explicit) return `${explicit}/resolve`;
-  const discovered = await discoverFirstVesselByShape({
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'goal_execution',
-    apiKey: process.env.METABOB_API_KEY,
-  });
-  return discovered ? buildResolverUrl(discovered, apiClient.getDiscoveryEndpoint()) : undefined;
-}
-
 /**
  * Deliver one resolution to goal-host as `solicitationResponse_write`. goal-host
- * reads solicitationId/outcome/answer off the pointer (body.X ?? pointer.X), so
- * the standard {impulse:{pointer}} envelope carries them.
+ * reads solicitationId/outcome/answer off the pointer (body.X ?? pointer.X).
+ * Only goal-host's own 404 ("no pending solicitation") is terminal; discovery
+ * having no producer for the shape (goal-host down or unregistered) is not.
  */
 export async function deliverResolution(
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
   res: AgentResolutionRecord,
 ): Promise<DeliveryOutcome> {
   // Keyed: nothing is sent until the key is proven. Not terminal — a later
   // session with a working attachment re-delivers. CONFORMANCE §c3-identity
   const refusal = await substrateRefusal();
   if (refusal) return { ok: false, error: refusal };
-
-  const url = await goalHostResolveUrl(apiClient);
-  if (!url) return { ok: false, error: 'goal-host not found (no discovery / GOAL_HOST_VESSEL_URL)' };
-
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
 
   const pointer: Record<string, unknown> = {
     type: 'solicitationResponse_write',
@@ -66,25 +48,20 @@ export async function deliverResolution(
   if (res.answer !== null) pointer['answer'] = res.answer;
 
   try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ impulse: { pointer } }),
-      signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
-    });
-    const text = await r.text();
-    let payload: { resolved?: boolean; error?: string } = {};
-    try { payload = JSON.parse(text); } catch { /* non-JSON body */ }
+    // A write: never retried within the call (src/attachment.ts@attachment-resolve).
+    const r = await resolveShape(pointer, { timeoutMs: DELIVERY_TIMEOUT_MS });
+    const payload = (r.body ?? {}) as { resolved?: boolean; error?: string };
 
     if (r.status === 404) {
       return { ok: false, terminal: true, error: 'solicitation no longer pending (timed out on the substrate)' };
     }
-    if (!r.ok || payload.resolved === false) {
-      return { ok: false, error: `${r.status} ${payload.error ?? text.slice(0, 160)}`.trim() };
+    if (r.status < 200 || r.status >= 300 || payload.resolved === false) {
+      return { ok: false, error: `${r.status} ${payload.error ?? JSON.stringify(payload).slice(0, 160)}`.trim() };
     }
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    // no_producer, producer_timeout, … — transient from here; the answer stays queued.
+    return { ok: false, error: describeResolveFailure(err) };
   }
 }
 

@@ -3,11 +3,12 @@
  * goal_status — poll a goal dispatched via run_goal_async, and (once it has an
  * executionId) hydrate the durable execution trace for status + state-space.
  *
- * Two-step view:
- *   1. goal-host `GET /executions/:dispatchId` — the in-memory dispatch record
- *      ({ status, executionId, selectedTemplateId, error }). This is ephemeral
- *      (last ~100 dispatches, pruned) and authoritative for "is it still
- *      running".
+ * Two-step view, each a shape resolved through discovery `POST /resolve`
+ * (CONFORMANCE §c11-attachment-model):
+ *   1. `goalWalkState` (src/tools/_goal-host.ts) — goal-host's in-memory dispatch
+ *      record ({ status, executionId, selectedTemplateId, error, walkLog }). This
+ *      is ephemeral (last ~100 dispatches, pruned) and authoritative for "is it
+ *      still running".
  *   2. the `activityExecutionTrace` shape through discovery (src/tools/_traces.ts) —
  *      the durable trace. Best-effort hydration that surfaces the state-space
  *      signature (the `state_signature:<hash>` tag stamped at dispatch), the
@@ -18,15 +19,12 @@
  * (β-penalty + completion-shape tags); inspect the produced shapes / failure
  * mode below to judge reach.
  *
- * Auth: re-uses METABOB_API_KEY as ApiKey bearer.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { resolveServiceEndpointByShape } from '../discovery.js';
+import { readWalkState } from './_goal-host.js';
 import { readExecutionTrace } from './_traces.js';
-
-const POLL_TIMEOUT_MS = parseInt(process.env.GOAL_STATUS_TIMEOUT_MS || '15000', 10);
 
 export const GoalStatusTool = {
   name: 'goal_status',
@@ -50,33 +48,12 @@ export const InputSchema = z.object({
 
 export type GoalStatusInput = z.infer<typeof InputSchema>;
 
-interface DispatchRecordResponse {
-  dispatchId?: string;
-  status?: string;
-  executionId?: string;
-  selectedTemplateId?: string;
-  error?: string;
-  /** Honest goal-reach verdict (distinct from `status`, the template exit status). */
-  reached?: boolean | null;
-  /** Operator identity attributed to this dispatch, if any. */
-  operator?: string | null;
-  /** Live walk decision log — populated WHILE the walk runs, not only at terminal. */
-  walkLog?: string[];
-}
-
 /** Render the honest reach verdict as the primary outcome line. */
 function reachLine(reached: boolean | null | undefined, status?: string): string {
   if (status === 'running') return '  reached:            (running)';
   if (reached === true) return '  reached:            yes';
   if (reached === false) return '  reached:            no';
   return '  reached:            (unknown — goal-host reported no reach verdict)';
-}
-
-function authHeaders(): Record<string, string> {
-  const apiKey = process.env.METABOB_API_KEY;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
-  return headers;
 }
 
 /** Best-effort: pull the durable trace and summarise state-space + reach hints. */
@@ -129,46 +106,16 @@ async function hydrateTrace(executionId: string): Promise<string[] | null> {
 
 export async function handle(
   input: GoalStatusInput,
-  apiClient: AnalysisAPIClient,
+  _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  if (!apiClient.hasDiscovery() && !process.env.GOAL_HOST_VESSEL_URL) {
-    return 'goal_status requires discovery or an explicit GOAL_HOST_VESSEL_URL.';
+  const read = await readWalkState(input.dispatch_id);
+  if (read.kind === 'not_found') {
+    return `goal_status: dispatch ${input.dispatch_id} not found. The dispatch record is in-memory and capped (~100 dispatches); it may have been pruned. If you have the executionId, the durable trace is still readable with execution_trace.`;
   }
-
-  const baseUrl = await resolveServiceEndpointByShape({
-    explicitUrl: process.env.GOAL_HOST_VESSEL_URL,
-    discoveryEndpoint: apiClient.getDiscoveryEndpoint(),
-    shape: 'goal_execution',
-    apiKey: process.env.METABOB_API_KEY,
-  });
-  if (!baseUrl) {
-    return 'goal_status could not find goal-host-vessel via discovery. Set GOAL_HOST_VESSEL_URL explicitly.';
+  if (read.kind === 'error') {
+    return `goal_status: ${read.message}`;
   }
-
-  const url = `${baseUrl}/executions/${encodeURIComponent(input.dispatch_id)}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `goal_status failed to reach ${url}: ${msg}`;
-  }
-
-  if (res.status === 404) {
-    return `goal_status: dispatch ${input.dispatch_id} not found. The dispatch record is in-memory and capped (~100 dispatches); it may have been pruned. If you have the executionId, the durable trace still lives in activity-api.`;
-  }
-
-  const text = await res.text();
-  let record: DispatchRecordResponse;
-  try {
-    record = JSON.parse(text) as DispatchRecordResponse;
-  } catch {
-    return `goal_status: ${res.status} (unparseable body) ${text.slice(0, 200)}`;
-  }
+  const record = read.record;
 
   const lines = [
     `Dispatch ${record.dispatchId ?? input.dispatch_id}`,

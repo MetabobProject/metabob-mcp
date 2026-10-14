@@ -154,9 +154,10 @@ describe('W1 operator loop', () => {
     expect(fake.state.labels[0]).toMatchObject({ verdict: 'achieved', activity_id: 'satisfier:conceptGraph' });
   });
 
-  test('goal-host and activity-api are reached only through the configured anchor', () => {
-    const lookups = fake.requestsFor('vesselCapability').map(r => (r.body as any)?.pointer?.shape);
-    expect(lookups).toContain('goal_execution');
+  test('goal-host and activity-api are reached only through discovery /resolve', () => {
+    const producerHops = fake.requests.filter(r => r.service === 'goalHost' || r.service === 'activity');
+    expect(producerHops.length).toBeGreaterThan(0);
+    expect(producerHops.filter(r => !r.forwarded)).toEqual([]);
     expect(fake.requests.filter(r => r.operation === null)).toEqual([]);
   });
 });

@@ -440,11 +440,11 @@ The current analysis state in one snapshot, designed to feed an LLM deciding wha
 
 The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
 
-- **goal-host-vessel** — `GOAL_HOST_VESSEL_URL` when set, else the first vessel discovery returns for the `goal_execution` shape (`src/discovery.ts@resolveServiceEndpointByShape`; loopback endpoints are rehosted onto a remote discovery's host).
-- **activity-api** — traces are read through the attachment as `activityExecutionTrace` (§ execution_trace).
+- **goal-host-vessel** — its shapes `goalDispatchAsync` (dispatch), `goalWalkState` (the dispatch record) and `solicitationResponse_write` (an answer), resolved through the attachment (§ Attachment; `src/tools/_goal-host.ts@readWalkState`, `src/tools/_goal-host.ts@dispatchGoal`). goal-host keeps dispatch records in memory, about the last 100, and `goalWalkState` carries the last 60 `walkLog` lines.
+- **activity-api** — traces are read through the attachment as `activityExecutionTrace` (§ execution_trace), and oracle labels written as `goal_verification_label_write` (§ provide_feedback).
 - **discovery** — `registry_query` resolves discovery's own shapes through the attachment (§ Attachment).
 
-Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is set. Planes:
+Every request goes to discovery `POST /resolve` with `Authorization: ApiKey <METABOB_API_KEY>`, which discovery forwards to the producer; none is held open past 60 s. Planes:
 
 | Tool | Plane |
 |------|-------|
@@ -462,7 +462,7 @@ Every request carries `Authorization: ApiKey <METABOB_API_KEY>` when a key is se
 
 Handler: `src/tools/run-goal.ts@handle`
 
-Synchronous goal dispatch for short, one-shot goals.
+Goal dispatch that waits for the outcome, for short, one-shot goals.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -472,7 +472,7 @@ Synchronous goal dispatch for short, one-shot goals.
 | `parent_execution_id` | string | — | Parent execution id for cross-vessel provenance |
 | `composition_chain` | string[] | — | Ancestor execution ids, root-first |
 
-POSTs the impulse envelope `{ impulse: { pointer: { type: "goal_execution", operator, goal?, target_template_id?, … } } }` to `${GOAL_HOST_VESSEL_URL}/resolve`, or to the discovered vessel's advertised resolve endpoint (default `/v2/impulses/resolve`). `operator` is `MB_OPERATOR_ID` (default `claude-code-operator`); goal-host turns it into the trace's `operator:` tag. Blocks for up to `RUN_GOAL_TIMEOUT_MS` (default 290 s). Returns `executionId`, `status`, `selectedTemplateId` and the duration; a non-2xx or `resolved:false` reply returns its status and error.
+Dispatches as `run_goal_async` does (`goalDispatchAsync`), then polls `goalWalkState` every `RUN_GOAL_POLL_MS` (default 2 s) — each a short request — until the dispatch leaves `running` or the polling deadline `RUN_GOAL_TIMEOUT_MS` (default 290 s) passes (`src/tools/run-goal.ts@run-goal-poll`). No request is held open for the goal. `operator` is `MB_OPERATOR_ID` (default `claude-code-operator`); goal-host turns it into the trace's `operator:` tag. Returns `dispatchId`, `executionId`, `reached`, `status`, `selectedTemplateId`, any `error` and the duration. Past the deadline the goal keeps running on goal-host, and the reply carries its `dispatchId` and a `goal_status` hint. A refused dispatch (a 429 from goal-host's spend-rate breaker, a 503 while it drains) returns its status and error.
 
 ### run_goal_async
 
@@ -480,7 +480,7 @@ Handler: `src/tools/run-goal-async.ts@handle`
 
 Asynchronous goal dispatch — the default for non-trivial goals. Same parameters as `run_goal`.
 
-POSTs the flat body `{ operator, goal?, targetTemplateId?, variables?, parent_execution_id?, composition_chain? }` to `{goal-host}/run-goal` (timeout `RUN_GOAL_ASYNC_TIMEOUT_MS`, default 30 s) and returns the `dispatchId` with a `goal_status` hint. The goal text is forwarded unchanged; goal-host decides the route — a goal naming a real `repos/<vessel>/src/…` file routes to `feature_compose`, which drafts, typecheck-verifies and lands a traced commit.
+Resolves `goalDispatchAsync { operator, goal?, targetTemplateId?, variables?, parent_execution_id?, composition_chain? }` — goal-host enqueues it as `POST /run-goal` does and answers `202 { dispatchId, status }` at once — and returns the `dispatchId` with a `goal_status` hint. A dispatch is a write and is never retried; a 429 or 503 from goal-host returns its status and error. The goal text is forwarded unchanged; goal-host decides the route — a goal naming a real `repos/<vessel>/src/…` file routes to `feature_compose`, which drafts, typecheck-verifies and lands a traced commit.
 
 ### goal_status
 
@@ -490,7 +490,7 @@ Handler: `src/tools/goal-status.ts@handle`
 |-----------|------|---------|-------------|
 | `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
 
-`GET {goal-host}/executions/:dispatch_id` (timeout `GOAL_STATUS_TIMEOUT_MS`, default 15 s). Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it): state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so a 404 means the record was pruned or never existed.
+Resolves `goalWalkState { dispatchId }` and reads the dispatch record goal-host wraps in it. Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it): state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so goal-host's 404 means the record was pruned or never existed; any other failure is one named line (§ Attachment).
 
 ### goal_reasoning
 
@@ -500,7 +500,7 @@ Handler: `src/tools/goal-reasoning.ts@handle`
 |-----------|------|---------|-------------|
 | `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
 
-The walk's decision-log for a finished dispatch: the same header as `goal_status`, then the dispatch record's `walkLog` whenever it has one (numbered, verbatim), then — when an `executionId` exists — the per-task trace sequence (`#N ✓/✗ resolver/tier inShapes → outShapes`, failure mode) and a reach-verdict block (state-space, produced shapes, reach tags, α/β). With neither a `walkLog` nor trace tasks it says the decision-log is unavailable (typically a direct vessel resolve). While the dispatch runs it returns "still running" and nothing else.
+The walk's decision-log for a finished dispatch: the same header as `goal_status`, then the dispatch record's `walkLog` whenever it has one (numbered, verbatim; `goalWalkState` carries its last 60 lines), then — when an `executionId` exists — the per-task trace sequence (`#N ✓/✗ resolver/tier inShapes → outShapes`, failure mode) and a reach-verdict block (state-space, produced shapes, reach tags, α/β). With neither a `walkLog` nor trace tasks it says the decision-log is unavailable (typically a direct vessel resolve). While the dispatch runs it returns "still running" and nothing else.
 
 ### provide_feedback
 
@@ -514,7 +514,7 @@ Handler: `src/tools/provide-feedback.ts@handle`
 | `confidence` | number | `0.9` | Operator confidence, 0..1 |
 | `goal` | string | — | Goal text, when the dispatch record does not carry it |
 
-Reads the dispatch record from goal-host (`GET /executions/:dispatch_id`), refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and POSTs a `goal_verification_label_write` impulse to activity-api `/v2/impulses/resolve`: verdict `achieved`/`not_achieved`/`partial`, `labeler: "human"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate.
+Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "human"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate.
 
 ### registry_query
 
@@ -696,7 +696,7 @@ Handler: `src/tools/submit-resolution.ts@handle`
 | `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
 | `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
 
-An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as a `solicitationResponse_write` impulse (`POST` to `${GOAL_HOST_VESSEL_URL}/resolve` or the discovered goal-host's resolve endpoint, 20 s timeout; `src/agent-delivery.ts@deliverResolution`). A 404 means the solicitation timed out: the answer is marked delivered and never retried. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
+An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as the `solicitationResponse_write` shape through the attachment (20 s cap; `src/agent-delivery.ts@deliverResolution`). goal-host's 404 means the solicitation timed out: the answer is marked delivered and never retried. Discovery having no producer for the shape (`no_producer`) is not terminal. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
 
 ---
 
