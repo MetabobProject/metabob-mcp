@@ -440,6 +440,7 @@
         "src/agent-delivery.ts@deliverResolution",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
+        "src/attachment.ts@attachment-resolve",
         "src/attachment.ts@rehost-h1",
         "src/auth-service.ts@org-check",
         "src/config.ts@deriveSubstrateDefaults",

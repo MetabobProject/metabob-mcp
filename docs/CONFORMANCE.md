@@ -242,8 +242,11 @@ never written to discovery.
   configuration (`src/index.ts@main`; `tests/workflows/w3-attachment.test.ts`), and
   `pull_assigned_work` / `submit_resolution` say that the substrate dispatches nothing to it
   (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`).
-- Not yet met — the substrate tools call concept-db, goal-host-vessel and activity-api over direct
-  REST (see [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery locates
-  some of them but is not the path the calls take.
+- Met — the attachment resolves a pointer through discovery `POST /resolve` and nothing else
+  (`src/attachment.ts@attachment-resolve`), naming discovery's own failures and capping every request
+  below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it.
+- Not yet met — the other substrate tools call concept-db, goal-host-vessel and activity-api over
+  direct REST (see [SPEC.md](SPEC.md) § Substrate goal tools and § Concept graph tools); discovery
+  locates some of them but is not the path the calls take.
 - Not yet met — `src/tools/run-goal.ts@RESOLVE_TIMEOUT_MS` holds a synchronous goal resolve for up
   to 290 s.
