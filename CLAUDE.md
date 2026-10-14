@@ -26,7 +26,7 @@ bun run build                       # compile src/ → dist/cli.js (required for
 bun src/cli.ts attach --check       # attach once and print each hop: proxy, TLS, /bootstrap, identity, org check, one resolve
 npm link                            # register metabob-mcp bin globally for local testing
 bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
-ANTHROPIC_API_KEY=… lab/lab.sh up     # two-node lab (hub :24100, spoke :25100); status|keys|down|destroy
+lab/lab.sh up|check|cycle|down|destroy   # two-node lab (hub :24100, spoke :25100): bring up, prove it serves the MCP, tear down (lab/README.md)
 node scripts/doclinks.mjs check     # docs ↔ code links: must report 0 errors
 ```
 

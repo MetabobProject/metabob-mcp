@@ -16,8 +16,8 @@ bun run build                                                   # the sessions s
 bun tests/claude-sessions/run.ts                                # S1–S5 against the fake, direct
 bun tests/claude-sessions/run.ts --proxy connect --only S6      # S1 + S2 through a CONNECT proxy
 bun tests/claude-sessions/run.ts --only S2,S3 --model sonnet    # a subset
-LAB_DISCOVERY=http://127.0.0.1:28100 LAB_KEY_FILE=~/lab/key LAB_NODES=hub,spoke \
-  bun tests/claude-sessions/run.ts --target lab                 # S1–S5 and NET against a live lab
+bun tests/claude-sessions/run.ts --target lab                   # S1–S5 and NET against lab/lab.sh's lab
+bun tests/claude-sessions/run.ts --target lab --lab-lifecycle fresh   # the same, on a lab built from scratch
 ```
 
 | flag | values | default |
@@ -26,6 +26,7 @@ LAB_DISCOVERY=http://127.0.0.1:28100 LAB_KEY_FILE=~/lab/key LAB_NODES=hub,spoke 
 | `--proxy` | `none`; `http` (plain-http anchor, absolute-form); `connect` (https anchor, CONNECT tunnel); `basic` (`connect` with Basic credentials); `mitm` (TLS interception, the inspection CA trusted through `NODE_EXTRA_CA_CERTS`) | `none` |
 | `--only` | scenario ids, comma-separated | all that apply to the target and proxy |
 | `--model` | a `claude --model` value | `sonnet` |
+| `--lab-lifecycle` | `reuse` (`lab.sh check`; on failure `up`, then `check`); `fresh` (`destroy`, `up`, `check`, and `down` after the scenarios, volumes kept); `keep` (as `reuse`, the lab left running) | `reuse` |
 
 The runner prints each assertion, every session's tool-call sequence, cost and time, and writes the full
 report — every call with its input and result, and the evidence ids (finding ids, dispatch ids,
@@ -83,12 +84,19 @@ The claude.ai connectors of the logged-in account also connect; the scenarios ig
 
 ## Against a lab
 
-| variable | |
-|---|---|
-| `LAB_DISCOVERY` | the spoke's discovery URL, the anchor |
-| `LAB_KEY_FILE` | a file holding an API key the lab's identity accepts |
-| `LAB_NODES` | optional: substrings that identify each node's vessels in `registry_query` output (`hub,spoke`) |
-| `LAB_IDENTITY` | optional, for the proxy leg: the identity URL to reach through the proxy. Without it the identity hop goes wherever the lab's `/bootstrap` points, direct when that is loopback |
+`--target lab` needs no environment for the repository's own lab (`lab/README.md`): it drives
+`lab/lab.sh` with `--lab-lifecycle` before the first scenario, then attaches to the spoke with the hub's
+identity pinned. Each lifecycle step's duration and verdict is in the report under `lab`; a failed step
+ends the run as `LAB LIFECYCLE FAILED at lab.sh <step>` before any scenario, which is a lab failure, not
+a scenario's. For another lab, set the variables; with `LAB_DISCOVERY` or `LAB_KEY_FILE` set the
+lifecycle does not apply.
+
+| variable | default | |
+|---|---|---|
+| `LAB_DISCOVERY` | `http://127.0.0.1:25100` | the spoke's discovery URL, the anchor |
+| `LAB_KEY_FILE` | `lab/keys/mcp-rw.key` (under `LAB_KEYS_DIR` when set) | a file holding an API key the lab's identity accepts |
+| `LAB_IDENTITY` | `http://127.0.0.1:24101` | the identity URL, pinned as `identityEndpoint` on every leg (through the proxy on the proxy leg): a lab's `/bootstrap` advertises an identity on the lab network, which the host cannot dial. Set it empty to take the identity from `/bootstrap` |
+| `LAB_NODES` | `hub,spoke` | substrings that identify each node's vessels in `registry_query` output |
 
 The proxy leg maps `.invalid` names onto local ports, so on a lab it needs discovery (and
 `LAB_IDENTITY`) on `127.0.0.1`. Fake-state assertions print as not checked (`--`) against a lab; the

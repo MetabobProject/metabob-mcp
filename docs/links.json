@@ -6,6 +6,7 @@
       "CONFORMANCE": "docs/CONFORMANCE.md",
       "DEPLOYMENT": "docs/DEPLOYMENT.md",
       "DOCLINKS": "docs/DOCLINKS.md",
+      "LAB": "lab/README.md",
       "PUBLISHING": "docs/PUBLISHING.md",
       "QUICK_START": "docs/QUICK_START.md",
       "SPEC": "docs/SPEC.md"
@@ -20,6 +21,7 @@
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
       "docs/SPEC.md",
+      "lab/README.md",
       "scripts/git-hooks/README.md",
       "skills/metabob/SKILL.md"
     ],
@@ -106,6 +108,9 @@
         "src/os-proxy.ts",
         "src/attach-check.ts",
         "src/cert-fingerprint.ts"
+      ],
+      "lab/README.md": [
+        "lab/**"
       ]
     },
     "retired": {},
@@ -523,6 +528,9 @@
           "substrate-goal-tools"
         ]
       },
+      "tests/unit/lab-tooling.test.ts": {
+        "LAB": []
+      },
       "tests/unit/net.test.ts": {
         "CONFORMANCE": [
           "c8-proxy-and-tls-in-the-vessel-role"
@@ -787,6 +795,12 @@
         "src/vessel-server.ts@resolvePointerToTool",
         "tests/workflows/networks/matrix.test.ts"
       ],
+      "lab/README.md": [
+        "lab/check-goal.ts",
+        "lab/lab.sh",
+        "tests/claude-sessions/run.ts",
+        "tests/unit/lab-tooling.test.ts"
+      ],
       "openspec/changes/2026-07-19-local-index-persistence/proposal.md": [
         "graph-builder.ts",
         "src/cochange-predictor.ts",
@@ -803,6 +817,7 @@
         "tests/unit/doclinks.test.ts"
       ],
       "tests/claude-sessions/README.md": [
+        "lab/lab.sh",
         "tests/claude-sessions/harness.ts",
         "tests/claude-sessions/run.ts",
         "tests/workflows/harness/fake-substrate.ts"
