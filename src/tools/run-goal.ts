@@ -27,9 +27,25 @@ export function runGoalDeadlineMs(): number {
   return parseInt(process.env.RUN_GOAL_TIMEOUT_MS || '290000', 10);
 }
 
-/** The pause between two goalWalkState polls. */
+/** The pause before the first goalWalkState polls. */
 export function runGoalPollMs(): number {
   return parseInt(process.env.RUN_GOAL_POLL_MS || '2000', 10);
+}
+
+/** The longest pause between two goalWalkState polls. */
+export function runGoalPollMaxMs(): number {
+  return parseInt(process.env.RUN_GOAL_POLL_MAX_MS || '15000', 10);
+}
+
+/**
+ * The pause before poll `n` (0-based): the base pause for the first three polls,
+ * then doubling up to the ceiling. Every goalWalkState read makes goal-host
+ * re-read the execution's oracle labels from the trace store, so a long walk is
+ * polled gently rather than every few seconds for its whole life.
+ */
+export function runGoalPollDelayMs(n: number, baseMs = runGoalPollMs(), maxMs = runGoalPollMaxMs()): number {
+  if (n < 3) return baseMs;
+  return Math.min(maxMs, baseMs * 2 ** (n - 2));
 }
 
 export const RunGoalTool = {
@@ -109,7 +125,6 @@ export async function handle(
 ): Promise<string> {
   const start = Date.now();
   const deadline = start + runGoalDeadlineMs();
-  const pollMs = runGoalPollMs();
 
   let answer;
   try {
@@ -131,7 +146,8 @@ export async function handle(
   const pollHint = `Poll with: goal_status { "dispatch_id": "${dispatchId}" }`;
 
   // @anchor run-goal-poll
-  for (;;) {
+  for (let poll = 0; ; poll++) {
+    const pollMs = runGoalPollDelayMs(poll);
     const read = await readWalkState(dispatchId);
     if (read.kind === 'error') {
       return [

@@ -50,11 +50,12 @@ try {
   say(`dispatched ${dispatchId}: "${LAB_CHECK_GOAL}"`);
 
   let reach = '';
-  while (Date.now() < deadline) {
+  // Gentle polling: each goal_status read makes goal-host re-read the execution's labels.
+  for (let poll = 0; Date.now() < deadline; poll++) {
     last = (await server.call('goal_status', { dispatch_id: dispatchId }, 60_000)).text;
     reach = /reached:\s+(.*)/.exec(last)?.[1]?.trim() ?? '';
     if (reach === 'yes' || reach === 'no') break;
-    await Bun.sleep(5_000);
+    await Bun.sleep(Math.min(15_000, 5_000 * 2 ** Math.max(0, poll - 1)));
   }
   const template = /(?:selectedTemplateId|template):\s*(\S+)/.exec(last)?.[1];
   if (reach === 'yes') {

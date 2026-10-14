@@ -29,7 +29,7 @@ import { readExecutionTrace } from './_traces.js';
 export const GoalStatusTool = {
   name: 'goal_status',
   description:
-    "Poll a goal dispatched with run_goal_async. Returns the live dispatch status (running | completed | failed), the executionId + selectedTemplateId, and — once the trace lands — a hydrated view: the state-space signature it ran under, produced output shapes, failure mode, and Thompson alpha/beta for the selected template. Note: status=completed means the template executed, not that the goal was reached; read the produced shapes / failure mode to judge reach.",
+    "Poll a goal dispatched with run_goal_async. Poll gently: a few quick reads, then at least 10–15 s apart, and stop once the dispatch is no longer running — every read makes goal-host re-read the execution's labels. Returns the live dispatch status (running | completed | failed), the executionId + selectedTemplateId, and — once the trace lands — a hydrated view: the state-space signature it ran under, produced output shapes, failure mode, and Thompson alpha/beta for the selected template. Note: status=completed means the template executed, not that the goal was reached; read the produced shapes / failure mode to judge reach.",
   inputSchema: {
     type: 'object' as const,
     properties: {

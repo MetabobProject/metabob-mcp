@@ -130,7 +130,8 @@ wins over its derived value only when set explicitly.
 | `DISCOVERY_ENDPOINT` | _(derived)_ | The anchor: discovery-vessel base URL (also `metabob.discoveryEndpoint`, the preferred form). Required with a remote endpoint; derived from a local one with a WARN naming census class H1 |
 | `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Advanced: identity vessel for the org check, overriding the `identity_endpoint` discovery's `/bootstrap` advertises |
 | `RUN_GOAL_TIMEOUT_MS` | `290000` | `run_goal`'s polling deadline: how long it waits for a dispatched goal before handing back its `dispatchId` |
-| `RUN_GOAL_POLL_MS` | `2000` | Pause between `run_goal`'s `goalWalkState` polls |
+| `RUN_GOAL_POLL_MS` | `2000` | Pause before `run_goal`'s first three `goalWalkState` polls; later pauses double up to `RUN_GOAL_POLL_MAX_MS` |
+| `RUN_GOAL_POLL_MAX_MS` | `15000` | Longest pause between `run_goal`'s `goalWalkState` polls (each read makes goal-host re-read the execution's labels) |
 | `RESOLVE_IMPULSE_TIMEOUT_MS` | `30000` | `resolve_impulse`'s request cap (never above 60 s) |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
 | `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier |
