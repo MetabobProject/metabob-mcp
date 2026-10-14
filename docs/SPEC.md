@@ -242,7 +242,7 @@ names discovery's own failures in one line (`src/attachment.ts@classifyDiscovery
 
 | failure | when |
 |---|---|
-| `no_producer(shape)` | discovery answers `404 { error: "Not found", shape }`: nothing produces the shape. A producer's own 404 (a pruned dispatch, a missing trace) passes through to the tool |
+| `no_producer(shape)` | discovery answers `404 { error: "Not found", shape }`. Discovery sends it when nothing produces the shape, and its peer forward sends the same answer for every non-2xx from a peer's producer — a refusal (a 400 naming missing fields), a missing item (an unknown trace or dispatch) — so through a spoke the answer does not say which. The line keeps the `no_producer(shape)` token and says that (`src/attachment.ts@no-producer-line`); a tool that knows what a missing item means for its request names it instead (§ execution_trace, § goal_status, § provide_feedback). A producer's own 404 that reaches this hop with its own body passes through to the tool |
 | `producer_timeout(shape, ms)` | discovery answers `502 forward_failed` because it cut the forward at the producer's `resolve_timeout_ms`, or the request outlives its client cap |
 | `producer_unreachable(shape)` | any other `502 forward_failed` |
 | `anchor_unreachable` | discovery itself does not answer; the line carries the network cause (§ Network) |
@@ -655,7 +655,7 @@ Handler: `src/tools/goal-status.ts@handle`
 |-----------|------|---------|-------------|
 | `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
 
-Resolves `goalWalkState { dispatchId }` and reads the dispatch record goal-host wraps in it. Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it): state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so goal-host's 404 means the record was pruned or never existed; any other failure is one named line (§ Attachment).
+Resolves `goalWalkState { dispatchId }` and reads the dispatch record goal-host wraps in it. Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it): state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so goal-host's 404 means the record was pruned or never existed; through a spoke that 404 arrives as `no_producer(goalWalkState)`, whose line says that either no producer answered or goal-host has no such dispatch. Any other failure is one named line (§ Attachment).
 
 ### goal_reasoning
 
@@ -679,7 +679,7 @@ Handler: `src/tools/provide-feedback.ts@handle`
 | `confidence` | number | `0.9` | Operator confidence, 0..1 |
 | `goal` | string | — | Goal text, when the dispatch record does not carry it |
 
-Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "human"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate.
+Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "human"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate. Through a spoke a producer's refusal of the label (a 400 naming missing fields) arrives as `no_producer(goal_verification_label_write)`; the line says that either no producer answered or the producer refused the label, and that no label was written.
 
 ### registry_query
 
@@ -700,7 +700,7 @@ Handler: `src/tools/execution-trace.ts@handle`
 |-----------|------|---------|-------------|
 | `execution_id` | string | **required** | The durable trace's execution id |
 
-Resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it is retried with backoff before a `producer_timeout` line. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. `goal_reasoning` renders the same trace for a dispatch.
+Resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it is retried with backoff before a `producer_timeout` line. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. Through a spoke a missing trace arrives as `no_producer(activityExecutionTrace)`, and the line says that either no producer answered or the trace does not exist (a satisfier-only reach persists no trace); `goal_status` and `goal_reasoning` use the same line for their trace read. `goal_reasoning` renders the same trace for a dispatch.
 
 ### resolve_impulse
 
@@ -859,7 +859,7 @@ Handler: `src/tools/submit-resolution.ts@handle`
 | `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
 | `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
 
-An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as the `solicitationResponse_write` shape through the attachment (20 s cap; `src/agent-delivery.ts@deliverResolution`). goal-host's 404 means the solicitation timed out: the answer is marked delivered and never retried. Discovery having no producer for the shape (`no_producer`) is not terminal. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
+An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as the `solicitationResponse_write` shape through the attachment (20 s cap; `src/agent-delivery.ts@deliverResolution`). goal-host's 404 means the solicitation timed out: the answer is marked delivered and never retried. Discovery having no producer for the shape (`no_producer`) is not terminal; through a spoke a peer goal-host's 404 also arrives as `no_producer`, so that answer stays queued and is re-sent each session. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
 
 ---
 

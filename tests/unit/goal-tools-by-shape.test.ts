@@ -157,7 +157,7 @@ describe('goal_status and goal_reasoning', () => {
 
   test('no producer for goalWalkState is one named line', async () => {
     await installShapeStub({});
-    expect(await goalStatus({ dispatch_id: 'd' }, apiClient)).toBe('goal_status: no_producer(goalWalkState): discovery has no producer for this shape');
+    expect(await goalStatus({ dispatch_id: 'd' }, apiClient)).toBe("goal_status: no_producer(goalWalkState): no producer answered, or goal-host has no dispatch d (unknown, or pruned from its in-memory records); discovery's peer forward does not say which");
   });
 });
 
@@ -180,5 +180,18 @@ describe('provide_feedback', () => {
     const stub = await installShapeStub({ goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'running' }) });
     expect(await provideFeedback({ dispatch_id: 'd-r', verdict: 'partial', rationale: 'r' }, apiClient)).toContain('is still running');
     expect(stub.calls('goal_verification_label_write')).toEqual([]);
+  });
+  // QA through a spoke: the hub's producer answered 400 "goal, execution_id, … are
+  // required", and discovery's peer forward relayed it as its own no-producer 404.
+  test("a label write the peer forward flattens to discovery's 404 says it may have been refused", async () => {
+    await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true, goal: 'g', executionId: 'e', selectedTemplateId: 't' }),
+      goal_verification_label_write: () => ({ status: 404, body: { error: 'Not found', shape: 'goal_verification_label_write' } }),
+    });
+    const out = await provideFeedback({ dispatch_id: 'd-x', verdict: 'reached', rationale: 'r' }, apiClient);
+    expect(out).toStartWith('provide_feedback: no_producer(goal_verification_label_write): ');
+    expect(out).toContain('the producer refused the label');
+    expect(out).toContain('does not say which');
+    expect(out).toContain('no label was written');
   });
 });

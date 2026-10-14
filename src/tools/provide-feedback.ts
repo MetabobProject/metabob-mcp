@@ -133,7 +133,9 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
     // A write: never retried (src/attachment.ts@attachment-resolve).
     writeRes = await resolveShape(pointer, { timeoutMs: RESOLVE_TIMEOUT_MS.trace });
   } catch (err) {
-    return `provide_feedback: ${describeResolveFailure(err)}`;
+    return `provide_feedback: ${describeResolveFailure(err, {
+      noProducer: "no producer answered, or the producer refused the label (for example a required field it found missing); discovery's peer forward does not say which, and no label was written",
+    })}`;
   }
 
   const parsed = writeRes.body as { success?: boolean; error?: string; content?: string } | undefined;

@@ -234,11 +234,24 @@ function isTimeoutText(text: string): boolean {
 }
 
 /**
+ * The sentence after `no_producer(shape):`. Discovery's peer forward turns every
+ * non-2xx answer from a peer's producer into the same `404 {error:"Not found",
+ * shape}` discovery sends when it has no producer, so through a spoke the answer
+ * cannot tell "nothing produces this" from "the producer refused this request"
+ * or "the producer has no such item". The line says so rather than guess.
+ * SPEC §attachment
+ */
+// @anchor no-producer-line
+export const NO_PRODUCER_MEANING =
+  'discovery found no producer for this shape, or, through a peer forward, the producer refused the request or has no such item; the forward does not say which';
+
+/**
  * Discovery's own answers, told apart from a producer's: `404 {error:"Not found",
- * shape}` is "no producer for this shape" (a producer's 404 always carries more or
- * other fields), and `502 {error:"forward_failed", shape, detail}` is its forward
- * failing — cut at the producer's resolve_timeout_ms, or unreachable.
- * discovery-vessel src/index.ts, POST /resolve.
+ * shape}` is "no producer for this shape" — or a peer forward's flattening of a
+ * producer's refusal (NO_PRODUCER_MEANING); a producer's own 404 on this hop
+ * always carries more or other fields — and `502 {error:"forward_failed", shape,
+ * detail}` is its forward failing — cut at the producer's resolve_timeout_ms, or
+ * unreachable. discovery-vessel src/index.ts, POST /resolve.
  */
 export function classifyDiscoveryAnswer(
   shape: string,
@@ -249,7 +262,7 @@ export function classifyDiscoveryAnswer(
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const keys = Object.keys(b).sort().join(',');
   if (status === 404 && b.error === 'Not found' && b.shape === shape && keys === 'error,shape') {
-    return new ResolveError('no_producer', shape, `no_producer(${shape}): discovery has no producer for this shape`);
+    return new ResolveError('no_producer', shape, `no_producer(${shape}): ${NO_PRODUCER_MEANING}`);
   }
   if (status === 502 && b.error === 'forward_failed') {
     const detail = typeof b.detail === 'string' ? b.detail : '';
@@ -261,8 +274,16 @@ export function classifyDiscoveryAnswer(
   return null;
 }
 
-/** One line for any resolve failure, for a tool's output. */
-export function describeResolveFailure(err: unknown): string {
+/**
+ * One line for any resolve failure, for a tool's output. A tool that knows what
+ * the ambiguous `no_producer` can mean for its own request passes `noProducer`,
+ * which replaces the generic sentence (e.g. execution_trace: the trace may not
+ * exist). The `no_producer(shape)` token is kept either way.
+ */
+export function describeResolveFailure(err: unknown, opts: { noProducer?: string } = {}): string {
+  if (err instanceof ResolveError && err.kind === 'no_producer' && opts.noProducer) {
+    return `no_producer(${err.shape}): ${opts.noProducer}`;
+  }
   if (err instanceof ResolveError || err instanceof AttachmentRefusedError) return err.message;
   return err instanceof Error ? err.message : String(err);
 }

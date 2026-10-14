@@ -12,6 +12,7 @@ import {
   ResolveError,
   classifyDiscoveryAnswer,
   describeResolveFailure,
+  NO_PRODUCER_MEANING,
   resolveShape,
   setAttachment,
 } from '../../src/attachment';
@@ -29,6 +30,11 @@ describe('classifyDiscoveryAnswer', () => {
     const err = classifyDiscoveryAnswer('goalWalkState', 404, { error: 'Not found', shape: 'goalWalkState' }, 3);
     expect(err?.kind).toBe('no_producer');
     expect(err?.message).toStartWith('no_producer(goalWalkState)');
+    // Through a spoke the same 404 is a peer producer's refusal or missing item;
+    // the line keeps the token and says it cannot tell which.
+    expect(err?.message).toBe(`no_producer(goalWalkState): ${NO_PRODUCER_MEANING}`);
+    expect(NO_PRODUCER_MEANING).toContain('peer forward');
+    expect(NO_PRODUCER_MEANING).toContain('refused');
   });
 
   test("a producer's own 404 passes through", () => {
@@ -64,7 +70,7 @@ describe('attachment.resolve()', () => {
     await installShapeStub({});
     const err = await resolveShape({ type: 'nothingServesThis' }).catch((e) => e);
     expect(err).toBeInstanceOf(ResolveError);
-    expect(describeResolveFailure(err)).toBe('no_producer(nothingServesThis): discovery has no producer for this shape');
+    expect(describeResolveFailure(err)).toBe(`no_producer(nothingServesThis): ${NO_PRODUCER_MEANING}`);
   });
 
   test('a read cut at the producer timeout is retried with bounded backoff, then named', async () => {
@@ -160,7 +166,7 @@ describe('registry_query', () => {
   test('a discovery failure is one named line', async () => {
     await installShapeStub({});
     expect(await registryQuery({ mode: 'shapes' }, apiClient)).toBe(
-      'registry_query: no_producer(vesselRegistry): discovery has no producer for this shape',
+      `registry_query: no_producer(vesselRegistry): ${NO_PRODUCER_MEANING}`,
     );
   });
 });

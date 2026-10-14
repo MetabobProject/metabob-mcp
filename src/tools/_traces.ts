@@ -26,7 +26,12 @@ export async function readExecutionTrace(executionId: string): Promise<TraceRead
       { timeoutMs: RESOLVE_TIMEOUT_MS.trace, read: true },
     );
   } catch (err) {
-    return { kind: 'error', message: describeResolveFailure(err) };
+    return {
+      kind: 'error',
+      message: describeResolveFailure(err, {
+        noProducer: `no producer answered, or the trace ${executionId} does not exist (a satisfier-only reach persists no trace); discovery's peer forward does not say which`,
+      }),
+    };
   }
   if (res.status === 404) return { kind: 'not_found' };
   const body = res.body as { success?: boolean; content?: unknown; error?: string } | undefined;

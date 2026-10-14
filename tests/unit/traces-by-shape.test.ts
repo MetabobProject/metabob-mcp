@@ -77,7 +77,7 @@ describe('activityExecutionTrace', () => {
   test('no producer for the shape is one named line', async () => {
     await installShapeStub({});
     expect(await executionTrace({ execution_id: 'e1' }, apiClient)).toBe(
-      'execution_trace: no_producer(activityExecutionTrace): discovery has no producer for this shape',
+      "execution_trace: no_producer(activityExecutionTrace): no producer answered, or the trace e1 does not exist (a satisfier-only reach persists no trace); discovery's peer forward does not say which",
     );
   });
 });

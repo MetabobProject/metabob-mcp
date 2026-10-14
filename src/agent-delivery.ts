@@ -61,6 +61,9 @@ export async function deliverResolution(
     return { ok: true };
   } catch (err) {
     // no_producer, producer_timeout, … — transient from here; the answer stays queued.
+    // Through a peer forward goal-host's terminal 404 also arrives as no_producer
+    // (src/attachment.ts@no-producer-line), so an answer whose solicitation
+    // timed out on a peer's goal-host is retried each session, not retired.
     return { ok: false, error: describeResolveFailure(err) };
   }
 }

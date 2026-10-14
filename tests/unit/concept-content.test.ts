@@ -15,7 +15,7 @@ import type { AnalysisAPIClient } from '../../src/api-client';
 import * as ConceptSearch from '../../src/tools/concept-search';
 import * as ConceptNeighbors from '../../src/tools/concept-neighbors';
 import { truncateBody, renderConceptContent, PREVIEW_CHAR_BUDGET } from '../../src/tools/_concept-content';
-import { setAttachment } from '../../src/attachment';
+import { NO_PRODUCER_MEANING, setAttachment } from '../../src/attachment';
 import { installShapeStub } from '../helpers/shape-stub';
 
 let mockApiClient: AnalysisAPIClient;
@@ -202,7 +202,7 @@ test('concept_search strips the ⟨⟩ id decoration so the escape hatch is past
 test('concept_search names a discovery failure in one line', async () => {
   await installShapeStub({});
   expect(await ConceptSearch.handle(ConceptSearch.InputSchema.parse({}), mockApiClient)).toBe(
-    'concept_search: no_producer(conceptSearch): discovery has no producer for this shape',
+    `concept_search: no_producer(conceptSearch): ${NO_PRODUCER_MEANING}`,
   );
 });
 

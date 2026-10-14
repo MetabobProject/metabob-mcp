@@ -55,7 +55,12 @@ export async function readWalkState(dispatchId: string): Promise<WalkStateRead> 
   try {
     res = await resolveShape({ type: 'goalWalkState', dispatchId }, { timeoutMs: WALK_STATE_TIMEOUT_MS, read: true });
   } catch (err) {
-    return { kind: 'error', message: describeResolveFailure(err) };
+    return {
+      kind: 'error',
+      message: describeResolveFailure(err, {
+        noProducer: `no producer answered, or goal-host has no dispatch ${dispatchId} (unknown, or pruned from its in-memory records); discovery's peer forward does not say which`,
+      }),
+    };
   }
   if (res.status === 404) return { kind: 'not_found' };
   const body = res.body as { resolved?: boolean; body?: WalkState; error?: string } | undefined;
