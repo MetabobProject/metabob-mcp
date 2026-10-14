@@ -136,6 +136,10 @@
       "docs/SPEC.md": {
         "at": "0a603db",
         "why": "10edf65 changes only run_goal/run_goal_async's goal-parameter description (the edited file lives in the substrate's repos, not the workspace); behaviour, shapes and timing unchanged"
+      },
+      "lab/README.md": {
+        "at": "375cff0",
+        "why": "375cff0 makes check's temp-config removal actually happen, matching what the README already states; no behaviour the README describes changes"
       }
     }
   },
