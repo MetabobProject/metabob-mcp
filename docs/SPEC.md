@@ -436,7 +436,7 @@ The current analysis state in one snapshot, designed to feed an LLM deciding wha
 
 The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
 
-- **goal-host-vessel** — its shapes `goalDispatchAsync` (dispatch), `goalWalkState` (the dispatch record) and `solicitationResponse_write` (an answer), resolved through the attachment (§ Attachment; `src/tools/_goal-host.ts@readWalkState`, `src/tools/_goal-host.ts@dispatchGoal`). goal-host keeps dispatch records in memory, about the last 100, and `goalWalkState` carries the last 60 `walkLog` lines.
+- **goal-host-vessel** — its shapes `goalDispatchAsync` (dispatch), `goalWalkState` (the dispatch record) and `solicitationResponse_write` (an answer), resolved through the attachment (§ Attachment; `src/tools/_goal-host.ts@readWalkState`, `src/tools/_goal-host.ts@dispatchGoal`). goal-host keeps dispatch records in memory, about the last 100, and `goalWalkState` carries the last 60 `walkLog` lines. A `goalWalkState` read is capped at 15 s, since the record is in memory; a dispatch at goal-host's 60 s.
 - **activity-api** — traces are read through the attachment as `activityExecutionTrace` (§ execution_trace), and oracle labels written as `goal_verification_label_write` (§ provide_feedback).
 - **discovery** — `registry_query` resolves discovery's own shapes through the attachment (§ Attachment).
 

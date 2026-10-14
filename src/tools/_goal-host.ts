@@ -42,11 +42,18 @@ export type WalkStateRead =
   | { kind: 'not_found' }
   | { kind: 'error'; message: string };
 
-/** Read one dispatch record: a read, retried when goal-host is cut at its timeout. */
+/**
+ * The cap for one goalWalkState read. The record is in goal-host's memory, so a
+ * read answers in milliseconds; discovery's 60 s cut for goal-host is meant for
+ * dispatches, and a stuck read should be named and retried long before it.
+ */
+const WALK_STATE_TIMEOUT_MS = 15_000;
+
+/** Read one dispatch record: a read, retried when it is cut at its timeout. */
 export async function readWalkState(dispatchId: string): Promise<WalkStateRead> {
   let res;
   try {
-    res = await resolveShape({ type: 'goalWalkState', dispatchId }, { timeoutMs: RESOLVE_TIMEOUT_MS.goal, read: true });
+    res = await resolveShape({ type: 'goalWalkState', dispatchId }, { timeoutMs: WALK_STATE_TIMEOUT_MS, read: true });
   } catch (err) {
     return { kind: 'error', message: describeResolveFailure(err) };
   }
