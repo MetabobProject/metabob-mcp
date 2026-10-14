@@ -50,6 +50,15 @@ own sections below.
 
 ---
 
+## Agent instructions
+
+The `initialize` result carries MCP `instructions` (`src/server-instructions.ts@SERVER_INSTRUCTIONS`),
+which MCP clients place in the agent's context at connect time. They state what the server is for,
+point the agent at the `metabob` skill for sequencing, name the ledger and goal loops, separate the
+local tools from the substrate tools, and say that a named cause from a substrate tool is the
+attachment's state, diagnosed with `metabob-mcp attach --check`. They change only with the tool
+set: every tool they name exists in the registry, which the W4 skill-contract workflow test holds.
+
 ## Configuration
 
 **The attachment is two values: an API key and an endpoint.** Neither has a default. The substrate

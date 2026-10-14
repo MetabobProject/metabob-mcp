@@ -69,6 +69,8 @@ export interface ToolResult {
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export class McpServer {
+  /** The `initialize` result: serverInfo, capabilities, instructions. */
+  initializeResult: any;
   readonly home: string;
   private child: ChildProcess;
   private buffer = '';
@@ -128,6 +130,7 @@ export class McpServer {
       throw new Error(`initialize failed: ${JSON.stringify(init)}\n--- stderr ---\n${server.stderr}`);
     }
     server.notify('notifications/initialized', {});
+    server.initializeResult = init.result;
     return server;
   }
 

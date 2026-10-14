@@ -74,6 +74,16 @@ function expectWorks(tool: string, out: string): void {
 }
 
 describe('W4 skill contract', () => {
+  test('the server hands the agent instructions at connect, naming only real tools', () => {
+    const instructions: string = server.initializeResult?.instructions ?? '';
+    expect(instructions).toContain('`metabob` skill');
+    // Named attachment and network causes appear in backticks too; they are states, not tools.
+    const causes = new Set(['key_rejected', 'anchor_unreachable', 'proxy_auth_required']);
+    const named = backtickedIdentifiers(instructions).filter(id => !NOT_TOOLS.has(id) && !causes.has(id));
+    expect(named.length).toBeGreaterThan(8);
+    expect(named.filter(id => !toolNames.has(id))).toEqual([]);
+  });
+
   test('every tool the skill names exists in tools/list', () => {
     const named = backtickedIdentifiers(SKILL).filter(id => !paramNames.has(id) && !NOT_TOOLS.has(id));
     expect(named.length).toBeGreaterThan(10);

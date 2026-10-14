@@ -20,6 +20,7 @@ console.info = console.error;
 console.debug = console.error;
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { SERVER_INSTRUCTIONS } from './server-instructions.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -129,6 +130,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
+    instructions: SERVER_INSTRUCTIONS,
   }
 );
 

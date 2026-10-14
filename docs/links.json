@@ -248,6 +248,11 @@
           "network"
         ]
       },
+      "src/server-instructions.ts": {
+        "SPEC": [
+          "agent-instructions"
+        ]
+      },
       "src/tls-trust.ts": {
         "CONFORMANCE": [
           "c8-proxy-and-tls-in-the-vessel-role"
@@ -722,6 +727,7 @@
         "src/net.ts@trusted-cas",
         "src/os-proxy.ts@detect-os-proxy",
         "src/resolver-identity.ts@getResolverVesselId",
+        "src/server-instructions.ts@SERVER_INSTRUCTIONS",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_concept-content.ts@renderConceptContent",
@@ -853,6 +859,7 @@
       "src/net.ts@trusted-cas": "8d64a30d9de1",
       "src/os-proxy.ts@detect-os-proxy": "79ed88b1bb1d",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
+      "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
