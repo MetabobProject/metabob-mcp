@@ -237,8 +237,12 @@ describe('what a walk taught the substrate', () => {
 
   test('flags an observe request whose walk taught the substrate anyway', async () => {
     const { learningLines } = await import('../../src/tools/_goal-host.js');
-    const lines = learningLines({ goalPathRecorded: true, alphaBetaDelta: [] }, 'observe');
-    expect(lines[1]).toContain('observe was requested, but this walk taught the substrate');
+    const taught = learningLines({ goalPathRecorded: true, alphaBetaDelta: [{ templateId: 't', dBeta: 1 }] }, 'observe');
+    expect(taught[1]).toContain('observe was requested, but this walk taught the substrate');
+    // goal-host sets goalPathRecorded under observe without writing; alone it is not a mismatch.
+    const flagOnly = learningLines({ goalPathRecorded: true, alphaBetaDelta: [], gapsFiled: [] }, 'observe');
+    expect(flagOnly[1]).toContain('sets that flag without writing one under observe');
+    expect(flagOnly.join('\n')).not.toContain('⚠');
     expect(learningLines({ goalPathRecorded: false, alphaBetaDelta: [] }, 'observe')).toEqual(['  learning:           none recorded']);
   });
 

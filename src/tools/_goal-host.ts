@@ -160,6 +160,14 @@ export function learningLines(learning: unknown, requested?: 'observe' | 'learn'
   if (l.gapsFiled?.length) parts.push(`gaps filed ${l.gapsFiled.join(', ')}`);
   if (l.oracleLabelWritten) parts.push('oracle label written');
   const lines = [`  learning:           ${parts.join('; ')}`];
-  if (requested === 'observe') lines.push('  ⚠ observe was requested, but this walk taught the substrate (see learning above)');
+  if (requested === 'observe') {
+    // goal-host sets goalPathRecorded on its trace branch whether or not it wrote the
+    // path, so under observe the flag alone is not evidence of a write; posterior
+    // changes, filed gaps and labels are.
+    const recorded = (l.alphaBetaDelta?.length ?? 0) > 0 || (l.gapsFiled?.length ?? 0) > 0 || Boolean(l.oracleLabelWritten);
+    lines.push(recorded
+      ? '  ⚠ observe was requested, but this walk taught the substrate (see learning above)'
+      : '  (observe: goal-host reports a goal path but sets that flag without writing one under observe; no posterior, gap or label was recorded)');
+  }
   return lines;
 }
