@@ -213,7 +213,9 @@ export function principalLines(record: { principal?: DispatchPrincipal | null; o
     lines.push(`  operator label:     ${record.operator_label} (claimed, unverified)`);
   }
   if (p && typeof p === 'object' && p.operator === false) {
-    lines.push('  ran without operator authority: an ordinary keyed caller; directed edits and operator priority do not apply');
+    lines.push(p.kind === 'node_self'
+      ? '  ran without operator authority (node self-call): the node\'s own key never carries operator authority; directed edits and operator priority do not apply'
+      : '  ran without operator authority: an ordinary keyed caller; directed edits and operator priority do not apply');
   }
   return lines;
 }

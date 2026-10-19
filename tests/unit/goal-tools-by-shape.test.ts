@@ -306,7 +306,10 @@ describe('principal rendering', () => {
     const lines = principalLines({ principal: { kind: 'key', operator: false, label: 'key:key_SECRETID' } });
     expect(lines.join('\n')).not.toContain('key_SECRETID');
     expect(lines[0]).toContain('key id withheld');
-    expect(principalLines({ principal: { kind: 'node_self', operator: false, tag: 'node-self:in-process' } })[0])
-      .toBe('  principal:          node_self (node-self:in-process)');
+    const nodeSelf = principalLines({ principal: { kind: 'node_self', operator: false, tag: 'node-self:in-process' } });
+    expect(nodeSelf[0]).toBe('  principal:          node_self (node-self:in-process)');
+    // The node's own key is not "an ordinary keyed caller"; the line says what it is.
+    expect(nodeSelf.join('\n')).toContain('ran without operator authority (node self-call)');
+    expect(nodeSelf.join('\n')).not.toContain('an ordinary keyed caller');
   });
 });
