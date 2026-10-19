@@ -135,8 +135,8 @@
         "why": "e551c35 only spaces out goalWalkState/goal_status polls (3 quick, then up to 15 s); every request stays short and within 60 s (CONFORMANCE c11), and lab check still polls until reached: yes as lab/README states"
       },
       "docs/SPEC.md": {
-        "at": "703a2c1",
-        "why": "183d06c rewords no_producer's sentence only (token and kind unchanged); the tool-description commit changes description text only; behaviour the docs state is unchanged"
+        "at": "573e006",
+        "why": "f024dcc fixes Windows path comparison (realpathSync.native) and strips a drive letter like a leading '/'; the SPEC's repository-identity description (normalized remote, subpath, basename fallback) is unchanged"
       },
       "lab/README.md": {
         "at": "e551c35",
