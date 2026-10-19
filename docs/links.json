@@ -130,8 +130,8 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "2addd75",
-        "why": "the learning-consequences line changes goal tool output only; env vars, tool rows and requirement statuses are unchanged"
+        "at": "b635cc6",
+        "why": "b635cc6 changes only a code comment in src/tools/index.ts (citation fix); the tool registry CLAUDE.md describes is unchanged"
       },
       "docs/CONFORMANCE.md": {
         "at": "2addd75",
