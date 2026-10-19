@@ -1,6 +1,6 @@
 # @metabob/mcp
 
-MCP server exposing Metabob code analysis to AI agents (Claude Code, Cursor, Continue, and other MCP clients).
+A shared work ledger, code-structure tools and the substrate cockpit for AI agents (Claude Code, Cursor, Continue, and other MCP clients). Your workspace stays on your machine: the code index is local, and agents share only the findings and knowledge they record.
 
 Start with the [user guide](docs/USER-GUIDE.md) for setup, shared memory, agent coordination, reusable procedures, and human controls.
 

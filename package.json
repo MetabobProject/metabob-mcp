@@ -1,7 +1,7 @@
 {
   "name": "@metabob/mcp",
   "version": "0.3.0",
-  "description": "MCP server exposing Metabob analysis capabilities to AI agents",
+  "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
   "type": "module",
   "bin": {
     "mcp": "dist/cli.js",
@@ -34,7 +34,9 @@
     "claude",
     "cursor",
     "code-property-graph",
-    "cpg"
+    "cpg",
+    "impact-analysis",
+    "agent-coordination"
   ],
   "author": "Metabob Inc.",
   "license": "PROPRIETARY",
