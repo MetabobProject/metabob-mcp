@@ -2,6 +2,8 @@
 
 MCP server exposing Metabob code analysis to AI agents (Claude Code, Cursor, Continue, and other MCP clients).
 
+Start with the [user guide](docs/USER-GUIDE.md) for setup, shared memory, agent coordination, reusable procedures, and human controls.
+
 ## Quick Start
 
 On a machine the substrate installer has set up, there is nothing to configure: the installer writes

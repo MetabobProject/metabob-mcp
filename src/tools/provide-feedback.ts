@@ -85,7 +85,7 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
   // 1. The dispatch record (auto-derive goal / exec / template).
   const read = await readWalkState(input.dispatch_id);
   if (read.kind === 'not_found') {
-    return `provide_feedback: dispatch ${input.dispatch_id} not found (records are in-memory and capped ~100). Supply an explicit goal + executionId if you still have them.`;
+    return `provide_feedback: dispatch ${input.dispatch_id} not found (records are in-memory and capped ~100), so its executionId and template cannot be derived and no label can be written. Keep your verdict and the IDs you saved in a durable record instead.`;
   }
   if (read.kind === 'error') {
     return `provide_feedback: ${read.message}`;

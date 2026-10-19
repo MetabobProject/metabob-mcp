@@ -9,7 +9,8 @@
       "LAB": "lab/README.md",
       "PUBLISHING": "docs/PUBLISHING.md",
       "QUICK_START": "docs/QUICK_START.md",
-      "SPEC": "docs/SPEC.md"
+      "SPEC": "docs/SPEC.md",
+      "USER_GUIDE": "docs/USER-GUIDE.md"
     },
     "live": [
       "CLAUDE.md",
@@ -21,6 +22,7 @@
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
       "docs/SPEC.md",
+      "docs/USER-GUIDE.md",
       "lab/README.md",
       "scripts/git-hooks/README.md",
       "skills/metabob/SKILL.md"
@@ -123,7 +125,8 @@
     },
     "notDocs": [],
     "notCode": [
-      "Node.js"
+      "Node.js",
+      "src/example.ts"
     ],
     "reviewed": {
       "CLAUDE.md": {
@@ -638,6 +641,7 @@
       "README.md": [
         "CLAUDE.md",
         "docs/SPEC.md",
+        "docs/USER-GUIDE.md",
         "scripts/git-hooks/install.sh"
       ],
       "docs/CONFORMANCE.md": [
@@ -831,6 +835,12 @@
         "src/vessel-server.ts@resolveImpulseContent",
         "src/vessel-server.ts@resolvePointerToTool",
         "tests/workflows/networks/matrix.test.ts"
+      ],
+      "docs/USER-GUIDE.md": [
+        "README.md",
+        "docs/COORDINATION-DEMONSTRATION.md",
+        "docs/METABOB-VALUE-HYPOTHESIS.md",
+        "docs/SPEC.md"
       ],
       "lab/README.md": [
         "lab/check-goal.ts",
