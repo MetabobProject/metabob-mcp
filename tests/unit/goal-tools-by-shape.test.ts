@@ -81,7 +81,7 @@ describe('run_goal_async', () => {
     await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-q', status: 'running' } }) });
     const out = await runGoalAsync({ goal: 'probe', learning_mode: 'observe' }, apiClient);
     expect(out).toContain('learning_mode: observe (requested;');
-    expect(out).toContain('does not apply it yet');
+    expect(out).toContain('a goal-host older than the goalDispatchAsync learning_mode forward still learns');
   });
 
   test('MB_OPERATOR_ID overrides the operator stamp', async () => {

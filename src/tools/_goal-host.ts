@@ -131,7 +131,7 @@ export interface LearningConsequences {
 export function requestedLearningModeLine(mode: 'observe' | 'learn' | undefined): string | null {
   if (!mode) return null;
   return mode === 'observe'
-    ? '  learning_mode:      observe (requested; goal-host\'s goalDispatchAsync path does not apply it yet, so the walk may still learn — the `learning:` line of goal_status shows what it taught)'
+    ? '  learning_mode:      observe (requested; a goal-host older than the goalDispatchAsync learning_mode forward still learns — the `learning:` line of goal_status shows what the walk taught)'
     : '  learning_mode:      learn (requested)';
 }
 
