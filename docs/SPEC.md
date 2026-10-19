@@ -101,15 +101,21 @@ When the server does not attach, `metabob-mcp attach --check` is the first step 
 
 Config resolution is **directory-aware, like git**: a project can pin its own backend with
 `.substrate/config.json` or `.metabob/config.json` in the directory the server is launched from (MCP
-clients spawn stdio servers with cwd = project root). The first that exists wins
-(`src/config.ts@config-lookup`, `src/config.ts@resolveConfigPath`):
+clients spawn stdio servers with cwd = project root). The first file that exists **and is this
+server's config** wins (`src/config.ts@config-lookup`, `src/config.ts@lookupConfig`,
+`src/config.ts@resolveConfigPath`):
 
 1. `SUBSTRATE_CONFIG_PATH`, then `METABOB_CONFIG_PATH` — an explicit file;
 2. `./.substrate/config.json`, then `./.metabob/config.json`;
 3. `~/.substrate/config.json` — what the substrate installer writes;
 4. `~/.metabob/config.json`.
 
-When none exists, `~/.substrate/config.json` is the path named as the one to create.
+A file is this server's config when it is a JSON object with a top-level `metabob` (or legacy
+`instance`) section. Other tools keep their own `.metabob/config.json` — metabob-cli's holds `base_url`
+and `state_directory` — so a file without that section, or one that is not valid JSON, is skipped with a
+one-line warning naming it and the reason, and the lookup continues. A file named explicitly by
+`SUBSTRATE_CONFIG_PATH` or `METABOB_CONFIG_PATH` is read as named and never skipped. When no file
+qualifies, `~/.substrate/config.json` is the path named as the one to create.
 
 The installer's environment names are accepted alongside this server's: `SUBSTRATE_API_KEY` and
 `SUBSTRATE_ENDPOINT` fill `METABOB_API_KEY` and `METABOB_ENDPOINT` when those are unset

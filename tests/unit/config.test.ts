@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, configuredSubstrateUrls, deriveLocalDiscoveryEndpoint, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
+import { applyConfigDefaults, applyConfiguration, configuredSubstrateUrls, deriveLocalDiscoveryEndpoint, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, lookupConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -269,7 +269,7 @@ function makeTempDir(): string {
 test('getDefaultConfigPath prefers project-local .metabob/config.json over the user config', () => {
   const proj = makeTempDir();
   mkdirSync(join(proj, '.metabob'), { recursive: true });
-  writeFileSync(join(proj, '.metabob', 'config.json'), '{}', 'utf-8');
+  writeFileSync(join(proj, '.metabob', 'config.json'), '{"metabob":{}}', 'utf-8');
 
   const prevCwd = process.cwd();
   try {
@@ -284,7 +284,7 @@ test('getDefaultConfigPath prefers the installer-named ./.substrate/config.json 
   const proj = makeTempDir();
   for (const dir of ['.substrate', '.metabob']) {
     mkdirSync(join(proj, dir), { recursive: true });
-    writeFileSync(join(proj, dir, 'config.json'), '{}', 'utf-8');
+    writeFileSync(join(proj, dir, 'config.json'), '{"metabob":{}}', 'utf-8');
   }
   const prevCwd = process.cwd();
   try {
@@ -418,4 +418,71 @@ test('port-published substrates derive discovery from the port block, remote one
   expect(deriveLocalDiscoveryEndpoint('https://substrate.example')).toBeUndefined();
   // A port outside the convention derives nothing.
   expect(deriveLocalDiscoveryEndpoint('http://127.0.0.1:18081')).toBeUndefined();
+});
+
+test('a project file in another tool\'s format does not shadow the user config', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  // metabob-cli's own .metabob/config.json: no `metabob` section.
+  writeFileSync(join(proj, '.metabob', 'config.json'), JSON.stringify({ base_url: 'http://x', state_directory: '.metabob/state' }), 'utf-8');
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    const found = lookupConfig();
+    expect(found.path).not.toContain(proj);
+    expect(found.skipped).toEqual([{ path: join(proj, '.metabob', 'config.json'), reason: expect.stringContaining('no `metabob` section') }]);
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
+test('an unparseable project file is skipped with its reason, and a valid one later in the order wins', () => {
+  const proj = makeTempDir();
+  for (const [dir, body] of [['.substrate', '{not json'], ['.metabob', '{"metabob":{"apiKey":"k"}}']] as const) {
+    mkdirSync(join(proj, dir), { recursive: true });
+    writeFileSync(join(proj, dir, 'config.json'), body, 'utf-8');
+  }
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    const found = lookupConfig();
+    expect(found.path).toBe(join(proj, '.metabob', 'config.json'));
+    expect(found.skipped[0]!.reason).toContain('not valid JSON');
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
+test('applyConfiguration warns once per skipped file, and never skips an explicitly named one', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  const foreign = join(proj, '.metabob', 'config.json');
+  writeFileSync(foreign, JSON.stringify({ base_url: 'http://x' }), 'utf-8');
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    const lookedUp = applyConfiguration({});
+    expect(lookedUp.warnings.filter(w => w.includes(foreign))).toHaveLength(1);
+    const explicit = applyConfiguration({ METABOB_CONFIG_PATH: foreign });
+    expect(explicit.configPath).toBe(foreign);
+    expect(explicit.warnings.some(w => w.startsWith('skipped'))).toBe(false);
+  } finally {
+    process.chdir(prevCwd);
+  }
+});
+
+test('the not-attached message names a file the lookup skipped', () => {
+  const proj = makeTempDir();
+  mkdirSync(join(proj, '.metabob'), { recursive: true });
+  const foreign = join(proj, '.metabob', 'config.json');
+  writeFileSync(foreign, JSON.stringify({ base_url: 'http://x' }), 'utf-8');
+  const prevCwd = process.cwd();
+  try {
+    process.chdir(proj);
+    const msg = unattachedMessage({}) ?? '';
+    expect(msg).toContain('Not attached');
+    expect(msg).toContain(`Skipped as not this server's config: ${foreign}`);
+  } finally {
+    process.chdir(prevCwd);
+  }
 });

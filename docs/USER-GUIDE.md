@@ -66,7 +66,7 @@ The version is pinned to the version this guide describes. When the substrate in
 }
 ```
 
-Use your substrate's endpoint; there is no default. Keep credentials out of committed configuration. Config-file selection checks `SUBSTRATE_CONFIG_PATH`, then `METABOB_CONFIG_PATH`, then `.substrate/config.json` and `.metabob/config.json` in the server's launch directory, then `~/.substrate/config.json` and `~/.metabob/config.json`. CLI flags override environment settings, which override file settings. Advanced endpoint overrides are documented in the [specification](SPEC.md#configuration).
+Use your substrate's endpoint; there is no default. Keep credentials out of committed configuration. Config-file selection checks `SUBSTRATE_CONFIG_PATH`, then `METABOB_CONFIG_PATH`, then `.substrate/config.json` and `.metabob/config.json` in the server's launch directory, then `~/.substrate/config.json` and `~/.metabob/config.json`. A `.metabob/config.json` written by another tool (with no `metabob` section) is skipped with a warning, so it never hides your installer config. CLI flags override environment settings, which override file settings. Advanced endpoint overrides are documented in the [specification](SPEC.md#configuration).
 
 Reconnect the MCP client. Confirm that it lists tools such as `init_workspace` and `analyze_impact`. Running the server in a terminal alone does not connect it to your agent. To check the connection to the substrate, run `npx @metabob/mcp@0.3.0 attach --check`: it reports each step (proxy, TLS, `/bootstrap`, identity, the key check, one read) and names the cause when one fails.
 

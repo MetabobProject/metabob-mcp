@@ -38,15 +38,54 @@ export interface MetabobCLIConfig {
  * has none. SUBSTRATE_CONFIG_PATH, then METABOB_CONFIG_PATH, override all of
  * them (configPathFromEnv). SPEC §configuration-lookup
  */
-export function getDefaultConfigPath(): string {
+export interface ConfigLookup {
+  /** The file this process reads (the installer's path, named as the one to create, when none qualifies). */
+  path: string;
+  /** Files that exist earlier in the order but are not this server's config, with why. */
+  skipped: Array<{ path: string; reason: string }>;
+}
+
+/**
+ * Why a file in the lookup order is not this server's config, or null when it is.
+ * A config is a JSON object with a top-level `metabob` (or legacy `instance`)
+ * section. Other tools keep their own `.metabob/config.json` — metabob-cli's
+ * holds `base_url` and `state_directory` — and such a file must not shadow the
+ * installer's config further down the order.
+ */
+function notOurConfig(path: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (error) {
+    return `not valid JSON (${error instanceof Error ? error.message.slice(0, 80) : String(error)})`;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'not a JSON object';
+  const o = parsed as Record<string, unknown>;
+  const section = (k: string) => o[k] !== undefined && typeof o[k] === 'object' && o[k] !== null;
+  return section('metabob') || section('instance') ? null : 'no `metabob` section (another tool\'s file)';
+}
+
+/** The lookup order's choice: the first existing file that is this server's config. */
+export function lookupConfig(): ConfigLookup {
   const candidates = [
     join(process.cwd(), '.substrate', 'config.json'),
     join(process.cwd(), '.metabob', 'config.json'),
     join(homedir(), '.substrate', 'config.json'),
     join(homedir(), '.metabob', 'config.json'),
   ];
-  // None exists: name the installer's path, the one to create.
-  return candidates.find((c) => existsSync(c)) ?? candidates[2]!;
+  const skipped: ConfigLookup['skipped'] = [];
+  for (const c of candidates) {
+    if (!existsSync(c)) continue;
+    const reason = notOurConfig(c);
+    if (!reason) return { path: c, skipped };
+    skipped.push({ path: c, reason });
+  }
+  // None qualifies: name the installer's path, the one to create.
+  return { path: candidates[2]!, skipped };
+}
+
+export function getDefaultConfigPath(): string {
+  return lookupConfig().path;
 }
 
 /** An explicit config path from the environment: SUBSTRATE_CONFIG_PATH, then METABOB_CONFIG_PATH. */
@@ -307,9 +346,14 @@ export function unattachedMessage(env: NodeJS.ProcessEnv = process.env): string 
     hasKey ? null : 'an API key (METABOB_API_KEY or SUBSTRATE_API_KEY, or metabob.apiKey in a config file)',
     hasEndpoint ? null : 'a substrate endpoint (METABOB_ENDPOINT or SUBSTRATE_ENDPOINT, or metabob.endpoint in a config file)',
   ].filter(Boolean).join(' and ');
+  // A file the lookup skipped is often why nothing was found: name it.
+  const skipped = configPathFromEnv(env) ? [] : lookupConfig().skipped;
+  const skippedNote = skipped.length
+    ? ` Skipped as not this server's config: ${skipped.map(x => `${x.path} (${x.reason})`).join('; ')}.`
+    : '';
   return (
     `Not attached to a substrate: missing ${missing}. ` +
-    `Config files are read from ${CONFIG_LOOKUP_ORDER}. ` +
+    `Config files are read from ${CONFIG_LOOKUP_ORDER}.${skippedNote} ` +
     'Local tools work; substrate tools are unavailable until this is set.'
   );
 }
@@ -340,6 +384,11 @@ export function configuredSubstrateUrls(env: NodeJS.ProcessEnv = process.env): s
  */
 export function applyConfiguration(env: NodeJS.ProcessEnv = process.env): { configPath: string; warnings: string[] } {
   const warnings = applySubstrateEnvAliases(env);
+  if (!configPathFromEnv(env)) {
+    for (const { path, reason } of lookupConfig().skipped) {
+      warnings.push(`skipped ${path}: ${reason}; reading the next file in the lookup order`);
+    }
+  }
   const envConfig = loadMetabobEnvConfig(env);
   applyConfigDefaults(env, envConfig);
   const configPath = resolveConfigPath(env);
