@@ -226,20 +226,27 @@ describe('provide_feedback', () => {
   });
 });
 
-describe('effective learning mode from the walk log', () => {
-  test('reads learningMode= from the last PRECONDITIONS line, and says nothing when absent', async () => {
-    const { effectiveLearningMode, learningModeLine } = await import('../../src/tools/_goal-host.js');
-    expect(effectiveLearningMode(['a', 'recordGoalPath PRECONDITIONS chain=1 learningMode=observe reached=true'])).toBe('observe');
-    expect(effectiveLearningMode(['recordGoalPath PRECONDITIONS chain=1 learningMode=undefined reached=true'])).toBe('learn');
-    expect(effectiveLearningMode(['no mode here'])).toBeNull();
-    expect(learningModeLine(undefined)).toBeNull();
+describe('what a walk taught the substrate', () => {
+  test('learningLines reports goal-host\'s learning consequences, and says when none are reported', async () => {
+    const { learningLines } = await import('../../src/tools/_goal-host.js');
+    expect(learningLines(null)).toEqual(['  learning:           not reported by goal-host for this dispatch']);
+    expect(learningLines({ alphaBetaDelta: [], gapsFiled: [], goalPathRecorded: false, oracleLabelWritten: false })).toEqual(['  learning:           none recorded']);
+    expect(learningLines({ alphaBetaDelta: [{ templateId: 'satisfier:shellResult', dAlpha: 2 }], gapsFiled: ['gap-x'], goalPathRecorded: true, oracleLabelWritten: false }))
+      .toEqual(['  learning:           goal path recorded; posteriors satisfier:shellResult α+2; gaps filed gap-x']);
   });
 
-  test('goal_status shows the effective mode next to reached', async () => {
+  test('flags an observe request whose walk taught the substrate anyway', async () => {
+    const { learningLines } = await import('../../src/tools/_goal-host.js');
+    const lines = learningLines({ goalPathRecorded: true, alphaBetaDelta: [] }, 'observe');
+    expect(lines[1]).toContain('observe was requested, but this walk taught the substrate');
+    expect(learningLines({ goalPathRecorded: false, alphaBetaDelta: [] }, 'observe')).toEqual(['  learning:           none recorded']);
+  });
+
+  test('goal_status shows the learning line for a finished dispatch', async () => {
     await installShapeStub({
       goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true,
-        walkLog: ['recordGoalPath PRECONDITIONS chain=1 learningMode=undefined reached=true'] }),
+        learning: { alphaBetaDelta: [], gapsFiled: [], goalPathRecorded: true, oracleLabelWritten: false } }),
     });
-    expect(await goalStatus({ dispatch_id: 'd-m' }, apiClient)).toContain('learning mode:      learn (effective, per the walk log)');
+    expect(await goalStatus({ dispatch_id: 'd-m' }, apiClient)).toContain('learning:           goal path recorded');
   });
 });

@@ -32,6 +32,8 @@ export interface WalkState {
   operator?: string | null;
   goal?: string;
   goalReachReason?: string | null;
+  /** What the walk taught the substrate (goal-host's LearningConsequences), or null when not reported. */
+  learning?: LearningConsequences | null;
   /** The walk's decision lines, in order (goal-host keeps the last 60 here). */
   walkLog?: string[];
   stateSignature?: unknown;
@@ -118,32 +120,46 @@ export function dispatchFailure(tool: string, d: { status: number; error?: strin
   return [`${tool}: ${d.status}`, d.error ? `  error: ${d.error}` : null].filter(Boolean).join('\n');
 }
 
-/**
- * The learning mode goal-host applied to a walk, read from its walk log
- * (`recordGoalPath PRECONDITIONS … learningMode=<mode>`), or null when the log
- * does not say. goal-host's default is `learn`; it logs `undefined` for that.
- */
-export function effectiveLearningMode(walkLog: unknown): 'observe' | 'learn' | null {
-  if (!Array.isArray(walkLog)) return null;
-  for (let i = walkLog.length - 1; i >= 0; i--) {
-    const line = walkLog[i];
-    if (typeof line !== 'string') continue;
-    const m = /learningMode=(\w+)/.exec(line);
-    if (m) return m[1] === 'observe' ? 'observe' : 'learn';
-  }
-  return null;
+export interface LearningConsequences {
+  alphaBetaDelta?: Array<{ templateId?: string; dAlpha?: number; dBeta?: number }>;
+  gapsFiled?: string[];
+  goalPathRecorded?: boolean;
+  oracleLabelWritten?: boolean;
 }
 
 /** One line stating a requested learning mode as a request, not an outcome. */
 export function requestedLearningModeLine(mode: 'observe' | 'learn' | undefined): string | null {
   if (!mode) return null;
   return mode === 'observe'
-    ? '  learning_mode:      observe (requested; goal-host\'s goalDispatchAsync path does not apply it yet, so the walk may still learn — goal_status / goal_reasoning show the effective mode when the walk log records it)'
+    ? '  learning_mode:      observe (requested; goal-host\'s goalDispatchAsync path does not apply it yet, so the walk may still learn — the `learning:` line of goal_status shows what it taught)'
     : '  learning_mode:      learn (requested)';
 }
 
-/** The `learning mode:` line for a finished or running dispatch, when the walk log records it. */
-export function learningModeLine(walkLog: unknown): string | null {
-  const mode = effectiveLearningMode(walkLog);
-  return mode ? `  learning mode:      ${mode} (effective, per the walk log)` : null;
+/** True when the walk changed what the substrate has learned. */
+function taught(l: LearningConsequences): boolean {
+  return Boolean(l.goalPathRecorded || (l.alphaBetaDelta?.length ?? 0) > 0 || (l.gapsFiled?.length ?? 0) > 0 || l.oracleLabelWritten);
+}
+
+/**
+ * The `learning:` line(s) for a dispatch record: what the walk actually taught
+ * the substrate (goal-host's `learning` consequences — paths, posteriors, gaps,
+ * oracle labels), and a mismatch line when `observe` was requested but the walk
+ * taught anyway. Absent consequences are said, never read as "none".
+ */
+export function learningLines(learning: unknown, requested?: 'observe' | 'learn'): string[] {
+  if (!learning || typeof learning !== 'object') {
+    return ['  learning:           not reported by goal-host for this dispatch'];
+  }
+  const l = learning as LearningConsequences;
+  if (!taught(l)) return ['  learning:           none recorded'];
+  const parts: string[] = [];
+  if (l.goalPathRecorded) parts.push('goal path recorded');
+  const deltas = (l.alphaBetaDelta ?? []).map(d =>
+    `${d.templateId ?? '?'} ${d.dAlpha ? `α+${d.dAlpha}` : ''}${d.dAlpha && d.dBeta ? ' ' : ''}${d.dBeta ? `β+${d.dBeta}` : ''}`.trim());
+  if (deltas.length) parts.push(`posteriors ${deltas.join(', ')}`);
+  if (l.gapsFiled?.length) parts.push(`gaps filed ${l.gapsFiled.join(', ')}`);
+  if (l.oracleLabelWritten) parts.push('oracle label written');
+  const lines = [`  learning:           ${parts.join('; ')}`];
+  if (requested === 'observe') lines.push('  ⚠ observe was requested, but this walk taught the substrate (see learning above)');
+  return lines;
 }

@@ -19,7 +19,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { describeResolveFailure } from '../attachment.js';
 import { operatorId } from '../operator-id.js';
-import { dispatchFailure, dispatchGoal, learningModeLine, readWalkState, requestedLearningModeLine, type WalkState } from './_goal-host.js';
+import { dispatchFailure, dispatchGoal, learningLines, readWalkState, requestedLearningModeLine, type WalkState } from './_goal-host.js';
 
 // @anchor run-goal-deadline
 /** The polling deadline: how long run_goal waits for the goal before handing back its dispatchId. */
@@ -129,7 +129,7 @@ function finished(dispatchId: string, record: WalkState, duration: number, reque
     record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
     record.error ? `  error:              ${record.error}` : null,
     requestedLearningModeLine(requested),
-    learningModeLine(record.walkLog),
+    ...learningLines(record.learning, requested),
     `  duration:           ${duration}ms`,
   ].filter(Boolean).join('\n');
 }
