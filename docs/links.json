@@ -134,8 +134,8 @@
         "why": "b635cc6 changes only a code comment in src/tools/index.ts (citation fix); the tool registry CLAUDE.md describes is unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "4d4d96c",
-        "why": "635e16f/4d4d96c add principal lines to goal tool output only; run_goal's polling, shapes and the 60 s bound (c11) are unchanged"
+        "at": "88c7b53",
+        "why": "88c7b53 changes config-file selection (skips files with no metabob section) and the not-attached message; anchoring inputs (C4) are unchanged"
       },
       "docs/SPEC.md": {
         "at": "a9d5878",
