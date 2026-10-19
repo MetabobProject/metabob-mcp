@@ -159,7 +159,7 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.
 ### Claude Code plugin (MCP server + skill)
 
 This repo doubles as a plugin marketplace. The plugin bundles the MCP server
-and the `metabob` sequencing skill:
+and the `metabob` participation skill (how an agent takes part: coordinator, operator, verifier, client of shared memory):
 
 ```bash
 claude plugin marketplace add MetabobProject/metabob-mcp

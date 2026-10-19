@@ -20,7 +20,7 @@ const BOOT_TIMEOUT_MS = 30_000;
 const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob', 'SKILL.md'), 'utf8');
 
 /** Identifiers the skill writes in backticks that are values, not tools or parameters. */
-const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input']);
+const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input', 'not_reached']);
 
 let fake: FakeSubstrate;
 let server: McpServer;
@@ -93,19 +93,30 @@ describe('W4 skill contract', () => {
     }
   });
 
+  test('the skill frames participation by role and keeps the agent from grading itself', () => {
+    for (const role of ['coordinator', 'operator', 'verifier', 'client of shared memory']) {
+      expect(SKILL.toLowerCase()).toContain(`role: ${role}`);
+    }
+    expect(SKILL).toContain('Never grade your own work');
+    expect(SKILL).toContain('learning_mode: "observe"');
+    expect(SKILL).toContain('`automated`');
+    // Paths the substrate does not yet stamp with a principal are never taught as capabilities.
+    expect(SKILL).not.toMatch(/poolImpulse_write|execution-traces/);
+  });
+
   test('every tool the skill names exists in tools/list', () => {
     const named = backtickedIdentifiers(SKILL).filter(id => !paramNames.has(id) && !NOT_TOOLS.has(id));
     expect(named.length).toBeGreaterThan(10);
     expect(named.filter(id => !toolNames.has(id))).toEqual([]);
   });
 
-  test('Phase 0 — orient', async () => {
+  test('start of session — orient', async () => {
     expectWorks('get_analysis_context', await server.text('get_analysis_context'));
     expectWorks('get_problems', await server.text('get_problems'));
     expectWorks('concept_search', await server.text('concept_search', { shape: 'code_finding' }));
   });
 
-  test('Phase 0 — the skill and the tools agree that nothing is dispatched to a client-only session', async () => {
+  test('what this session does not do — nothing is dispatched to a client-only session', async () => {
     const step = stepMentioning(SKILL, '`pull_assigned_work`');
     expect(step).toContain('advertises nothing');
     expect(step).not.toContain('METABOB_AGENT_RESOLVER');
@@ -121,12 +132,12 @@ describe('W4 skill contract', () => {
     expect(submitted).not.toContain('METABOB_AGENT_RESOLVER');
   });
 
-  test('Phase 1 — adopt the codebase', async () => {
+  test('start of session — index the workspace', async () => {
     const out = await server.text('init_workspace', { workspace_path: workspace });
     expect(out).toMatch(/Local index:\s*[1-9]\d*\/\d+ files parsed/);
   });
 
-  test('Phase 2 — working cadence', async () => {
+  test('working safely in the code, and recording to the ledger', async () => {
     const impact = await server.text('analyze_impact', { changed_files: ['src/session.ts'] });
     expectWorks('analyze_impact', impact);
     expect(impact).not.toMatch(/run init_workspace/i);
@@ -141,7 +152,7 @@ describe('W4 skill contract', () => {
     expect(recorded).toContain('shared org-wide via concept-db');
   });
 
-  test('Phase 4 — close out', async () => {
+  test('close out — close findings and record decisions', async () => {
     expectWorks('assign_git_changes', await server.text('assign_git_changes', { changed_files: ['src/session.ts'] }));
 
     const problems = await server.text('get_problems');

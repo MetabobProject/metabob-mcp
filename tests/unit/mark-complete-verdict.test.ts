@@ -158,7 +158,7 @@ test('SKILL.md does not tell agents the concept-only call is refused', async () 
   ).text();
 
   const lines = skill.split('\n');
-  const start = lines.findIndex(l => l.includes('`mark_complete` for **every** problem'));
+  const start = lines.findIndex(l => l.includes('**Close**: `mark_complete`'));
   expect(start).toBeGreaterThan(-1); // the step still exists at all
   const rest = lines.slice(start + 1);
   const end = rest.findIndex(l => /^\d+\. /.test(l.trim()));

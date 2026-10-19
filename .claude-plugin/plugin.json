@@ -1,7 +1,7 @@
 {
   "name": "metabob",
-  "version": "0.3.0",
-  "description": "Metabob code intelligence: CPG structure, impact analysis, co-change prediction, cross-agent findings, and org-wide design memory. Bundles the metabob MCP server and the sequencing skill. Setup: the substrate installer writes your API key and endpoint to ~/.substrate/config.json; otherwise set METABOB_API_KEY and METABOB_ENDPOINT. Check the connection with `npx @metabob/mcp attach --check`.",
+  "version": "0.3.1",
+  "description": "Metabob for AI agents: take part in the substrate \u2014 dispatch goals and judge their outcome, coordinate through a shared findings ledger, read and write org-wide memory \u2014 plus local impact and co-change analysis before edits. Bundles the MCP server and the participation skill. Setup: the substrate installer writes your API key and endpoint to ~/.substrate/config.json; otherwise set METABOB_API_KEY and METABOB_ENDPOINT. Check the connection with `npx @metabob/mcp attach --check`.",
   "author": {
     "name": "Metabob",
     "url": "https://github.com/MetabobProject"

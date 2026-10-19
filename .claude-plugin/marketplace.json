@@ -8,7 +8,7 @@
     {
       "name": "metabob",
       "source": "./",
-      "description": "Metabob code intelligence for AI agents: Code Property Graph of your repo, blast-radius impact analysis, git-history co-change prediction, agent-recorded findings shared across your org, and durable design memory \u2014 plus the working protocol (skill) that sequences it. Setup: the substrate installer writes your API key and endpoint to ~/.substrate/config.json; otherwise set METABOB_API_KEY and METABOB_ENDPOINT. Check the connection with `npx @metabob/mcp attach --check`.",
+      "description": "Metabob for AI agents: take part in the substrate \u2014 dispatch goals and judge their outcome, coordinate through a shared findings ledger, read and write org-wide memory \u2014 plus local impact and co-change analysis before edits. Bundles the MCP server and the participation skill. Setup: the substrate installer writes your API key and endpoint to ~/.substrate/config.json; otherwise set METABOB_API_KEY and METABOB_ENDPOINT. Check the connection with `npx @metabob/mcp attach --check`.",
       "category": "development",
       "keywords": [
         "code-intelligence",
