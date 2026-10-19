@@ -29,7 +29,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { readWalkState } from './_goal-host.js';
+import { learningModeLine, readWalkState } from './_goal-host.js';
 import { readExecutionTrace } from './_traces.js';
 
 export const GoalReasoningTool = {
@@ -165,6 +165,7 @@ export async function handle(input: GoalReasoningInput, _apiClient: AnalysisAPIC
     `  status:             ${record.status ?? '(unset)'}`,
     `  executionId:        ${record.executionId ?? '(pending)'}`,
     record.operator ? `  operator:           ${record.operator}` : null,
+    learningModeLine(record.walkLog),
     record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
     record.error ? `  error:              ${record.error}` : null,
   ].filter(Boolean) as string[];

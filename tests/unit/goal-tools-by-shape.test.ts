@@ -77,6 +77,13 @@ describe('run_goal_async', () => {
     }]);
   });
 
+  test('states a requested observe mode as a request, not as applied', async () => {
+    await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-q', status: 'running' } }) });
+    const out = await runGoalAsync({ goal: 'probe', learning_mode: 'observe' }, apiClient);
+    expect(out).toContain('learning_mode: observe (requested;');
+    expect(out).toContain('does not apply it yet');
+  });
+
   test('MB_OPERATOR_ID overrides the operator stamp', async () => {
     process.env.MB_OPERATOR_ID = 'dev-mcp';
     const stub = await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-2', status: 'running' } }) });
@@ -216,5 +223,23 @@ describe('provide_feedback', () => {
     expect(out).toContain('the producer refused the label');
     expect(out).toContain('does not say which');
     expect(out).toContain('no label was written');
+  });
+});
+
+describe('effective learning mode from the walk log', () => {
+  test('reads learningMode= from the last PRECONDITIONS line, and says nothing when absent', async () => {
+    const { effectiveLearningMode, learningModeLine } = await import('../../src/tools/_goal-host.js');
+    expect(effectiveLearningMode(['a', 'recordGoalPath PRECONDITIONS chain=1 learningMode=observe reached=true'])).toBe('observe');
+    expect(effectiveLearningMode(['recordGoalPath PRECONDITIONS chain=1 learningMode=undefined reached=true'])).toBe('learn');
+    expect(effectiveLearningMode(['no mode here'])).toBeNull();
+    expect(learningModeLine(undefined)).toBeNull();
+  });
+
+  test('goal_status shows the effective mode next to reached', async () => {
+    await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true,
+        walkLog: ['recordGoalPath PRECONDITIONS chain=1 learningMode=undefined reached=true'] }),
+    });
+    expect(await goalStatus({ dispatch_id: 'd-m' }, apiClient)).toContain('learning mode:      learn (effective, per the walk log)');
   });
 });

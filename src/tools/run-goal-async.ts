@@ -16,7 +16,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { describeResolveFailure } from '../attachment.js';
 import { operatorId } from '../operator-id.js';
-import { dispatchFailure, dispatchGoal } from './_goal-host.js';
+import { dispatchFailure, dispatchGoal, requestedLearningModeLine } from './_goal-host.js';
 
 export const RunGoalAsyncTool = {
   name: 'run_goal_async',
@@ -111,6 +111,7 @@ export async function handle(
     'Goal dispatched asynchronously.',
     `  dispatchId: ${answer.dispatchId}`,
     `  status:     ${answer.dispatchStatus ?? 'running'}`,
+    ...(requestedLearningModeLine(input.learning_mode) ? [requestedLearningModeLine(input.learning_mode)!.replace(/^  learning_mode:      /, '  learning_mode: ')] : []),
     '',
     `Poll with: goal_status { "dispatch_id": "${answer.dispatchId}" }`,
   ].join('\n');

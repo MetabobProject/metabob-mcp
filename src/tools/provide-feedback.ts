@@ -35,7 +35,7 @@ import { readWalkState } from './_goal-host.js';
 export const ProvideFeedbackTool = {
   name: 'provide_feedback',
   description:
-    "The operator feedback plane: record your verdict on whether a goal dispatched with run_goal_async actually achieved its intent, as an `automated` label in the substrate's oracle corpus (goal_verification_labels). It is an agent's verdict, not a person's: goal-host does not treat it as ground truth or overwrite the reach verdict with it. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
+    "The operator feedback plane: record your verdict on whether a goal dispatched with run_goal_async actually achieved its intent, as an `automated` label in the substrate's oracle corpus (goal_verification_labels). It is an agent's verdict, not a person's: goal-host does not treat it as ground truth or overwrite the reach verdict with it. Record your own verdict here; a person's judgment is recorded through the human surface, so do not represent the user's view. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
   inputSchema: {
     type: 'object' as const,
     properties: {

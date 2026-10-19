@@ -117,3 +117,33 @@ export async function dispatchGoal(fields: DispatchFields): Promise<DispatchAnsw
 export function dispatchFailure(tool: string, d: { status: number; error?: string }): string {
   return [`${tool}: ${d.status}`, d.error ? `  error: ${d.error}` : null].filter(Boolean).join('\n');
 }
+
+/**
+ * The learning mode goal-host applied to a walk, read from its walk log
+ * (`recordGoalPath PRECONDITIONS … learningMode=<mode>`), or null when the log
+ * does not say. goal-host's default is `learn`; it logs `undefined` for that.
+ */
+export function effectiveLearningMode(walkLog: unknown): 'observe' | 'learn' | null {
+  if (!Array.isArray(walkLog)) return null;
+  for (let i = walkLog.length - 1; i >= 0; i--) {
+    const line = walkLog[i];
+    if (typeof line !== 'string') continue;
+    const m = /learningMode=(\w+)/.exec(line);
+    if (m) return m[1] === 'observe' ? 'observe' : 'learn';
+  }
+  return null;
+}
+
+/** One line stating a requested learning mode as a request, not an outcome. */
+export function requestedLearningModeLine(mode: 'observe' | 'learn' | undefined): string | null {
+  if (!mode) return null;
+  return mode === 'observe'
+    ? '  learning_mode:      observe (requested; goal-host\'s goalDispatchAsync path does not apply it yet, so the walk may still learn — goal_status / goal_reasoning show the effective mode when the walk log records it)'
+    : '  learning_mode:      learn (requested)';
+}
+
+/** The `learning mode:` line for a finished or running dispatch, when the walk log records it. */
+export function learningModeLine(walkLog: unknown): string | null {
+  const mode = effectiveLearningMode(walkLog);
+  return mode ? `  learning mode:      ${mode} (effective, per the walk log)` : null;
+}

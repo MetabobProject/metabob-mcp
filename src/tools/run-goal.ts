@@ -19,7 +19,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { describeResolveFailure } from '../attachment.js';
 import { operatorId } from '../operator-id.js';
-import { dispatchFailure, dispatchGoal, readWalkState, type WalkState } from './_goal-host.js';
+import { dispatchFailure, dispatchGoal, learningModeLine, readWalkState, requestedLearningModeLine, type WalkState } from './_goal-host.js';
 
 // @anchor run-goal-deadline
 /** The polling deadline: how long run_goal waits for the goal before handing back its dispatchId. */
@@ -119,7 +119,7 @@ function reachedText(reached: boolean | null | undefined): string {
   return '(unknown — goal-host reported no reach verdict)';
 }
 
-function finished(dispatchId: string, record: WalkState, duration: number): string {
+function finished(dispatchId: string, record: WalkState, duration: number, requested?: 'observe' | 'learn'): string {
   return [
     'Goal dispatched via goalDispatchAsync, completed per goalWalkState.',
     `  dispatchId:         ${dispatchId}`,
@@ -128,6 +128,8 @@ function finished(dispatchId: string, record: WalkState, duration: number): stri
     `  status:             ${record.status ?? '(unset)'}`,
     record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
     record.error ? `  error:              ${record.error}` : null,
+    requestedLearningModeLine(requested),
+    learningModeLine(record.walkLog),
     `  duration:           ${duration}ms`,
   ].filter(Boolean).join('\n');
 }
@@ -177,7 +179,7 @@ export async function handle(
       ].join('\n');
     }
     if (read.record.status !== 'running') {
-      return finished(dispatchId, read.record, Date.now() - start);
+      return finished(dispatchId, read.record, Date.now() - start, input.learning_mode);
     }
     if (Date.now() + pollMs >= deadline) {
       return [
