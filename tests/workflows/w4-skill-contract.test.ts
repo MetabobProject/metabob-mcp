@@ -102,6 +102,8 @@ describe('W4 skill contract', () => {
     expect(SKILL).toContain('`automated`');
     // Paths the substrate does not yet stamp with a principal are never taught as capabilities.
     expect(SKILL).not.toMatch(/poolImpulse_write|execution-traces/);
+    // goal-host's goalPathRecorded is set without a write; the skill must not present the line as ground truth.
+    expect(SKILL).not.toContain('exactly what was recorded');
   });
 
   test('every tool the skill names exists in tools/list', () => {

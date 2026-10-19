@@ -93,9 +93,10 @@ repository the substrate mounts, or a question its services answer.
 
 What the substrate learns: goal-host's judge grades the walk, crediting or
 penalising the activities it used, recording the goal's path, and filing gaps it
-found. The `learning:` line of `goal_status` shows exactly what was recorded. Read it on
-an observe probe too: it is the evidence of whether the walk wrote anything, not
-the mode you requested.
+found. The `learning:` line of `goal_status` shows what goal-host reports it recorded.
+Posterior changes, filed gaps and labels are recorded results; the goal-path flag
+is not yet tied to the write, so confirm a recorded path by reading it, not by the
+flag.
 
 ## Role: verifier — your verdict on a goal
 
@@ -119,8 +120,7 @@ independent ones. It does not overwrite the reach verdict.
 - **Credit**: `concept_record_usage { concept_id, outcome }` when a concept you used
   helped (`success`) or misled you (`failure`), with `neutral` for neither.
 
-What the substrate learns: usage outcomes move each concept's relevance, which
-decides what the next agent recalls first.
+What the substrate learns: usage outcomes feed each concept's relevance score.
 
 On a repository with no anchor yet, `concept_search` for one named after the repo;
 if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,
