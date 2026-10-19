@@ -4,7 +4,7 @@
  * WITH the substrate. After inspecting a goal's reasoning (goal_reasoning), the
  * operator can record a verdict on whether the goal was actually achieved. Unlike
  * out-of-band commentary, this verdict is written into the substrate's learning
- * loop as a ground-truth label in the oracle corpus (goal_verification_labels,
+ * loop as an `automated` label in the oracle corpus (goal_verification_labels,
  * migration 101) — currently for offline audit (an obsidian-vessel reach-rate
  * note), not yet consumed by an automated reach-gate recalibration path. The
  * operator becomes an interposable verifier the substrate learns from (the S1→S2→S3
@@ -17,7 +17,7 @@
  *      verdict + rationale). `goal` is stored on the dispatch record for exactly this.
  *   2. `goal_verification_label_write` (activity-api's resolver)
  *      → CREATE goal_verification_labels { goal, execution_id, activity_id,
- *      verdict, confidence, notes, labeler: "human" }.
+ *      verdict, confidence, notes, labeler: "automated" }.
  *
  * Verdict maps operator-facing terms → oracle-corpus verdicts:
  *   reached → achieved | not_reached → not_achieved | partial → partial
@@ -35,7 +35,7 @@ import { readWalkState } from './_goal-host.js';
 export const ProvideFeedbackTool = {
   name: 'provide_feedback',
   description:
-    "The operator feedback plane: record a verdict on whether a goal dispatched with run_goal_async actually achieved its intent, recording a ground-truth label into the substrate's oracle corpus (goal_verification_labels) — currently for offline audit, not yet consumed by an automated reach-gate recalibration path. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
+    "The operator feedback plane: record your verdict on whether a goal dispatched with run_goal_async actually achieved its intent, as an `automated` label in the substrate's oracle corpus (goal_verification_labels). It is an agent's verdict, not a person's: goal-host does not treat it as ground truth or overwrite the reach verdict with it. Pair with goal_reasoning: inspect the walk, then endorse or correct the outcome. Auto-derives the goal text, executionId, and template from the dispatch record — you supply verdict (reached | not_reached | partial), a rationale, and optional confidence (0..1, default 0.9).",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -124,7 +124,11 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
     activity_id: activityId,
     verdict,
     confidence,
-    labeler: 'human',
+    // An agent's verdict is not a person's: goal-host treats `human` labels as ground truth (it
+    // overwrites `reached` and files a human_reported gap). This tool is driven by an agent's key,
+    // so it labels `automated`; a person's verdict comes through the human surface. The principal
+    // is in notes until the label carries provenance derived from the credential.
+    labeler: 'automated',
     notes,
   };
 

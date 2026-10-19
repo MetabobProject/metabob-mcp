@@ -97,7 +97,7 @@ describe('W1 operator loop', () => {
     expect(fake.state.labels).toHaveLength(1);
     expect(fake.state.labels[0]).toMatchObject({
       type: 'goal_verification_label_write', verdict: 'achieved', execution_id: 'exec-reached',
-      activity_id: 'tmpl-feature-compose', goal: 'edit repos/x/src/a.ts: rename foo', labeler: 'human',
+      activity_id: 'tmpl-feature-compose', goal: 'edit repos/x/src/a.ts: rename foo', labeler: 'automated',
     });
   });
 

@@ -76,6 +76,9 @@ export interface DispatchFields {
   variables?: Record<string, unknown>;
   parent_execution_id?: string;
   composition_chain?: string[];
+  /** goal-host's learning mode: `observe` runs the walk without recording paths, posteriors or traces. */
+  learning_mode?: 'observe' | 'learn';
+  tags?: string[];
   operator: string;
 }
 
@@ -97,6 +100,8 @@ export async function dispatchGoal(fields: DispatchFields): Promise<DispatchAnsw
   if (fields.variables) pointer.variables = fields.variables;
   if (fields.parent_execution_id) pointer.parent_execution_id = fields.parent_execution_id;
   if (fields.composition_chain) pointer.composition_chain = fields.composition_chain;
+  if (fields.learning_mode) pointer.learning_mode = fields.learning_mode;
+  if (fields.tags?.length) pointer.tags = fields.tags;
 
   const res = await resolveShape(pointer, { timeoutMs: RESOLVE_TIMEOUT_MS.goal });
   const body = (res.body ?? {}) as { dispatchId?: string; status?: string; error?: string; goalReachReason?: string };

@@ -82,6 +82,17 @@ export const RunGoalTool = {
         description:
           'Ancestor execution ids, root-first. Threads through to the trace for credit propagation.',
       },
+      learning_mode: {
+        type: 'string',
+        enum: ['observe', 'learn'],
+        description:
+          "goal-host's learning mode. `observe` runs the walk without recording goal paths, posting posteriors or minting traces — use it for probes and checks that should not teach the substrate. `learn` (goal-host's default) is a real learning run. Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
+      },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Tags carried onto the dispatch and its trace (for example `probe:<name>`).',
+      },
     },
   },
 };
@@ -93,6 +104,8 @@ export const InputSchema = z
     variables: z.record(z.unknown()).optional(),
     parent_execution_id: z.string().optional(),
     composition_chain: z.array(z.string()).optional(),
+    learning_mode: z.enum(['observe', 'learn']).optional(),
+    tags: z.array(z.string()).optional(),
   })
   .refine((v) => Boolean(v.goal || v.target_template_id), {
     message: 'goal or target_template_id is required',
@@ -134,6 +147,8 @@ export async function handle(
       variables: input.variables,
       parent_execution_id: input.parent_execution_id,
       composition_chain: input.composition_chain,
+      learning_mode: input.learning_mode,
+      tags: input.tags,
       operator: operatorId(),
     });
   } catch (err) {

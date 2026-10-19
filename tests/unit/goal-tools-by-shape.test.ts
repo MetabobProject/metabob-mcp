@@ -66,6 +66,17 @@ describe('run_goal_async', () => {
     ].join('\n'));
   });
 
+  test('forwards learning_mode and tags so a probe can run in observe mode', async () => {
+    const stub = await installShapeStub({
+      goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-o', status: 'running' } }),
+    });
+    await runGoalAsync({ goal: 'how many vessels?', learning_mode: 'observe', tags: ['probe:registry'] }, apiClient);
+    expect(stub.calls('goalDispatchAsync')).toEqual([{
+      type: 'goalDispatchAsync', operator: 'claude-code-operator', goal: 'how many vessels?',
+      learning_mode: 'observe', tags: ['probe:registry'],
+    }]);
+  });
+
   test('MB_OPERATOR_ID overrides the operator stamp', async () => {
     process.env.MB_OPERATOR_ID = 'dev-mcp';
     const stub = await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-2', status: 'running' } }) });
@@ -170,10 +181,22 @@ describe('provide_feedback', () => {
     const out = await provideFeedback({ dispatch_id: 'd-f', verdict: 'reached', rationale: 'diff checked' }, apiClient);
     expect(stub.calls('goal_verification_label_write')).toEqual([{
       type: 'goal_verification_label_write', goal: 'make it green', execution_id: 'exec-1', activity_id: 'tmpl-1',
-      verdict: 'achieved', confidence: 0.9, labeler: 'human', notes: 'diff checked [operator: claude-code-operator]',
+      verdict: 'achieved', confidence: 0.9, labeler: 'automated', notes: 'diff checked [operator: claude-code-operator]',
     }]);
     expect(out).toContain('Feedback recorded for dispatch d-f');
     expect(out).toContain('  oracle label: goal_verification_labels:abc');
+  });
+
+  test('never labels an agent verdict as human', async () => {
+    const stub = await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: false, goal: 'g', executionId: 'e', selectedTemplateId: 't' }),
+      goal_verification_label_write: () => ({ body: { success: true, content: '{}' } }),
+    });
+    for (const verdict of ['reached', 'not_reached', 'partial'] as const) {
+      await provideFeedback({ dispatch_id: `d-${verdict}`, verdict, rationale: 'r' }, apiClient);
+    }
+    const labelers = stub.calls('goal_verification_label_write').map((c: any) => c.labeler);
+    expect(labelers).toEqual(['automated', 'automated', 'automated']);
   });
 
   test('a still-running dispatch is refused before any write', async () => {
