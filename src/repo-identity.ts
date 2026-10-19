@@ -67,6 +67,8 @@ export function normalizeRemoteUrl(url: string, base?: string): string | null {
     .replace(/\/+$/, '')
     .replace(/\.git$/i, '')
     .replace(/\/+$/, '')
+    // A drive letter is a machine-local root, like a leading `/`: `d:/home/me/x` and `/home/me/x` name the same path.
+    .replace(/^[a-z]:(?=\/)/i, '')
     .replace(/^\/+/, '');
   const id = (host ? `${host}/${path}` : path).toLowerCase();
   return id || null;
@@ -88,7 +90,9 @@ function git(cwd: string, args: string[]): string | null {
 
 function real(p: string): string {
   try {
-    return realpathSync(p);
+    // .native resolves Windows 8.3 short names (RUNNER~1) and drive-letter case the way git reports
+    // --show-toplevel, so the workspace's path relative to the repository root is computed between like forms.
+    return realpathSync.native(p);
   } catch {
     return resolve(p);
   }
