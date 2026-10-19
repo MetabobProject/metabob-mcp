@@ -20,14 +20,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
+      # Compare against the branch tip BEFORE this push, not HEAD^: a push of several
+      # commits whose version bump is not the last one changed the version all the same.
       - name: Did package.json version change?
         id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           current=$(node -p "require('./package.json').version")
-          previous=$(git show HEAD^:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "none")
-          echo "previous=$previous current=$current"
+          base="$BEFORE"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base=HEAD^; fi
+          previous=$(git show "$base:package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "none")
+          echo "base=$base previous=$previous current=$current"
           if [ "$current" != "$previous" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
