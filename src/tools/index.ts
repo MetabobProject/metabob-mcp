@@ -191,7 +191,7 @@ export function getTool(name: string): Tool | undefined {
  * Tools whose whole job is a keyed substrate call (SPEC §substrate-goal-tools,
  * SPEC §concept-graph-tools). The mixed tools (get_problems, record_finding,
  * mark_complete, get_analysis_context) keep their local half and check the
- * attachment only for their substrate half (_findings.ts resolveConceptDbUrl).
+ * attachment only for their substrate half (`src/tools/_findings.ts@conceptDbUnavailable`).
  */
 export const SUBSTRATE_TOOLS: ReadonlySet<string> = new Set([
   'run_goal',

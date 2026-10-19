@@ -897,17 +897,22 @@ An unknown `task_id` is reported as such, adding that the substrate dispatches n
    → the write half: attribute what you found to the code; returns agf_* ids
      and mints a code_finding concept other agents recall org-wide
 
-6. annotate_component(problem_id | agf_id, mode="recommend")
+6. annotate_component(agf_* | concept_*, mode="recommend")
    → structured why/how notes
 
-7. mark_complete(problem_id | agf_* | concept_*, action="endorse")
+7. mark_complete(agf_* | concept_*, action="endorse")
    → verdict; on findings it also folds relevance into concept-db
 
-8. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
+8. run_goal_async(goal, learning_mode?) → goal_status(dispatch_id) → goal_reasoning(dispatch_id)
+   → provide_feedback(dispatch_id, verdict, rationale)
+   → delegate to the substrate when it mounts the repo; read `reached` and `learning:`,
+     check the walk, then record your verdict (an `automated` label)
+
+9. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
    → answer a decision queued on this machine; the substrate dispatches
      nothing to a client-only session, so the queue is usually empty
 
-9. init_workspace(recently_changed_files=[...files changed since...])
+10. init_workspace(recently_changed_files=[...files changed since...])
    → parses files added since the last call; files already parsed are not re-read
 ```
 

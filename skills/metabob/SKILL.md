@@ -27,7 +27,7 @@ reader are faster.
    `submit_resolution { task_id, outcome, answer }`.
 
 For the org's design memory, use `concept_search` with a **`shape` filter and no
-`query`** — list-mode returns the full set for a shape.
+`query`** — list mode returns that shape's concepts, up to `limit` (at most 50).
 
 ## Phase 1 — Adopt the codebase
 
@@ -80,6 +80,21 @@ Ownership stated in the brief is what keeps concurrent agents apart, so state it
 explicitly and make it disjoint. The alternative — pasting every brief into every
 prompt — couples all agents to an orchestrator that must stay alive, and the
 boundary dies with the run.
+
+## Goals on the substrate
+
+When the substrate can do a task (it mounts the repository the goal names), dispatch it
+rather than doing it yourself:
+
+1. `run_goal_async { goal }` → a `dispatchId`. A dispatch teaches the substrate by
+   default; for a probe or check that should not, pass `learning_mode: "observe"` and
+   a tag such as `probe:<name>`.
+2. `goal_status { dispatch_id }` — a few quick polls, then 10–15 s apart; stop when it
+   is no longer running. Read `reached`, never `status`, and the `learning:` line for
+   what the walk taught.
+3. `goal_reasoning { dispatch_id }` before trusting a reach: the walk can be hollow.
+4. `provide_feedback { dispatch_id, verdict, rationale }` — your verdict, recorded as
+   an `automated` label; a person's judgment goes through the substrate's human surface.
 
 ## Phase 4 — Close out
 

@@ -162,7 +162,7 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
     `  operator:     ${operator}`,
     `  oracle label: ${labelId}`,
     '',
-    '  Written to goal_verification_labels (oracle corpus) — this ground-truth verdict',
-    '  is retained for offline audit; no automated reach-gate recalibration reads it yet.',
+    '  Written to goal_verification_labels (oracle corpus) as an `automated` label: your',
+    '  verdict, not ground truth — goal-host does not overwrite the reach verdict with it.',
   ].join('\n');
 }
