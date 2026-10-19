@@ -127,12 +127,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "703a2c1",
-        "why": "183d06c rewords no_producer's sentence only (token and kind unchanged); the tool-description commit changes description text only; behaviour the docs state is unchanged"
+        "at": "9b22bfb",
+        "why": "9b22bfb adds requested/effective learning-mode lines to goal tool output and one provide_feedback description sentence; the env table, tool rows and requirement statuses are unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "3948d53",
-        "why": "573e006 adds learning_mode/tags to the goalDispatchAsync pointer; run_goal's short polling and the 60 s bound (c11) are unchanged"
+        "at": "9b22bfb",
+        "why": "9b22bfb adds requested/effective learning-mode lines to goal tool output and one provide_feedback description sentence; the env table, tool rows and requirement statuses are unchanged"
       },
       "docs/SPEC.md": {
         "at": "573e006",
