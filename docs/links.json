@@ -138,8 +138,8 @@
         "why": "the learning-consequences line changes goal tool output only; env vars, tool rows and requirement statuses are unchanged"
       },
       "docs/SPEC.md": {
-        "at": "573e006",
-        "why": "f024dcc fixes Windows path comparison (realpathSync.native) and strips a drive letter like a leading '/'; the SPEC's repository-identity description (normalized remote, subpath, basename fallback) is unchanged"
+        "at": "a9d5878",
+        "why": "e25cbf4 rewords provide_feedback's pruned-dispatch message only (no executionId parameter exists); SPEC already states a pruned dispatch cannot be labelled"
       },
       "lab/README.md": {
         "at": "e551c35",
