@@ -127,12 +127,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "9b22bfb",
-        "why": "9b22bfb adds requested/effective learning-mode lines to goal tool output and one provide_feedback description sentence; the env table, tool rows and requirement statuses are unchanged"
+        "at": "2addd75",
+        "why": "the learning-consequences line changes goal tool output only; env vars, tool rows and requirement statuses are unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "9b22bfb",
-        "why": "9b22bfb adds requested/effective learning-mode lines to goal tool output and one provide_feedback description sentence; the env table, tool rows and requirement statuses are unchanged"
+        "at": "2addd75",
+        "why": "the learning-consequences line changes goal tool output only; env vars, tool rows and requirement statuses are unchanged"
       },
       "docs/SPEC.md": {
         "at": "573e006",
