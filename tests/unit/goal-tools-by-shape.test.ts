@@ -254,3 +254,59 @@ describe('what a walk taught the substrate', () => {
     expect(await goalStatus({ dispatch_id: 'd-m' }, apiClient)).toContain('learning:           goal path recorded');
   });
 });
+
+// ===== Who dispatched: the validated principal, never the claimed label =====
+
+describe('principal rendering', () => {
+  const finished = { status: 'completed', reached: true, executionId: 'e', selectedTemplateId: 't' };
+  const cases = {
+    operator: { ...finished, operator: 'avi', operator_label: 'avi',
+      principal: { kind: 'key', operator: true, tag: '0123456789ab' } },
+    nonOperator: { ...finished, operator: null, operator_label: 'claude-code-operator',
+      principal: { kind: 'key', operator: false, tag: 'abcdef012345' } },
+    absent: { ...finished, operator: 'claude-code-operator' },
+  } as const;
+  const WARNING = 'ran without operator authority: an ordinary keyed caller; directed edits and operator priority do not apply';
+
+  async function render(tool: 'goal_status' | 'goal_reasoning' | 'run_goal', record: Record<string, unknown>) {
+    await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, ...record }),
+      goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-p', status: 'running' } }),
+      activityExecutionTrace: () => ({ status: 404, body: { error: 'not found' } }),
+    });
+    if (tool === 'goal_status') return goalStatus({ dispatch_id: 'd-p' }, apiClient);
+    if (tool === 'goal_reasoning') return goalReasoning({ dispatch_id: 'd-p' }, apiClient);
+    return runGoal({ goal: 'g' }, apiClient);
+  }
+
+  for (const tool of ['goal_status', 'goal_reasoning', 'run_goal'] as const) {
+    test(`${tool}: an operator principal shows validated authority and no warning`, async () => {
+      const out = await render(tool, cases.operator);
+      expect(out).toContain('principal:          key (0123456789ab)');
+      expect(out).toContain('operator authority: yes (validated)');
+      expect(out).not.toContain(WARNING);
+    });
+
+    test(`${tool}: a labelled non-operator shows the claim as unverified and says it ran without authority`, async () => {
+      const out = await render(tool, cases.nonOperator);
+      expect(out).toContain('principal:          key (abcdef012345)');
+      expect(out).toContain('operator label:     claude-code-operator (claimed, unverified)');
+      expect(out).toContain(WARNING);
+    });
+
+    test(`${tool}: absent principal fields read "not reported", never non-operator`, async () => {
+      const out = await render(tool, cases.absent);
+      expect(out).toContain('principal:          not reported');
+      expect(out).not.toContain(WARNING);
+    });
+  }
+
+  test('a pre-amendment raw key label is never displayed', async () => {
+    const { principalLines } = await import('../../src/tools/_goal-host.js');
+    const lines = principalLines({ principal: { kind: 'key', operator: false, label: 'key:key_SECRETID' } });
+    expect(lines.join('\n')).not.toContain('key_SECRETID');
+    expect(lines[0]).toContain('key id withheld');
+    expect(principalLines({ principal: { kind: 'node_self', operator: false, tag: 'node-self:in-process' } })[0])
+      .toBe('  principal:          node_self (node-self:in-process)');
+  });
+});

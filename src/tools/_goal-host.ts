@@ -28,8 +28,16 @@ export interface WalkState {
   error?: string;
   /** Honest goal-reach verdict (distinct from `status`, the template exit status). */
   reached?: boolean | null;
-  /** Operator identity attributed to this dispatch, if any. */
+  /**
+   * The operator authority goal-host validated for this dispatch. Behind goal-host's caller
+   * validation it is set only from a credential carrying operator:direct or admin; on an older
+   * record (no `principal`) it is the operator id the request claimed.
+   */
   operator?: string | null;
+  /** The operator id the request body claimed: a label, never authority. */
+  operator_label?: string | null;
+  /** The validated caller, or null/absent when goal-host does not report one. */
+  principal?: DispatchPrincipal | null;
   goal?: string;
   goalReachReason?: string | null;
   /** What the walk taught the substrate (goal-host's LearningConsequences), or null when not reported. */
@@ -168,6 +176,44 @@ export function learningLines(learning: unknown, requested?: 'observe' | 'learn'
     lines.push(recorded
       ? '  ⚠ observe was requested, but this walk taught the substrate (see learning above)'
       : '  (observe: goal-host reports a goal path but sets that flag without writing one under observe; no posterior, gap or label was recorded)');
+  }
+  return lines;
+}
+
+/** goal-host's validated caller for a dispatch. */
+export interface DispatchPrincipal {
+  kind?: 'key' | 'node_self' | string;
+  /** True iff the caller's credential carries operator:direct or admin, validated at identity. */
+  operator?: boolean;
+  /** A non-reversible tag: a key id's hash prefix, or a literal for node-self. */
+  tag?: string;
+  /** Pre-amendment builds served `label` ("key:<keyId>"); a raw key id is never displayed. */
+  label?: string;
+}
+
+/**
+ * The principal lines for a dispatch record: who goal-host validated as the caller, the
+ * operator id the request merely claimed, and — when the caller held no operator authority —
+ * one plain line saying so. A record without a principal is "not reported", never read as
+ * non-operator: an older goal-host or a pre-validation record does not say. SPEC §goal_status
+ */
+export function principalLines(record: { principal?: DispatchPrincipal | null; operator_label?: string | null }): string[] {
+  const p = record.principal;
+  const lines: string[] = [];
+  if (!p || typeof p !== 'object') {
+    lines.push('  principal:          not reported');
+  } else {
+    const tag = typeof p.tag === 'string' && p.tag ? p.tag
+      : typeof p.label === 'string' && p.label && !p.label.startsWith('key:') ? p.label : null;
+    const kind = p.kind ?? 'unknown';
+    lines.push(`  principal:          ${kind}${tag ? ` (${tag})` : p.label ? ' (key id withheld)' : ''}`);
+    if (p.operator === true) lines.push('  operator authority: yes (validated)');
+  }
+  if (typeof record.operator_label === 'string' && record.operator_label) {
+    lines.push(`  operator label:     ${record.operator_label} (claimed, unverified)`);
+  }
+  if (p && typeof p === 'object' && p.operator === false) {
+    lines.push('  ran without operator authority: an ordinary keyed caller; directed edits and operator priority do not apply');
   }
   return lines;
 }

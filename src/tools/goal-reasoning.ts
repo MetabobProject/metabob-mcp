@@ -29,7 +29,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { learningLines, readWalkState } from './_goal-host.js';
+import { learningLines, principalLines, readWalkState } from './_goal-host.js';
 import { readExecutionTrace } from './_traces.js';
 
 export const GoalReasoningTool = {
@@ -164,7 +164,8 @@ export async function handle(input: GoalReasoningInput, _apiClient: AnalysisAPIC
     '  (reached = the goal verdict; status below is only the template exit status)',
     `  status:             ${record.status ?? '(unset)'}`,
     `  executionId:        ${record.executionId ?? '(pending)'}`,
-    record.operator ? `  operator:           ${record.operator}` : null,
+    record.operator ? `  operator:           ${record.operator}${record.principal ? '' : ' (claimed; goal-host reports no principal)'}` : null,
+    ...principalLines(record),
     ...(record.status === 'running' ? [] : learningLines(record.learning)),
     record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
     record.error ? `  error:              ${record.error}` : null,
