@@ -134,8 +134,8 @@
         "why": "b635cc6 changes only a code comment in src/tools/index.ts (citation fix); the tool registry CLAUDE.md describes is unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "88c7b53",
-        "why": "88c7b53 changes config-file selection (skips files with no metabob section) and the not-attached message; anchoring inputs (C4) are unchanged"
+        "at": "b55b9a2",
+        "why": "run-goal.ts changed only the learning_mode description (observe runs are traced for audit); CONFORMANCE states no observe or trace wording"
       },
       "docs/SPEC.md": {
         "at": "a9d5878",
