@@ -106,10 +106,16 @@ async function queryShapes(filter?: string): Promise<string> {
   const header = needle
     ? `Advertised shapes matching "${filter}" (${filtered.length}/${shapes.length}):`
     : `Advertised shapes (${filtered.length}):`;
+  // vesselRegistry is answered by the anchor's own discovery: on a spoke it lists that node's
+  // shapes only, while resolves reach peer nodes too. Say so, so an absent shape is not read
+  // as unavailable.
+  const scope =
+    "(This node's vocabulary. Shapes served by peer nodes resolve through it but are not listed; " +
+    'ask for one by name with mode: "vessels".)';
   if (!filtered.length) {
-    return `${header}\n  (none)`;
+    return `${header}\n  (none)\n${scope}`;
   }
-  return [header, ...filtered.map((s) => `  ${s}`)].join('\n');
+  return [header, ...filtered.map((s) => `  ${s}`), scope].join('\n');
 }
 
 async function queryVessels(shape: string): Promise<string> {
@@ -135,7 +141,7 @@ async function queryVessels(shape: string): Promise<string> {
   if (vocab.ok) {
     const inShapeList = vocab.shapes.includes(shape);
     if (vessels.length > 0 && !inShapeList) {
-      crossCheck = `WARNING: registry views disagree — ${vessels.length} vessel(s) advertise "${shape}" via vesselCapability, but the registry vocabulary (vesselRegistry) does not list it. One view is stale; treat these rows as suspect.`;
+      crossCheck = `NOTE: ${vessels.length} vessel(s) advertise "${shape}" via vesselCapability, but this node's vocabulary (vesselRegistry) does not list it. Producers on peer nodes are not in this node's vocabulary; otherwise one view is stale.`;
     } else if (vessels.length === 0 && inShapeList) {
       crossCheck = `WARNING: registry views disagree — the registry vocabulary (vesselRegistry) lists "${shape}", but no vesselCapability rows advertise it. One view is stale.`;
     }

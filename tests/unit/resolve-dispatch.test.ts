@@ -109,6 +109,8 @@ describe('attachment.resolve()', () => {
   });
 });
 
+const SCOPE = "(This node's vocabulary. Shapes served by peer nodes resolve through it but are not listed; ask for one by name with mode: \"vessels\".)";
+
 describe('registry_query', () => {
   const registry = {
     vesselRegistry: () => ({
@@ -128,10 +130,10 @@ describe('registry_query', () => {
   test('shapes: the vocabulary is the union of vesselRegistry shapes, sorted and filtered', async () => {
     const stub = await installShapeStub(registry);
     expect(await registryQuery({ mode: 'shapes' }, apiClient)).toBe(
-      ['Advertised shapes (3):', '  conceptSearch', '  goalDispatchAsync', '  goalWalkState'].join('\n'),
+      ['Advertised shapes (3):', '  conceptSearch', '  goalDispatchAsync', '  goalWalkState', SCOPE].join('\n'),
     );
     expect(await registryQuery({ mode: 'shapes', shape: 'goal' }, apiClient)).toBe(
-      ['Advertised shapes matching "goal" (2/3):', '  goalDispatchAsync', '  goalWalkState'].join('\n'),
+      ['Advertised shapes matching "goal" (2/3):', '  goalDispatchAsync', '  goalWalkState', SCOPE].join('\n'),
     );
     expect(stub.calls('vesselRegistry')).toEqual([{ type: 'vesselRegistry' }, { type: 'vesselRegistry' }]);
   });
@@ -160,7 +162,7 @@ describe('registry_query', () => {
     expect(stub.calls('vesselCapability')).toEqual([{ type: 'vesselCapability', shape: 'goalWalkState' }]);
 
     const stale = await registryQuery({ mode: 'vessels', shape: 'staleShape' }, apiClient);
-    expect(stale).toContain('vesselCapability, but the registry vocabulary (vesselRegistry) does not list it');
+    expect(stale).toContain("vesselCapability, but this node's vocabulary (vesselRegistry) does not list it. Producers on peer nodes are not in this node's vocabulary");
   });
 
   test('a discovery failure is one named line', async () => {

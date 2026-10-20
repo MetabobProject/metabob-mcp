@@ -715,6 +715,8 @@ Handler: `src/tools/registry-query.ts@handle`
 
 Resolves discovery's own shapes through the attachment (§ Attachment), which discovery answers itself. `shapes` mode: `vesselRegistry`, whose vessels' shapes, unioned, are the advertised vocabulary (the set discovery's `GET /registry/shapes` lists), filtered client-side and sorted (`src/tools/registry-query.ts@fetchShapeVocabulary`). `vessels` mode: `vesselCapability { shape }`, listing each vessel's id, endpoint (`public_endpoint` when present), protocol and resolve endpoint, plus a warning line when the vocabulary and the `vesselCapability` rows disagree about the shape. A discovery failure is one named line.
 
+
+The vocabulary is the **anchor node's**: discovery answers `vesselRegistry` itself, so on a spoke it lists that node's shapes, while resolves reach peer nodes too. `shapes` mode ends with a line saying so, and that a peer-served shape is asked for by name in `vessels` mode. In `vessels` mode, producers that `vesselCapability` returns for a shape the anchor's vocabulary does not list get a note naming both readings: the producers are on a peer node, or one view is stale.
 ### execution_trace
 
 Handler: `src/tools/execution-trace.ts@handle`
