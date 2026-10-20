@@ -29,47 +29,48 @@
     ],
     "covers": {
       "docs/SPEC.md": [
-        "src/tools/init-workspace.ts",
-        "src/tools/get-problems.ts",
-        "src/tools/record-finding.ts",
-        "src/tools/search-codebase.ts",
-        "src/tools/predict-cochanges.ts",
-        "src/tools/analyze-impact.ts",
-        "src/tools/annotate-component.ts",
-        "src/tools/mark-complete.ts",
-        "src/tools/get-metrics.ts",
-        "src/tools/assign-git-changes.ts",
-        "src/tools/get-analysis-context.ts",
-        "src/tools/run-goal.ts",
-        "src/tools/run-goal-async.ts",
-        "src/tools/goal-status.ts",
-        "src/tools/goal-reasoning.ts",
-        "src/tools/provide-feedback.ts",
-        "src/tools/registry-query.ts",
-        "src/tools/execution-trace.ts",
-        "src/tools/resolve-impulse.ts",
-        "src/tools/concept-*.ts",
-        "src/tools/pull-assigned-work.ts",
-        "src/tools/submit-resolution.ts",
-        "src/tools/_findings.ts",
-        "src/tools/_concept-content.ts",
-        "src/tools/index.ts",
-        "src/vessel-server.ts",
-        "src/config.ts",
-        "src/cli.ts",
-        "src/tools/_traces.ts",
-        "src/tools/_goal-host.ts",
-        "src/tools/_concept-db.ts",
         "src/agent-delivery.ts",
-        "src/cochange-predictor.ts",
+        "src/attach-check.ts",
         "src/attachment.ts",
         "src/auth-service.ts",
+        "src/cli.ts",
+        "src/cochange-predictor.ts",
+        "src/config.ts",
+        "src/doctor-cli.ts",
         "src/net.ts",
         "src/os-proxy.ts",
-        "src/attach-check.ts",
+        "src/outgoing-guard.ts",
+        "src/repo-identity.ts",
         "src/tls-trust.ts",
-        "src/doctor-cli.ts",
-        "src/repo-identity.ts"
+        "src/tools/_concept-content.ts",
+        "src/tools/_concept-db.ts",
+        "src/tools/_findings.ts",
+        "src/tools/_goal-host.ts",
+        "src/tools/_traces.ts",
+        "src/tools/analyze-impact.ts",
+        "src/tools/annotate-component.ts",
+        "src/tools/assign-git-changes.ts",
+        "src/tools/concept-*.ts",
+        "src/tools/execution-trace.ts",
+        "src/tools/get-analysis-context.ts",
+        "src/tools/get-metrics.ts",
+        "src/tools/get-problems.ts",
+        "src/tools/goal-reasoning.ts",
+        "src/tools/goal-status.ts",
+        "src/tools/index.ts",
+        "src/tools/init-workspace.ts",
+        "src/tools/mark-complete.ts",
+        "src/tools/predict-cochanges.ts",
+        "src/tools/provide-feedback.ts",
+        "src/tools/pull-assigned-work.ts",
+        "src/tools/record-finding.ts",
+        "src/tools/registry-query.ts",
+        "src/tools/resolve-impulse.ts",
+        "src/tools/run-goal-async.ts",
+        "src/tools/run-goal.ts",
+        "src/tools/search-codebase.ts",
+        "src/tools/submit-resolution.ts",
+        "src/vessel-server.ts"
       ],
       "CLAUDE.md": [
         "src/index.ts",
@@ -242,7 +243,8 @@
           "c8-proxy-and-tls-in-the-vessel-role"
         ],
         "SPEC": [
-          "attachment"
+          "attachment",
+          "outgoing-text-guard"
         ]
       },
       "src/net.ts": {
@@ -259,6 +261,11 @@
         ],
         "SPEC": [
           "network"
+        ]
+      },
+      "src/outgoing-guard.ts": {
+        "SPEC": [
+          "outgoing-text-guard"
         ]
       },
       "src/repo-identity.ts": {
@@ -561,6 +568,11 @@
           "get_problems"
         ]
       },
+      "tests/unit/outgoing-guard.test.ts": {
+        "SPEC": [
+          "outgoing-text-guard"
+        ]
+      },
       "tests/unit/record-finding-duplicate.test.ts": {
         "SPEC": [
           "record_finding"
@@ -604,6 +616,11 @@
           "substrate-goal-tools"
         ]
       },
+      "tests/workflows/w2-ledger.test.ts": {
+        "SPEC": [
+          "outgoing-text-guard"
+        ]
+      },
       "tests/workflows/w3-attachment.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model",
@@ -638,6 +655,7 @@
         "src/local-index.ts",
         "src/net.ts",
         "src/os-proxy.ts",
+        "src/outgoing-guard.ts",
         "src/tools/index.ts",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
@@ -773,6 +791,9 @@
         "src/net.ts@select-proxy",
         "src/net.ts@trusted-cas",
         "src/os-proxy.ts@detect-os-proxy",
+        "src/outgoing-guard.ts@describeArgsForLog",
+        "src/outgoing-guard.ts@guard-tool-input",
+        "src/outgoing-guard.ts@guarded-fields",
         "src/repo-identity.ts@normalizeRemoteUrl",
         "src/repo-identity.ts@repoIdentity",
         "src/resolver-identity.ts@getResolverVesselId",
@@ -938,6 +959,9 @@
       "src/net.ts@select-proxy": "8d64a30d9de1",
       "src/net.ts@trusted-cas": "8d64a30d9de1",
       "src/os-proxy.ts@detect-os-proxy": "79ed88b1bb1d",
+      "src/outgoing-guard.ts@describeArgsForLog": "d1140ab34536",
+      "src/outgoing-guard.ts@guard-tool-input": "e45b397d7869",
+      "src/outgoing-guard.ts@guarded-fields": "0d93b0050521",
       "src/repo-identity.ts@normalizeRemoteUrl": "54b6b5099f3e",
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",

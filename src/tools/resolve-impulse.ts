@@ -98,7 +98,8 @@ function truncate(text: string): string {
 
 export async function handle(input: ResolveImpulseInput, _apiClient: AnalysisAPIClient): Promise<string> {
   const pointer: Record<string, unknown> = { type: input.shape, ...(input.pointer ?? {}) };
-  const why = typeof pointer.type === 'string' ? COORDINATION_WRITES[pointer.type] : undefined;
+  // Own keys only: a shape named like an Object.prototype member is not a listed write.
+  const why = typeof pointer.type === 'string' && Object.hasOwn(COORDINATION_WRITES, pointer.type) ? COORDINATION_WRITES[pointer.type] : undefined;
   if (why) {
     return `resolve_impulse: refused: ${why}.`;
   }

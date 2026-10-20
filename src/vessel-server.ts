@@ -14,6 +14,7 @@ import { unattachedMessage } from './config.js';
 import { getAttachment } from './attachment.js';
 import { proxySummary } from './net.js';
 import { ZodError } from 'zod';
+import { guardToolInput } from './outgoing-guard.js';
 
 /**
  * Shapes the substrate DISPATCHES TO the agent (solicited decisions) rather than
@@ -379,7 +380,11 @@ export async function resolveImpulseContent(
   if (!tool) {
     throw new Error(`Unknown tool: ${toolName}`);
   }
-  const validatedInput = tool.validateInput(toolInput);
+  const guarded = guardToolInput(toolName, tool.validateInput(toolInput) as Record<string, unknown>);
+  if (!guarded.ok) {
+    throw new Error(guarded.refusal);
+  }
+  const validatedInput = guarded.input;
   // The attachment gate, as on stdio: a substrate tool refuses with the named cause.
   const refusal = await substrateToolRefusal(toolName);
   if (refusal) {

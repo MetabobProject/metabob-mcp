@@ -232,6 +232,12 @@ describe('resolve_impulse', () => {
     expect(graded).toContain('an agent never writes a trace');
   });
 
+  test('a shape named like an Object.prototype member is passed through, not refused', async () => {
+    const stub = await installShapeStub({ constructor: () => ({ body: { ok: true } }) });
+    expect(await resolveImpulse({ shape: 'constructor' }, apiClient)).toStartWith('resolve_impulse constructor → discovery /resolve');
+    expect(stub.calls('constructor')).toHaveLength(1);
+  });
+
   test('the lease reads pass through', async () => {
     const stub = await installShapeStub({ maintenanceLease: () => ({ body: { held: false } }) });
     expect(await resolveImpulse({ shape: 'maintenanceLease' }, apiClient)).toStartWith('resolve_impulse maintenanceLease → discovery /resolve [200]');

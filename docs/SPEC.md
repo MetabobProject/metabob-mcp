@@ -392,6 +392,35 @@ script (…), which this process does not see; set HTTPS_PROXY". With none found
 still says that a network reachable only through a proxy needs `HTTPS_PROXY`. `doctor` reports the same
 settings. Nothing here runs at startup or blocks it.
 
+## Outgoing text guard
+
+Every agent-authored text a tool sends passes one guard before the tool runs, on stdio and on the
+loopback resolver alike (`src/outgoing-guard.ts@guard-tool-input`). The guarded fields are listed per
+tool (`src/outgoing-guard.ts@guarded-fields`): `record_finding` (summary, details, files, category),
+`concept_create` (content, summary, pointer), `concept_link` (description), `provide_feedback`
+(rationale, goal), `run_goal` / `run_goal_async` (goal, variables, tags), `submit_resolution` (answer)
+and `resolve_impulse` (pointer). Ids, enums and numbers carry no prose and are not scanned; a field's
+nested strings are.
+
+- **A secret refuses the call**, and nothing is sent: the attachment's key (`METABOB_API_KEY`,
+  `SUBSTRATE_API_KEY`); the value of any environment variable named like a secret (`KEY`, `TOKEN`,
+  `SECRET`, `PASSWORD`, `CREDENTIAL`) that is at least 16 characters with secret-like entropy, so a
+  variable holding `true`, `dev` or a port blocks nothing; a private-key block; and known credential
+  patterns (cloud and service API keys, GitHub, GitLab, npm and Slack tokens, JWTs, authorization
+  headers, URLs with credentials). The refusal is `<tool>: refused: outgoing_secret(<kind>, <field>)`:
+  it names the field and the kind, never the value.
+- **A home path** (this user's home directory, or `/home/<user>`, `/Users/<user>`,
+  `C:\Users\<user>`) is replaced with `~` in prose fields, and the reply ends with a line saying so.
+  In fields the substrate acts on (a goal, its variables and tags, a concept pointer, a raw
+  `resolve_impulse` pointer) it refuses the call with `outgoing_local_path(<field>)`: rewriting a path
+  there would change what the request asks.
+- **Each field has a size cap** (for example a finding's summary 2 KB and details 8 KB, a goal 4 KB, a
+  pointer 16 KB); a larger field refuses the call with `outgoing_too_large(<field>, <bytes>)`.
+
+The tool-call log line names each argument and its size, never its value
+(`src/outgoing-guard.ts@describeArgsForLog`). The guard is a rail, not a guarantee: paraphrase,
+summaries, re-typed code and personal data in prose pass it.
+
 ---
 
 ## Tools

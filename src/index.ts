@@ -52,6 +52,7 @@ import { attach, setAttachment, type Attachment } from './attachment.js';
 import { translateTlsError } from './tls-error.js';
 import { NetError } from './net.js';
 import { ZodError } from 'zod';
+import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
@@ -189,7 +190,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  log('info', `Tool call: ${name}`, { args });
+  // Field names and sizes only: argument values may carry what the outgoing guard refuses.
+  log('info', `Tool call: ${name}`, { args: describeArgsForLog(args) });
 
   const startTime = Date.now();
   let success = false;
@@ -260,6 +262,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw error;
     }
 
+    // The outgoing-text guard: agent-authored text with a secret, a home path in a
+    // field the substrate acts on, or an oversized field never leaves. SPEC §outgoing-text-guard
+    const guarded = guardToolInput(name, validatedInput as Record<string, unknown>);
+    if (!guarded.ok) {
+      await sessionManager.trackUsage(SESSION_ID, name, Date.now() - startTime, false);
+      return { content: [{ type: 'text', text: guarded.refusal }], isError: true };
+    }
+    validatedInput = guarded.input;
+
     // The attachment gate: a substrate tool makes no keyed call until the key
     // is proven, and otherwise answers with the one named cause.
     // CONFORMANCE §c3-identity
@@ -294,7 +305,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         {
           type: 'text',
-          text: result,
+          text: guarded.notes.length ? `${result}\n\n${guarded.notes.join('\n')}` : result,
         },
       ],
     };
