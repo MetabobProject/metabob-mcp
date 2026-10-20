@@ -193,4 +193,29 @@ describe('resolve_impulse', () => {
     expect(await resolveImpulse({ shape: 'feature_compose' }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(feature_compose, \d+ms\)/);
     expect(stub.calls('feature_compose')).toHaveLength(1);
   });
+  // An agent reads the system's leases; it never takes or releases them. SPEC §resolve_impulse
+  test('refuses the substrate\'s own lease writes before any request, by shape or by pointer.type', async () => {
+    const stub = await installShapeStub({
+      maintenanceLease_write: () => ({ body: { acquired: true } }),
+      substrateGapLease_write: () => ({ body: { granted: true } }),
+      memoryNote: () => ({ body: { success: true } }),
+    });
+    const lease = await resolveImpulse({ shape: 'maintenanceLease_write', pointer: { op: 'acquire', name: 'autonomous_pick', holder: 'x' } }, apiClient);
+    expect(lease).toStartWith('resolve_impulse: refused: maintenanceLease_write is the substrate\'s own coordination');
+    expect(lease).toContain('record a finding with its holder, name and expiry');
+    const gap = await resolveImpulse({ shape: 'substrateGapLease_write', pointer: { action: 'acquire', gap_id: 'g', holder: 'x' } }, apiClient);
+    expect(gap).toStartWith('resolve_impulse: refused: substrateGapLease_write');
+    // pointer.type overrides shape, so the refusal reads the effective type.
+    const smuggled = await resolveImpulse({ shape: 'memoryNote', pointer: { type: 'maintenanceLease_write', op: 'release', token: 't' } }, apiClient);
+    expect(smuggled).toStartWith('resolve_impulse: refused: maintenanceLease_write');
+    expect(stub.calls('maintenanceLease_write')).toHaveLength(0);
+    expect(stub.calls('substrateGapLease_write')).toHaveLength(0);
+    expect(stub.calls('memoryNote')).toHaveLength(0);
+  });
+
+  test('the lease reads pass through', async () => {
+    const stub = await installShapeStub({ maintenanceLease: () => ({ body: { held: false } }) });
+    expect(await resolveImpulse({ shape: 'maintenanceLease' }, apiClient)).toStartWith('resolve_impulse maintenanceLease → discovery /resolve [200]');
+    expect(stub.calls('maintenanceLease')).toHaveLength(1);
+  });
 });

@@ -745,6 +745,8 @@ The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `fe
 
 A thin passthrough of the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. The shape may be a write, so it is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
+The one exception to the passthrough: the substrate's own coordination writes, `maintenanceLease_write` (maintenance windows, the auto-pick lane) and `substrateGapLease_write` (a gap's landing lease), are refused before any request, whether named by `shape` or by `pointer.type` (`src/tools/resolve-impulse.ts@coordination-writes`). The reply says why, what to do instead (dispatch the work as a goal, or let the system land the gap), and to record a finding for a lease that looks stuck or held by something other than the system. The reads (`maintenanceLease`, `substrateGap`) pass through. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusal is a rail against accidents, not a security boundary; the producer's holder check is the substrate's.
+
 ---
 
 ## Concept graph tools

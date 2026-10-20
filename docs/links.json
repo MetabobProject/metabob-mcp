@@ -574,6 +574,9 @@
       "tests/unit/resolve-dispatch.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
+        ],
+        "SPEC": [
+          "resolve_impulse"
         ]
       },
       "tests/unit/substrate-tools-name-cause.test.ts": {
@@ -825,6 +828,7 @@
         "src/tools/record-finding.ts@handle",
         "src/tools/registry-query.ts@fetchShapeVocabulary",
         "src/tools/registry-query.ts@handle",
+        "src/tools/resolve-impulse.ts@coordination-writes",
         "src/tools/resolve-impulse.ts@handle",
         "src/tools/run-goal-async.ts@handle",
         "src/tools/run-goal.ts@handle",
@@ -988,6 +992,7 @@
       "src/tools/record-finding.ts@handle": "4bdf740420c9",
       "src/tools/registry-query.ts@fetchShapeVocabulary": "1e475956530a",
       "src/tools/registry-query.ts@handle": "1b0d833303dc",
+      "src/tools/resolve-impulse.ts@coordination-writes": "27fc4bb34176",
       "src/tools/resolve-impulse.ts@handle": "1279075bef96",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@handle": "4bdf740420c9",
