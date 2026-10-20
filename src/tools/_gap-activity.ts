@@ -7,8 +7,11 @@
  *
  * The store has no path filter and answers the newest `limit` rows by `updated_at`, with
  * `total` counting the page. A file's gaps are mostly old rows, which a recency page drops,
- * so the read is the whole open store, once, cached for READ_TTL_MS across calls: the
- * store's holder runs hot, and many agents checking on every edit must not each read it.
+ * so the read is the whole open store (about 13 MB on a busy node). It is cached per
+ * attachment: fresh for READ_TTL_MS, then served stale while one background read refreshes
+ * it, up to MAX_STALE_MS; concurrent callers share one read. analyze_impact and
+ * assign_git_changes only use a warm cache and never start a read themselves. The store's
+ * holder runs hot, and many agents checking on every edit must not each pull the store.
  */
 
 import { existsSync } from 'node:fs';
@@ -19,8 +22,10 @@ import { normalizeRemoteUrl } from '../repo-identity.js';
 
 /** The full-read limit: larger than any store, so the answer is the whole store. */
 export const FULL_READ_LIMIT = 1_000_000;
-/** How long one read of the store serves later calls. */
-export const READ_TTL_MS = 60_000;
+/** How long a read is fresh. */
+export const READ_TTL_MS = 5 * 60_000;
+/** How long a stale read is still served while a background read refreshes it. */
+export const MAX_STALE_MS = 30 * 60_000;
 const READ_TIMEOUT_MS = 30_000;
 
 export interface GapRow {
@@ -39,8 +44,9 @@ export type GapRead =
   | { ok: false; message: string };
 
 type CachedRead = GapRead & { ok: true };
+interface Slot { read?: CachedRead; inFlight?: Promise<GapRead> }
 /** Reads cached per attachment, so a read never serves a different substrate or key. */
-let cache = new WeakMap<object, Map<string, CachedRead>>();
+let cache = new WeakMap<object, Map<string, Slot>>();
 const DETACHED = {};
 
 /** Forget cached reads (tests). */
@@ -48,13 +54,47 @@ export function clearGapReadCache(): void {
   cache = new WeakMap();
 }
 
-/** The whole store for `status`, from the cache when it is fresh. */
-export async function readGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
+function slotFor(status: string): Slot {
   const owner = getAttachment() ?? DETACHED;
-  let reads = cache.get(owner);
-  if (!reads) { reads = new Map(); cache.set(owner, reads); }
-  const hit = reads.get(status);
-  if (hit && now - hit.readAt < READ_TTL_MS) return hit;
+  let slots = cache.get(owner);
+  if (!slots) { slots = new Map(); cache.set(owner, slots); }
+  let slot = slots.get(status);
+  if (!slot) { slot = {}; slots.set(status, slot); }
+  return slot;
+}
+
+/** Start the store read for `slot` unless one is in flight; concurrent callers share it. */
+function startRead(slot: Slot, status: 'open' | 'closed'): Promise<GapRead> {
+  slot.inFlight ??= fetchGaps(status).then((r) => {
+    if (r.ok) slot.read = r;
+    slot.inFlight = undefined;
+    return r;
+  });
+  return slot.inFlight;
+}
+
+/**
+ * The whole store for `status`: the cached read while fresh; a stale one (up to
+ * MAX_STALE_MS) at once while a background read refreshes it; otherwise a new read.
+ */
+export async function readGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
+  const slot = slotFor(status);
+  const age = slot.read ? now - slot.read.readAt : Infinity;
+  if (age < READ_TTL_MS) return slot.read!;
+  if (age < MAX_STALE_MS) {
+    void startRead(slot, status);
+    return slot.read!;
+  }
+  return startRead(slot, status);
+}
+
+/** The cached read for `status` if there is one not past MAX_STALE_MS; never starts a read. */
+export function peekGaps(status: 'open' | 'closed', now = Date.now()): CachedRead | null {
+  const read = slotFor(status).read;
+  return read && now - read.readAt < MAX_STALE_MS ? read : null;
+}
+
+async function fetchGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
   let res;
   try {
     res = await resolveShape(
@@ -78,9 +118,7 @@ export async function readGaps(status: 'open' | 'closed', now = Date.now()): Pro
   }
   const rows = Array.isArray(body?.gaps) ? (body.gaps as GapRow[]) : null;
   if (!rows) return { ok: false, message: 'substrateGap returned no gap list' };
-  const read = { ok: true as const, rows, truncated: rows.length >= FULL_READ_LIMIT, readAt: now };
-  reads.set(status, read);
-  return read;
+  return { ok: true as const, rows, truncated: rows.length >= FULL_READ_LIMIT, readAt: now };
 }
 
 function git(cwd: string, args: string[]): string | null {
@@ -193,16 +231,31 @@ export function renderGap(g: GapRow, match: MatchKind): string[] {
 }
 
 /**
+ * Whether the store names any gap under `prefix` (`repos/<vessel>`): a vessel the substrate
+ * mounts has gaps; a repository it does not mount has none, and "no open gaps" there would
+ * falsely read as "nothing in flight".
+ */
+export function storeNamesPrefix(rows: GapRow[], prefix: string): boolean {
+  const p = `${prefix}/`;
+  return rows.some((g) => {
+    const site = g.classification_metadata?.['edit_site'];
+    return (typeof site === 'string' && site.startsWith(p)) || (g.remedy?.goal ?? '').includes(p) || (g.summary ?? '').includes(p);
+  });
+}
+
+/**
  * The one-line summary for analyze_impact and assign_git_changes: per file, its open gaps
- * and any held landing lease. Empty when there is no attachment, the attachment refuses,
- * the workspace does not map, or the read fails: those tools stay local-only then.
+ * and any held landing lease, from a warm cache only — these tools never start the store
+ * read. Without one, a single line points at path_activity. Empty when there is no
+ * attachment, the attachment refuses, or the workspace does not map.
  */
 export async function gapSummaryLines(files: string[], workspace: string): Promise<string[]> {
   if (!getAttachment() || (await substrateRefusal())) return [];
   const mapper = pathMapper(workspace);
   if (mapper.kind === 'none') return [];
-  const read = await readGaps('open');
-  if (!read.ok) return [];
+  const read = peekGaps('open');
+  if (!read) return ['', 'In flight on the substrate: path_activity shows the open gaps on these files.'];
+  if (mapper.kind === 'vessel' && mapper.prefix && !storeNamesPrefix(read.rows, mapper.prefix)) return [];
   const lines: string[] = [];
   for (const f of files) {
     const p = mapper.toStorePath(f);

@@ -11,8 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { setAttachment } from '../../src/attachment';
-import { FULL_READ_LIMIT, READ_TTL_MS, clearGapReadCache, gapsForPath, pathMapper, readGaps, renderGap } from '../../src/tools/_gap-activity';
+import { FULL_READ_LIMIT, MAX_STALE_MS, READ_TTL_MS, clearGapReadCache, gapsForPath, pathMapper, peekGaps, readGaps, renderGap } from '../../src/tools/_gap-activity';
 import { handle as pathActivity } from '../../src/tools/path-activity';
+import { gapSummaryLines } from '../../src/tools/_gap-activity';
 import { installShapeStub } from '../helpers/shape-stub';
 import type { AnalysisAPIClient } from '../../src/api-client';
 
@@ -38,14 +39,35 @@ beforeEach(() => clearGapReadCache());
 afterEach(() => setAttachment(null));
 
 describe('the read', () => {
-  test('reads the whole open store, held rows included, once per TTL', async () => {
+  test('reads the whole open store, held rows included: fresh, then stale while one refresh runs, then anew', async () => {
     const stub = await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS, total: GAPS.length } }) });
-    const t0 = 1_000_000;
-    expect((await readGaps('open', t0)).ok).toBe(true);
-    await readGaps('open', t0 + READ_TTL_MS - 1);
+    expect((await readGaps('open')).ok).toBe(true);
     expect(stub.calls('substrateGap')).toEqual([{ type: 'substrateGap', status: 'open', limit: FULL_READ_LIMIT, include_held: true }]);
-    await readGaps('open', t0 + READ_TTL_MS);
+    await readGaps('open', Date.now() + READ_TTL_MS - 1_000);
+    expect(stub.calls('substrateGap')).toHaveLength(1);
+    // Stale: served at once, and one background read refreshes it however many callers ask.
+    const stale = Date.now() + READ_TTL_MS + 1_000;
+    const [a, b] = await Promise.all([readGaps('open', stale), readGaps('open', stale)]);
+    expect(a.ok && b.ok).toBe(true);
+    await Bun.sleep(10);
     expect(stub.calls('substrateGap')).toHaveLength(2);
+    // Past MAX_STALE_MS the caller waits for a new read.
+    await readGaps('open', Date.now() + MAX_STALE_MS + 1_000);
+    expect(stub.calls('substrateGap')).toHaveLength(3);
+  });
+
+  test('concurrent first reads share one request', async () => {
+    const stub = await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
+    await Promise.all([readGaps('open'), readGaps('open'), readGaps('open')]);
+    expect(stub.calls('substrateGap')).toHaveLength(1);
+  });
+
+  test('peekGaps never starts a read', async () => {
+    const stub = await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
+    expect(peekGaps('open')).toBeNull();
+    expect(stub.calls('substrateGap')).toHaveLength(0);
+    await readGaps('open');
+    expect(peekGaps('open')?.rows.length).toBe(GAPS.length);
   });
 
   test('reads the resolver\'s own { shape, body: { gaps } } answer, and a content-wrapped one', async () => {
@@ -140,6 +162,48 @@ describe('path_activity', () => {
     const out = await pathActivity({ paths: [FILE, 'repos/activity-api/src/none.ts'] }, apiClient);
     expect(out).toContain(`${FILE} — 3 open gaps: 1 being landed by the system now, 1 held, 1 queued`);
     expect(out).toContain('repos/activity-api/src/none.ts — no open gaps');
-    expect(out).toContain('A held landing lease: wait and look again');
+    expect(out).toContain('Being landed: wait and look again');
+    expect(out).toContain('Queued: prefer letting the system land it');
+    expect(out).toContain('Nothing in flight: make the change, and record it.');
+  });
+
+  test('the legend names only what is present', async () => {
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
+    const out = await pathActivity({ paths: ['repos/activity-api/src/none.ts'] }, apiClient);
+    expect(out).toContain('Nothing in flight');
+    expect(out).not.toContain('Being landed:');
+    expect(out).not.toContain('Queued:');
+  });
+
+  test('a repository the substrate does not mount says so, instead of "nothing in flight"', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'unmounted-'));
+    git(root, 'init', '-q');
+    git(root, 'remote', 'add', 'origin', 'https://github.com/org/metabob-mcp.git');
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
+    const prev = process.env.WORKSPACE_PATH;
+    process.env.WORKSPACE_PATH = root;
+    try {
+      const out = await pathActivity({ paths: ['src/index.ts', FILE] }, apiClient);
+      expect(out).toContain('metabob-mcp is not a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
+      expect(out).toContain('src/index.ts — not a path the gap store names');
+      expect(out).toContain(`${FILE} — 3 open gaps`);
+    } finally {
+      if (prev === undefined) delete process.env.WORKSPACE_PATH; else process.env.WORKSPACE_PATH = prev;
+    }
+  });
+});
+
+describe('the summary in analyze_impact and assign_git_changes', () => {
+  test('uses only a warm cache, and never starts the store read itself', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vessel-sum-'));
+    git(root, 'init', '-q');
+    git(root, 'remote', 'add', 'origin', 'git@github.com:org/goal-host-vessel.git');
+    const stub = await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
+    expect(await gapSummaryLines(['src/index.ts'], root)).toEqual(['', 'In flight on the substrate: path_activity shows the open gaps on these files.']);
+    expect(stub.calls('substrateGap')).toHaveLength(0);
+    await readGaps('open');
+    const warm = await gapSummaryLines(['src/index.ts'], root);
+    expect(warm.join('\n')).toContain('src/index.ts: 3 open gap(s), 1 being landed by the system now, 1 held');
+    expect(stub.calls('substrateGap')).toHaveLength(1);
   });
 });
