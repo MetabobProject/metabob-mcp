@@ -44,6 +44,12 @@ try {
   for (let attempt = 1; !dispatchId && attempt <= 5 && Date.now() < deadline; attempt++) {
     last = (await server.call('run_goal_async', { goal: LAB_CHECK_GOAL }, 60_000)).text;
     dispatchId = /dispatchId:\s*(\S+)/.exec(last)?.[1] ?? null;
+    // goal-host's spend-rate policy caps identical goals per hour (429). Retrying only adds
+    // refusals; report it as a throttle, distinct from a failed reach.
+    if (!dispatchId && /\b429\b/.test(last)) {
+      say('goal-host refused the check goal: spend-rate policy (identical goal dispatched too often in the last hour)');
+      process.exit(3);
+    }
     if (!dispatchId) await Bun.sleep(3_000);
   }
   if (!dispatchId) throw new Error(`run_goal_async did not dispatch: ${last.split('\n')[0]}`);

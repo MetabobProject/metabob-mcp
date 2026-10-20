@@ -14,8 +14,8 @@
 #
 #   options: -q|--quiet (only warnings, failures and verdicts)
 #   env:     LAB_WAIT_S (900) per readiness wait; LAB_CHECK_TIMEOUT_S (300) for check's goal; LAB_LOG (lab/lab.log)
-#            receives the engine's own output; LAB_KEYS_DIR (lab/keys); LAB_PULL=1 pulls even when the image is
-#            local; SUBSTRATE_IMAGE
+#            receives the engine's own output; LAB_KEYS_DIR (lab/keys); LAB_PULL=0 keeps a local copy of a tag
+#            instead of asking the registry (a digest, name@sha256:…, is pulled only when missing); SUBSTRATE_IMAGE
 #
 # Both nodes run the substrate image's OWN launch manifest unmodified (manifest.yml, regenerated from the image on every
 # `up` that starts a node), each as its own compose project with its own env file. lab-net.yml only adds the private lab
@@ -121,10 +121,21 @@ ensure_provider() {
   log "set a provider key in your environment (e.g. ANTHROPIC_API_KEY=… ./lab.sh up), or install one with the substrate installer ($cfg); the hub needs one for LLM-backed goals"
   exit 2
 }
+image_revision() { # $1 image: its OCI revision label, else its id prefix
+  local r; r=$("$ENG" image inspect --format '{{ index .Labels "org.opencontainers.image.revision" }}' "$1" 2>/dev/null)
+  [ -n "$r" ] && [ "$r" != "<no value>" ] && { echo "$r"; return; }
+  "$ENG" image inspect --format '{{.Id}}' "$1" 2>/dev/null | cut -c1-19
+}
 ensure_manifest() {
-  if ! "$ENG" image exists "$IMAGE" 2>/dev/null && ! "$ENG" image inspect "$IMAGE" >/dev/null 2>&1 || [ "${LAB_PULL:-0}" = 1 ]; then
+  # A tag is mutable: a local copy can be any age, so the registry is asked every time (a pull of an
+  # unchanged tag moves no layers). A digest (name@sha256:…) is immutable and is pulled only when
+  # missing. LAB_PULL=0 keeps whatever is local, for offline runs.
+  local local_copy=0
+  "$ENG" image exists "$IMAGE" 2>/dev/null || "$ENG" image inspect "$IMAGE" >/dev/null 2>&1 && local_copy=1
+  if [ "$local_copy" = 0 ] || { [ "${LAB_PULL:-1}" != 0 ] && [ "${IMAGE#*@sha256:}" = "$IMAGE" ]; }; then
     info "pulling $IMAGE"; quietly "$ENG" pull "$IMAGE" || fail "could not pull $IMAGE"
   fi
+  log "image: $IMAGE revision $(image_revision "$IMAGE")"
   "$ENG" run --rm --entrypoint substrate-manifest "$IMAGE" > manifest.yml.new 2>>"$LOG" && mv -f manifest.yml.new manifest.yml \
     || { rm -f manifest.yml.new; fail "could not write manifest.yml from $IMAGE"; }
   info "manifest.yml written from the image ($(sha256sum manifest.yml | cut -c1-12))"
@@ -206,6 +217,10 @@ cmd_check() {
       const apiKey = fs.readFileSync(process.env.KEY_FILE, "utf8").trim();
       process.stdout.write(JSON.stringify({ metabob: { apiKey, discoveryEndpoint: process.env.DISC, identityEndpoint: process.env.ID } }));
     ' > "$tmp/config.json" ) || fail "check: could not write the MCP config"
+  local rev_hub rev_spoke
+  rev_hub=$("$ENG" inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(c hub)" 2>/dev/null || echo unknown)
+  rev_spoke=$("$ENG" inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$(c spoke)" 2>/dev/null || echo unknown)
+  log "running image revision: hub ${rev_hub:-unknown}, spoke ${rev_spoke:-unknown}"
   info "attach --check against $SPOKE_DISCOVERY (identity $HUB_IDENTITY)"
   rc=0; HOME="$tmp" METABOB_CONFIG_PATH="$tmp/config.json" METABOB_TELEMETRY=off METABOB_NO_SYSTEM_CA=1 \
     node "$cli" attach --check >"$tmp/attach.out" 2>&1 || rc=$?
@@ -216,7 +231,15 @@ cmd_check() {
     fail "check: attach --check exited $rc"
   fi
   info "attach --check: attached"
+  if [ "${1:-}" = "--attach-only" ]; then
+    log "check: PASS ($(elapsed "$t0")): attached at $SPOKE_DISCOVERY (attach only: no goal dispatched)"
+    return 0
+  fi
   rc=0; LAB_MCP_CONFIG="$tmp/config.json" LAB_CHECK_TIMEOUT_S="$CHECK_TIMEOUT_S" bun "$LAB_DIR/check-goal.ts" 2>>"$LOG" || rc=$?
+  if [ "$rc" = 3 ]; then
+    log "check: ATTACHED, goal check THROTTLED ($(elapsed "$t0")): goal-host's spend-rate policy refused the identical check goal this hour; attach is verified, the reach is not re-proven"
+    return 0
+  fi
   [ "$rc" = 0 ] || fail "check: the goal did not reach through the MCP"
   log "check: PASS ($(elapsed "$t0")): attached at $SPOKE_DISCOVERY, and an LLM-free goal reached through the MCP"
 }
@@ -224,7 +247,7 @@ cmd_check() {
 : >>"$LOG"
 case "${1:-}" in
   up) cmd_up ;;
-  check) cmd_check ;;
+  check) cmd_check "${2:-}" ;;
   cycle)
     t_all=$(date +%s)
     cmd_destroy; cmd_up; cmd_check

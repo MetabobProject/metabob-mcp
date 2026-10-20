@@ -48,10 +48,10 @@ const LAB_SH = join(REPO_ROOT, 'lab', 'lab.sh');
 const labDefaults = labEnv();
 const ownLab = !process.env.LAB_DISCOVERY && !process.env.LAB_KEY_FILE;
 
-function labStep(step: string): boolean {
+function labStep(step: string, extra: string[] = []): boolean {
   const started = Date.now();
   console.log(`lab: ${step} ...`);
-  const r = spawnSync('bash', [LAB_SH, step, '--quiet'], { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const r = spawnSync('bash', [LAB_SH, step, ...extra, '--quiet'], { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim();
   const pass = r.status === 0;
   const s: LabStep = { step, pass, durationMs: Date.now() - started, ...(pass ? {} : { tail: out.split('\n').slice(-20).join('\n') }) };
@@ -66,10 +66,13 @@ function runLifecycle(): string | null {
     for (const step of ['destroy', 'up', 'check']) if (!labStep(step)) return step;
     return null;
   }
-  if (labStep('check')) return null;
+  // Reuse proves the attachment only: the full check dispatches one identical goal, and
+  // goal-host's spend-rate policy caps identical goals per hour, so running it before every
+  // trial exhausts the cap. `fresh` (and `lab.sh check`) still prove a reach.
+  if (labStep('check', ['--attach-only'])) return null;
   console.log('lab: the check failed; bringing the lab up and checking again');
-  for (const step of ['up', 'check']) if (!labStep(step)) return step;
-  return null;
+  if (!labStep('up')) return 'up';
+  return labStep('check', ['--attach-only']) ? null : 'check';
 }
 
 function writeReport(report: any): string {

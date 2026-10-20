@@ -16,7 +16,7 @@ otherwise.
 
 | command | what it does |
 |---|---|
-| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes and for the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) to exist, and issues the test keys. Pulls the image only when it is not local (`LAB_PULL=1` pulls anyway). When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
+| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes and for the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) to exist, and issues the test keys. Asks the registry for a tag on every `up`, since a local copy of a mutable tag can be any age (a pull of an unchanged tag moves no layers); a digest (`name@sha256:…`) is pulled only when missing. It logs the image's revision, and `check` logs the revision the running nodes use. When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
 | `lab/lab.sh check` | Proves the lab serves the MCP: writes a temporary MCP config (mode 0600, in a temporary directory removed on exit) from `keys/mcp-rw.key`, the spoke's discovery and the hub's identity; runs `metabob-mcp attach --check` with the repository's `dist/cli.js` (built first when it is missing or older than `src/`); then, through the MCP over stdio (`lab/check-goal.ts`), dispatches the LLM-free goal *How many vessels are currently registered in the discovery registry?* with `run_goal_async` and polls `goal_status` until `reached: yes`. Prints one verdict line; exits nonzero on any failure |
 | `lab/lab.sh cycle` | `destroy`, `up`, `check`: the from-scratch proof |
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |
@@ -34,7 +34,7 @@ banners, pull progress, the commands compose runs) goes to `lab/lab.log`, with a
 | `LAB_CHECK_TIMEOUT_S` | `300` | Limit for `check`'s goal to reach |
 | `LAB_LOG` | `lab/lab.log` | Where the engine's output goes |
 | `LAB_KEYS_DIR` | `lab/keys` | The key directory. The lab's containers, volumes and network are one per host, so another checkout of the repository (a worktree) points here to share the lab's keys |
-| `LAB_PULL` | — | `1` pulls the image on every `up` |
+| `LAB_PULL` | `1` | `0` keeps a local copy of a tag instead of asking the registry (offline runs) |
 | `SUBSTRATE_IMAGE` | `ghcr.io/avigopal/substrate:dev` | The image both nodes run |
 | `SUBSTRATE_CONFIG_PATH` | `~/.substrate/config.json` | The installer's config, read for a provider key |
 

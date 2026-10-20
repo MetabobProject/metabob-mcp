@@ -192,3 +192,20 @@ describe('lab.sh boot readiness', () => {
     expect(script).toMatch(/^wait_workspace\(\) \{/m);
   });
 });
+
+describe('lab.sh image currency', () => {
+  // A local copy of a mutable tag can be any age: the lab once ran a week-old :dev
+  // whose goal-host predated a fix, while the published tag carried it.
+  test('a tag is pulled on every up unless LAB_PULL=0; a digest only when missing', () => {
+    const script = read('lab.sh');
+    expect(script).toContain('${LAB_PULL:-1}');
+    expect(script).toContain('${IMAGE#*@sha256:}');
+    expect(script).not.toContain('${LAB_PULL:-0}');
+  });
+
+  test('up and check state the image revision they ran', () => {
+    const script = read('lab.sh');
+    expect(script).toMatch(/log "image: \$IMAGE revision/);
+    expect(script).toContain('running image revision: hub');
+  });
+});
