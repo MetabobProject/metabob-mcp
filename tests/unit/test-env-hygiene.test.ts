@@ -34,18 +34,20 @@ function files(dir: string): string[] {
 
 describe('test environment hygiene', () => {
   test('no test sets a connection variable on process.env', () => {
-    const self = relative(ROOT, import.meta.path);
+    // Forward slashes on every OS, so DYNAMIC_OK's keys match on Windows too.
+    const rel = (f: string) => relative(ROOT, f).replace(/\\/g, '/');
+    const self = rel(import.meta.path);
     const hits = files(ROOT).flatMap((f) => {
-      const rel = relative(ROOT, f);
-      if (rel === self) return [];
+      const name = rel(f);
+      if (name === self) return [];
       const lines = readFileSync(f, 'utf8').split('\n');
       return lines.flatMap((line, i) => {
         if (line.trimStart().startsWith('//') || line.trimStart().startsWith('*')) return [];
         const nearRestoreLoop = lines.slice(Math.max(0, i - 3), i).some((l) => RESTORE_LOOP.test(l));
         const bad = (NAMED_WRITE.test(line) && !RESTORE.test(line))
           || WHOLESALE.test(line)
-          || (DYNAMIC_WRITE.test(line) && !RESTORE.test(line) && !nearRestoreLoop && !Object.hasOwn(DYNAMIC_OK, rel));
-        return bad ? [`${rel}:${i + 1}: ${line.trim()}`] : [];
+          || (DYNAMIC_WRITE.test(line) && !RESTORE.test(line) && !nearRestoreLoop && !Object.hasOwn(DYNAMIC_OK, name));
+        return bad ? [`${name}:${i + 1}: ${line.trim()}`] : [];
       });
     });
     expect(hits).toEqual([]);
