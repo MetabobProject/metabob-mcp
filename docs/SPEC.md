@@ -745,7 +745,18 @@ The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `fe
 
 A thin passthrough of the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. The shape may be a write, so it is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
-The one exception to the passthrough: the substrate's own coordination writes, `maintenanceLease_write` (maintenance windows, the auto-pick lane) and `substrateGapLease_write` (a gap's landing lease), are refused before any request, whether named by `shape` or by `pointer.type` (`src/tools/resolve-impulse.ts@coordination-writes`). The reply says why, what to do instead (dispatch the work as a goal, or let the system land the gap), and to record a finding for a lease that looks stuck or held by something other than the system. The reads (`maintenanceLease`, `substrateGap`) pass through. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusal is a rail against accidents, not a security boundary; the producer's holder check is the substrate's.
+The one exception to the passthrough: writes an agent does not make are refused before any request, whether named by `shape` or by `pointer.type` (`src/tools/resolve-impulse.ts@coordination-writes`), each with why and what to do instead:
+
+| Writes | Why an agent does not make them | Instead |
+|---|---|---|
+| `maintenanceLease_write`, `substrateGapLease_write` | the system's own coordination: maintenance windows, the auto-pick lane, a gap's landing | dispatch the work as a goal, or let the system land the gap; record a finding for a lease that looks stuck or foreign |
+| `activityExecutionTrace_write`, `execution_write` | the graded record: a trace's tags set its reach | dispatch the work as a goal, so goal-host traces it and its judge grades it |
+| `goal_verification_label_write` | the oracle corpus | `provide_feedback`, which records an `automated` label with the operator folded in |
+| `poolImpulse_write` | walk input carries no principal the substrate stamps | dispatch a goal, or record a finding with what the walk is missing |
+| `substrateGap_write` | gaps come from the system's detectors; an agent-filed gap counts as hand-fed | `record_finding` |
+| `pushPolicy_write`, `llmModelPolicy_write`, `docFixPolicy_write`, `renderPolicy_write` | system policy is an operator's decision; this key carries no operator authority | ask the person, or record a finding proposing the change |
+
+Reads pass through. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
 
 ---
 

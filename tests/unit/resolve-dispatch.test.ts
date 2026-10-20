@@ -213,6 +213,25 @@ describe('resolve_impulse', () => {
     expect(stub.calls('memoryNote')).toHaveLength(0);
   });
 
+  test('refuses every write an agent does not make, by shape and by pointer.type', async () => {
+    const { COORDINATION_WRITES } = await import('../../src/tools/resolve-impulse');
+    const shapes = Object.keys(COORDINATION_WRITES);
+    expect(shapes).toEqual(expect.arrayContaining([
+      'activityExecutionTrace_write', 'execution_write', 'goal_verification_label_write', 'poolImpulse_write',
+      'substrateGap_write', 'pushPolicy_write', 'llmModelPolicy_write', 'docFixPolicy_write', 'renderPolicy_write',
+    ]));
+    const stub = await installShapeStub(Object.fromEntries([...shapes, 'memoryNote'].map((s) => [s, () => ({ body: { ok: true } })])));
+    for (const shape of shapes) {
+      expect(await resolveImpulse({ shape, pointer: {} }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
+      expect(await resolveImpulse({ shape: 'memoryNote', pointer: { type: shape } }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
+      expect(stub.calls(shape)).toHaveLength(0);
+    }
+    expect(stub.calls('memoryNote')).toHaveLength(0);
+    // A self-graded trace is the case this exists for.
+    const graded = await resolveImpulse({ shape: 'activityExecutionTrace_write', pointer: { traceData: { tags: ['reached:true'] } } }, apiClient);
+    expect(graded).toContain('an agent never writes a trace');
+  });
+
   test('the lease reads pass through', async () => {
     const stub = await installShapeStub({ maintenanceLease: () => ({ body: { held: false } }) });
     expect(await resolveImpulse({ shape: 'maintenanceLease' }, apiClient)).toStartWith('resolve_impulse maintenanceLease → discovery /resolve [200]');
