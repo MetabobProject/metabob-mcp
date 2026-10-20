@@ -131,16 +131,16 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "f50008b",
-        "why": "the org check's form (nested body on a direct hop, header through a proxy) and the scopes in state are SPEC detail; CLAUDE.md's 'POST /v1/auth/resolve → orgId' and the auth-service row still hold"
+        "at": "1921edc",
+        "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "f50008b",
-        "why": "c3 states the org check with the key and its outcomes; the proxy-dependent body is SPEC § Attachment detail and changes no requirement"
+        "at": "1921edc",
+        "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "docs/SPEC.md": {
-        "at": "a9d5878",
-        "why": "e25cbf4 rewords provide_feedback's pruned-dispatch message only (no executionId parameter exists); SPEC already states a pruned dispatch cannot be labelled"
+        "at": "1921edc",
+        "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "lab/README.md": {
         "at": "e551c35",
