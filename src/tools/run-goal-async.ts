@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { describeResolveFailure } from '../attachment.js';
-import { operatorId } from '../operator-id.js';
+import { operatorId, sessionId } from '../operator-id.js';
 import { dispatchFailure, dispatchGoal, requestedLearningModeLine } from './_goal-host.js';
 
 export const RunGoalAsyncTool = {
@@ -96,7 +96,8 @@ export async function handle(
       parent_execution_id: input.parent_execution_id,
       composition_chain: input.composition_chain,
       learning_mode: input.learning_mode,
-      tags: input.tags,
+      // The session this dispatch came from, as a tag goal-host stamps into the trace (a claim). SPEC §client-claim
+      tags: [...(input.tags ?? []), `session:${sessionId()}`],
       operator: operatorId(),
     });
   } catch (err) {

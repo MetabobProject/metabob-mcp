@@ -66,6 +66,19 @@ describe('attachment.resolve()', () => {
     expect(stub.urls.filter((u) => u.endsWith('/resolve') && !u.includes('/auth/'))).toEqual([`${STUB_DISCOVERY}/resolve`]);
   });
 
+  // SPEC §client-claim: a write declares operator, session and client; a read declares nothing.
+  test('a write carries client_claim, a read none, and a pointer\'s own claim is kept', async () => {
+    const { sessionId } = await import('../../src/operator-id');
+    const stub = await installShapeStub({ memoryNote_write: () => ({ body: { ok: true } }), memoryNote: () => ({ body: { ok: true } }) });
+    await resolveShape({ type: 'memoryNote_write', note: 'n' });
+    await resolveShape({ type: 'memoryNote' }, { read: true });
+    await resolveShape({ type: 'memoryNote_write', note: 'm', client_claim: { operator: 'x', session: 's', client: 'c' } });
+    const [first, kept] = stub.claims('memoryNote_write');
+    expect(first).toEqual({ operator: expect.any(String), session: sessionId(), client: expect.stringMatching(/^metabob-mcp\/\d/) });
+    expect(kept).toEqual({ operator: 'x', session: 's', client: 'c' });
+    expect(stub.claims('memoryNote')).toEqual([undefined]);
+  });
+
   test('an unknown shape throws no_producer, named in one line', async () => {
     await installShapeStub({});
     const err = await resolveShape({ type: 'nothingServesThis' }).catch((e) => e);

@@ -53,6 +53,7 @@ import { translateTlsError } from './tls-error.js';
 import { NetError } from './net.js';
 import { ZodError } from 'zod';
 import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
+import { sessionId, setWorkspaceOperator } from './operator-id.js';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
@@ -61,7 +62,7 @@ const METABOB_ENDPOINT = process.env.METABOB_ENDPOINT || undefined;
 const DISCOVERY_ENDPOINT = process.env.DISCOVERY_ENDPOINT || undefined;
 
 /** Stable session identifier — callers may inject SESSION_ID; otherwise a fresh UUID. */
-const SESSION_ID = process.env.SESSION_ID || crypto.randomUUID();
+const SESSION_ID = sessionId();
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const MAX_REQUESTS_PER_MINUTE = Number(process.env.MAX_REQUESTS_PER_MINUTE) || 60;
 // No fixed default port: a fixed default collides across concurrent instances,
@@ -452,6 +453,8 @@ async function main() {
       workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
     });
     setResolverIdentity({ vesselId });
+    // The operator a write declares: this workspace's stable id unless MB_OPERATOR_ID names one.
+    setWorkspaceOperator(vesselId);
 
     // Resume: deliver any answers this workspace produced in a prior session
     // that never reached the substrate (cross-session "provide info back").

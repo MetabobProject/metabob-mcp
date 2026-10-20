@@ -184,7 +184,8 @@
           "c9-fail-visibly"
         ],
         "SPEC": [
-          "attachment"
+          "attachment",
+          "client-claim"
         ]
       },
       "src/auth-service.ts": {
@@ -253,6 +254,11 @@
         ],
         "SPEC": [
           "network"
+        ]
+      },
+      "src/operator-id.ts": {
+        "SPEC": [
+          "client-claim"
         ]
       },
       "src/os-proxy.ts": {
@@ -501,6 +507,7 @@
       "src/tools/run-goal-async.ts": {
         "CONFORMANCE": [],
         "SPEC": [
+          "client-claim",
           "run_goal_async"
         ]
       },
@@ -509,6 +516,7 @@
           "c11-attachment-model"
         ],
         "SPEC": [
+          "client-claim",
           "run_goal"
         ]
       },
@@ -559,6 +567,7 @@
           "c11-attachment-model"
         ],
         "SPEC": [
+          "client-claim",
           "substrate-goal-tools"
         ]
       },
@@ -816,6 +825,7 @@
         "src/net.ts@redact-credentials",
         "src/net.ts@select-proxy",
         "src/net.ts@trusted-cas",
+        "src/operator-id.ts@clientClaim",
         "src/os-proxy.ts@detect-os-proxy",
         "src/outgoing-guard.ts@describeArgsForLog",
         "src/outgoing-guard.ts@guard-tool-input",
@@ -991,6 +1001,7 @@
       "src/net.ts@redact-credentials": "b1266944610f",
       "src/net.ts@select-proxy": "8d64a30d9de1",
       "src/net.ts@trusted-cas": "8d64a30d9de1",
+      "src/operator-id.ts@clientClaim": "677892361273",
       "src/os-proxy.ts@detect-os-proxy": "79ed88b1bb1d",
       "src/outgoing-guard.ts@describeArgsForLog": "d1140ab34536",
       "src/outgoing-guard.ts@guard-tool-input": "e45b397d7869",

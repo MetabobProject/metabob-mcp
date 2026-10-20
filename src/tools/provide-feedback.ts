@@ -29,7 +29,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { RESOLVE_TIMEOUT_MS, describeResolveFailure, resolveShape } from '../attachment.js';
-import { operatorId } from '../operator-id.js';
+import { operatorId, sessionId } from '../operator-id.js';
 import { readWalkState } from './_goal-host.js';
 
 export const ProvideFeedbackTool = {
@@ -114,7 +114,7 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
   // The oracle-corpus write contract has no dedicated operator field, so fold the
   // operator identity into the notes for attribution.
   const operator = operatorId();
-  const notes = `${input.rationale} [operator: ${operator}]`;
+  const notes = `${input.rationale} [operator: ${operator}] [session: ${sessionId()}]`;
 
   // 2. Write the oracle-corpus label via the activity-api impulse resolver.
   const pointer = {

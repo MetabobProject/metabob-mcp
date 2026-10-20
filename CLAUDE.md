@@ -93,7 +93,7 @@ goal_reasoning({ dispatch_id }) → the walk decision-log: why it reached / fell
 provide_feedback({ dispatch_id, verdict, rationale })  → verdict into the oracle corpus
 ```
 
-**Plain code-change goals route to `feature_compose`.** goal-host routes a goal that names a real `repos/<vessel>/src/…` file (e.g. `run_goal_async({ goal: "edit repos/development-vessel/src/resolvers/gap-to-feature.ts: <change>" })`) through the edit-intent path to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit via mitosis cutover; this server forwards the goal text unchanged. `reached:true` + a `feature_compose` `selectedTemplateId` + a landed commit means it worked; then read the diff (a change can pass the reach-gate yet not do what was asked). Every `run_goal` / `run_goal_async` dispatch carries `operator:<id>` (default `claude-code-operator`, override `MB_OPERATOR_ID`), which goal-host stamps into the trace tags; `resolve_impulse` adds none.
+**Plain code-change goals route to `feature_compose`.** goal-host routes a goal that names a real `repos/<vessel>/src/…` file (e.g. `run_goal_async({ goal: "edit repos/development-vessel/src/resolvers/gap-to-feature.ts: <change>" })`) through the edit-intent path to `feature_compose`, which drafts + typecheck-verifies + lands a real traced commit via mitosis cutover; this server forwards the goal text unchanged. `reached:true` + a `feature_compose` `selectedTemplateId` + a landed commit means it worked; then read the diff (a change can pass the reach-gate yet not do what was asked). Every `run_goal` / `run_goal_async` dispatch carries `operator:<id>` (`MB_OPERATOR_ID`, else this workspace's stable vesselId) and a `session:<id>` tag, which goal-host stamps into the trace tags; every write carries the same as `client_claim` (docs/SPEC.md § Client claim). These are declared claims, not attribution.
 
 **Goal dispatch/track contract** (goal-host-vessel's shapes, each resolved through discovery `POST /resolve`):
 - `goalDispatchAsync` → `202 { dispatchId, status:"running" }` (async; the goal runs in the background). `run_goal_async` and `run_goal` dispatch with it.
@@ -136,13 +136,13 @@ wins over its derived value only when set explicitly.
 | `RUN_GOAL_POLL_MAX_MS` | `15000` | Longest pause between `run_goal`'s `goalWalkState` polls (each read makes goal-host re-read the execution's labels) |
 | `RESOLVE_IMPULSE_TIMEOUT_MS` | `30000` | `resolve_impulse`'s request cap (never above 60 s) |
 | `WORKSPACE_PATH` | `$PWD` | Default root for `init_workspace` |
-| `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier |
+| `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier, declared on every write and dispatch (`client_claim.session`, the `session:` tag) |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver. No fixed default: concurrent instances would collide, and 8000–8999 are substrate container ports (8080 is activity-api). Warns if set in that range |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `METABOB_STDIO_KEEPALIVE` | _(unset)_ | Set to `1` to survive stdin EOF — headless operation (the loopback HTTP resolver only). Otherwise the process exits on stdin EOF or `SIGHUP`, so an orphaned server does not outlive its MCP client |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `METABOB_TOOLS` | _(unset → all)_ | Comma-separated tool allowlist, enforced on stdio and on the loopback resolver |
-| `MB_OPERATOR_ID` | `claude-code-operator` | Operator identity threaded onto goal dispatch (`run_goal` / `run_goal_async`) and folded into `provide_feedback` label notes |
+| `MB_OPERATOR_ID` | _(this workspace's vesselId)_ | Operator identity declared on goal dispatch (`operator:` tag), in `provide_feedback` label notes and on every write (`client_claim.operator`); unset, the stable `metabob-mcp-<hash>` vesselId, so sessions in different workspaces never share one default |
 | `VESSEL_ID` | _(derived)_ | The coordination identity: keys the local agent-task queue and is the `recorded_by` / `reviewed_by` author of findings and verdicts. Defaults to a stable `metabob-mcp-<hash(apiKey+workspace)>`. Never registered anywhere |
 
 ## Attachment (client-only)

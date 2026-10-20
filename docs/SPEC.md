@@ -402,6 +402,25 @@ script (…), which this process does not see; set HTTPS_PROXY". With none found
 still says that a network reachable only through a proxy needs `HTTPS_PROXY`. `doctor` reports the same
 settings. Nothing here runs at startup or blocks it.
 
+## Client claim
+
+Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds
+`client_claim: { operator, session, client }` to the pointer of every resolve that is not a read
+(`src/attachment.ts@attachment-resolve`), and a goal dispatch also carries `operator` and a
+`session:<session>` tag, which goal-host stamps into the trace's tags; `provide_feedback` folds
+`[operator: …] [session: …]` into its label notes, and findings and verdicts already carry
+`recorded_by` / `reviewed_by` and `session` in their content.
+
+| Field | Value |
+|---|---|
+| `operator` | `MB_OPERATOR_ID` when set; otherwise this workspace's stable vesselId (`metabob-mcp-<hash(apiKey + workspace)>`), so distinct workspaces and keys are told apart; `metabob-mcp-unidentified` with no key |
+| `session` | `SESSION_ID` when set; otherwise one UUID per launch |
+| `client` | `metabob-mcp/<version>` |
+
+These are **claims**, not attribution: the client asserts them, and only a producer that stamps a write
+from the credential attributes it; the claim is there so such a stamp can be joined to a session and an
+operator. Reads carry no claim. A pointer that already has a `client_claim` is sent as it is.
+
 ## Outgoing text guard
 
 Every string a substrate tool sends passes one guard before the tool runs, on stdio and on the
@@ -709,7 +728,7 @@ Goal dispatch that waits for the outcome, for short, one-shot goals.
 | `learning_mode` | `observe` \| `learn` | goal-host's (learn) | `observe` runs the walk traced for audit, changing no posterior, goal path or credit |
 | `tags` | string[] | — | Tags carried onto the dispatch and its trace |
 
-Dispatches as `run_goal_async` does (`goalDispatchAsync`), then polls `goalWalkState` (`src/tools/run-goal.ts@runGoalPollDelayMs`) — three polls `RUN_GOAL_POLL_MS` apart (default 2 s), then pauses doubling to `RUN_GOAL_POLL_MAX_MS` (default 15 s), because every read makes goal-host re-read the execution's oracle labels from the trace store; each poll is a short request — until the dispatch leaves `running` or the polling deadline `RUN_GOAL_TIMEOUT_MS` (default 290 s) passes (`src/tools/run-goal.ts@run-goal-poll`). No request is held open for the goal. `operator` is `MB_OPERATOR_ID` (default `claude-code-operator`); goal-host turns it into the trace's `operator:` tag. Returns `dispatchId`, `executionId`, `reached`, `status`, `selectedTemplateId`, any `error` and the duration. Past the deadline the goal keeps running on goal-host, and the reply carries its `dispatchId` and a `goal_status` hint. A refused dispatch (a 429 from goal-host's spend-rate breaker, a 503 while it drains) returns its status and error.
+Dispatches as `run_goal_async` does (`goalDispatchAsync`), then polls `goalWalkState` (`src/tools/run-goal.ts@runGoalPollDelayMs`) — three polls `RUN_GOAL_POLL_MS` apart (default 2 s), then pauses doubling to `RUN_GOAL_POLL_MAX_MS` (default 15 s), because every read makes goal-host re-read the execution's oracle labels from the trace store; each poll is a short request — until the dispatch leaves `running` or the polling deadline `RUN_GOAL_TIMEOUT_MS` (default 290 s) passes (`src/tools/run-goal.ts@run-goal-poll`). No request is held open for the goal. `operator` is the declared operator (§ Client claim): `MB_OPERATOR_ID`, else this workspace's stable vesselId; goal-host turns it into the trace's `operator:` tag, and the dispatch's tags also carry `session:<SESSION_ID>`. Returns `dispatchId`, `executionId`, `reached`, `status`, `selectedTemplateId`, any `error` and the duration. Past the deadline the goal keeps running on goal-host, and the reply carries its `dispatchId` and a `goal_status` hint. A refused dispatch (a 429 from goal-host's spend-rate breaker, a 503 while it drains) returns its status and error.
 
 ### run_goal_async
 
@@ -753,7 +772,7 @@ Handler: `src/tools/provide-feedback.ts@handle`
 | `confidence` | number | `0.9` | Operator confidence, 0..1 |
 | `goal` | string | — | Goal text, when the dispatch record does not carry it |
 
-Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "automated"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The tool is driven by an agent's key, so its verdict is never labelled `human`: goal-host treats a `human` label as ground truth (it overwrites `reached` and files a human-reported gap), and a person's verdict comes through the human surface. Until labels carry provenance derived from the writing credential, the principal travels only in notes. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate. Through a spoke a producer's refusal of the label (a 400 naming missing fields) arrives as `no_producer(goal_verification_label_write)`; the line says that either no producer answered or the producer refused the label, and that no label was written.
+Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "automated"`, notes `<rationale> [operator: <operator>] [session: <session>]` (§ Client claim). The tool is driven by an agent's key, so its verdict is never labelled `human`: goal-host treats a `human` label as ground truth (it overwrites `reached` and files a human-reported gap), and a person's verdict comes through the human surface. Until labels carry provenance derived from the writing credential, the principal travels only in notes. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate. Through a spoke a producer's refusal of the label (a 400 naming missing fields) arrives as `no_producer(goal_verification_label_write)`; the line says that either no producer answered or the producer refused the label, and that no label was written.
 
 ### path_activity
 

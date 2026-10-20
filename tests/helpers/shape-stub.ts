@@ -27,8 +27,10 @@ export interface ShapeStub {
   pointers: Array<Record<string, any>>;
   /** Every URL fetched by the attachment (bootstrap, org check, resolves). */
   urls: string[];
-  /** The pointers resolved for one shape. */
+  /** The pointers resolved for one shape, without the client_claim every write carries. */
   calls(shape: string): Array<Record<string, any>>;
+  /** The client_claim each resolve of one shape carried (undefined for a read). */
+  claims(shape: string): Array<Record<string, any> | undefined>;
   restore(): void;
 }
 
@@ -77,7 +79,8 @@ export async function installShapeStub(
     attachment,
     pointers,
     urls,
-    calls: (shape) => pointers.filter((p) => p.type === shape),
+    calls: (shape) => pointers.filter((p) => p.type === shape).map(({ client_claim: _claim, ...rest }) => rest),
+    claims: (shape) => pointers.filter((p) => p.type === shape).map((p) => p.client_claim),
     restore: () => setAttachment(null),
   };
 }

@@ -210,7 +210,8 @@ export async function handle(input: ResolveImpulseInput, _apiClient: AnalysisAPI
 
   let res;
   try {
-    res = await resolveShape(pointer, { timeoutMs: timeoutMs() });
+    // An allowlisted read is a read (no claim, transient retries); the memory writes are writes.
+    res = await resolveShape(pointer, { timeoutMs: timeoutMs(), read: READS_THROUGH_ESCAPE_HATCH.has(String(pointer.type)) });
   } catch (err) {
     return `resolve_impulse: ${describeResolveFailure(err)}`;
   }

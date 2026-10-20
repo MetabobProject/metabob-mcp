@@ -15,7 +15,11 @@ import { handle as goalStatus } from '../../src/tools/goal-status';
 import { handle as goalReasoning } from '../../src/tools/goal-reasoning';
 import { handle as provideFeedback } from '../../src/tools/provide-feedback';
 import { installShapeStub } from '../helpers/shape-stub';
+import { UNIDENTIFIED_OPERATOR, sessionId } from '../../src/operator-id';
 import type { AnalysisAPIClient } from '../../src/api-client';
+
+/** The session tag every dispatch carries (a claim). SPEC §client-claim */
+const SESSION_TAG = `session:${sessionId()}`;
 
 const apiClient = {} as AnalysisAPIClient;
 const saved: Record<string, string | undefined> = {};
@@ -54,8 +58,8 @@ describe('run_goal_async', () => {
       apiClient,
     );
     expect(stub.calls('goalDispatchAsync')).toEqual([{
-      type: 'goalDispatchAsync', operator: 'claude-code-operator', goal: 'edit repos/x/src/a.ts: rename foo',
-      targetTemplateId: 'tmpl-1', variables: { a: 1 }, parent_execution_id: 'p1', composition_chain: ['r1'],
+      type: 'goalDispatchAsync', operator: UNIDENTIFIED_OPERATOR, goal: 'edit repos/x/src/a.ts: rename foo',
+      targetTemplateId: 'tmpl-1', variables: { a: 1 }, parent_execution_id: 'p1', composition_chain: ['r1'], tags: [SESSION_TAG],
     }]);
     expect(out).toBe([
       'Goal dispatched asynchronously.',
@@ -72,9 +76,27 @@ describe('run_goal_async', () => {
     });
     await runGoalAsync({ goal: 'how many vessels?', learning_mode: 'observe', tags: ['probe:registry'] }, apiClient);
     expect(stub.calls('goalDispatchAsync')).toEqual([{
-      type: 'goalDispatchAsync', operator: 'claude-code-operator', goal: 'how many vessels?',
-      learning_mode: 'observe', tags: ['probe:registry'],
+      type: 'goalDispatchAsync', operator: UNIDENTIFIED_OPERATOR, goal: 'how many vessels?',
+      learning_mode: 'observe', tags: ['probe:registry', SESSION_TAG],
     }]);
+  });
+
+  test('a dispatch declares its operator and session: MB_OPERATOR_ID, else the workspace identity, never one shared default', async () => {
+    const { setWorkspaceOperator } = await import('../../src/operator-id');
+    const stub = await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-w', status: 'running' } }) });
+    setWorkspaceOperator('metabob-mcp-abc123');
+    try {
+      await runGoalAsync({ goal: 'g' }, apiClient);
+      process.env.MB_OPERATOR_ID = 'alice-review-bot';
+      await runGoalAsync({ goal: 'g' }, apiClient);
+    } finally {
+      setWorkspaceOperator(undefined);
+    }
+    expect(stub.calls('goalDispatchAsync').map((p) => p.operator)).toEqual(['metabob-mcp-abc123', 'alice-review-bot']);
+    // Every write carries the claim; it is the client's declaration, not attribution.
+    for (const claim of stub.claims('goalDispatchAsync')) {
+      expect(claim).toEqual({ operator: expect.any(String), session: sessionId(), client: expect.stringMatching(/^metabob-mcp\//) });
+    }
   });
 
   test('states a requested observe mode as a request, not as applied', async () => {
@@ -119,7 +141,7 @@ describe('run_goal', () => {
     const out = await runGoal({ goal: 'g' }, apiClient);
     expect(stub.pointers.map((p) => p.type)).toEqual(['goalDispatchAsync', 'goalWalkState', 'goalWalkState', 'goalWalkState']);
     expect(stub.calls('goalWalkState').every((p) => p.dispatchId === 'd-run')).toBe(true);
-    expect(stub.calls('goalDispatchAsync')[0]!.operator).toBe('claude-code-operator');
+    expect(stub.calls('goalDispatchAsync')[0]!.operator).toBe(UNIDENTIFIED_OPERATOR);
     expect(out).toContain('Goal dispatched via goalDispatchAsync, completed per goalWalkState.');
     expect(out).toContain('  dispatchId:         d-run');
     expect(out).toContain('  executionId:        exec-9');
@@ -188,7 +210,7 @@ describe('provide_feedback', () => {
     const out = await provideFeedback({ dispatch_id: 'd-f', verdict: 'reached', rationale: 'diff checked' }, apiClient);
     expect(stub.calls('goal_verification_label_write')).toEqual([{
       type: 'goal_verification_label_write', goal: 'make it green', execution_id: 'exec-1', activity_id: 'tmpl-1',
-      verdict: 'achieved', confidence: 0.9, labeler: 'automated', notes: 'diff checked [operator: claude-code-operator]',
+      verdict: 'achieved', confidence: 0.9, labeler: 'automated', notes: `diff checked [operator: ${UNIDENTIFIED_OPERATOR}] [session: ${sessionId()}]`,
     }]);
     expect(out).toContain('Feedback recorded for dispatch d-f');
     expect(out).toContain('  oracle label: goal_verification_labels:abc');

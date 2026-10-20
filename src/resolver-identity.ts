@@ -13,10 +13,11 @@ import { operatorId } from './operator-id.js';
 
 interface ResolverIdentity {
   vesselId?: string;
-  operatorId: string;
+  /** An explicit owner set at boot; otherwise operatorId() at use time. */
+  operatorId?: string;
 }
 
-const identity: ResolverIdentity = { vesselId: undefined, operatorId: operatorId() };
+const identity: ResolverIdentity = { vesselId: undefined };
 
 /**
  * Set once from boot after the vesselId is resolved. A present `vesselId` key is
@@ -34,5 +35,5 @@ export function getResolverVesselId(): string | undefined {
 }
 
 export function getResolverOperatorId(): string {
-  return identity.operatorId;
+  return identity.operatorId ?? operatorId();
 }
