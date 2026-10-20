@@ -114,7 +114,7 @@ describe('recent traces: execution_trace with no id', () => {
     const stub = await installShapeStub({
       executionTraceList: () => ({ body: { success: true, content: { metadata: { rowCount: 0 }, content: { traces: [] } } } }),
     });
-    expect(await executionTrace({ limit: 3 }, apiClient)).toBe('execution_trace: no execution traces are recorded on this substrate yet.');
+    expect(await executionTrace({ limit: 3 }, apiClient)).toBe('execution_trace: no execution traces are recorded for your org yet.');
     expect(stub.calls('executionTraceList')).toEqual([{ type: 'executionTraceList', limit: 3 }]);
   });
 

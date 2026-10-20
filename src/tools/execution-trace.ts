@@ -26,7 +26,7 @@ import { listExecutionTraces, readExecutionTrace } from './_traces.js';
 export const ExecutionTraceTool = {
   name: 'execution_trace',
   description:
-    "Read a durable execution trace by executionId through the activityExecutionTrace shape (activity-api's resolver, reached through discovery), or — called with no execution_id — list the most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
+    "Read a durable execution trace by executionId through the activityExecutionTrace shape (activity-api's resolver, reached through discovery), or — called with no execution_id — list the caller's org's most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -58,7 +58,7 @@ function shapeList(v: unknown): string[] {
 async function listRecent(limit: number): Promise<string> {
   const list = await listExecutionTraces(limit);
   if (list.kind === 'error') return `execution_trace: ${list.message}`;
-  if (!list.rows.length) return 'execution_trace: no execution traces are recorded on this substrate yet.';
+  if (!list.rows.length) return 'execution_trace: no execution traces are recorded for your org yet.';
   const counts = list.successCount !== undefined || list.failureCount !== undefined
     ? ` (success ${list.successCount ?? 0}, failure ${list.failureCount ?? 0})` : '';
   const lines = [`Recent execution traces, newest first: ${list.rows.length}${counts}`];

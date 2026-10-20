@@ -89,7 +89,7 @@ repository the substrate mounts, or a question its services answer.
 3. `goal_reasoning { dispatch_id }` — the walk's decision log: what it tried, why it
    reached or fell short.
    To look at what ran without a dispatch of your own, `execution_trace` with no id
-   lists the substrate's recent runs; pass one's id to read its trace.
+   lists your org's recent runs; pass one's id to read its trace.
 4. Check the actual result (the landed diff, the answer, the tests) against what
    you asked for. A change can pass the reach gate and still not do what was meant.
 

@@ -15,7 +15,7 @@ Ledger:
 - \`record_finding\` attributes an issue you noticed to code, so it outlives this session and other agents recall it.
 - \`mark_complete\` closes a finding: \`endorse\` when fixed, \`discard\` when it is a false positive.
 
-Goals on the substrate: \`run_goal_async\` → \`goal_status\` (read \`reached\`, not \`status\`) → \`goal_reasoning\` → \`provide_feedback\` with your verdict. \`execution_trace\` with no id lists the substrate's recent runs.
+Goals on the substrate: \`run_goal_async\` → \`goal_status\` (read \`reached\`, not \`status\`) → \`goal_reasoning\` → \`provide_feedback\` with your verdict. \`execution_trace\` with no id lists your org's recent runs.
 
 Local tools work in any repository with no substrate: \`init_workspace\`, \`analyze_impact\`, \`predict_cochanges\`, \`search_codebase\`.
 
