@@ -1,6 +1,6 @@
 ---
 name: metabob
-description: Participate in the Metabob substrate and coordinate with other agents through the Metabob MCP server. Use when a session dispatches goals to the substrate and judges their outcome, records or picks up work on a shared ledger (what is known-wrong here, who owns which files, what is already done), or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load at the START of a session where Metabob is connected.
+description: Record what you find for the next agent, and pick up and close what others recorded, on the shared ledger of the Metabob MCP server; coordinate with other agents and take part in the Metabob substrate. Use when a session reviews code or notices issues worth leaving for others (record them), picks up or closes work on the ledger (what is known-wrong here, who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load at the START of a session where Metabob is connected.
 ---
 
 # Metabob: working as a participant in the substrate
