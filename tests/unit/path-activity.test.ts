@@ -22,7 +22,7 @@ const FILE = 'repos/goal-host-vessel/src/index.ts';
 
 const GAPS = [
   { id: 'gap-old-edit', category: 'systematic_failure', route: 'composable', updated_at: '2026-09-01T00:00:00Z',
-    classification_metadata: { edit_site: FILE, landing_lease: { holder: 'compose2', attempt: '5435-x', until: '2026-10-20T08:48:11Z' } } },
+    classification_metadata: { edit_site: FILE, landing_lease: { holder: 'compose2', attempt: '5435-x', until: '2099-10-20T08:48:11Z' } } },
   { id: 'gap-dir', category: 'verification', updated_at: '2026-10-19T00:00:00Z', classification_metadata: { edit_site: 'repos/goal-host-vessel/src/judge/a.ts' } },
   { id: 'gap-mentioned', category: 'edit_intent_route', route: 'dispatchable', updated_at: '2026-10-20T00:00:00Z', remedy: { goal: `edit ${FILE}: x` } },
   { id: 'gap-held', category: 'verification', updated_at: '2026-10-18T00:00:00Z',
@@ -108,6 +108,15 @@ describe('matching and rendering', () => {
     expect(out).toContain('landing lease: held by compose2 (the holder\'s own claim), attempt 5435-x, until 10-20 08:48Z: the system is landing this; don\'t race it');
   });
 
+  test('a lapsed landing lease is not being landed: it is shown lapsed and counted as queued', async () => {
+    const lapsed = { id: 'gap-lapsed', category: 'edit_intent_route', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'compose2', attempt: 'x', until: '2026-10-20T12:05:00Z' } } };
+    const out = renderGap(lapsed, 'edit site').join('\n');
+    expect(out).toContain('landing lease lapsed at 10-20 12:05Z (held by compose2): not being landed now; queued for the system');
+    expect(out).not.toContain("don't race it");
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: [lapsed] } }) });
+    expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain(`${FILE} — 1 open gap: 0 being landed by the system now, 0 held, 1 queued`);
+  });
+
   test('an unleased, unheld gap is queued for the system', () => {
     expect(renderGap(GAPS[2]!, 'mentioned').join('\n')).toContain('no landing lease: queued for the system');
   });
@@ -147,7 +156,7 @@ describe('path_activity', () => {
   test('a long list leads with counts, lists every gap being landed, and caps the rest', async () => {
     const many = [
       ...Array.from({ length: 30 }, (_, i) => ({ id: `q${i}`, classification_metadata: { edit_site: FILE } })),
-      { id: 'landing', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'node2', until: '2026-10-20T10:00:00Z' } } },
+      { id: 'landing', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'node2', until: '2099-10-20T10:00:00Z' } } },
     ];
     await installShapeStub({ substrateGap: () => ({ body: { gaps: many } }) });
     const out = await pathActivity({ paths: [FILE], limit: 5 }, apiClient);

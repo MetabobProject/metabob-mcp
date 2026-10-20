@@ -213,12 +213,26 @@ export function holdOf(g: GapRow): { why: string; reviewBy?: string; lift?: stri
   return { why, reviewBy, lift };
 }
 
-/** A gap's landing lease, exactly as stored; the holder is the caller's own claim. */
-export function landingLeaseOf(g: GapRow): { holder: string; attempt?: string; until?: string } | null {
+export interface LandingLease { holder: string; attempt?: string; until?: string }
+
+/** A gap's landing lease, exactly as stored, live or lapsed; the holder is the caller's own claim. */
+export function storedLandingLease(g: GapRow): LandingLease | null {
   const l = g.classification_metadata?.['landing_lease'] as Record<string, unknown> | undefined;
   return l && typeof l['holder'] === 'string'
     ? { holder: l['holder'] as string, attempt: l['attempt'] as string | undefined, until: l['until'] as string | undefined }
     : null;
+}
+
+/** Whether a stored lease has passed its `until`: the store keeps lapsed leases until the next write. */
+export function leaseLapsed(l: LandingLease, now = Date.now()): boolean {
+  const t = l.until ? Date.parse(l.until) : NaN;
+  return Number.isFinite(t) && t <= now;
+}
+
+/** A gap's LIVE landing lease, or null when it has none or it has lapsed. */
+export function landingLeaseOf(g: GapRow, now = Date.now()): LandingLease | null {
+  const l = storedLandingLease(g);
+  return l && !leaseLapsed(l, now) ? l : null;
 }
 
 /** The gaps naming `storePath`, strongest match first, then most recently updated. */
@@ -244,11 +258,15 @@ export function renderGap(g: GapRow, match: MatchKind): string[] {
   const head = `  ${g.id}  ${g.category ?? '?'}${g.route ? `  route ${g.route}` : ''}  ${match}`;
   const hold = holdOf(g);
   const lease = landingLeaseOf(g);
+  const lapsed = lease ? null : storedLandingLease(g);
   if (hold) {
     return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${hhmm(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
   }
   if (lease) {
     return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${hhmm(lease.until)}: the system is landing this; don't race it`];
+  }
+  if (lapsed) {
+    return [`${head}`, `    landing lease lapsed at ${hhmm(lapsed.until)} (held by ${lapsed.holder}): not being landed now; queued for the system`];
   }
   return [`${head}   no landing lease: queued for the system`];
 }
