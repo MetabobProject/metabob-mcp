@@ -6,7 +6,11 @@
 import { describe, expect, test } from 'bun:test';
 import { homedir, userInfo } from 'node:os';
 
-import { describeArgsForLog, findSecret, guardToolInput, secretValues } from '../../src/outgoing-guard';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { describeArgsForLog, findSecret, guardToolInput, knownSecrets, secretValues } from '../../src/outgoing-guard';
 
 const KEY = 'mbk_Q7f3Zp9LxV2cR8tW1yN4hJ6kD0sGmA5e'; // gitleaks:allow (synthetic fixture)
 const env = { METABOB_API_KEY: KEY, PORT: '8080', DEBUG_TOKEN: 'true', SHORT_SECRET: 'dev' } as NodeJS.ProcessEnv;
@@ -16,7 +20,7 @@ describe('secrets', () => {
     const r = guardToolInput('record_finding', { summary: 'ok', details: `the key is ${KEY}`, files: ['a.ts'] }, env);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.refusal).toBe('record_finding: refused: outgoing_secret(environment_secret, details). Nothing was sent. Remove the credential from details and call again; the value is not repeated here.');
+    expect(r.refusal).toBe('record_finding: refused: outgoing_secret(known_secret, details). Nothing was sent, and the value is not repeated here. Remove the credential from details, or describe it with the value masked (e.g. postgres://admin:***@host, Authorization: Bearer ***), and call again.');
     expect(r.refusal).not.toContain(KEY);
   });
 
@@ -32,14 +36,54 @@ describe('secrets', () => {
 
   test.each([
     ['private_key', '-----BEGIN OPENSSH PRIVATE KEY-----\nabc'],
-    ['aws_access_key', 'AKIAIOSFODNN7EXAMPLE'], // gitleaks:allow (synthetic fixture)
+    ['aws_access_key', 'AKIAZ7QX2LMN4PRT8VWY'], // gitleaks:allow (synthetic fixture)
     ['github_token', `ghp_${'a1B2'.repeat(9)}`],
     ['anthropic_key', `sk-ant-api03-${'x'.repeat(24)}`],
     ['jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'], // gitleaks:allow (synthetic fixture)
-    ['auth_header', 'Authorization: ApiKey abcdefghijklmnop1234'],
-    ['url_credentials', 'https://user:hunter2@example.com/repo.git'],
+    ['auth_header', 'Authorization: ApiKey q7Zp9LxV2cR8tW1y'],
+    ['url_credentials', 'https://deploy:Zq8vR2pL9xT4wN7k@example.com/repo.git'],
+    ['config_assignment', 'DB_PASSWORD=hunter2Xq9!zR7vL'],
+    ['cookie', 'Cookie: session=4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c'],
   ])('%s is caught', (kind, text) => {
     expect(findSecret(text, [])).toBe(kind);
+  });
+
+  // From qa's probe: prose about credentials, placeholders and documented examples pass.
+  test.each([
+    'README example sends Authorization: Bearer xxxxxxxxxxxxxxxxxxxx',
+    'curl -H "Authorization: Bearer YOUR_TOKEN_GOES_HERE"',
+    'Authorization: ApiKey ${METABOB_API_KEY}',
+    'the x-api-key: header is validated before the body is read',
+    'clone https://USER:PASS@host/repo.git with your own credentials',
+    'the docs use AWS\'s example key AKIAIOSFODNN7EXAMPLE', // gitleaks:allow (synthetic fixture)
+    'set API_KEY=<your key> in .env',
+    'git@github.com:org/repo.git',
+  ])('passes: %s', (text) => {
+    expect(findSecret(text, [])).toBeNull();
+  });
+
+  test('a secret-named variable holding a path, an id or a short value is not a secret', () => {
+    const e = { ...env, SSH_KEY_PATH: '/home/someone/.ssh/id_ed25519_work', GPG_KEY_ID: 'ABCDEF0123456789', AWS_SHARED_CREDENTIALS_FILE: '/x/credentials', METABOB_API_KEY: 'dev' } as NodeJS.ProcessEnv; // gitleaks:allow (synthetic fixture)
+    expect(secretValues(e)).toEqual([]);
+    expect(guardToolInput('record_finding', { summary: 'the dev server signs with key ABCDEF0123456789 from /home/someone/.ssh/id_ed25519_work', files: ['a'] }, e).ok).toBe(true);
+  });
+
+  test('a secret in the workspace\'s .env is known, without being in the environment', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'guard-ws-'));
+    writeFileSync(join(ws, '.env'), 'PORT=3000\nSTRIPE_SECRET=Zx8qL2vR9pT4wN7mK3\nPUBLIC_URL=https://example.com\n');
+    const e = { WORKSPACE_PATH: ws } as NodeJS.ProcessEnv;
+    // The user's own credential files are read too, so the set is checked for this value only.
+    const known = knownSecrets(e, ws);
+    expect(known.includes('Zx8qL2vR9pT4wN7mK3')).toBe(true);
+    expect(known.includes('3000')).toBe(false);
+    const r = guardToolInput('record_finding', { summary: 's', details: 'the config I used: Zx8qL2vR9pT4wN7mK3', files: ['a'] }, e);
+    expect(r.ok).toBe(false);
+  });
+
+  test('every string field of a sending tool is guarded, listed or not', () => {
+    expect(guardToolInput('record_finding', { summary: 's', files: ['a'], status: `open ${KEY}` }, env).ok).toBe(false);
+    expect(guardToolInput('concept_record_usage', { concept_id: 'c', outcome: 'success', trace_id: KEY }, env).ok).toBe(false);
+    expect(guardToolInput('concept_search', { query: `find ${KEY}` }, env).ok).toBe(false);
   });
 
   test('ordinary prose is not a secret', () => {
@@ -83,7 +127,7 @@ describe('size and scope', () => {
     expect(r.refusal).toBe('record_finding: refused: outgoing_too_large(summary, 3000 bytes; the limit is 2048). Shorten it; the substrate keeps a summary, not a dump.');
   });
 
-  test('a tool with no guarded fields passes unchanged', () => {
+  test('a local tool passes unchanged: its input never leaves the machine', () => {
     const input = { workspace_path: `${homedir()}/x` };
     const r = guardToolInput('init_workspace', input, env);
     expect(r).toEqual({ ok: true, input, notes: [] });

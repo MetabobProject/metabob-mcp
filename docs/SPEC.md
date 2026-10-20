@@ -394,32 +394,39 @@ settings. Nothing here runs at startup or blocks it.
 
 ## Outgoing text guard
 
-Every agent-authored text a tool sends passes one guard before the tool runs, on stdio and on the
-loopback resolver alike (`src/outgoing-guard.ts@guard-tool-input`). The guarded fields are listed per
-tool (`src/outgoing-guard.ts@guarded-fields`): `record_finding` (summary, details, files, category),
-`concept_create` (content, summary, pointer), `concept_link` (description), `provide_feedback`
-(rationale, goal), `run_goal` / `run_goal_async` (goal, variables, tags), `submit_resolution` (answer)
-and `resolve_impulse` (pointer). Ids, enums and numbers carry no prose and are not scanned; a field's
-nested strings are.
+Every string a substrate tool sends passes one guard before the tool runs, on stdio and on the
+loopback resolver alike (`src/outgoing-guard.ts@guard-tool-input`). The tools that send nothing
+(`init_workspace`, `analyze_impact`, `predict_cochanges`, `search_codebase`, `annotate_component`,
+`get_metrics`, `assign_git_changes`, `get_problems`, `get_analysis_context`, `pull_assigned_work`) are
+exempt; every other tool's string fields are guarded, nested strings included. A field's kind and size
+cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's summary is prose with a
+2 KB cap, a goal is acted on with 4 KB); a field the table does not list is treated as acted on with a
+4 KB cap, so a new field is guarded by default.
 
-- **A secret refuses the call**, and nothing is sent: the attachment's key (`METABOB_API_KEY`,
-  `SUBSTRATE_API_KEY`); the value of any environment variable named like a secret (`KEY`, `TOKEN`,
-  `SECRET`, `PASSWORD`, `CREDENTIAL`) that is at least 16 characters with secret-like entropy, so a
-  variable holding `true`, `dev` or a port blocks nothing; a private-key block; and known credential
-  patterns (cloud and service API keys, GitHub, GitLab, npm and Slack tokens, JWTs, authorization
-  headers, URLs with credentials). The refusal is `<tool>: refused: outgoing_secret(<kind>, <field>)`:
-  it names the field and the kind, never the value.
+- **A secret refuses the call**, and nothing is sent. Known secrets are the attachment's key
+  (`METABOB_API_KEY`, `SUBSTRATE_API_KEY`, at least 12 characters) and the values of secret-named
+  variables (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`) in this process's environment, in the
+  workspace's `.env`, `.env.local`, `.env.development`, `.env.production`, `.env.test`, `.npmrc` and
+  `.pypirc`, and in the user's `~/.netrc`, `~/.aws/credentials`, `~/.npmrc` and `~/.pypirc`. These
+  files are read locally, cached by modification time, and never sent. A value counts only when it is at
+  least 16 characters, not a path or a credential-free URL, not a placeholder, and random enough
+  (≥ 3 bits per character), and a variable named for a location or an identifier (`…_PATH`, `_FILE`,
+  `_DIR`, `_ID`, `_URL`, `_HOST`, `_PORT`, `_NAME`, `_USER`, `_REGION`) never does. Patterns catch
+  private-key blocks, cloud and service API keys, GitHub, GitLab, npm and Slack tokens, and JWTs; AWS's
+  documented example keys are exempt. Authorization headers, URLs with credentials, pasted config
+  assignments (`DB_PASSWORD=…`) and cookies count only when the value is not a placeholder (`YOUR_…`,
+  `EXAMPLE`, `<…>`, `***`, a repeated character, an ALL_CAPS name, `${VAR}`) and is random enough. The
+  refusal is `<tool>: refused: outgoing_secret(<kind>, <field>)`, naming the field and the kind, never
+  the value, and suggests describing it masked (`postgres://admin:***@host`).
 - **A home path** (this user's home directory, or `/home/<user>`, `/Users/<user>`,
   `C:\Users\<user>`) is replaced with `~` in prose fields, and the reply ends with a line saying so.
-  In fields the substrate acts on (a goal, its variables and tags, a concept pointer, a raw
-  `resolve_impulse` pointer) it refuses the call with `outgoing_local_path(<field>)`: rewriting a path
-  there would change what the request asks.
-- **Each field has a size cap** (for example a finding's summary 2 KB and details 8 KB, a goal 4 KB, a
-  pointer 16 KB); a larger field refuses the call with `outgoing_too_large(<field>, <bytes>)`.
+  In fields the substrate acts on it refuses the call with `outgoing_local_path(<field>)`: rewriting a
+  path there would change what the request asks.
+- **Each field has a size cap**; a larger field refuses the call with `outgoing_too_large(<field>, <bytes>)`.
 
 The tool-call log line names each argument and its size, never its value
-(`src/outgoing-guard.ts@describeArgsForLog`). The guard is a rail, not a guarantee: paraphrase,
-summaries, re-typed code and personal data in prose pass it.
+(`src/outgoing-guard.ts@describeArgsForLog`). The guard catches accidents, not adversaries: paraphrase,
+summaries, re-typed code, an encoded or split key and personal data in prose pass it.
 
 ---
 

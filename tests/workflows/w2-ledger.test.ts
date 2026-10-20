@@ -143,7 +143,7 @@ describe('W2 ledger across two sessions', () => {
       files: ['src/auth.ts'], summary: 'leaked key', severity: 'LOW', category: 'security',
       details: 'reproduce with METABOB_API_KEY=mb_test_workflow_key',
     });
-    expect(out).toStartWith('record_finding: refused: outgoing_secret(environment_secret, details).');
+    expect(out).toStartWith('record_finding: refused: outgoing_secret(known_secret, details).');
     expect(out).not.toContain('mb_test_workflow_key');
     expect(fake.state.concepts.length).toBe(before);
     expect(a.stderr).toContain('Tool call: record_finding');

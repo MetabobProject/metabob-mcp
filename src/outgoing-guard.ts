@@ -12,11 +12,20 @@
  *   the request means.
  * - Each field has a size cap.
  *
- * It is a rail, not a guarantee: paraphrase, summaries, re-typed code and personal data in
- * prose pass. What leaves the machine is still the agent's choice.
+ * Every string a substrate tool sends is guarded (LOCAL_TOOLS send nothing and are
+ * exempt); GUARDED_FIELDS sets a field's kind and cap, and any other field is treated as
+ * acted on, with a 4 KB cap. Known secrets come from this process's environment and from
+ * the workspace's own config files (.env*, .npmrc, .pypirc) and the user's credential files
+ * (~/.netrc, ~/.aws/credentials), read locally and never sent.
+ *
+ * It catches accidents, not adversaries: paraphrase, summaries, re-typed code, an encoded
+ * or split key and personal data in prose pass. What leaves the machine is still the
+ * agent's choice.
  */
 
+import { readFileSync, statSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
+import { join } from 'node:path';
 
 /** How a field's text is used by the substrate. */
 export type FieldKind = 'prose' | 'acted';
@@ -27,8 +36,9 @@ interface FieldRule {
 }
 
 /**
- * The text fields each tool sends, by tool name. Ids, enums, numbers and booleans are
- * not listed: they carry no agent prose.
+ * The kind and size cap of the text fields each tool sends, by tool name. A field a
+ * sending tool has but this table does not list is still guarded, as acted on with a
+ * 4 KB cap (DEFAULT_RULE), so a new field is guarded by default.
  */
 // @anchor guarded-fields
 export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, FieldRule>>>> = {
@@ -62,10 +72,20 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
   resolve_impulse: { pointer: { kind: 'acted', maxBytes: 16_384 } },
 };
 
+/** Tools that send nothing to the substrate: their inputs stay on this machine. */
+export const LOCAL_TOOLS: ReadonlySet<string> = new Set([
+  'init_workspace', 'analyze_impact', 'predict_cochanges', 'search_codebase', 'annotate_component',
+  'get_metrics', 'assign_git_changes', 'get_problems', 'get_analysis_context', 'pull_assigned_work',
+]);
+
+/** A field of a sending tool that GUARDED_FIELDS does not list: treated as acted on. */
+const DEFAULT_RULE: FieldRule = { kind: 'acted', maxBytes: 4_096 };
+
 /** Credential patterns, by kind. Each is specific enough that a match is a secret, not prose. */
 const SECRET_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
   ['private_key', /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/],
-  ['aws_access_key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/],
+  // AWS's documented example keys end in EXAMPLE and are exempt.
+  ['aws_access_key', /\b(?:AKIA|ASIA)(?![0-9A-Z]{9}EXAMPLE\b)[0-9A-Z]{16}\b/],
   ['github_token', /\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}\b/],
   ['gitlab_token', /\bglpat-[A-Za-z0-9_-]{20,}\b/],
   ['npm_token', /\bnpm_[A-Za-z0-9]{36}\b/],
@@ -74,13 +94,39 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
   ['openai_key', /\bsk-(?:proj-)?[A-Za-z0-9]{32,}\b/],
   ['google_api_key', /\bAIza[0-9A-Za-z_-]{35}\b/],
   ['jwt', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
-  ['auth_header', /\b(?:authorization|x-api-key)\s*[:=]\s*(?:bearer|apikey|basic)?\s*[A-Za-z0-9._~+/=-]{16,}/i],
-  ['url_credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/i],
 ];
 
+/**
+ * Patterns whose captured value is screened before it counts: a placeholder or a
+ * low-entropy value (`Bearer xxxxxxxx`, `YOUR_TOKEN`, `admin`) is prose about a credential,
+ * not a credential.
+ */
+const SCREENED_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
+  ['auth_header', /\b(?:authorization|x-api-key|proxy-authorization)\s*[:=]\s*(?:bearer|apikey|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi],
+  ['url_credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]+)@/gi],
+  ['config_assignment', /\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*\s*[:=]\s*['"]?([^\s'"]{8,})/gi],
+  ['cookie', /\b(?:set-)?cookie\s*:\s*[^\s=;]+=([^\s;]{12,})/gi],
+];
+
+const PLACEHOLDER = /YOUR|EXAMPLE|PLACEHOLDER|REDACTED|CHANGE_?ME|SAMPLE|DUMMY|FAKE|<[^>]*>|\*{3,}|\.\.\./i;
+/** A shell or template variable reference: `${NAME}`, `$NAME`. Case-sensitive, so `$w` in a random value is not one. */
+const VARIABLE_REFERENCE = /\$\{|\$[A-Z_][A-Z0-9_]*/;
+
+/** Whether a captured value is a real-looking secret rather than a placeholder. */
+function secretLike(value: string): boolean {
+  const v = value.replace(/^['"]|['"]$/g, '');
+  if (v.length < 8 || PLACEHOLDER.test(v) || VARIABLE_REFERENCE.test(v)) return false;
+  if (/^(.)\1+$/.test(v)) return false;
+  if (/^[A-Z][A-Z0-9_]*$/.test(v)) return false; // an ALL_CAPS name, e.g. a variable reference
+  return entropy(v) >= MIN_SECRET_ENTROPY_BITS;
+}
+
 const SECRET_ENV_NAME = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL/i;
-/** Always secrets when set, however they look: the attachment's key. */
+/** Secret-named variables that hold a location or an identifier, not a secret. */
+const NOT_SECRET_ENV_NAME = /_(?:PATH|FILE|DIR|ID|URL|HOST|PORT|NAME|USER|REGION)$/i;
+/** Always secrets when set and at least MIN_ATTACHMENT_KEY_LENGTH long: the attachment's key. */
 const ATTACHMENT_KEY_VARS = ['METABOB_API_KEY', 'SUBSTRATE_API_KEY'];
+const MIN_ATTACHMENT_KEY_LENGTH = 12;
 const MIN_SECRET_LENGTH = 16;
 const MIN_SECRET_ENTROPY_BITS = 3.0;
 
@@ -105,20 +151,70 @@ export function secretValues(env: NodeJS.ProcessEnv = process.env): string[] {
   const out = new Set<string>();
   for (const name of ATTACHMENT_KEY_VARS) {
     const v = env[name]?.trim();
-    if (v) out.add(v);
+    if (v && v.length >= MIN_ATTACHMENT_KEY_LENGTH) out.add(v);
   }
-  for (const [name, raw] of Object.entries(env)) {
-    const v = raw?.trim();
-    if (!v || !SECRET_ENV_NAME.test(name)) continue;
-    if (v.length >= MIN_SECRET_LENGTH && entropy(v) >= MIN_SECRET_ENTROPY_BITS) out.add(v);
-  }
+  for (const [name, raw] of Object.entries(env)) addIfSecret(out, name, raw);
+  return [...out];
+}
+
+/** A value that names a place rather than holding a secret: a path, or a URL with no credentials. */
+function looksLikeLocation(v: string): boolean {
+  return /^(?:\/|~|[A-Za-z]:[\\/]|\.\.?[\\/])/.test(v) || /^[a-z][a-z0-9+.-]*:\/\/[^\s@]*$/i.test(v);
+}
+
+function addIfSecret(out: Set<string>, name: string, raw: string | undefined): void {
+  const v = raw?.trim().replace(/^['"]|['"]$/g, '');
+  if (!v || !SECRET_ENV_NAME.test(name) || NOT_SECRET_ENV_NAME.test(name)) return;
+  if (v.length < MIN_SECRET_LENGTH || looksLikeLocation(v) || !secretLike(v)) return;
+  out.add(v);
+}
+
+/** Config files whose secret-named values an agent may paste: the workspace's and the user's. */
+function secretFiles(workspace: string): string[] {
+  const files = ['.env', '.env.local', '.env.development', '.env.production', '.env.test', '.npmrc', '.pypirc'].map((f) => join(workspace, f));
+  let home = '';
+  try { home = homedir(); } catch { /* no home */ }
+  if (home) files.push(join(home, '.netrc'), join(home, '.aws', 'credentials'), join(home, '.npmrc'), join(home, '.pypirc'));
+  return files;
+}
+
+const fileSecretCache = new Map<string, { mtimeMs: number; values: string[] }>();
+
+/** The secret-named values in one config file (KEY=value, key = value, `machine … password x`), cached by mtime. */
+function secretsInFile(path: string): string[] {
+  let mtimeMs: number;
+  try { mtimeMs = statSync(path).mtimeMs; } catch { return []; }
+  const cached = fileSecretCache.get(path);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.values;
+  const out = new Set<string>();
+  try {
+    for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+      const m = /^\s*(?:export\s+)?([A-Za-z0-9_.:\/-]+)\s*[=:]\s*(.+?)\s*$/.exec(line);
+      if (m) addIfSecret(out, m[1]!, m[2]);
+      const netrc = /\bpassword\s+(\S+)/.exec(line);
+      if (netrc) addIfSecret(out, 'password', netrc[1]);
+    }
+  } catch { /* unreadable: nothing known from it */ }
+  const values = [...out];
+  fileSecretCache.set(path, { mtimeMs, values });
+  return values;
+}
+
+/** Known secrets: the environment's and the config files'. Read locally; never sent. */
+export function knownSecrets(env: NodeJS.ProcessEnv = process.env, workspace = env.WORKSPACE_PATH || process.cwd()): string[] {
+  const out = new Set(secretValues(env));
+  for (const f of secretFiles(workspace)) for (const v of secretsInFile(f)) out.add(v);
   return [...out];
 }
 
 /** The kind of secret in `text`, or null. Never returns the match. */
 export function findSecret(text: string, secrets: readonly string[]): string | null {
-  for (const s of secrets) if (text.includes(s)) return 'environment_secret';
+  for (const s of secrets) if (text.includes(s)) return 'known_secret';
   for (const [kind, re] of SECRET_PATTERNS) if (re.test(text)) return kind;
+  for (const [kind, re] of SCREENED_PATTERNS) {
+    re.lastIndex = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) if (m[1] && secretLike(m[1])) return kind;
+  }
   return null;
 }
 
@@ -175,15 +271,15 @@ function mapStrings(value: unknown, f: (s: string) => string): unknown {
  */
 // @anchor guard-tool-input
 export function guardToolInput(tool: string, input: Record<string, unknown>, env: NodeJS.ProcessEnv = process.env): GuardResult {
-  const rules = GUARDED_FIELDS[tool];
-  if (!rules) return { ok: true, input, notes: [] };
-  const secrets = secretValues(env);
+  if (LOCAL_TOOLS.has(tool)) return { ok: true, input, notes: [] };
+  const rules = GUARDED_FIELDS[tool] ?? {};
+  const secrets = knownSecrets(env);
   const homes = homePatterns();
   const out: Record<string, unknown> = { ...input };
   const notes: string[] = [];
-  for (const [field, rule] of Object.entries(rules)) {
-    const value = input[field];
-    if (value === undefined || value === null) continue;
+  for (const [field, value] of Object.entries(input)) {
+    if (value === undefined || value === null || typeof value === 'number' || typeof value === 'boolean') continue;
+    const rule = Object.hasOwn(rules, field) ? rules[field]! : DEFAULT_RULE;
     const text = textOf(value);
     const bytes = Buffer.byteLength(text, 'utf8');
     if (bytes > rule.maxBytes) {
@@ -191,7 +287,7 @@ export function guardToolInput(tool: string, input: Record<string, unknown>, env
     }
     const kind = findSecret(text, secrets);
     if (kind) {
-      return { ok: false, refusal: `${tool}: refused: outgoing_secret(${kind}, ${field}). Nothing was sent. Remove the credential from ${field} and call again; the value is not repeated here.` };
+      return { ok: false, refusal: `${tool}: refused: outgoing_secret(${kind}, ${field}). Nothing was sent, and the value is not repeated here. Remove the credential from ${field}, or describe it with the value masked (e.g. postgres://admin:***@host, Authorization: Bearer ***), and call again.` };
     }
     if (hasHomePath(text, homes)) {
       if (rule.kind === 'acted') {
