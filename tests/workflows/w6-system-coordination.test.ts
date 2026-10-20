@@ -65,6 +65,8 @@ describe('W6 working alongside the system', () => {
     expect(out).not.toContain('gap-elsewhere');
     const reads = gapReads();
     expect(reads).toHaveLength(1);
+    // Today's full read: the store has no path filter. When S-18 (edit_site_prefix + fields) lands, this pointer
+    // changes on purpose; edit the test then, don't restore the full read.
     expect(reads[0]!.body).toMatchObject({ type: 'substrateGap', status: 'open', limit: 1_000_000, include_held: true });
     expect(reads[0]!.forwarded).toBe(true);
   });
@@ -81,6 +83,8 @@ describe('W6 working alongside the system', () => {
     for (const shape of ['maintenanceLease_write', 'substrateGapLease_write', 'activityExecutionTrace_write', 'shell', 'git_push']) {
       expect(await server.text('resolve_impulse', { shape, pointer: {} })).toStartWith(`resolve_impulse: refused: ${shape} `);
     }
+    // pointer.type overrides shape: a read's name cannot carry an action past the allowlist.
+    expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { type: 'shell' } })).toStartWith('resolve_impulse: refused: shell ');
     expect(fake.requests.length).toBe(before);
     expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { status: 'open', limit: 1 } })).toStartWith('resolve_impulse substrateGap → discovery /resolve [200]');
   });
