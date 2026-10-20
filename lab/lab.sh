@@ -243,7 +243,7 @@ cmd_check() {
   rc=0; LAB_MCP_CONFIG="$tmp/config.json" LAB_CHECK_TIMEOUT_S="$CHECK_TIMEOUT_S" bun "$LAB_DIR/check-goal.ts" 2>>"$LOG" || rc=$?
   if [ "$rc" = 3 ]; then
     log "check: ATTACHED, goal check THROTTLED ($(elapsed "$t0")): goal-host's spend-rate policy refused the identical check goal this hour; attach is verified, the reach is not re-proven"
-    return 0
+    exit 3
   fi
   [ "$rc" = 0 ] || fail "check: the goal did not reach through the MCP"
   log "check: PASS ($(elapsed "$t0")): attached at $SPOKE_DISCOVERY, and an LLM-free goal reached through the MCP"

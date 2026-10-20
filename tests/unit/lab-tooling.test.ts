@@ -210,3 +210,13 @@ describe('lab.sh image currency', () => {
     expect(script).toContain('running image revision: hub');
   });
 });
+
+describe('lab.sh check verdicts', () => {
+  // A release gate keys on `lab.sh check`'s exit code; a throttled goal check proved attach only.
+  test('a throttled goal check exits 3, never 0', () => {
+    const script = read('lab.sh');
+    const throttled = script.slice(script.indexOf('goal check THROTTLED'));
+    expect(throttled.slice(0, 300)).toMatch(/\n\s*exit 3\n/);
+    expect(throttled.slice(0, 300)).not.toMatch(/\n\s*return 0\n/);
+  });
+});
