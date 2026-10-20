@@ -650,6 +650,12 @@
           "c7-shapes",
           "c9-fail-visibly"
         ]
+      },
+      "tests/workflows/w6-system-coordination.test.ts": {
+        "SPEC": [
+          "path_activity",
+          "resolve_impulse"
+        ]
       }
     },
     "docCitesCode": {
@@ -935,7 +941,8 @@
         "tests/workflows/w1-operator-loop.test.ts",
         "tests/workflows/w2-ledger.test.ts",
         "tests/workflows/w3-attachment.test.ts",
-        "tests/workflows/w4-skill-contract.test.ts"
+        "tests/workflows/w4-skill-contract.test.ts",
+        "tests/workflows/w6-system-coordination.test.ts"
       ]
     },
     "anchors": {
