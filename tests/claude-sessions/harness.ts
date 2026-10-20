@@ -114,7 +114,8 @@ export function labEnv(): { discovery: string; identity: string | null; keyFile:
     discovery: strip(process.env.LAB_DISCOVERY ?? 'http://127.0.0.1:25100'),
     identity: identity ? strip(identity) : null,
     keyFile: process.env.LAB_KEY_FILE ?? join(process.env.LAB_KEYS_DIR ?? join(REPO_ROOT, 'lab', 'keys'), 'mcp-rw.key'),
-    nodes: process.env.LAB_NODES ?? 'hub,spoke',
+    // Seen from the spoke, the hub's producers carry its lab-network address.
+    nodes: process.env.LAB_NODES ?? '10.89.77.10',
   };
 }
 
@@ -536,7 +537,7 @@ export function callLines(t: Transcript, width = 140): string[] {
 
 /** Ids of the forms the ledger hands out (`agf_*`, `concept_*`, dispatch ids). */
 export function idsIn(text: string): string[] {
-  return [...new Set(text.match(/\b(agf_[a-z0-9]+|concept_[a-z0-9]+|dispatch_[a-z0-9]+|exec-[a-z0-9-]+)\b/gi) ?? [])];
+  return [...new Set(text.match(/\b(agf_[a-z0-9]+|concept_[a-z0-9_-]*[a-z0-9]|dispatch_[a-z0-9]+|exec-[a-z0-9-]+)\b/gi) ?? [])];
 }
 
 export interface Check {

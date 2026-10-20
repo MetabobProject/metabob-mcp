@@ -516,7 +516,7 @@ async function net(ctx: Ctx): Promise<ScenarioResult> {
       ...sessionChecks(t),
       check('registry_query answers through the spoke', reg.length > 0 && reg.every((c) => !c.isError), reg.map((c) => JSON.stringify(c.input)).join(' ')),
       nodes.length
-        ? check(`registry shows producers from every node (${nodes.join(', ')})`, nodes.every((n) => regText.includes(n)),
+        ? check(`registry shows producers on the other node(s) through the spoke (${nodes.join(', ')})`, nodes.every((n) => regText.includes(n)),
           nodes.map((n) => `${n}: ${regText.includes(n) ? 'yes' : 'no'}`).join(', '))
         : skipped('registry shows producers from every node', 'LAB_NODES unset'),
       check('concept_search succeeds via the spoke', concepts.length > 0 && concepts.every((c) => !c.isError),
