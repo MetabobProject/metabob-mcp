@@ -10,6 +10,7 @@ the workflows work end to end, not that each function is correct in isolation.
 | `w2-ledger.test.ts` | session A records a finding; session B (another process, another home directory) recalls it and closes it by concept id; A then sees it closed and not offered as open work | `skills/metabob/SKILL.md` |
 | `w3-attachment.test.ts` | starting and using the server never registers with discovery (under any configuration), offers `human_input` or sends workspace content; the HTTP server answers on loopback only and reports its attachment state; a foreign key is refused at the org check, after which substrate tools answer `key_rejected` in one line and local tools still work; an undialable `/bootstrap` identity is rehosted (H1), warned about, and proven | `docs/CONFORMANCE.md` |
 | `w4-skill-contract.test.ts` | every tool the skill names exists, and every step it prescribes works under the default configuration | `skills/metabob/SKILL.md` |
+| `w6-system-coordination.test.ts` | working alongside the system: `path_activity` reads the whole gap store once through discovery and shows each gap as being landed, held or queued; later calls and `analyze_impact`'s in-flight line come from its cache, and a cold cache never starts the read; `resolve_impulse` refuses the system's writes (leases, traces, a shell, git) before any request; a detached server's local tools make no substrate request | `skills/metabob/SKILL.md`, `docs/SPEC.md` § path_activity, § resolve_impulse |
 | `networks/matrix.test.ts` | the network matrix: for each corporate-network condition (direct; CONNECT proxy; `NO_PROXY`; loopback bypass; Basic, NTLM and Negotiate auth; CONNECT only to 443; plain-http anchor through a proxy; idle cuts; HTML block page; captive portal; TLS interception with the CA untrusted and trusted; blackholed proxy; refused and silent anchors) the attachment attaches and resolves one read, or fails within a bound with the named cause — under Bun in process and under Node (`attach --check --json`) | `docs/SPEC.md` § Network |
 
 A `test.todo` marks a requirement the code does not meet yet; its comment names the requirement or the
@@ -29,7 +30,7 @@ machine. The suite needs no network and no containers.
 
 ## The fake substrate
 
-`harness/fake-substrate.ts` serves discovery, identity, goal-host, activity-api and concept-db, each on
+`harness/fake-substrate.ts` serves discovery, identity, goal-host, activity-api, concept-db and development-vessel's gap store (`substrateGap`), each on
 `127.0.0.1` at an OS-assigned port, or at a pinned one for a scenario whose port arithmetic matters. Its
 `/bootstrap` advertises the fake identity (or `bootstrapIdentity`, or an HTML page with `bootstrapHtml`),
 and identity accepts only the keys in `validKeys`. It is split in two:
