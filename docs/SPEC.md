@@ -404,9 +404,11 @@ settings. Nothing here runs at startup or blocks it.
 
 ## Client claim
 
-Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds
-`client_claim: { operator, session, client }` to the pointer of every resolve that is not a read
-(`src/attachment.ts@attachment-resolve`), and a goal dispatch also carries `operator` and a
+Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`). With
+`METABOB_CLIENT_CLAIM=1` the attachment adds `client_claim: { operator, session, client }` to the pointer of
+every resolve that is not a read (`src/attachment.ts@attachment-resolve`); it is off by default until a live
+write smoke shows that every producer persisting a pointer accepts the field (some substrate tables are
+schemafull). Always, a goal dispatch carries `operator` and a
 `session:<session>` tag, which goal-host stamps into the trace's tags; `provide_feedback` folds
 `[operator: …] [session: …]` into its label notes, and findings and verdicts already carry
 `recorded_by` / `reviewed_by` and `session` in their content.

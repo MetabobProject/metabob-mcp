@@ -26,7 +26,7 @@ import {
   type ProxySummary,
 } from './net.js';
 import { describeOsProxy, detectOsProxy, type OsProxySettings } from './os-proxy.js';
-import { clientClaim } from './operator-id.js';
+import { clientClaim, clientClaimEnabled } from './operator-id.js';
 
 // ── Named causes ─────────────────────────────────────────────────────────────
 
@@ -679,7 +679,7 @@ export function attach(options: AttachOptions): Attachment {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${key}` },
             // A write declares who sends it (a claim, not attribution): SPEC §client-claim
-            body: JSON.stringify({ pointer: opts?.read === true || pointer.client_claim ? pointer : { ...pointer, client_claim: clientClaim() } }),
+            body: JSON.stringify({ pointer: opts?.read === true || pointer.client_claim || !clientClaimEnabled() ? pointer : { ...pointer, client_claim: clientClaim() } }),
             signal: AbortSignal.timeout(timeoutMs + 1_000),
             net: { timeoutMs, idempotent: opts?.read === true },
           } as NetInit);

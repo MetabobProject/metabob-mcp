@@ -42,6 +42,17 @@ export interface ClientClaim {
   client: string;
 }
 
+/**
+ * Whether writes carry `client_claim`: METABOB_CLIENT_CLAIM=1. Off by default until a
+ * live write smoke confirms every producer that persists a pointer accepts the extra
+ * field (some tables are schemafull, where an undefined field may be rejected). The
+ * dispatch `session:` tag and the feedback notes ride in fields producers already
+ * accept, so they are always on.
+ */
+export function clientClaimEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|on|yes)$/i.test(env.METABOB_CLIENT_CLAIM ?? '');
+}
+
 export function clientClaim(): ClientClaim {
   return { operator: operatorId(), session: sessionId(), client: `metabob-mcp/${VESSEL_VERSION}` };
 }

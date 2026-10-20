@@ -93,10 +93,8 @@ describe('run_goal_async', () => {
       setWorkspaceOperator(undefined);
     }
     expect(stub.calls('goalDispatchAsync').map((p) => p.operator)).toEqual(['metabob-mcp-abc123', 'alice-review-bot']);
-    // Every write carries the claim; it is the client's declaration, not attribution.
-    for (const claim of stub.claims('goalDispatchAsync')) {
-      expect(claim).toEqual({ operator: expect.any(String), session: sessionId(), client: expect.stringMatching(/^metabob-mcp\//) });
-    }
+    // The session rides as a dispatch tag whether or not writes carry client_claim (off by default).
+    expect(stub.calls('goalDispatchAsync').every((p) => p.tags.includes(`session:${sessionId()}`))).toBe(true);
   });
 
   test('states a requested observe mode as a request, not as applied', async () => {
