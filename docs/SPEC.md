@@ -54,9 +54,11 @@ own sections below.
 
 The `initialize` result carries MCP `instructions` (`src/server-instructions.ts@SERVER_INSTRUCTIONS`),
 which MCP clients place in the agent's context at connect time. They state what the server is for,
-point the agent at the `metabob` skill for sequencing, name the first-call set in one sentence
-(`get_analysis_context`, `get_problems`, `record_finding`, `mark_complete`) so a client that defers
-tool schemas loads all four with one tool search, name the ledger and goal loops, separate the
+tell the agent to load the `metabob` skill before its first call (it holds the sequencing and the
+rules), name the first-call set in one sentence (`get_analysis_context`, `get_problems`,
+`record_finding`, `mark_complete`) as the fallback when the skill is not available, so a client that
+defers tool schemas loads all four with one tool search, name the ledger and goal loops and the
+recent-trace listing, separate the
 local tools from the substrate tools, and say that a named cause from a substrate tool is the
 attachment's state, diagnosed with `metabob-mcp attach --check`. They change only with the tool
 set: every tool they name exists in the registry, which the W4 skill-contract workflow test holds.
@@ -723,9 +725,12 @@ Handler: `src/tools/execution-trace.ts@handle`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `execution_id` | string | **required** | The durable trace's execution id |
+| `execution_id` | string | — | The durable trace's execution id. Omitted: list recent traces |
+| `limit` | number | `10` | With no `execution_id`: how many recent traces to list (1–50) |
 
-Resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it is retried with backoff before a `producer_timeout` line. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. Through a spoke a missing trace arrives as `no_producer(activityExecutionTrace)`, and the line says that either no producer answered or the trace does not exist (a satisfier-only reach persists no trace); `goal_status` and `goal_reasoning` use the same line for their trace read. `goal_reasoning` renders the same trace for a dispatch.
+With no `execution_id`, resolves `executionTraceList { limit }` (`src/tools/_traces.ts@listExecutionTraces`) and lists the most recent traces, newest first — execution id, status, duration, template and time, with the page's success and failure counts — ending with how to read one, so an agent holding no id can find a trace. It is a read, retried like the trace read; an empty list says that no trace is recorded. activity-api's rows carry the stored record id (`v_paradigm_execution_traces:⟨exec_…⟩`); the listing shows the bare `exec_…` id, which is the form `activityExecutionTrace` answers, and a record id passed as `execution_id` is read by its bare id (`src/tools/_traces.ts@bareExecutionId`).
+
+With an `execution_id`, resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it is retried with backoff before a `producer_timeout` line. Renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. Through a spoke a missing trace arrives as `no_producer(activityExecutionTrace)`, and the line says that either no producer answered or the trace does not exist (a satisfier-only reach persists no trace); `goal_status` and `goal_reasoning` use the same line for their trace read. `goal_reasoning` renders the same trace for a dispatch.
 
 ### resolve_impulse
 

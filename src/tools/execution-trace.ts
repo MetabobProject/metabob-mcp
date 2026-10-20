@@ -12,32 +12,39 @@
  * completion_shapes:, operator:), and the per-task sequence (#N ✓/✗
  * resolver/tier inShapes → outShapes + any per-task failure_mode).
  *
+ * With no execution_id it lists the most recent traces (`executionTraceList`), so
+ * an agent holding no id can find one to read.
+ *
  * Note: satisfier-only reaches (a direct vessel-resolve, no template) persist no
  * trace — a 404 is handled gracefully by pointing at goal_reasoning's walkLog.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { readExecutionTrace } from './_traces.js';
+import { listExecutionTraces, readExecutionTrace } from './_traces.js';
 
 export const ExecutionTraceTool = {
   name: 'execution_trace',
   description:
-    "Read a durable execution trace by executionId from activity-api (replaces raw `/v2/activities/execution-traces/:id` curls or DB queries). Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
+    "Read a durable execution trace by executionId from activity-api (replaces raw `/v2/activities/execution-traces/:id` curls or DB queries), or — called with no execution_id — list the most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       execution_id: {
         type: 'string',
-        description: 'The executionId of the durable trace to read (e.g. exec_002cxza0).',
+        description: 'The executionId of the durable trace to read (e.g. exec_002cxza0). Omit it to list recent traces.',
+      },
+      limit: {
+        type: 'number',
+        description: 'With no execution_id: how many recent traces to list (1–50, default 10).',
       },
     },
-    required: ['execution_id'],
   },
 };
 
 export const InputSchema = z.object({
-  execution_id: z.string().min(1, 'execution_id is required'),
+  execution_id: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
 });
 
 export type ExecutionTraceInput = z.infer<typeof InputSchema>;
@@ -46,7 +53,23 @@ function shapeList(v: unknown): string[] {
   return Array.isArray(v) ? v.map(String) : [];
 }
 
+async function listRecent(limit: number): Promise<string> {
+  const list = await listExecutionTraces(limit);
+  if (list.kind === 'error') return `execution_trace: ${list.message}`;
+  if (!list.rows.length) return 'execution_trace: no execution traces are recorded on this substrate yet.';
+  const counts = list.successCount !== undefined || list.failureCount !== undefined
+    ? ` (success ${list.successCount ?? 0}, failure ${list.failureCount ?? 0})` : '';
+  const lines = [`Recent execution traces, newest first: ${list.rows.length}${counts}`];
+  for (const r of list.rows) {
+    const dur = r.durationMs !== undefined ? ` ${r.durationMs}ms` : '';
+    lines.push(`  ${r.executionId}  ${r.status ?? '?'}${dur}  ${r.templateId ?? '(no template)'}${r.createdAt ? `  ${r.createdAt}` : ''}`);
+  }
+  lines.push('', 'Read one: execution_trace { execution_id: "<id>" }.');
+  return lines.join('\n');
+}
+
 export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPIClient): Promise<string> {
+  if (!input.execution_id) return listRecent(input.limit ?? 10);
   const read = await readExecutionTrace(input.execution_id);
   if (read.kind === 'not_found') {
     return [

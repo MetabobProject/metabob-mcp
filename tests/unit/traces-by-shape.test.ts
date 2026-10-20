@@ -81,3 +81,53 @@ describe('activityExecutionTrace', () => {
     );
   });
 });
+
+/** executionTraceList as activity-api answers it (live node1 form, limit 2). */
+const LIST = {
+  loaded: false,
+  metadata: { rowCount: 2, summary: { successCount: 1, failureCount: 1 } },
+  content: {
+    traces: [
+      { id: 'v_paradigm_execution_traces:⟨exec_0d772278-57d⟩', templateId: 'development-vessel:gap_closing_auto', status: 'success', duration_ms: 1256,
+        created_at: '2026-10-20T03:52:18.867Z', pointer: { type: 'activityExecutionTrace', executionId: 'v_paradigm_execution_traces:⟨exec_0d772278-57d⟩' } },
+      { id: 'v_paradigm_execution_traces:⟨exec_cb46b5aa-b31⟩', templateId: 'development-vessel:feature_compose', status: 'failure', duration_ms: 165,
+        created_at: '2026-10-20T03:52:09.413Z', pointer: { type: 'activityExecutionTrace', executionId: 'v_paradigm_execution_traces:⟨exec_cb46b5aa-b31⟩' } },
+    ],
+  },
+};
+
+describe('recent traces: execution_trace with no id', () => {
+  test('lists executionTraceList rows with their bare ids, as a read', async () => {
+    const stub = await installShapeStub({
+      executionTraceList: () => ({ body: { success: true, content: JSON.stringify(LIST) } }),
+    });
+    const out = await executionTrace({}, apiClient);
+    expect(stub.calls('executionTraceList')).toEqual([{ type: 'executionTraceList', limit: 10 }]);
+    expect(out).toStartWith('Recent execution traces, newest first: 2 (success 1, failure 1)');
+    expect(out).toContain('  exec_0d772278-57d  success 1256ms  development-vessel:gap_closing_auto  2026-10-20T03:52:18.867Z');
+    expect(out).toContain('  exec_cb46b5aa-b31  failure 165ms  development-vessel:feature_compose');
+    expect(out).not.toContain('⟨');
+    expect(out).toContain('Read one: execution_trace { execution_id: "<id>" }.');
+  });
+
+  test('passes limit, and says so when nothing is recorded', async () => {
+    const stub = await installShapeStub({
+      executionTraceList: () => ({ body: { success: true, content: { metadata: { rowCount: 0 }, content: { traces: [] } } } }),
+    });
+    expect(await executionTrace({ limit: 3 }, apiClient)).toBe('execution_trace: no execution traces are recorded on this substrate yet.');
+    expect(stub.calls('executionTraceList')).toEqual([{ type: 'executionTraceList', limit: 3 }]);
+  });
+
+  test('no producer for the listing is one named line', async () => {
+    await installShapeStub({});
+    expect(await executionTrace({}, apiClient)).toStartWith('execution_trace: no_producer(executionTraceList)');
+  });
+
+  test('a stored record id reads as its bare execution id', async () => {
+    const stub = await installShapeStub({
+      activityExecutionTrace: () => ({ body: { success: true, content: JSON.stringify(ROW) } }),
+    });
+    await executionTrace({ execution_id: 'v_paradigm_execution_traces:⟨exec_978a4b53-8a0⟩' }, apiClient);
+    expect(stub.calls('activityExecutionTrace')[0]?.executionId).toBe('exec_978a4b53-8a0');
+  });
+});
