@@ -65,9 +65,9 @@ the vessel's own network namespace.
   fails closed with 401 when no key matches, and the substrate tools send
   `Authorization: ApiKey <key>` on their requests.
 - Met — the org check. Before any other keyed call, `src/attachment.ts@attach` proves the key
-  against the identity endpoint the anchor names: `POST {identity}/v1/auth/resolve` with
-  `Authorization: ApiKey <key>` (`src/auth-service.ts@org-check`) must return the tenant's
-  `org_id`. A captive portal cannot forge that answer without the key, and a key from a foreign
+  against the identity endpoint the anchor names: `POST {identity}/v1/auth/resolve` with the key
+  (`src/auth-service.ts@org-check`; the nested body and the `Authorization: ApiKey` header) must
+  return the tenant's org. A captive portal cannot forge that answer without the key, and a key from a foreign
   namespace is refused there (401 → `key_rejected`). Whichever address identity selection chose —
   explicit, advertised, or rehosted (C4) — the check runs against that address; selection only picks
   it. Until the check passes, every substrate tool passes one gate on both dispatch planes

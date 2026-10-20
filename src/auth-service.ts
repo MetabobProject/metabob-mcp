@@ -1,10 +1,15 @@
 /**
  * Identity-vessel authentication: the org check.
  *
- * `resolveTenant` is the one call: POST {identity}/v1/auth/resolve with
- * `Authorization: ApiKey <key>` (identity-vessel's flat header form), which
- * answers `{ valid, org_id, user_id, key_id, jwt, jwt_expires_at }`, or 401 for a
- * key outside its namespace. The identity endpoint is the attachment's
+ * `resolveTenant` is the one call: POST {identity}/v1/auth/resolve carrying the key in
+ * both of identity-vessel's forms, the nested body `{ impulse: { type: "authentication",
+ * pointer: { type: "apiKey", apiKey } } }` and the flat `Authorization: ApiKey <key>`
+ * header. An identity that serves the nested form answers `{ success, data: { orgId,
+ * userId, accountId?, keyId, scopes, jwt?, jwt_expires_at? } }`, with the key's scopes; one
+ * that serves only the flat form reads the header and answers `{ valid, org_id, user_id,
+ * account_id?, key_id, jwt, jwt_expires_at }`, without scopes. Either answers 401 for a key
+ * outside its namespace. Each call writes a key-session row on identity, so it runs once
+ * per attach and on the key-issuance heartbeat, never per tool call. The identity endpoint is the attachment's
  * (`src/attachment.ts` — explicit, or learned from /bootstrap); this module never
  * reads one from the environment. CONFORMANCE §c3-identity
  *
@@ -25,6 +30,10 @@ export interface TenantIdentity {
   orgId: string;
   userId?: string;
   keyId?: string;
+  /** The account, when the key's user has a membership. */
+  accountId?: string;
+  /** The key's scopes, as identity validated them; absent when identity reported none (the flat form). */
+  scopes?: string[];
   /** Inline JWT from identity-vessel for vessel-to-vessel Bearer auth. */
   bearerToken?: string;
   bearerExpiresAt?: number;
@@ -52,7 +61,7 @@ export async function resolveTenant(
     res = await fetchImpl(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${apiKey}` },
-      body: '{}',
+      body: JSON.stringify({ impulse: { type: 'authentication', pointer: { type: 'apiKey', apiKey } } }),
       signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS + 1_000),
       net: { timeoutMs: RESOLVE_TIMEOUT_MS, idempotent: true },
     } as NetInit);
@@ -86,14 +95,17 @@ export async function resolveTenant(
   }
 
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-  const orgId = str(payload.org_id);
-  if (payload.valid !== true || !orgId) {
+  // The nested answer is `{ success, data: {...camelCase} }`; the flat one is snake_case at the top.
+  const nested = payload.success === true && payload.data && typeof payload.data === 'object' ? (payload.data as Record<string, unknown>) : null;
+  const orgId = nested ? str(nested.orgId) : str(payload.org_id);
+  if ((!nested && payload.valid !== true) || !orgId) {
     return { kind: 'not_identity', detail: 'the response carries no org_id' };
   }
+  const scopes = nested && Array.isArray(nested.scopes) ? nested.scopes.filter((x): x is string => typeof x === 'string') : undefined;
   let bearerToken: string | undefined;
   let bearerExpiresAt: number | undefined;
-  const jwt = str(payload.jwt);
-  const expires = str(payload.jwt_expires_at);
+  const jwt = str(nested ? nested.jwt : payload.jwt);
+  const expires = str(nested ? nested.jwt_expires_at : payload.jwt_expires_at);
   if (jwt && expires && !Number.isNaN(Date.parse(expires))) {
     bearerToken = jwt;
     bearerExpiresAt = Date.parse(expires);
@@ -101,8 +113,10 @@ export async function resolveTenant(
   return {
     kind: 'authenticated',
     orgId,
-    userId: str(payload.user_id),
-    keyId: str(payload.key_id),
+    userId: str(nested ? nested.userId : payload.user_id),
+    keyId: str(nested ? nested.keyId : payload.key_id),
+    accountId: str(nested ? nested.accountId : payload.account_id),
+    ...(scopes ? { scopes } : {}),
     bearerToken,
     bearerExpiresAt,
   };

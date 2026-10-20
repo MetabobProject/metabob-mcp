@@ -194,8 +194,14 @@ once:
       H1 interim debt (`src/attachment.ts@rehost-h1`): it logs a WARN naming the advertised value and
       records `identity.source: "rehosted-h1"`;
    4. otherwise none: `identity_unreachable(advertised=…, tried=[…])`.
-3. Proves the key: `POST {identity}/v1/auth/resolve` with `Authorization: ApiKey <key>`
-   (`src/auth-service.ts@org-check`), which answers the tenant (`org_id`, `key_id`). Whichever
+3. Proves the key: `POST {identity}/v1/auth/resolve` carrying the key in both of identity's forms,
+   the nested body `{ impulse: { type: "authentication", pointer: { type: "apiKey", apiKey } } }` and
+   the flat `Authorization: ApiKey <key>` header (`src/auth-service.ts@org-check`). An identity that
+   serves the nested form answers the tenant with the key's validated scopes (`orgId`, `userId`,
+   `keyId`, `accountId` when the user has a membership, `scopes`); one that serves only the flat form
+   reads the header and answers `org_id`, `key_id` without scopes, which are then "not reported". Each
+   check writes a key-session row on identity, so it runs once per attach and on the heartbeat, never
+   per tool call. Whichever
    address step 2 chose, this check against it is what makes it trusted; for a rehosted address it is
    also the dial. A 401/403 is `key_rejected` — the key belongs to another namespace.
 
@@ -213,7 +219,7 @@ the missing input, or `attaching` while pending). Neither carries the key. Befor
 | `anchor` | `{ discovery, source }` — `explicit`, `derived-h1`, or `none` |
 | `bootstrap` | `{ status, identityEndpoint?, detail? }` — `ok`, `unreachable`, `not_substrate` (non-JSON or HTML), or `skipped` (no anchor) |
 | `identity` | `{ endpoint, source, advertised, tried }` — source `explicit`, `bootstrap`, `rehosted-h1`, or `none`; `tried` lists every address contacted, in order |
-| `auth` | `{ status, orgId?, keyId?, detail? }` — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
+| `auth` | `{ status, orgId?, keyId?, accountId?, scopes?, detail? }` (never the identity's jwt) — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
 | `cause` | the named cause keyed calls are refused with, or `null` |
 | `message` | that cause as the one line a substrate tool returns |
 | `advertised` | `none (client-only)` |
@@ -375,7 +381,7 @@ as the server runs it — the same configuration lookup, request path and sequen
 - `proxy` — direct (and why: loopback, `NO_PROXY`, none configured, `HTTP_PROXY` unset) or through
   which proxy, redacted, with the `NO_PROXY` entries in force;
 - `tls` — verified (and the issuer), intercepted (and by whom), or plain http;
-- `bootstrap`, `identity` (endpoint, source, advertised, tried), `org check` (`orgId`), `resolve`;
+- `bootstrap`, `identity` (endpoint, source, advertised, tried), `org check` (`orgId`, the account, and the key's scopes or "not reported by identity"), `resolve`;
 - `result` — `attached`, or the one line with the named cause.
 
 Exit 0 when attached and the read resolved, 1 otherwise; with nothing configured it prints the one

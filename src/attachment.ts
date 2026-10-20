@@ -12,7 +12,7 @@
  * Node-safe: doctor runs under Node, so nothing here imports a Bun-only module.
  */
 
-import { resolveTenant, type AuthService, type TenantResolution } from './auth-service.js';
+import { resolveTenant, type AuthService, type TenantIdentity, type TenantResolution } from './auth-service.js';
 import {
   causeOfLine,
   classifyNetError,
@@ -93,6 +93,9 @@ export interface AttachmentState {
     status: 'pending' | 'authenticated' | 'key_rejected' | 'identity_unreachable' | 'not_configured';
     orgId?: string;
     keyId?: string;
+    accountId?: string;
+    /** The key's scopes, as identity validated them; absent when identity reported none. */
+    scopes?: string[];
     detail?: string;
   };
   /** Why keyed calls are refused, or null when they may proceed (or the attachment is still pending). */
@@ -401,6 +404,17 @@ function refusalMessage(state: AttachmentState): string | null {
  * Attach to the substrate at `discovery` with `key`. Returns at once; the
  * sequence runs in the background (see Attachment.settled).
  */
+/** The org check's state for an authenticated key: what identity validated, never the jwt. */
+function authenticatedState(r: TenantIdentity & { orgId: string }): AttachmentState['auth'] {
+  return {
+    status: 'authenticated',
+    orgId: r.orgId,
+    ...(r.keyId ? { keyId: r.keyId } : {}),
+    ...(r.accountId ? { accountId: r.accountId } : {}),
+    ...(r.scopes ? { scopes: r.scopes } : {}),
+  };
+}
+
 export function attach(options: AttachOptions): Attachment {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? netFetch(env);
@@ -500,7 +514,7 @@ export function attach(options: AttachOptions): Attachment {
     state.lastCheckedAt = new Date().toISOString();
     switch (r.kind) {
       case 'authenticated':
-        state.auth = { status: 'authenticated', orgId: r.orgId, ...(r.keyId ? { keyId: r.keyId } : {}) };
+        state.auth = authenticatedState(r);
         return null;
       case 'key_rejected':
         state.auth = { status: 'key_rejected', detail: `HTTP ${r.status}` };
@@ -620,7 +634,7 @@ export function attach(options: AttachOptions): Attachment {
         options.authService.startKeyHeartbeat(interval, chosen, key, (r) => {
           if (r.kind === 'authenticated') {
             state.lastCheckedAt = new Date().toISOString();
-            state.auth = { status: 'authenticated', orgId: r.orgId, ...(r.keyId ? { keyId: r.keyId } : {}) };
+            state.auth = authenticatedState(r);
           } else if (r.kind === 'key_rejected') {
             applyResolution(r);
             settle('key_rejected');
