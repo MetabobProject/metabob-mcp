@@ -24,6 +24,7 @@ import * as ProvideFeedback from './provide-feedback.js';
 import * as RegistryQuery from './registry-query.js';
 import * as ExecutionTrace from './execution-trace.js';
 import * as ResolveImpulse from './resolve-impulse.js';
+import * as PathActivity from './path-activity.js';
 import * as PullAssignedWork from './pull-assigned-work.js';
 import * as SubmitResolution from './submit-resolution.js';
 import { substrateRefusal } from '../attachment.js';
@@ -157,6 +158,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     handler: RegistryQuery.handle,
     validateInput: (i: any) => RegistryQuery.InputSchema.parse(i),
   },
+  path_activity: {
+    ...PathActivity.PathActivityTool,
+    handler: PathActivity.handle,
+    validateInput: (i: any) => PathActivity.InputSchema.parse(i),
+  },
   execution_trace: {
     ...ExecutionTrace.ExecutionTraceTool,
     handler: ExecutionTrace.handle,
@@ -201,6 +207,7 @@ export const SUBSTRATE_TOOLS: ReadonlySet<string> = new Set([
   'provide_feedback',
   'registry_query',
   'execution_trace',
+  'path_activity',
   'resolve_impulse',
   'concept_search',
   'concept_neighbors',

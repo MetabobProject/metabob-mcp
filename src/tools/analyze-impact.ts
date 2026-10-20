@@ -4,6 +4,8 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { CPGNode } from '../cpg-inference.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
+import { activeWorkspacePath } from '../local-index.js';
+import { gapSummaryLines } from './_gap-activity.js';
 
 export const AnalyzeImpactTool = {
   name: 'analyze_impact',
@@ -135,7 +137,8 @@ export async function handle(
   // seed. Seeds are appended as supplementary context, never substituted, and
   // the block rides along on the early returns too so nothing is lost.
   const seedBlock = localStore ? cachedSeedBlock(localStore, input.changed_files) : '';
-  return (await impactReport(input)) + seedBlock;
+  const inFlight = (await gapSummaryLines(input.changed_files, activeWorkspacePath())).join('\n');
+  return (await impactReport(input)) + seedBlock + (inFlight ? `\n${inFlight}` : '');
 }
 
 async function impactReport(input: AnalyzeImpactInput): Promise<string> {

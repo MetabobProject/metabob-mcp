@@ -97,7 +97,7 @@ test('MCP server responds to tools/list', async () => {
   expect(response.id).toBe(1);
   expect(response.result).toBeDefined();
   expect(response.result.tools).toBeArray();
-  expect(response.result.tools.length).toBe(28);
+  expect(response.result.tools.length).toBe(29);
 });
 
 test('tools/list returns all core tool names', async () => {

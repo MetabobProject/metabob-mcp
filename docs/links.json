@@ -301,6 +301,11 @@
           "repository-identity"
         ]
       },
+      "src/tools/_gap-activity.ts": {
+        "SPEC": [
+          "path_activity"
+        ]
+      },
       "src/tools/_goal-host.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -445,6 +450,11 @@
           "mark_complete"
         ]
       },
+      "src/tools/path-activity.ts": {
+        "SPEC": [
+          "path_activity"
+        ]
+      },
       "src/tools/predict-cochanges.ts": {
         "SPEC": [
           "predict_cochanges"
@@ -571,6 +581,11 @@
       "tests/unit/outgoing-guard.test.ts": {
         "SPEC": [
           "outgoing-text-guard"
+        ]
+      },
+      "tests/unit/path-activity.test.ts": {
+        "SPEC": [
+          "path_activity"
         ]
       },
       "tests/unit/record-finding-duplicate.test.ts": {
@@ -813,6 +828,9 @@
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
+        "src/tools/_gap-activity.ts@gapSummaryLines",
+        "src/tools/_gap-activity.ts@pathMapper",
+        "src/tools/_gap-activity.ts@readGaps",
         "src/tools/_goal-host.ts@dispatchGoal",
         "src/tools/_goal-host.ts@learningLines",
         "src/tools/_goal-host.ts@principalLines",
@@ -842,6 +860,7 @@
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/init-workspace.ts@handle",
         "src/tools/mark-complete.ts@handle",
+        "src/tools/path-activity.ts@handle",
         "src/tools/predict-cochanges.ts@handle",
         "src/tools/provide-feedback.ts@handle",
         "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
@@ -983,6 +1002,9 @@
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
+      "src/tools/_gap-activity.ts@gapSummaryLines": "41dd2834ccf4",
+      "src/tools/_gap-activity.ts@pathMapper": "68351f924e85",
+      "src/tools/_gap-activity.ts@readGaps": "e47446d8f610",
       "src/tools/_goal-host.ts@dispatchGoal": "996354463c1e",
       "src/tools/_goal-host.ts@learningLines": "e3b354491325",
       "src/tools/_goal-host.ts@principalLines": "5933404860fc",
@@ -1011,6 +1033,7 @@
       "src/tools/index.ts@substrateToolRefusal": "33e28bf195bc",
       "src/tools/init-workspace.ts@handle": "4bdf740420c9",
       "src/tools/mark-complete.ts@handle": "4bdf740420c9",
+      "src/tools/path-activity.ts@handle": "5034330ff43d",
       "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
       "src/tools/provide-feedback.ts@handle": "73fbe202d3b1",
       "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER": "d379a2d71e1b",

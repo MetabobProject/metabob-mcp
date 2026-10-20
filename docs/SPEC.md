@@ -397,8 +397,8 @@ settings. Nothing here runs at startup or blocks it.
 Every string a substrate tool sends passes one guard before the tool runs, on stdio and on the
 loopback resolver alike (`src/outgoing-guard.ts@guard-tool-input`). The tools that send nothing
 (`init_workspace`, `analyze_impact`, `predict_cochanges`, `search_codebase`, `annotate_component`,
-`get_metrics`, `assign_git_changes`, `get_problems`, `get_analysis_context`, `pull_assigned_work`) are
-exempt; every other tool's string fields are guarded, nested strings included. A field's kind and size
+`get_metrics`, `assign_git_changes`, `get_problems`, `get_analysis_context`, `pull_assigned_work`, and
+`path_activity`, whose paths are matched locally) are exempt; every other tool's string fields are guarded, nested strings included. A field's kind and size
 cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's summary is prose with a
 2 KB cap, a goal is acted on with 4 KB); a field the table does not list is treated as acted on with a
 4 KB cap, so a new field is guarded by default.
@@ -575,7 +575,7 @@ Components affected by changing the given files, by traversing the local Code Pr
 | `max_depth` | number | `5` | Max traversal depth (max 10) |
 | `include_tests` | boolean | `true` | Include test files |
 
-Appends up to 20 findings from the local store for the changed files. Makes no request. Requires `init_workspace`.
+Appends up to 20 findings from the local store for the changed files. When attached, and the workspace maps to the gap store, appends one line per changed file with its open gaps, how many the system is landing now and how many are held (`src/tools/_gap-activity.ts@gapSummaryLines`, from `path_activity`'s cached read); detached, it makes no request. Requires `init_workspace`.
 
 ---
 
@@ -641,7 +641,7 @@ Assign changed files to the CPG components they affect, with co-change predictio
 | `include_cochange_predictions` | boolean | `true` | Include co-change predictions |
 | `prediction_limit` | number | `5` | Prediction budget per changed file (max 20) |
 
-Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with findings in the local store show them. Requires `init_workspace`.
+Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with findings in the local store show them, and, when attached and the workspace maps to the gap store, each changed file's open gaps and landing leases (as in `analyze_impact`). Requires `init_workspace`.
 
 ---
 
@@ -744,6 +744,29 @@ Handler: `src/tools/provide-feedback.ts@handle`
 | `goal` | string | — | Goal text, when the dispatch record does not carry it |
 
 Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record — all three are required — and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "automated"`, notes `<rationale> [operator: <MB_OPERATOR_ID>]`. The tool is driven by an agent's key, so its verdict is never labelled `human`: goal-host treats a `human` label as ground truth (it overwrites `reached` and files a human-reported gap), and a person's verdict comes through the human surface. Until labels carry provenance derived from the writing credential, the principal travels only in notes. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate. Through a spoke a producer's refusal of the label (a 400 naming missing fields) arrives as `no_producer(goal_verification_label_write)`; the line says that either no producer answered or the producer refused the label, and that no label was written.
+
+### path_activity
+
+Handler: `src/tools/path-activity.ts@handle`
+
+Before editing shared files, what the substrate has in flight on them.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `paths` | string[] (1–50) | **required** | Files or directories, workspace-relative or in the gap store's `repos/<vessel>/<path>` form |
+| `limit` | integer (1–100) | `10` | Most gaps listed per path besides those being landed, which are always listed |
+| `include_closed` | boolean | `false` | Also list closed gaps that named the paths |
+
+**Path mapping** (`src/tools/_gap-activity.ts@pathMapper`). The gap store names files super-repo-relative, `repos/<vessel>/<path>`, in a gap's `classification_metadata.edit_site` and in its goal and summary text. In the super-repo (a `repos/` directory at the top of the tree) a path maps relative to the root; in a vessel's own checkout it maps to `repos/<name>/<path>`, where `<name>` is the basename of the `origin` remote's path (every super-repo submodule is `repos/X → ../X.git`); a directory under `repos/` that is not a submodule maps by its name. In any other repository the tool says so and checks only paths given in `repos/…` form.
+
+**Read** (`src/tools/_gap-activity.ts@readGaps`). The store has no path filter and answers the newest `limit` rows by `updated_at`, with `total` counting the page; a file's gaps are mostly old rows, which a recency page drops. So the read is the whole store: `substrateGap { status: "open", limit: 1000000, include_held: true }` (and `status: "closed"` with `include_closed`), a read with the read retries and a 30 s cap, cached for 60 s across calls and shared by every path in a call, so agents checking on every edit do not each load the store's holder. When the answer is as large as the limit the output gives no count and says the read may be truncated.
+
+**Output**, one block per path. It leads with the count of open gaps and how many are being landed by the system now, held and queued (a busy file has hundreds). Every gap being landed is listed; then up to `limit` more, held ones first and then queued ones, edit site first, then those with an edit site in a given directory, then those that mention it, each newest first, and a line counting the rest. Each gap shows its id, category and route, and one of:
+- **held** — `classification_metadata.operator_hold`, a parking disposition (`needs_information`, `needs_info`, `awaiting_operator_review`) or a landing awaiting its verdict: `held by operator ruling: <reason>`, with `review by <date>` and `lift: <condition>` from the hold record that carries them, or `no review date recorded`;
+- **being landed** — a landing lease: its holder, attempt and expiry exactly as stored, marked as the holder's own claim (holders are caller-supplied), and "don't race it";
+- **queued** — neither: queued for the system.
+
+The output ends with what to do: wait and look again for a held landing lease, prefer letting the system land or dispatching a queued gap, and otherwise make the change and record it. A failed read is one named line. The paths are matched locally and never sent, so the outgoing guard does not check them.
 
 ### registry_query
 

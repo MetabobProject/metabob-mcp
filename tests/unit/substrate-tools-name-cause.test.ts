@@ -19,6 +19,7 @@ const INPUTS: Record<string, Record<string, unknown>> = {
   provide_feedback: { dispatch_id: 'd1', verdict: 'reached', rationale: 'r' },
   registry_query: { mode: 'shapes' },
   execution_trace: { execution_id: 'e1' },
+  path_activity: { paths: ['repos/x/src/a.ts'] },
   resolve_impulse: { shape: 'memoryNote', pointer: {} },
   concept_search: { query: 'q' },
   concept_neighbors: { concept_id: 'c1' },

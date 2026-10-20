@@ -1,0 +1,217 @@
+// Contract (behaviour): SPEC §path_activity
+/**
+ * What the system has in flight on files: the open gaps that name them, read from the
+ * gap store through the `substrateGap` shape, with each gap's landing lease or hold.
+ * Shared by path_activity and the one-line summaries in analyze_impact and
+ * assign_git_changes.
+ *
+ * The store has no path filter and answers the newest `limit` rows by `updated_at`, with
+ * `total` counting the page. A file's gaps are mostly old rows, which a recency page drops,
+ * so the read is the whole open store, once, cached for READ_TTL_MS across calls: the
+ * store's holder runs hot, and many agents checking on every edit must not each read it.
+ */
+
+import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { describeResolveFailure, getAttachment, resolveShape, substrateRefusal } from '../attachment.js';
+import { normalizeRemoteUrl } from '../repo-identity.js';
+
+/** The full-read limit: larger than any store, so the answer is the whole store. */
+export const FULL_READ_LIMIT = 1_000_000;
+/** How long one read of the store serves later calls. */
+export const READ_TTL_MS = 60_000;
+const READ_TIMEOUT_MS = 30_000;
+
+export interface GapRow {
+  id: string;
+  category?: string;
+  status?: string;
+  summary?: string;
+  route?: string;
+  updated_at?: string;
+  remedy?: { goal?: string; vessel?: string };
+  classification_metadata?: Record<string, unknown>;
+}
+
+export type GapRead =
+  | { ok: true; rows: GapRow[]; truncated: boolean; readAt: number }
+  | { ok: false; message: string };
+
+type CachedRead = GapRead & { ok: true };
+/** Reads cached per attachment, so a read never serves a different substrate or key. */
+let cache = new WeakMap<object, Map<string, CachedRead>>();
+const DETACHED = {};
+
+/** Forget cached reads (tests). */
+export function clearGapReadCache(): void {
+  cache = new WeakMap();
+}
+
+/** The whole store for `status`, from the cache when it is fresh. */
+export async function readGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
+  const owner = getAttachment() ?? DETACHED;
+  let reads = cache.get(owner);
+  if (!reads) { reads = new Map(); cache.set(owner, reads); }
+  const hit = reads.get(status);
+  if (hit && now - hit.readAt < READ_TTL_MS) return hit;
+  let res;
+  try {
+    res = await resolveShape(
+      { type: 'substrateGap', status, limit: FULL_READ_LIMIT, ...(status === 'open' ? { include_held: true } : {}) },
+      { timeoutMs: READ_TIMEOUT_MS, read: true },
+    );
+  } catch (err) {
+    return { ok: false, message: describeResolveFailure(err) };
+  }
+  if (res.status !== 200) return { ok: false, message: `substrateGap answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}` };
+  // development-vessel answers `{ shape, body: { gaps } }`; a forward may wrap it as `content`
+  // (an object, or a JSON string).
+  let body: any = res.body;
+  for (let depth = 0; depth < 3 && body && !Array.isArray(body.gaps); depth++) {
+    const inner = body.body ?? body.content;
+    if (typeof inner === 'string') {
+      try { body = JSON.parse(inner); } catch { break; }
+    } else {
+      body = inner;
+    }
+  }
+  const rows = Array.isArray(body?.gaps) ? (body.gaps as GapRow[]) : null;
+  if (!rows) return { ok: false, message: 'substrateGap returned no gap list' };
+  const read = { ok: true as const, rows, truncated: rows.length >= FULL_READ_LIMIT, readAt: now };
+  reads.set(status, read);
+  return read;
+}
+
+function git(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export interface PathMapper {
+  /** How the workspace maps: the super-repo, one vessel's checkout, or neither. */
+  kind: 'super-repo' | 'vessel' | 'none';
+  /** `repos/<vessel>` for a vessel checkout. */
+  prefix?: string;
+  root?: string;
+  /** The store path for a local or `repos/…` path, or null when it cannot be named. */
+  toStorePath(path: string): string | null;
+}
+
+/**
+ * Map the workspace's paths to the gap store's form, `repos/<vessel>/<path>`: relative to
+ * the root in the super-repo (a `repos/` directory at the top of the tree), prefixed with
+ * `repos/<name>` in a vessel's own checkout, where `<name>` is the basename of the
+ * `origin` remote's path. A path already in `repos/…` form is used as given.
+ */
+export function pathMapper(workspace: string): PathMapper {
+  const root = git(workspace, ['rev-parse', '--show-toplevel']) ?? resolve(workspace);
+  const given = (p: string) => (p.replace(/\\/g, '/').replace(/^\.\//, '').startsWith('repos/') ? p.replace(/\\/g, '/').replace(/^\.\//, '') : null);
+  const rel = (p: string) => {
+    const r = relative(root, isAbsolute(p) ? p : resolve(workspace, p)).replace(/\\/g, '/');
+    return r && !r.startsWith('..') && !isAbsolute(r) ? r : null;
+  };
+  if (existsSync(join(root, 'repos'))) {
+    return { kind: 'super-repo', root, toStorePath: (p) => given(p) ?? (rel(p)?.startsWith('repos/') ? rel(p) : null) };
+  }
+  const url = git(root, ['remote', 'get-url', 'origin']);
+  const origin = url ? normalizeRemoteUrl(url, root) : null;
+  if (origin) {
+    const prefix = `repos/${basename(origin)}`;
+    return { kind: 'vessel', root, prefix, toStorePath: (p) => given(p) ?? (rel(p) ? `${prefix}/${rel(p)}` : null) };
+  }
+  return { kind: 'none', root, toStorePath: given };
+}
+
+export type MatchKind = 'edit site' | 'in directory' | 'mentioned';
+
+const PARKING = new Set(['needs_information', 'needs_info', 'awaiting_operator_review']);
+
+/** A gap's hold, when it is held: why, and when it is reviewed and how it lifts if recorded. */
+export function holdOf(g: GapRow): { why: string; reviewBy?: string; lift?: string } | null {
+  const m = g.classification_metadata ?? {};
+  const disposition = typeof m['disposition'] === 'string' ? (m['disposition'] as string) : '';
+  const held = m['operator_hold'] === true || PARKING.has(disposition) || Boolean(m['pending_outcome_verification']);
+  if (!held) return null;
+  let reviewBy: string | undefined;
+  let lift: string | undefined;
+  for (const v of Object.values(m)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>;
+      if (typeof o['review_by'] === 'string') reviewBy ??= o['review_by'] as string;
+      if (typeof o['lift'] === 'string') lift ??= o['lift'] as string;
+    }
+  }
+  const reason = typeof m['operator_hold_reason'] === 'string' ? (m['operator_hold_reason'] as string) : '';
+  const why = m['operator_hold'] === true
+    ? `held by operator ruling${reason ? `: ${reason}` : ''}`
+    : m['pending_outcome_verification'] ? 'held: a landing awaits its verdict' : `held: ${disposition}`;
+  return { why, reviewBy, lift };
+}
+
+/** A gap's landing lease, exactly as stored; the holder is the caller's own claim. */
+export function landingLeaseOf(g: GapRow): { holder: string; attempt?: string; until?: string } | null {
+  const l = g.classification_metadata?.['landing_lease'] as Record<string, unknown> | undefined;
+  return l && typeof l['holder'] === 'string'
+    ? { holder: l['holder'] as string, attempt: l['attempt'] as string | undefined, until: l['until'] as string | undefined }
+    : null;
+}
+
+/** The gaps naming `storePath`, strongest match first, then most recently updated. */
+export function gapsForPath(rows: GapRow[], storePath: string): Array<{ gap: GapRow; match: MatchKind }> {
+  const dir = storePath.replace(/\/+$/, '');
+  const order: Record<MatchKind, number> = { 'edit site': 0, 'in directory': 1, mentioned: 2 };
+  const out: Array<{ gap: GapRow; match: MatchKind }> = [];
+  for (const g of rows) {
+    const site = typeof g.classification_metadata?.['edit_site'] === 'string' ? (g.classification_metadata['edit_site'] as string).trim() : '';
+    let match: MatchKind | null = null;
+    if (site && site === dir) match = 'edit site';
+    else if (site && site.startsWith(`${dir}/`)) match = 'in directory';
+    else if ((g.remedy?.goal ?? '').includes(dir) || (g.summary ?? '').includes(dir)) match = 'mentioned';
+    if (match) out.push({ gap: g, match });
+  }
+  return out.sort((a, b) => order[a.match] - order[b.match] || (b.gap.updated_at ?? '').localeCompare(a.gap.updated_at ?? ''));
+}
+
+const hhmm = (iso?: string) => (iso && /T(\d\d:\d\d)/.exec(iso)?.[1] ? `${iso.slice(5, 10)} ${/T(\d\d:\d\d)/.exec(iso)![1]}Z` : iso ?? '?');
+
+/** One gap as path_activity prints it. */
+export function renderGap(g: GapRow, match: MatchKind): string[] {
+  const head = `  ${g.id}  ${g.category ?? '?'}${g.route ? `  route ${g.route}` : ''}  ${match}`;
+  const hold = holdOf(g);
+  const lease = landingLeaseOf(g);
+  if (hold) {
+    return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${hhmm(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
+  }
+  if (lease) {
+    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${hhmm(lease.until)}: the system is landing this; don't race it`];
+  }
+  return [`${head}   no landing lease: queued for the system`];
+}
+
+/**
+ * The one-line summary for analyze_impact and assign_git_changes: per file, its open gaps
+ * and any held landing lease. Empty when there is no attachment, the attachment refuses,
+ * the workspace does not map, or the read fails: those tools stay local-only then.
+ */
+export async function gapSummaryLines(files: string[], workspace: string): Promise<string[]> {
+  if (!getAttachment() || (await substrateRefusal())) return [];
+  const mapper = pathMapper(workspace);
+  if (mapper.kind === 'none') return [];
+  const read = await readGaps('open');
+  if (!read.ok) return [];
+  const lines: string[] = [];
+  for (const f of files) {
+    const p = mapper.toStorePath(f);
+    if (!p) continue;
+    const hits = gapsForPath(read.rows, p);
+    if (!hits.length) continue;
+    const leased = hits.filter((h) => !holdOf(h.gap) && landingLeaseOf(h.gap));
+    const held = hits.filter((h) => holdOf(h.gap));
+    lines.push(`  ${f}: ${read.truncated ? 'open gaps (the read may be truncated)' : `${hits.length} open gap(s)`}${leased.length ? `, ${leased.length} being landed by the system now` : ''}${held.length ? `, ${held.length} held` : ''}`);
+  }
+  return lines.length ? ['', 'In flight on the substrate (path_activity for detail):', ...lines] : [];
+}

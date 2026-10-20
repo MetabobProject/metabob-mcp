@@ -17,6 +17,8 @@ Ledger:
 
 Goals on the substrate: \`run_goal_async\` → \`goal_status\` (read \`reached\`, not \`status\`) → \`goal_reasoning\` → \`provide_feedback\` with your verdict. \`execution_trace\` with no id lists your org's recent runs.
 
+Before editing a file other agents or the substrate may be working on, \`path_activity\` shows what is in flight on it.
+
 Local tools work in any repository with no substrate: \`init_workspace\`, \`analyze_impact\`, \`predict_cochanges\`, \`search_codebase\`.
 
 Substrate tools need an attachment (an API key and a substrate endpoint). When one answers with a named cause such as \`key_rejected\`, \`anchor_unreachable\` or \`proxy_auth_required\`, that is the attachment's state, not a transient error; \`metabob-mcp attach --check\` diagnoses it.`;

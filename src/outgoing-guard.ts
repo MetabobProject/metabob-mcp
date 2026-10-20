@@ -76,6 +76,8 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
 export const LOCAL_TOOLS: ReadonlySet<string> = new Set([
   'init_workspace', 'analyze_impact', 'predict_cochanges', 'search_codebase', 'annotate_component',
   'get_metrics', 'assign_git_changes', 'get_problems', 'get_analysis_context', 'pull_assigned_work',
+  // Its paths are matched locally; only the gap-store read leaves.
+  'path_activity',
 ]);
 
 /** A field of a sending tool that GUARDED_FIELDS does not list: treated as acted on. */

@@ -4,6 +4,7 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
+import { gapSummaryLines } from './_gap-activity.js';
 
 export const AssignGitChangesTool = {
   name: 'assign_git_changes',
@@ -190,6 +191,8 @@ export async function handle(
 
   text += `Completed in ${duration}ms`;
   if (sidecarSeedText) text += sidecarSeedText;
+  const inFlight = await gapSummaryLines(input.changed_files, localIndex.workspacePath() ?? process.cwd());
+  if (inFlight.length) text += `\n${inFlight.join('\n')}`;
   if (cacheTag) text += `\n\n${cacheTag}`;
   return text;
 }

@@ -145,6 +145,10 @@ breaking what other agents depend on:
 
 The substrate develops itself on the same code, so share it the way a careful colleague would:
 
+- **Before editing a shared file, `path_activity { paths }`.** A gap the system is landing
+  (a held landing lease) means wait and look again; a queued gap means prefer letting the
+  system land it, or dispatch it; a held gap names the ruling and its review date. With
+  nothing in flight, make the change and record it.
 - **Leave the system's leases alone.** Maintenance windows and gap landings are the
   system's own coordination. Never take or release one; a lease that looks stuck or
   held by something other than the system is a finding: record its holder, name and
