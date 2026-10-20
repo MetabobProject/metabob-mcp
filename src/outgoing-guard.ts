@@ -97,28 +97,40 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
 ];
 
 /**
- * Patterns whose captured value is screened before it counts: a placeholder or a
- * low-entropy value (`Bearer xxxxxxxx`, `YOUR_TOKEN`, `admin`) is prose about a credential,
- * not a credential.
+ * Patterns whose captured value is screened before it counts. A placeholder (`YOUR_TOKEN`,
+ * `<key>`, `***`, `${VAR}`) is prose about a credential, never a credential. Tokens must
+ * also look random (`Bearer xxxxxxxx` is an example); a password does not, because weak
+ * passwords (`admin`, `hunter2hunter2`) are the commonest real leak.
  */
-const SCREENED_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
-  ['auth_header', /\b(?:authorization|x-api-key|proxy-authorization)\s*[:=]\s*(?:bearer|apikey|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi],
-  ['url_credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]+)@/gi],
-  ['config_assignment', /\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*\s*[:=]\s*['"]?([^\s'"]{8,})/gi],
-  ['cookie', /\b(?:set-)?cookie\s*:\s*[^\s=;]+=([^\s;]{12,})/gi],
+const SCREENED_PATTERNS: ReadonlyArray<readonly [kind: string, re: RegExp, screen: 'token' | 'password']> = [
+  ['auth_header', /\b(?:authorization|x-api-key|proxy-authorization)\s*[:=]\s*(?:bearer|apikey|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi, 'token'],
+  ['cookie', /\b(?:set-)?cookie\s*:\s*[^\s=;]+=([^\s;]{12,})/gi, 'token'],
+  ['url_credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]+)@/gi, 'password'],
+  ['config_assignment', /\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*\s*[:=]\s*['"]?([^\s'"]{4,})/gi, 'password'],
 ];
 
 const PLACEHOLDER = /YOUR|EXAMPLE|PLACEHOLDER|REDACTED|CHANGE_?ME|SAMPLE|DUMMY|FAKE|<[^>]*>|\*{3,}|\.\.\./i;
 /** A shell or template variable reference: `${NAME}`, `$NAME`. Case-sensitive, so `$w` in a random value is not one. */
 const VARIABLE_REFERENCE = /\$\{|\$[A-Z_][A-Z0-9_]*/;
 
-/** Whether a captured value is a real-looking secret rather than a placeholder. */
+/** Whether a captured value is a placeholder rather than a value. */
+function placeholder(v: string): boolean {
+  return PLACEHOLDER.test(v) || VARIABLE_REFERENCE.test(v) || /^(.)\1+$/.test(v)
+    || /^[A-Z][A-Z0-9_]*$/.test(v) // an ALL_CAPS name, e.g. a variable reference
+    || /^(?:pass(?:word)?|secret|token|key|value|xxx+|true|false|null|none|empty|yes|no|on|off)$/i.test(v);
+}
+
+/** Whether a captured value is a real-looking secret: not a placeholder, and random enough. */
 function secretLike(value: string): boolean {
   const v = value.replace(/^['"]|['"]$/g, '');
-  if (v.length < 8 || PLACEHOLDER.test(v) || VARIABLE_REFERENCE.test(v)) return false;
-  if (/^(.)\1+$/.test(v)) return false;
-  if (/^[A-Z][A-Z0-9_]*$/.test(v)) return false; // an ALL_CAPS name, e.g. a variable reference
+  if (v.length < 8 || placeholder(v)) return false;
   return entropy(v) >= MIN_SECRET_ENTROPY_BITS;
+}
+
+/** Whether a captured password is real: any non-placeholder value, however weak. */
+function passwordLike(value: string): boolean {
+  const v = value.replace(/^['"]|['"]$/g, '');
+  return v.length >= 4 && !placeholder(v);
 }
 
 const SECRET_ENV_NAME = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL/i;
@@ -211,9 +223,11 @@ export function knownSecrets(env: NodeJS.ProcessEnv = process.env, workspace = e
 export function findSecret(text: string, secrets: readonly string[]): string | null {
   for (const s of secrets) if (text.includes(s)) return 'known_secret';
   for (const [kind, re] of SECRET_PATTERNS) if (re.test(text)) return kind;
-  for (const [kind, re] of SCREENED_PATTERNS) {
+  for (const [kind, re, screen] of SCREENED_PATTERNS) {
     re.lastIndex = 0;
-    for (let m = re.exec(text); m; m = re.exec(text)) if (m[1] && secretLike(m[1])) return kind;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      if (m[1] && (screen === 'token' ? secretLike(m[1]) : passwordLike(m[1]))) return kind;
+    }
   }
   return null;
 }

@@ -44,6 +44,9 @@ describe('secrets', () => {
     ['url_credentials', 'https://deploy:Zq8vR2pL9xT4wN7k@example.com/repo.git'],
     ['config_assignment', 'DB_PASSWORD=hunter2Xq9!zR7vL'],
     ['cookie', 'Cookie: session=4f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c'],
+    // Weak real passwords are the commonest leak; no entropy floor for them.
+    ['config_assignment', 'DB_PASSWORD=hunter2hunter2hunter2'], // gitleaks:allow (synthetic fixture)
+    ['url_credentials', 'postgres://admin:admin@localhost:5432/app'], // gitleaks:allow (synthetic fixture)
   ])('%s is caught', (kind, text) => {
     expect(findSecret(text, [])).toBe(kind);
   });
