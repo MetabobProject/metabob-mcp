@@ -86,11 +86,22 @@ describe('W4 skill contract', () => {
 
   test('the instructions name the first-call set in one sentence, so one tool search loads it', () => {
     const instructions: string = server.initializeResult?.instructions ?? '';
-    const line = instructions.split('\n').find(l => l.startsWith('First calls:')) ?? '';
+    const line = instructions.split('\n').find(l => l.startsWith('First calls')) ?? '';
     for (const tool of ['get_analysis_context', 'get_problems', 'record_finding', 'mark_complete']) {
       expect(line).toContain(`\`${tool}\``);
       expect(toolNames.has(tool)).toBe(true);
     }
+  });
+
+  test('the instructions send the agent to the skill first, the first-call set only as the fallback', () => {
+    const instructions: string = server.initializeResult?.instructions ?? '';
+    const lines = instructions.split('\n');
+    const start = lines.findIndex(l => l.startsWith('Start of session:'));
+    const first = lines.findIndex(l => l.startsWith('First calls'));
+    expect(start).toBeGreaterThan(-1);
+    expect(start).toBeLessThan(first);
+    expect(lines[start]).toContain('load the `metabob` skill before your first metabob call');
+    expect(lines[first]).toContain('only when the skill is not available');
   });
 
   test('the skill frames participation by role and keeps the agent from grading itself', () => {
