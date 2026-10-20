@@ -99,22 +99,33 @@ describe('matching and rendering', () => {
 
   test('a held gap shows its ruling, review date and lift, never "queued"', () => {
     const out = renderGap(GAPS[3]!, 'edit site').join('\n');
-    expect(out).toContain('held by operator ruling: falsifier cannot run yet; review by 10-22 08:00Z; lift: an operator reviews the reverts');
+    expect(out).toContain('held by operator ruling: falsifier cannot run yet; review by 2026-10-22 08:00Z');
     expect(out).not.toContain('queued');
   });
 
   test('a landing lease shows its holder as a claim, and says not to race it', () => {
     const out = renderGap(GAPS[0]!, 'edit site').join('\n');
-    expect(out).toContain('landing lease: held by compose2 (the holder\'s own claim), attempt 5435-x, until 10-20 08:48Z: the system is landing this; don\'t race it');
+    expect(out).toMatch(/landing lease: held by compose2 \(the holder's own claim\), attempt 5435-x, until 2099-10-20 08:48Z \(in \d+ h\): the system is landing this; don't race it/);
   });
 
   test('a lapsed landing lease is not being landed: it is shown lapsed and counted as queued', async () => {
     const lapsed = { id: 'gap-lapsed', category: 'edit_intent_route', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'compose2', attempt: 'x', until: '2026-10-20T12:05:00Z' } } };
     const out = renderGap(lapsed, 'edit site').join('\n');
-    expect(out).toContain('landing lease lapsed at 10-20 12:05Z (held by compose2): not being landed now; queued for the system');
+    expect(out).toMatch(/landing lease lapsed at 2026-10-20 12:05Z \(\d+ (h|min) ago\) \(held by compose2\): not being landed now; queued for the system/);
     expect(out).not.toContain("don't race it");
     await installShapeStub({ substrateGap: () => ({ body: { gaps: [lapsed] } }) });
     expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain(`${FILE} — 1 open gap: 0 being landed by the system now, 0 held, 1 queued`);
+  });
+
+  test('a lease with no expiry is flagged as possibly stale, and one inside the skew allowance is still live', async () => {
+    const { leaseState, LEASE_SKEW_MS } = await import('../../src/tools/_gap-activity');
+    const noExpiry = { id: 'gap-ne', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'n1' } } };
+    expect(renderGap(noExpiry, 'edit site').join('\n')).toContain('landing lease held by n1, no expiry recorded (may be stale): not counted as being landed');
+    const now = Date.parse('2026-10-20T12:00:00Z');
+    expect(leaseState({ holder: 'h', until: new Date(now - LEASE_SKEW_MS / 2).toISOString() }, now)).toBe('live');
+    expect(leaseState({ holder: 'h', until: new Date(now - LEASE_SKEW_MS - 1).toISOString() }, now)).toBe('lapsed');
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: [noExpiry] } }) });
+    expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain('0 being landed by the system now');
   });
 
   test('an unleased, unheld gap is queued for the system', () => {

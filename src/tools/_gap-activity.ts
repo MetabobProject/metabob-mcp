@@ -223,16 +223,35 @@ export function storedLandingLease(g: GapRow): LandingLease | null {
     : null;
 }
 
-/** Whether a stored lease has passed its `until`: the store keeps lapsed leases until the next write. */
-export function leaseLapsed(l: LandingLease, now = Date.now()): boolean {
+/** Clock skew allowed in favour of a live lease: a slightly fast local clock never frees a landing early. */
+export const LEASE_SKEW_MS = 2 * 60_000;
+
+/** A stored lease's state: live, lapsed (its `until` passed, with the skew allowance), or with no expiry recorded. */
+export function leaseState(l: LandingLease, now = Date.now()): 'live' | 'lapsed' | 'no_expiry' {
   const t = l.until ? Date.parse(l.until) : NaN;
-  return Number.isFinite(t) && t <= now;
+  if (!Number.isFinite(t)) return 'no_expiry';
+  return t + LEASE_SKEW_MS <= now ? 'lapsed' : 'live';
 }
 
-/** A gap's LIVE landing lease, or null when it has none or it has lapsed. */
+/** Whether a stored lease has passed its `until`: the store keeps lapsed leases until the next write. */
+export function leaseLapsed(l: LandingLease, now = Date.now()): boolean {
+  return leaseState(l, now) === 'lapsed';
+}
+
+/** A gap's LIVE landing lease, or null when it has none, it has lapsed, or it records no expiry. */
 export function landingLeaseOf(g: GapRow, now = Date.now()): LandingLease | null {
   const l = storedLandingLease(g);
-  return l && !leaseLapsed(l, now) ? l : null;
+  return l && leaseState(l, now) === 'live' ? l : null;
+}
+
+/** An instant as `2026-10-20 12:05Z (11 h ago)`: the date, and how long ago or ahead. */
+function when(iso: string | undefined, now = Date.now()): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return iso ?? '?';
+  const d = new Date(t).toISOString();
+  const mins = Math.round((t - now) / 60_000);
+  const span = Math.abs(mins) >= 120 ? `${Math.round(Math.abs(mins) / 60)} h` : `${Math.abs(mins)} min`;
+  return `${d.slice(0, 10)} ${d.slice(11, 16)}Z (${mins < 0 ? `${span} ago` : `in ${span}`})`;
 }
 
 /** The gaps naming `storePath`, strongest match first, then most recently updated. */
@@ -251,22 +270,24 @@ export function gapsForPath(rows: GapRow[], storePath: string): Array<{ gap: Gap
   return out.sort((a, b) => order[a.match] - order[b.match] || (b.gap.updated_at ?? '').localeCompare(a.gap.updated_at ?? ''));
 }
 
-const hhmm = (iso?: string) => (iso && /T(\d\d:\d\d)/.exec(iso)?.[1] ? `${iso.slice(5, 10)} ${/T(\d\d:\d\d)/.exec(iso)![1]}Z` : iso ?? '?');
 
 /** One gap as path_activity prints it. */
 export function renderGap(g: GapRow, match: MatchKind): string[] {
   const head = `  ${g.id}  ${g.category ?? '?'}${g.route ? `  route ${g.route}` : ''}  ${match}`;
   const hold = holdOf(g);
   const lease = landingLeaseOf(g);
-  const lapsed = lease ? null : storedLandingLease(g);
+  const stale = lease ? null : storedLandingLease(g);
   if (hold) {
-    return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${hhmm(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
+    return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${when(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
   }
   if (lease) {
-    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${hhmm(lease.until)}: the system is landing this; don't race it`];
+    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing this; don't race it`];
   }
-  if (lapsed) {
-    return [`${head}`, `    landing lease lapsed at ${hhmm(lapsed.until)} (held by ${lapsed.holder}): not being landed now; queued for the system`];
+  if (stale && leaseState(stale) === 'no_expiry') {
+    return [`${head}`, `    landing lease held by ${stale.holder}, no expiry recorded (may be stale): not counted as being landed; check before editing`];
+  }
+  if (stale) {
+    return [`${head}`, `    landing lease lapsed at ${when(stale.until)} (held by ${stale.holder}): not being landed now; queued for the system`];
   }
   return [`${head}   no landing lease: queued for the system`];
 }
