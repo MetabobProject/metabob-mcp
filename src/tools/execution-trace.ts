@@ -26,7 +26,7 @@ import { listExecutionTraces, readExecutionTrace } from './_traces.js';
 export const ExecutionTraceTool = {
   name: 'execution_trace',
   description:
-    "Read a durable execution trace by executionId from activity-api (replaces raw `/v2/activities/execution-traces/:id` curls or DB queries), or — called with no execution_id — list the most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
+    "Read a durable execution trace by executionId through the activityExecutionTrace shape (activity-api's resolver, reached through discovery), or — called with no execution_id — list the most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -35,7 +35,9 @@ export const ExecutionTraceTool = {
         description: 'The executionId of the durable trace to read (e.g. exec_002cxza0). Omit it to list recent traces.',
       },
       limit: {
-        type: 'number',
+        type: 'integer',
+        minimum: 1,
+        maximum: 50,
         description: 'With no execution_id: how many recent traces to list (1–50, default 10).',
       },
     },
