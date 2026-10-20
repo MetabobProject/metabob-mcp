@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { applyConfigDefaults, applyConfiguration, configuredSubstrateUrls, deriveLocalDiscoveryEndpoint, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, lookupConfig, unattachedMessage, withoutEndpoints } from '../../src/config';
+import { applyConfigDefaults, applyConfiguration, configuredSubstrateUrls, deriveLocalDiscoveryEndpoint, getDefaultConfigPath, loadMetabobCLIConfig, loadMetabobEnvConfig, lookupConfig, resolveConfigPath, unattachedMessage, withoutEndpoints } from '../../src/config';
 
 const tempPaths: string[] = [];
 
@@ -345,15 +345,12 @@ test('METABOB_CONFIG_PATH overrides the project-local config', () => {
   const override = writeConfigFile(JSON.stringify({ metabob: { apiKey: 'mb_override_key' } }));
 
   const prevCwd = process.cwd();
-  const prevConfigPath = process.env.METABOB_CONFIG_PATH;
-  process.env.METABOB_CONFIG_PATH = override;
   try {
     process.chdir(proj);
-    expect(loadMetabobCLIConfig()?.apiKey).toBe('mb_override_key');
+    // The environment is passed in, never set: test files share one process with workflow tests' child servers.
+    expect(loadMetabobCLIConfig(resolveConfigPath({ ...process.env, METABOB_CONFIG_PATH: override }))?.apiKey).toBe('mb_override_key');
   } finally {
     process.chdir(prevCwd);
-    if (prevConfigPath === undefined) delete process.env.METABOB_CONFIG_PATH;
-    else process.env.METABOB_CONFIG_PATH = prevConfigPath;
   }
 });
 
