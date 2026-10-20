@@ -86,7 +86,7 @@ export interface DispatchFields {
   variables?: Record<string, unknown>;
   parent_execution_id?: string;
   composition_chain?: string[];
-  /** goal-host's learning mode: `observe` runs the walk without recording paths, posteriors or traces. */
+  /** goal-host's learning mode: `observe` runs the walk traced for audit, changing no posterior, goal path or credit. */
   learning_mode?: 'observe' | 'learn';
   tags?: string[];
   operator: string;

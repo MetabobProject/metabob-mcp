@@ -56,7 +56,7 @@ export const RunGoalAsyncTool = {
         type: 'string',
         enum: ['observe', 'learn'],
         description:
-          "goal-host's learning mode. `observe` runs the walk without recording goal paths, posting posteriors or minting traces — use it for probes and checks that should not teach the substrate. `learn` (goal-host's default) is a real learning run. Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
+          "goal-host's learning mode. `observe` runs the walk traced for audit (the trace is tagged `learning_mode:observe`), but it changes no posterior, goal path or credit — use it for probes and checks that should not teach the substrate. `learn` (goal-host's default) is a real learning run. Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
       },
       tags: {
         type: 'array',
