@@ -188,10 +188,10 @@ describe('resolve_impulse', () => {
 
   test('a write cut at its producer timeout is named and not retried', async () => {
     const stub = await installShapeStub({
-      feature_compose: () => ({ status: 502, body: { error: 'forward_failed', shape: 'feature_compose', detail: 'The operation timed out.' } }),
+      memoryNote_write: () => ({ status: 502, body: { error: 'forward_failed', shape: 'memoryNote_write', detail: 'The operation timed out.' } }),
     });
-    expect(await resolveImpulse({ shape: 'feature_compose' }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(feature_compose, \d+ms\)/);
-    expect(stub.calls('feature_compose')).toHaveLength(1);
+    expect(await resolveImpulse({ shape: 'memoryNote_write', pointer: { note: 'n' } }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(memoryNote_write, \d+ms\)/);
+    expect(stub.calls('memoryNote_write')).toHaveLength(1);
   });
   // An agent reads the system's leases; it never takes or releases them. SPEC §resolve_impulse
   test('refuses the substrate\'s own lease writes before any request, by shape or by pointer.type', async () => {
@@ -232,31 +232,42 @@ describe('resolve_impulse', () => {
     expect(graded).toContain('an agent never writes a trace');
   });
 
-  test('a shape named like an Object.prototype member is passed through, not refused', async () => {
+  test('a shape named like an Object.prototype member gets the ordinary refusal, not a listed reason', async () => {
     const stub = await installShapeStub({ constructor: () => ({ body: { ok: true } }) });
-    expect(await resolveImpulse({ shape: 'constructor' }, apiClient)).toStartWith('resolve_impulse constructor → discovery /resolve');
-    expect(stub.calls('constructor')).toHaveLength(1);
+    expect(await resolveImpulse({ shape: 'constructor' }, apiClient)).toStartWith('resolve_impulse: refused: constructor is not one of the reads this escape hatch allows');
+    expect(stub.calls('constructor')).toHaveLength(0);
   });
 
-  test('every write in the live vocabulary is classified: refused with a reason, or allowed', async () => {
-    const { COORDINATION_WRITES, WRITES_THROUGH_ESCAPE_HATCH } = await import('../../src/tools/resolve-impulse');
-    const { writes } = (await import('../fixtures/registry-writes.json')).default as { writes: string[] };
-    const unclassified = writes.filter((w) => !Object.hasOwn(COORDINATION_WRITES, w) && !Object.hasOwn(WRITES_THROUGH_ESCAPE_HATCH, w));
-    // A new write in a refreshed snapshot fails here until someone decides what it is.
-    expect(unclassified).toEqual([]);
-    expect(Object.keys(WRITES_THROUGH_ESCAPE_HATCH).every((w) => writes.includes(w))).toBe(true);
+  test('every shape of a live vocabulary is decided, and the code\'s allowlist matches the decisions', async () => {
+    const { READS_THROUGH_ESCAPE_HATCH, WRITES_THROUGH_ESCAPE_HATCH, escapeHatchRefusal } = await import('../../src/tools/resolve-impulse');
+    const { allowed, refused } = (await import('../fixtures/registry-vocabulary.json')).default as { allowed: string[]; refused: string[] };
+    const code = [...READS_THROUGH_ESCAPE_HATCH, ...Object.keys(WRITES_THROUGH_ESCAPE_HATCH)].sort();
+    expect(code).toEqual([...allowed].sort());
+    expect(allowed.filter((s) => refused.includes(s))).toEqual([]);
+    for (const s of allowed) expect(escapeHatchRefusal(s)).toBeNull();
+    for (const s of refused) expect(escapeHatchRefusal(s)).not.toBeNull();
   });
+
+  // qa probe: state-changing shapes whose names do not end in _write.
+  test.each(['shell', 'bash', 'bounded_shell', 'fs_edit', 'git_push', 'gh_pr_merge', 'systemd_restart', 'vessel_mitosis_cutover',
+    'activityExecutionTrace_delete', 'credit_vessel_shapes', 'posteriorCompensation', 'feature_compose', 'dispatch_goal',
+    'goal_execution', 'code_replace_lines', 'surrealdb_import', 'llm_completion', 'http_fetch', 'variant_promote', 'goalDispatchAsync'])(
+    '%s is refused through the escape hatch', async (shape) => {
+      const stub = await installShapeStub({ [shape]: () => ({ body: { ok: true } }) });
+      expect(await resolveImpulse({ shape, pointer: {} }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
+      expect(stub.calls(shape)).toHaveLength(0);
+    });
 
   test('an unlisted write is refused by default; a listed memory write and any read pass', async () => {
     const stub = await installShapeStub({
       brandNew_write: () => ({ body: { ok: true } }),
       memoryNote_write: () => ({ status: 201, body: { ok: true } }),
-      feature_compose: () => ({ body: { ok: true } }),
+      brandNewRead: () => ({ body: { ok: true } }),
     });
     expect(await resolveImpulse({ shape: 'brandNew_write' }, apiClient)).toStartWith('resolve_impulse: refused: brandNew_write is a write this cockpit does not make through the escape hatch');
     expect(stub.calls('brandNew_write')).toHaveLength(0);
     expect(await resolveImpulse({ shape: 'memoryNote_write', pointer: { note: 'n' } }, apiClient)).toStartWith('resolve_impulse memoryNote_write → discovery /resolve [201]');
-    expect(await resolveImpulse({ shape: 'feature_compose' }, apiClient)).toStartWith('resolve_impulse feature_compose → discovery /resolve [200]');
+    expect(await resolveImpulse({ shape: 'brandNewRead' }, apiClient)).toStartWith('resolve_impulse: refused: brandNewRead is not one of the reads this escape hatch allows');
   });
 
   test('the lease reads pass through', async () => {

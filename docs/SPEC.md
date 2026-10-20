@@ -413,9 +413,11 @@ cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's su
   (≥ 3 bits per character), and a variable named for a location or an identifier (`…_PATH`, `_FILE`,
   `_DIR`, `_ID`, `_URL`, `_HOST`, `_PORT`, `_NAME`, `_USER`, `_REGION`) never does. Patterns catch
   private-key blocks, cloud and service API keys, GitHub, GitLab, npm and Slack tokens, and JWTs; AWS's
-  documented example keys are exempt. Authorization headers, URLs with credentials, pasted config
-  assignments (`DB_PASSWORD=…`) and cookies count only when the value is not a placeholder (`YOUR_…`,
-  `EXAMPLE`, `<…>`, `***`, a repeated character, an ALL_CAPS name, `${VAR}`) and is random enough. The
+  documented example keys are exempt. Authorization headers, cookies, URLs with credentials and
+  pasted config assignments (`DB_PASSWORD=…`) count unless the value is a placeholder (`YOUR_…`,
+  `EXAMPLE`, `<…>`, `***`, a repeated character, an ALL_CAPS name, `${VAR}`, a literal such as `true`
+  or `password`); a header or cookie token must also be random enough, while a password counts however
+  weak it is, since weak passwords are the commonest real leak. The
   refusal is `<tool>: refused: outgoing_secret(<kind>, <field>)`, naming the field and the kind, never
   the value, and suggests describing it masked (`postgres://admin:***@host`).
 - **A home path** (this user's home directory, or `/home/<user>`, `/Users/<user>`,
@@ -772,16 +774,16 @@ With an `execution_id`, resolves `activityExecutionTrace { executionId, format: 
 
 Handler: `src/tools/resolve-impulse.ts@handle`
 
-The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `feature_compose`, `*_write`, …). Prefer a dedicated tool when one fits.
+The advanced escape hatch: resolve one of the substrate's plain reads (`memoryNote`, `traceAggregateReport`, `llmSpendSummary`, …) or one of two memory writes. Prefer a dedicated tool when one fits.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `shape` | string | **required** | `pointer.type` to resolve |
 | `pointer` | object | — | Extra pointer fields, merged after `type` (so `pointer.type` overrides `shape`) |
 
-A thin passthrough of the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. The shape may be a write, so it is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
+For an allowed shape, the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. It is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
-The one exception to the passthrough is writes. Reads pass. A `*_write` shape, named by `shape` or by `pointer.type`, is refused before any request unless it only adds to the system's memory and has no dedicated tool: `memoryNote_write` and `concept_supersede_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). Every other write is refused; the known ones carry their reason and the alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
+**It is an allowlist.** A shape, named by `shape` or by `pointer.type`, resolves only when it is one of the plain reads in `src/tools/resolve-impulse.ts@escape-hatch-reads` (records, reports, statistics, summaries and policies) or one of the memory writes with no dedicated tool, `memoryNote_write` and `concept_supersede_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). A shape's name does not tell a read from an action (`bash`, `code_replace_lines`, `surrealdb_import` and `llm_completion` read like reads), so everything else is refused before any request, unlisted reads included: a shell, file edits, git and GitHub, restarts, cutovers, composes, dispatch, credit, trace deletion. The refusal says to dispatch the work as a goal, so goal-host routes it and its judge grades it, or to use a dedicated tool. The known writes carry their own reason and alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
 
 | Writes | Why an agent does not make them | Instead |
 |---|---|---|
@@ -796,7 +798,7 @@ The one exception to the passthrough is writes. Reads pass. A `*_write` shape, n
 | `concept_create_write`, `conceptLink_write`, `conceptUsage_write`, `solicitationResponse_write` | each has a dedicated tool that checks its input and records provenance | `concept_create`, `concept_link`, `concept_record_usage`, `submit_resolution` |
 | `concept_write`, `concept_delete_write`, `concept_retire_write` | overwriting, deleting or retiring the system's memory | `concept_supersede_write`, which keeps the history |
 
-An unlisted write is refused with the dedicated tools to use instead. `tests/fixtures/registry-writes.json` holds the write shapes of a live vocabulary, and a unit test requires every one to be classified, so a new write fails the build until someone decides what it is. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
+`tests/fixtures/registry-vocabulary.json` decides every shape of a live vocabulary, allowed or refused, and a unit test holds the code's allowlist to it, so a refreshed snapshot with a new shape fails the build until someone decides it; at run time an undecided shape is refused. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
 
 ---
 

@@ -150,7 +150,8 @@ The substrate develops itself on the same code, so share it the way a careful co
   held by something other than the system is a finding: record its holder, name and
   expiry.
 - **Never write the system's record by hand.** Traces, gaps, walk input and policy are
-  the system's; `resolve_impulse` reads anything but refuses those writes. Dispatch a goal, record a finding,
+  the system's; `resolve_impulse` resolves only the substrate's plain reads and two memory
+  writes, and refuses everything that runs or changes something. Dispatch a goal, record a finding,
   or give your verdict with `provide_feedback`.
 - **Check before you dispatch.** An open gap or a recent dispatch may already cover the
   goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.
@@ -168,8 +169,9 @@ The substrate develops itself on the same code, so share it the way a careful co
   says so, and `submit_resolution` answers only a task already in the local queue.
 - **It does not feed running walks or author traces.** Your work reaches the
   substrate's grading through the goals you dispatch, the ledger you close and the
-  concepts you credit. `resolve_impulse` is an advanced escape hatch for a shape no
-  dedicated tool covers; it is not a way to add content to a walk or set an outcome.
+  concepts you credit. `resolve_impulse` is an advanced escape hatch for reading what no
+  dedicated tool shows (reports, statistics, policies); it is not a way to act on the
+  substrate, add content to a walk or set an outcome.
 - **On a repository the substrate does not mount, you are the actuator.** You make
   the edits; the ledger and shared memory are still your coordination and memory,
   and they synchronise org-wide.

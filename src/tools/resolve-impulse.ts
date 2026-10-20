@@ -14,12 +14,11 @@
  * picks the shape's producer and forwards it (CONFORMANCE §c11-attachment-model).
  * The shape may be a write, so it is sent once and never retried.
  *
- * The one exception to the passthrough: writes. A `*_write` shape is refused before any
- * request unless WRITES_THROUGH_ESCAPE_HATCH lists it (memory with no dedicated tool);
- * COORDINATION_WRITES gives the reason and the alternative for the known ones: the
- * system's leases, its graded record and learned state, gate evidence, the human
- * surface, files, policy, and writes that have a dedicated tool. Reads pass. This keeps
- * the cockpit from being the convenient route to those writes; it is not a security
+ * It is an allowlist: a shape is resolved only when READS_THROUGH_ESCAPE_HATCH (plain
+ * reads) or WRITES_THROUGH_ESCAPE_HATCH (memory with no dedicated tool) lists it; anything
+ * else is refused before any request, with COORDINATION_WRITES giving the reason and the
+ * alternative for the known writes. This keeps the cockpit from being a route to a
+ * substrate shell, git, restarts, credit or the graded record; it is not a security
  * boundary, which belongs to each producer. SPEC §resolve_impulse
  */
 
@@ -112,7 +111,7 @@ export const COORDINATION_WRITES: Readonly<Record<string, string>> = {
 
 /**
  * The writes an agent may make through the escape hatch, with why: the ones that add to
- * the system's memory and have no dedicated tool. Every other `*_write` shape is refused.
+ * the system's memory and have no dedicated tool.
  */
 // @anchor escape-hatch-writes
 export const WRITES_THROUGH_ESCAPE_HATCH: Readonly<Record<string, string>> = {
@@ -120,11 +119,46 @@ export const WRITES_THROUGH_ESCAPE_HATCH: Readonly<Record<string, string>> = {
   concept_supersede_write: 'records a correction that keeps the history, so a wrong claim stops propagating',
 };
 
+/**
+ * The shapes an agent may read through the escape hatch: records, reports, statistics,
+ * summaries and policies, each a plain read. Anything else is refused, whatever its name
+ * says, because a name does not tell a read from an action (`bash`, `code_replace_lines`,
+ * `surrealdb_import` and `llm_completion` all read like reads). tests/fixtures/
+ * registry-vocabulary.json decides every shape of a live vocabulary, and the test holds
+ * this list to it.
+ */
+// @anchor escape-hatch-reads
+export const READS_THROUGH_ESCAPE_HATCH: ReadonlySet<string> = new Set([
+  'activeDispatches', 'activity', 'activityExecutionTrace', 'activityMetrics', 'activityTemplate',
+  'activityTemplatesByMetrics', 'activity_metrics', 'activity_search', 'activity_template',
+  'bodyHonestyPolicy', 'compositionGraph', 'compositionSuccess', 'composition_coverage_report',
+  'concept', 'conceptGraph', 'conceptSearch', 'conceptSequence', 'conceptUsageStats',
+  'concept_search_by_source', 'contextThompsonScores', 'docFixPolicy', 'edge_liveness_report',
+  'executionTraceList', 'executionTraces', 'extractionPolicy', 'failureCountReport',
+  'failure_count_report', 'failure_mode_summary', 'fossilRankReport', 'fossil_rank_report',
+  'goalExecutionPath', 'goalWalkState', 'goal_summary', 'goal_verification_label',
+  'groupedExecutionStats', 'impulseRelevance', 'learningMode', 'learningPolicy',
+  'learning_transfer_report', 'lessonExecutionPolicy', 'llmModelPolicy', 'llmQuotaState',
+  'llmSpendSummary', 'llmSpendSummaryNode', 'loadAttribution', 'load_attribution_report',
+  'maintenanceLease', 'memoryNote', 'operational_state', 'pathwayReusePolicy', 'pushPolicy',
+  'reachable_unlearned_report', 'relatedConcepts', 'renderPolicy', 'repairPolicy',
+  'resolver_pattern_report', 'resolver_tier_cost_summary', 'selectionEntropy',
+  'shape_producer_inventory', 'substrateGap', 'system_load_report', 'templateAuditReport',
+  'template_audit_report', 'template_invocation_history_report', 'template_success_ranking_24h',
+  'thompson_posterior', 'toolRiskProfile', 'topologyCoverage', 'traceAggregateReport',
+  'traceCompletenessReport', 'trace_failure_pattern_report', 'trace_search',
+  'unknown_shape_report', 'variantMetricsSummary', 'vessel_completeness_report',
+  'vessel_demand_report', 'vessel_health_report',
+]);
+
 /** Why `shape` is refused through the escape hatch, or null when it may be resolved. */
 export function escapeHatchRefusal(shape: string): string | null {
+  if (READS_THROUGH_ESCAPE_HATCH.has(shape) || Object.hasOwn(WRITES_THROUGH_ESCAPE_HATCH, shape)) return null;
   if (Object.hasOwn(COORDINATION_WRITES, shape)) return COORDINATION_WRITES[shape]!;
-  if (!shape.endsWith('_write') || Object.hasOwn(WRITES_THROUGH_ESCAPE_HATCH, shape)) return null;
-  return `${shape} is a write this cockpit does not make through the escape hatch: the substrate writes its own record, learned state and policy. Use a dedicated tool if one fits (record_finding, concept_create, concept_link, concept_record_usage, provide_feedback, submit_resolution), or dispatch a goal`;
+  if (shape.endsWith('_write')) {
+    return `${shape} is a write this cockpit does not make through the escape hatch: the substrate writes its own record, learned state and policy. Use a dedicated tool if one fits (record_finding, concept_create, concept_link, concept_record_usage, provide_feedback, submit_resolution), or dispatch a goal`;
+  }
+  return `${shape} is not one of the reads this escape hatch allows: it runs or changes something on the substrate (a shell, git, a restart, a cutover, a compose, a dispatch, credit), or it has not been reviewed as a plain read. Dispatch the work as a goal, so goal-host routes it and its judge grades it, or use a dedicated tool`;
 }
 
 /** The request cap: RESOLVE_IMPULSE_TIMEOUT_MS (default 30 s), never above 60 s. */
@@ -136,13 +170,13 @@ function timeoutMs(): number {
 export const ResolveImpulseTool = {
   name: 'resolve_impulse',
   description:
-    "ADVANCED escape hatch: a general impulse-resolve passthrough to resolve any shape via MCP instead of raw `curl /resolve` POSTs (e.g. memoryNote, feature_compose, goal_verification_label, *_write shapes). The pointer goes to discovery's /resolve, which forwards it to the shape's producer. Prefer the dedicated tools when they fit — run_goal / run_goal_async (goals), goal_reasoning (walk inspection), provide_feedback (oracle verdicts). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. Reads pass; writes (*_write shapes) are refused unless they only add to the system's memory (memoryNote_write, concept_supersede_write): the system's leases, traces, learned state, gate evidence, files, policy and the human surface are not an agent's to write, and writes with a dedicated tool go through that tool. The reply says what to do instead.",
+    "ADVANCED escape hatch: resolve one of the substrate's plain reads (records, reports, statistics, summaries, policies) via MCP instead of raw `curl /resolve` POSTs, e.g. memoryNote, traceAggregateReport, llmSpendSummary. The pointer goes to discovery's /resolve, which forwards it to the shape's producer. Prefer the dedicated tools when they fit — run_goal / run_goal_async (goals), goal_reasoning (walk inspection), provide_feedback (oracle verdicts). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. Only allowlisted shapes resolve: plain reads, and the two memory writes memoryNote_write and concept_supersede_write. Anything that runs or changes something (a shell, git, a restart, a cutover, a compose, a dispatch, credit, traces, policy) is refused with what to do instead: dispatch a goal, or use the dedicated tool.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       shape: {
         type: 'string',
-        description: 'The impulse shape / pointer.type to resolve (e.g. memoryNote, feature_compose, impulseRelevance_write).',
+        description: 'The shape (pointer.type) to resolve: one of the allowlisted reads (e.g. memoryNote, traceAggregateReport) or memoryNote_write / concept_supersede_write.',
       },
       pointer: {
         type: 'object',
