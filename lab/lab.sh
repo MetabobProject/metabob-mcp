@@ -74,6 +74,18 @@ wait_level() { # $1 node $2 level: waits up to LAB_WAIT_S
     log "lab-$1 did not reach '$2' within ${WAIT_S}s; see: $ENG exec $(c "$1") substrate-status"; return 1
   fi
 }
+wait_workspace() { # $1 node: waits up to LAB_WAIT_S for the node's WORKSPACE_ROOT to exist
+  # `served` does not wait for seeding to create the workspace that local-tools spawns its
+  # shell in; a goal dispatched before it exists fails with ENOENT (posix_spawn 'bash').
+  local t0; t0=$(date +%s)
+  while ! "$ENG" exec "$(c "$1")" sh -c 'd=$(sed -n "s/^WORKSPACE_ROOT=//p" /etc/substrate/env | tr -d "\"'"'"'"); [ -n "$d" ] && [ -d "$d" ]' >/dev/null 2>&1; do
+    if [ $(( $(date +%s) - t0 )) -ge "$WAIT_S" ]; then
+      log "lab-$1's WORKSPACE_ROOT did not appear within ${WAIT_S}s"; return 1
+    fi
+    sleep 2
+  done
+  info "lab-$1 workspace ready ($(elapsed "$t0"))"
+}
 issue_key() { # $1 name $2 scopes $3 file: issued by the hub, written 0600, never printed
   ( umask 077; "$ENG" exec "$(c hub)" substrate-key issue "$1" "$2" > "$KEYS/$3.tmp" 2>>"$LOG" ) \
     && [ -s "$KEYS/$3.tmp" ] && mv -f "$KEYS/$3.tmp" "$KEYS/$3" && info "issued $1 [$2] -> $KEYS/$3" \
@@ -136,6 +148,7 @@ cmd_up() {
   [ -s "$KEYS/lab-spoke.key" ] || issue_key lab-spoke read,write lab-spoke.key || fail "could not issue the spoke's join key"
   METABOB_API_KEY="$(cat "$KEYS/lab-spoke.key")" SUBSTRATE_IMAGE="$IMAGE" compose_node spoke up -d || fail "could not start lab-spoke"
   wait_level spoke served || fail "lab-spoke not served"
+  wait_workspace spoke || fail "lab-spoke workspace not ready"
   # Not 'usable': that verdict needs a real LLM completion, which a no-quota provider key never gives. 'served'
   # on both nodes is readiness; `lab.sh check` (an LLM-free goal through the MCP) is the functional proof.
   wait_level hub served || fail "lab-hub not served"

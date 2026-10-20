@@ -16,7 +16,7 @@ otherwise.
 
 | command | what it does |
 |---|---|
-| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes, and issues the test keys. Pulls the image only when it is not local (`LAB_PULL=1` pulls anyway). When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
+| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes and for the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) to exist, and issues the test keys. Pulls the image only when it is not local (`LAB_PULL=1` pulls anyway). When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
 | `lab/lab.sh check` | Proves the lab serves the MCP: writes a temporary MCP config (mode 0600, in a temporary directory removed on exit) from `keys/mcp-rw.key`, the spoke's discovery and the hub's identity; runs `metabob-mcp attach --check` with the repository's `dist/cli.js` (built first when it is missing or older than `src/`); then, through the MCP over stdio (`lab/check-goal.ts`), dispatches the LLM-free goal *How many vessels are currently registered in the discovery registry?* with `run_goal_async` and polls `goal_status` until `reached: yes`. Prints one verdict line; exits nonzero on any failure |
 | `lab/lab.sh cycle` | `destroy`, `up`, `check`: the from-scratch proof |
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |

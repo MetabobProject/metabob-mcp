@@ -179,3 +179,16 @@ describe('light lab', () => {
     expect(read('lab.sh')).not.toMatch(/wait_level\s+\w+\s+usable/);
   });
 });
+
+describe('lab.sh boot readiness', () => {
+  // `served` does not wait for the workspace local-tools spawns its shell in; a check goal
+  // dispatched before it exists fails with ENOENT (posix_spawn 'bash').
+  test('up waits for the spoke workspace after served, before the keys and check', () => {
+    const script = read('lab.sh');
+    const served = script.indexOf('wait_level spoke served');
+    const workspace = script.indexOf('wait_workspace spoke');
+    expect(served).toBeGreaterThan(-1);
+    expect(workspace).toBeGreaterThan(served);
+    expect(script).toMatch(/^wait_workspace\(\) \{/m);
+  });
+});
