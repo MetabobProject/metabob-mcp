@@ -135,8 +135,8 @@
         "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "1921edc",
-        "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
+        "at": "46049af",
+        "why": "the client claim adds a declared field to writes and a session tag to dispatches; no conformance requirement or its status changes (SPEC § Client claim describes it)"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
@@ -617,6 +617,7 @@
           "c11-attachment-model"
         ],
         "SPEC": [
+          "client-claim",
           "resolve_impulse"
         ]
       },
