@@ -9,7 +9,12 @@
  * that serves only the flat form reads the header and answers `{ valid, org_id, user_id,
  * account_id?, key_id, jwt, jwt_expires_at }`, without scopes. Either answers 401 for a key
  * outside its namespace. Each call writes a key-session row on identity, so it runs once
- * per attach and on the key-issuance heartbeat, never per tool call. The identity endpoint is the attachment's
+ * per attach and on the key-issuance heartbeat, never per tool call.
+ *
+ * The nested body carries the key, and an inspecting proxy's data-loss scanning logs
+ * request bodies where it masks the Authorization header. So the body goes only on a
+ * direct hop; through a proxy the check sends the header alone, and scopes are then not
+ * reported. The identity endpoint is the attachment's
  * (`src/attachment.ts` — explicit, or learned from /bootstrap); this module never
  * reads one from the environment. CONFORMANCE §c3-identity
  *
@@ -21,7 +26,7 @@
  *   IDENTITY_API_KEY  — an extra key the loopback resolver accepts from local callers
  */
 
-import { classifyNetError, netFetch, type NetInit } from './net.js';
+import { classifyNetError, netFetch, selectProxy, type NetInit } from './net.js';
 
 const RESOLVE_TIMEOUT_MS = 5_000;
 const BEARER_REFRESH_MARGIN_MS = 60_000;
@@ -61,7 +66,9 @@ export async function resolveTenant(
     res = await fetchImpl(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${apiKey}` },
-      body: JSON.stringify({ impulse: { type: 'authentication', pointer: { type: 'apiKey', apiKey } } }),
+      body: selectProxy(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`).proxy
+        ? '{}'
+        : JSON.stringify({ impulse: { type: 'authentication', pointer: { type: 'apiKey', apiKey } } }),
       signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS + 1_000),
       net: { timeoutMs: RESOLVE_TIMEOUT_MS, idempotent: true },
     } as NetInit);

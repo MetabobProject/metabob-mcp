@@ -578,6 +578,11 @@
           "get_problems"
         ]
       },
+      "tests/unit/org-check-forms.test.ts": {
+        "CONFORMANCE": [
+          "c3-identity"
+        ]
+      },
       "tests/unit/outgoing-guard.test.ts": {
         "SPEC": [
           "outgoing-text-guard"

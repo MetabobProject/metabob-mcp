@@ -199,9 +199,13 @@ once:
    the flat `Authorization: ApiKey <key>` header (`src/auth-service.ts@org-check`). An identity that
    serves the nested form answers the tenant with the key's validated scopes (`orgId`, `userId`,
    `keyId`, `accountId` when the user has a membership, `scopes`); one that serves only the flat form
-   reads the header and answers `org_id`, `key_id` without scopes, which are then "not reported". Each
-   check writes a key-session row on identity, so it runs once per attach and on the heartbeat, never
-   per tool call. Whichever
+   reads the header and answers `org_id`, `key_id` without scopes, which are then "not reported". The
+   nested body goes only on a direct hop: an inspecting proxy's data-loss scanning logs request bodies
+   where it masks the `Authorization` header, so through a proxy the check sends the header alone and
+   scopes are not reported. Each check writes a key-session row on identity, so it runs once per attach
+   and on the heartbeat, never per tool call. The scopes are what identity reports for the key;
+   producers enforce only named scopes (`verdict:human`, `operator:direct`, `admin`, …), not `read` or
+   `write`, so nothing in the cockpit relies on them as a permission. Whichever
    address step 2 chose, this check against it is what makes it trusted; for a rehosted address it is
    also the dial. A 401/403 is `key_rejected` — the key belongs to another namespace.
 
