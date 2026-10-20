@@ -238,6 +238,27 @@ describe('resolve_impulse', () => {
     expect(stub.calls('constructor')).toHaveLength(1);
   });
 
+  test('every write in the live vocabulary is classified: refused with a reason, or allowed', async () => {
+    const { COORDINATION_WRITES, WRITES_THROUGH_ESCAPE_HATCH } = await import('../../src/tools/resolve-impulse');
+    const { writes } = (await import('../fixtures/registry-writes.json')).default as { writes: string[] };
+    const unclassified = writes.filter((w) => !Object.hasOwn(COORDINATION_WRITES, w) && !Object.hasOwn(WRITES_THROUGH_ESCAPE_HATCH, w));
+    // A new write in a refreshed snapshot fails here until someone decides what it is.
+    expect(unclassified).toEqual([]);
+    expect(Object.keys(WRITES_THROUGH_ESCAPE_HATCH).every((w) => writes.includes(w))).toBe(true);
+  });
+
+  test('an unlisted write is refused by default; a listed memory write and any read pass', async () => {
+    const stub = await installShapeStub({
+      brandNew_write: () => ({ body: { ok: true } }),
+      memoryNote_write: () => ({ status: 201, body: { ok: true } }),
+      feature_compose: () => ({ body: { ok: true } }),
+    });
+    expect(await resolveImpulse({ shape: 'brandNew_write' }, apiClient)).toStartWith('resolve_impulse: refused: brandNew_write is a write this cockpit does not make through the escape hatch');
+    expect(stub.calls('brandNew_write')).toHaveLength(0);
+    expect(await resolveImpulse({ shape: 'memoryNote_write', pointer: { note: 'n' } }, apiClient)).toStartWith('resolve_impulse memoryNote_write → discovery /resolve [201]');
+    expect(await resolveImpulse({ shape: 'feature_compose' }, apiClient)).toStartWith('resolve_impulse feature_compose → discovery /resolve [200]');
+  });
+
   test('the lease reads pass through', async () => {
     const stub = await installShapeStub({ maintenanceLease: () => ({ body: { held: false } }) });
     expect(await resolveImpulse({ shape: 'maintenanceLease' }, apiClient)).toStartWith('resolve_impulse maintenanceLease → discovery /resolve [200]');

@@ -135,8 +135,8 @@
         "why": "b635cc6 changes only a code comment in src/tools/index.ts (citation fix); the tool registry CLAUDE.md describes is unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "b55b9a2",
-        "why": "run-goal.ts changed only the learning_mode description (observe runs are traced for audit); CONFORMANCE states no observe or trace wording"
+        "at": "1d83fc9",
+        "why": "index.ts and vessel-server.ts gained the outgoing-text guard and an argument-free tool-call log line; no conformance requirement or its status changes (the guard is described in SPEC § Outgoing text guard)"
       },
       "docs/SPEC.md": {
         "at": "a9d5878",
@@ -850,6 +850,7 @@
         "src/tools/registry-query.ts@fetchShapeVocabulary",
         "src/tools/registry-query.ts@handle",
         "src/tools/resolve-impulse.ts@coordination-writes",
+        "src/tools/resolve-impulse.ts@escape-hatch-writes",
         "src/tools/resolve-impulse.ts@handle",
         "src/tools/run-goal-async.ts@handle",
         "src/tools/run-goal.ts@handle",
@@ -1017,6 +1018,7 @@
       "src/tools/registry-query.ts@fetchShapeVocabulary": "1e475956530a",
       "src/tools/registry-query.ts@handle": "1b0d833303dc",
       "src/tools/resolve-impulse.ts@coordination-writes": "27fc4bb34176",
+      "src/tools/resolve-impulse.ts@escape-hatch-writes": "ae95d360f219",
       "src/tools/resolve-impulse.ts@handle": "1279075bef96",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@handle": "4bdf740420c9",

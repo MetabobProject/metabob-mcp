@@ -774,18 +774,22 @@ The advanced escape hatch: resolve or write any impulse shape (`memoryNote`, `fe
 
 A thin passthrough of the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. The shape may be a write, so it is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
-The one exception to the passthrough: writes an agent does not make are refused before any request, whether named by `shape` or by `pointer.type` (`src/tools/resolve-impulse.ts@coordination-writes`), each with why and what to do instead:
+The one exception to the passthrough is writes. Reads pass. A `*_write` shape, named by `shape` or by `pointer.type`, is refused before any request unless it only adds to the system's memory and has no dedicated tool: `memoryNote_write` and `concept_supersede_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). Every other write is refused; the known ones carry their reason and the alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
 
 | Writes | Why an agent does not make them | Instead |
 |---|---|---|
 | `maintenanceLease_write`, `substrateGapLease_write` | the system's own coordination: maintenance windows, the auto-pick lane, a gap's landing | dispatch the work as a goal, or let the system land the gap; record a finding for a lease that looks stuck or foreign |
 | `activityExecutionTrace_write`, `execution_write` | the graded record: a trace's tags set its reach | dispatch the work as a goal, so goal-host traces it and its judge grades it |
-| `goal_verification_label_write` | the oracle corpus | `provide_feedback`, which records an `automated` label with the operator folded in |
-| `poolImpulse_write` | walk input carries no principal the substrate stamps | dispatch a goal, or record a finding with what the walk is missing |
-| `substrateGap_write` | gaps come from the system's detectors; an agent-filed gap counts as hand-fed | `record_finding` |
+| activity templates, variants, compositions and feedback; impulse relevance, shape scores, execution and concept sequences, attributions, tool usage, and the system's other learned state | the system learns these from its own graded work; an agent writing them hand-feeds it | dispatch a goal, or record a finding with what was observed |
+| `test_report_write`, `test_audit_report_write`, `test_registration_write` | gate evidence, which the gates write themselves | run the check, or dispatch it |
+| `interactor*_write`, `ui*_write` | the human surface's own records | the person uses that surface as themselves |
+| `fs_write` | writes files on a vessel | a dispatched goal or a reviewed commit |
 | `pushPolicy_write`, `llmModelPolicy_write`, `docFixPolicy_write`, `renderPolicy_write` | system policy is an operator's decision; this key carries no operator authority | ask the person, or record a finding proposing the change |
+| `goal_verification_label_write`, `poolImpulse_write`, `substrateGap_write` | the oracle corpus; walk input with no stamped principal; gaps, which the system's detectors file | `provide_feedback`; dispatch a goal; `record_finding` |
+| `concept_create_write`, `conceptLink_write`, `conceptUsage_write`, `solicitationResponse_write` | each has a dedicated tool that checks its input and records provenance | `concept_create`, `concept_link`, `concept_record_usage`, `submit_resolution` |
+| `concept_write`, `concept_delete_write`, `concept_retire_write` | overwriting, deleting or retiring the system's memory | `concept_supersede_write`, which keeps the history |
 
-Reads pass through. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
+An unlisted write is refused with the dedicated tools to use instead. `tests/fixtures/registry-writes.json` holds the write shapes of a live vocabulary, and a unit test requires every one to be classified, so a new write fails the build until someone decides what it is. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
 
 ---
 
