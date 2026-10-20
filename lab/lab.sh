@@ -74,13 +74,18 @@ wait_level() { # $1 node $2 level: waits up to LAB_WAIT_S
     log "lab-$1 did not reach '$2' within ${WAIT_S}s; see: $ENG exec $(c "$1") substrate-status"; return 1
   fi
 }
-wait_workspace() { # $1 node: waits up to LAB_WAIT_S for the node's WORKSPACE_ROOT to exist
-  # `served` does not wait for seeding to create the workspace that local-tools spawns its
-  # shell in; a goal dispatched before it exists fails with ENOENT (posix_spawn 'bash').
-  local t0; t0=$(date +%s)
-  while ! "$ENG" exec "$(c "$1")" sh -c 'd=$(sed -n "s/^WORKSPACE_ROOT=//p" /etc/substrate/env | tr -d "\"'"'"'"); [ -n "$d" ] && [ -d "$d" ]' >/dev/null 2>&1; do
-    if [ $(( $(date +%s) - t0 )) -ge "$WAIT_S" ]; then
-      log "lab-$1's WORKSPACE_ROOT did not appear within ${WAIT_S}s"; return 1
+ensure_workspace() { # $1 node: its WORKSPACE_ROOT exists, creating it when the light lab's masked units don't
+  # `served` does not wait for the workspace local-tools runs its shell in, and the light lab masks
+  # git-push-setup, which clones the super-repo there; a command run before it exists fails with
+  # ENOENT (posix_spawn 'bash'). Give boot a short grace period, then create the empty directory.
+  local t0 d; t0=$(date +%s)
+  d=$("$ENG" exec "$(c "$1")" sh -c 'sed -n "s/^WORKSPACE_ROOT=//p" /etc/substrate/env | tr -d "\"'"'"'"' 2>/dev/null)
+  [ -n "$d" ] || { info "lab-$1 sets no WORKSPACE_ROOT"; return 0; }
+  while ! "$ENG" exec "$(c "$1")" test -d "$d" 2>/dev/null; do
+    if [ $(( $(date +%s) - t0 )) -ge 30 ]; then
+      "$ENG" exec "$(c "$1")" mkdir -p "$d" || { log "could not create lab-$1's WORKSPACE_ROOT $d"; return 1; }
+      log "lab-$1: created WORKSPACE_ROOT $d (the light lab masks git-push-setup, which clones it)"
+      return 0
     fi
     sleep 2
   done
@@ -159,7 +164,7 @@ cmd_up() {
   [ -s "$KEYS/lab-spoke.key" ] || issue_key lab-spoke read,write lab-spoke.key || fail "could not issue the spoke's join key"
   METABOB_API_KEY="$(cat "$KEYS/lab-spoke.key")" SUBSTRATE_IMAGE="$IMAGE" compose_node spoke up -d || fail "could not start lab-spoke"
   wait_level spoke served || fail "lab-spoke not served"
-  wait_workspace spoke || fail "lab-spoke workspace not ready"
+  ensure_workspace spoke || fail "lab-spoke workspace not ready"
   # Not 'usable': that verdict needs a real LLM completion, which a no-quota provider key never gives. 'served'
   # on both nodes is readiness; `lab.sh check` (an LLM-free goal through the MCP) is the functional proof.
   wait_level hub served || fail "lab-hub not served"

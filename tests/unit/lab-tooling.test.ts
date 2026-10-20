@@ -186,10 +186,11 @@ describe('lab.sh boot readiness', () => {
   test('up waits for the spoke workspace after served, before the keys and check', () => {
     const script = read('lab.sh');
     const served = script.indexOf('wait_level spoke served');
-    const workspace = script.indexOf('wait_workspace spoke');
+    const workspace = script.indexOf('ensure_workspace spoke');
     expect(served).toBeGreaterThan(-1);
     expect(workspace).toBeGreaterThan(served);
-    expect(script).toMatch(/^wait_workspace\(\) \{/m);
+    expect(script).toMatch(/^ensure_workspace\(\) \{/m);
+    expect(script).toContain('mkdir -p "$d"');
   });
 });
 
