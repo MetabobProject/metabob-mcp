@@ -246,6 +246,17 @@ describe('what a walk taught the substrate', () => {
     expect(learningLines({ goalPathRecorded: false, alphaBetaDelta: [] }, 'observe')).toEqual(['  learning:           none recorded']);
   });
 
+  test('a graded template with Δ0 is not a posterior change', async () => {
+    const { learningLines } = await import('../../src/tools/_goal-host.js');
+    // goal-host's record for an observe probe on the lab: the template is listed, unmoved.
+    const observed = { alphaBetaDelta: [{ templateId: 'satisfier:shellResult', dAlpha: 0, dBeta: 0 }], gapsFiled: [], goalPathRecorded: true, oracleLabelWritten: false };
+    const lines = learningLines(observed, 'observe');
+    expect(lines[0]).toBe('  learning:           goal path recorded');
+    expect(lines.join('\n')).not.toContain('⚠');
+    expect(learningLines({ ...observed, goalPathRecorded: false })).toEqual(['  learning:           none recorded']);
+    expect(learningLines({ alphaBetaDelta: [{ templateId: 't', dAlpha: 0, dBeta: -1 }] })[0]).toBe('  learning:           posteriors t β-1');
+  });
+
   test('goal_status shows the learning line for a finished dispatch', async () => {
     await installShapeStub({
       goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true,

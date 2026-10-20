@@ -143,10 +143,17 @@ export function requestedLearningModeLine(mode: 'observe' | 'learn' | undefined)
     : '  learning_mode:      learn (requested)';
 }
 
+/** Posterior entries that moved: goal-host lists every template it graded, Δ0 included. */
+function changedDeltas(l: LearningConsequences): NonNullable<LearningConsequences['alphaBetaDelta']> {
+  return (l.alphaBetaDelta ?? []).filter(d => (d.dAlpha ?? 0) !== 0 || (d.dBeta ?? 0) !== 0);
+}
+
 /** True when the walk changed what the substrate has learned. */
 function taught(l: LearningConsequences): boolean {
-  return Boolean(l.goalPathRecorded || (l.alphaBetaDelta?.length ?? 0) > 0 || (l.gapsFiled?.length ?? 0) > 0 || l.oracleLabelWritten);
+  return Boolean(l.goalPathRecorded || changedDeltas(l).length > 0 || (l.gapsFiled?.length ?? 0) > 0 || l.oracleLabelWritten);
 }
+
+const signed = (sym: string, n?: number): string => (n ? `${sym}${n > 0 ? '+' : ''}${n}` : '');
 
 /**
  * The `learning:` line(s) for a dispatch record: what the walk actually taught
@@ -162,8 +169,8 @@ export function learningLines(learning: unknown, requested?: 'observe' | 'learn'
   if (!taught(l)) return ['  learning:           none recorded'];
   const parts: string[] = [];
   if (l.goalPathRecorded) parts.push('goal path recorded');
-  const deltas = (l.alphaBetaDelta ?? []).map(d =>
-    `${d.templateId ?? '?'} ${d.dAlpha ? `α+${d.dAlpha}` : ''}${d.dAlpha && d.dBeta ? ' ' : ''}${d.dBeta ? `β+${d.dBeta}` : ''}`.trim());
+  const deltas = changedDeltas(l).map(d =>
+    [d.templateId ?? '?', signed('α', d.dAlpha), signed('β', d.dBeta)].filter(Boolean).join(' '));
   if (deltas.length) parts.push(`posteriors ${deltas.join(', ')}`);
   if (l.gapsFiled?.length) parts.push(`gaps filed ${l.gapsFiled.join(', ')}`);
   if (l.oracleLabelWritten) parts.push('oracle label written');
@@ -172,7 +179,7 @@ export function learningLines(learning: unknown, requested?: 'observe' | 'learn'
     // goal-host sets goalPathRecorded on its trace branch whether or not it wrote the
     // path, so under observe the flag alone is not evidence of a write; posterior
     // changes, filed gaps and labels are.
-    const recorded = (l.alphaBetaDelta?.length ?? 0) > 0 || (l.gapsFiled?.length ?? 0) > 0 || Boolean(l.oracleLabelWritten);
+    const recorded = changedDeltas(l).length > 0 || (l.gapsFiled?.length ?? 0) > 0 || Boolean(l.oracleLabelWritten);
     lines.push(recorded
       ? '  ⚠ observe was requested, but this walk taught the substrate (see learning above)'
       : '  (observe: goal-host reports a goal path but sets that flag without writing one under observe; no posterior, gap or label was recorded)');
