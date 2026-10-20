@@ -47,17 +47,9 @@ describe('org check forms', () => {
 
   test('through a proxy the key is sent in the header only, never in the body', async () => {
     const id = fakeIdentity(() => ({ json: { valid: true, org_id: 'org' } }));
-    const prev = { h: process.env.HTTPS_PROXY, p: process.env.HTTP_PROXY, n: process.env.NO_PROXY };
-    process.env.HTTP_PROXY = 'http://proxy.corp:3128';
-    process.env.HTTPS_PROXY = 'http://proxy.corp:3128';
-    delete process.env.NO_PROXY;
-    try {
-      await resolveTenant('https://identity.example', KEY, id.fetchImpl);
-    } finally {
-      for (const [k, v] of [['HTTPS_PROXY', prev.h], ['HTTP_PROXY', prev.p], ['NO_PROXY', prev.n]] as const) {
-        if (v === undefined) delete process.env[k]; else process.env[k] = v;
-      }
-    }
+    // The environment is passed in, never set on process.env: a leaked proxy variable reaches every later test's child servers.
+    const env = { HTTPS_PROXY: 'http://proxy.corp:3128', HTTP_PROXY: 'http://proxy.corp:3128' } as NodeJS.ProcessEnv;
+    await resolveTenant('https://identity.example', KEY, id.fetchImpl, env);
     expect(id.seen).toEqual([{ body: {}, auth: `ApiKey ${KEY}` }]);
   });
 });

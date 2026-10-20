@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { setAttachment } from '../../src/attachment';
 import { FULL_READ_LIMIT, MAX_STALE_MS, READ_TTL_MS, clearGapReadCache, gapsForPath, pathMapper, peekGaps, readGaps, renderGap } from '../../src/tools/_gap-activity';
-import { handle as pathActivity } from '../../src/tools/path-activity';
+import { handle as pathActivity, pathActivityReport } from '../../src/tools/path-activity';
 import { gapSummaryLines } from '../../src/tools/_gap-activity';
 import { installShapeStub } from '../helpers/shape-stub';
 import type { AnalysisAPIClient } from '../../src/api-client';
@@ -180,16 +180,10 @@ describe('path_activity', () => {
     git(root, 'init', '-q');
     git(root, 'remote', 'add', 'origin', 'https://github.com/org/metabob-mcp.git');
     await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
-    const prev = process.env.WORKSPACE_PATH;
-    process.env.WORKSPACE_PATH = root;
-    try {
-      const out = await pathActivity({ paths: ['src/index.ts', FILE] }, apiClient);
-      expect(out).toContain('metabob-mcp may not be a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
-      expect(out).toContain('src/index.ts — not a path the gap store names');
-      expect(out).toContain(`${FILE} — 3 open gaps`);
-    } finally {
-      if (prev === undefined) delete process.env.WORKSPACE_PATH; else process.env.WORKSPACE_PATH = prev;
-    }
+    const out = await pathActivityReport({ paths: ['src/index.ts', FILE] }, root);
+    expect(out).toContain('metabob-mcp may not be a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
+    expect(out).toContain('src/index.ts — not a path the gap store names');
+    expect(out).toContain(`${FILE} — 3 open gaps`);
   });
 });
 

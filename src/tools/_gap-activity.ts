@@ -14,9 +14,9 @@
  * holder runs hot, and many agents checking on every edit must not each pull the store.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { describeResolveFailure, getAttachment, resolveShape, substrateRefusal } from '../attachment.js';
 import { normalizeRemoteUrl } from '../repo-identity.js';
 
@@ -145,11 +145,34 @@ export interface PathMapper {
  * `repos/<name>` in a vessel's own checkout, where `<name>` is the basename of the
  * `origin` remote's path. A path already in `repos/…` form is used as given.
  */
+/**
+ * `p` in its real, long form, resolved through its longest existing ancestor (the file may
+ * not exist yet). On Windows git prints `C:/Users/...` while a temp path can carry 8.3
+ * short names, so both sides of a relative() must be real.
+ */
+function real(p: string): string {
+  const abs = resolve(p);
+  let head = abs;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync.native(head), ...tail);
+    } catch {
+      const up = dirname(head);
+      if (up === head) return abs;
+      tail.unshift(basename(head));
+      head = up;
+    }
+  }
+}
+
 export function pathMapper(workspace: string): PathMapper {
-  const root = git(workspace, ['rev-parse', '--show-toplevel']) ?? resolve(workspace);
+  const ws = real(workspace);
+  const top = git(ws, ['rev-parse', '--show-toplevel']);
+  const root = real(top ?? ws);
   const given = (p: string) => (p.replace(/\\/g, '/').replace(/^\.\//, '').startsWith('repos/') ? p.replace(/\\/g, '/').replace(/^\.\//, '') : null);
   const rel = (p: string) => {
-    const r = relative(root, isAbsolute(p) ? p : resolve(workspace, p)).replace(/\\/g, '/');
+    const r = relative(root, real(isAbsolute(p) ? p : resolve(ws, p))).replace(/\\/g, '/');
     return r && !r.startsWith('..') && !isAbsolute(r) ? r : null;
   };
   if (existsSync(join(root, 'repos'))) {

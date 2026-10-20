@@ -57,7 +57,12 @@ const NEXT = {
 };
 
 export async function handle(input: PathActivityInput, _apiClient: AnalysisAPIClient): Promise<string> {
-  const mapper = pathMapper(activeWorkspacePath());
+  return pathActivityReport(input, activeWorkspacePath());
+}
+
+/** The report for `input`, with paths mapped from `workspace`. */
+export async function pathActivityReport(input: PathActivityInput, workspace: string): Promise<string> {
+  const mapper = pathMapper(workspace);
   const open = await readGaps('open');
   if (!open.ok) return `path_activity: ${open.message}`;
   const closed = input.include_closed ? await readGaps('closed') : null;

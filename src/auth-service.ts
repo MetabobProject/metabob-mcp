@@ -59,6 +59,7 @@ export async function resolveTenant(
   endpoint: string,
   apiKey: string,
   fetchImpl: typeof fetch = netFetch(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<TenantResolution> {
   let res: Response;
   try {
@@ -66,7 +67,7 @@ export async function resolveTenant(
     res = await fetchImpl(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `ApiKey ${apiKey}` },
-      body: selectProxy(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`).proxy
+      body: selectProxy(`${endpoint.replace(/\/+$/, '')}/v1/auth/resolve`, env).proxy
         ? '{}'
         : JSON.stringify({ impulse: { type: 'authentication', pointer: { type: 'apiKey', apiKey } } }),
       signal: AbortSignal.timeout(RESOLVE_TIMEOUT_MS + 1_000),

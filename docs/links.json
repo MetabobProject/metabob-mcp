@@ -131,12 +131,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "b635cc6",
-        "why": "b635cc6 changes only a code comment in src/tools/index.ts (citation fix); the tool registry CLAUDE.md describes is unchanged"
+        "at": "f50008b",
+        "why": "the org check's form (nested body on a direct hop, header through a proxy) and the scopes in state are SPEC detail; CLAUDE.md's 'POST /v1/auth/resolve → orgId' and the auth-service row still hold"
       },
       "docs/CONFORMANCE.md": {
-        "at": "1d83fc9",
-        "why": "index.ts and vessel-server.ts gained the outgoing-text guard and an argument-free tool-call log line; no conformance requirement or its status changes (the guard is described in SPEC § Outgoing text guard)"
+        "at": "f50008b",
+        "why": "c3 states the org check with the key and its outcomes; the proxy-dependent body is SPEC § Attachment detail and changes no requirement"
       },
       "docs/SPEC.md": {
         "at": "a9d5878",
