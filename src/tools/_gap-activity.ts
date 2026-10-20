@@ -254,7 +254,7 @@ export async function gapSummaryLines(files: string[], workspace: string): Promi
   const mapper = pathMapper(workspace);
   if (mapper.kind === 'none') return [];
   const read = peekGaps('open');
-  if (!read) return ['', 'In flight on the substrate: path_activity shows the open gaps on these files.'];
+  if (!read) return ['', "Open gaps on these files aren't loaded yet; path_activity shows them."];
   if (mapper.kind === 'vessel' && mapper.prefix && !storeNamesPrefix(read.rows, mapper.prefix)) return [];
   const lines: string[] = [];
   for (const f of files) {

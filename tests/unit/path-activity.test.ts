@@ -184,7 +184,7 @@ describe('path_activity', () => {
     process.env.WORKSPACE_PATH = root;
     try {
       const out = await pathActivity({ paths: ['src/index.ts', FILE] }, apiClient);
-      expect(out).toContain('metabob-mcp is not a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
+      expect(out).toContain('metabob-mcp may not be a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
       expect(out).toContain('src/index.ts — not a path the gap store names');
       expect(out).toContain(`${FILE} — 3 open gaps`);
     } finally {
@@ -199,7 +199,7 @@ describe('the summary in analyze_impact and assign_git_changes', () => {
     git(root, 'init', '-q');
     git(root, 'remote', 'add', 'origin', 'git@github.com:org/goal-host-vessel.git');
     const stub = await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
-    expect(await gapSummaryLines(['src/index.ts'], root)).toEqual(['', 'In flight on the substrate: path_activity shows the open gaps on these files.']);
+    expect(await gapSummaryLines(['src/index.ts'], root)).toEqual(['', "Open gaps on these files aren't loaded yet; path_activity shows them."]);
     expect(stub.calls('substrateGap')).toHaveLength(0);
     await readGaps('open');
     const warm = await gapSummaryLines(['src/index.ts'], root);

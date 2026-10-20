@@ -72,7 +72,7 @@ export async function handle(input: PathActivityInput, _apiClient: AnalysisAPICl
   // and its "no open gaps" must not read as "nothing in flight".
   const unmounted = mapper.kind === 'vessel' && mapper.prefix && !storeNamesPrefix(open.rows, mapper.prefix) ? mapper.prefix : null;
   if (unmounted) {
-    lines.push(`${unmounted.slice('repos/'.length)} is not a repository this substrate mounts (no open gap names ${unmounted}/), so its gaps do not apply here; only paths given as repos/<vessel>/… are checked.`, '');
+    lines.push(`${unmounted.slice('repos/'.length)} may not be a repository this substrate mounts (no open gap names ${unmounted}/), so it has no gaps to show; only paths given as repos/<vessel>/… are checked.`, '');
   }
   for (const path of input.paths) {
     const storePath = unmounted && !path.replace(/\\/g, '/').startsWith('repos/') ? null : mapper.toStorePath(path);
