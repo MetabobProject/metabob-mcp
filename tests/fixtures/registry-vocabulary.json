@@ -1,5 +1,5 @@
 {
-  "about": "Every shape in a live substrate's vocabulary (vesselRegistry on a running node), with resolve_impulse's decision: `allowed` through the escape hatch, or `refused`. tests/unit/resolve-dispatch.test.ts requires the code's allowlist to match and every shape to be decided, so a refreshed snapshot with a new shape fails until someone decides it. Refresh by hand from a running node's vesselRegistry; a new shape goes in `refused` unless it is a plain read.",
+  "about": "Every shape in a live substrate's vocabulary (vesselRegistry on a running node), with resolve_impulse's decision: `allowed` through the escape hatch, or `refused`. tests/unit/resolve-dispatch.test.ts requires the code's allowlist to match and every shape to be decided, so a refreshed snapshot with a new shape fails until someone decides it. Refresh by hand from a running node's vesselRegistry; a new shape goes in `refused` unless it is a plain read. The allowed reads were reviewed as read-only on 2026-10-20: by name, and by a source check of the policy and state reads' producers for a mutating op (a heuristic).",
   "allowed": [
     "activeDispatches",
     "activity",

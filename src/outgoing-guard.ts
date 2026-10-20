@@ -106,8 +106,11 @@ const SCREENED_PATTERNS: ReadonlyArray<readonly [kind: string, re: RegExp, scree
   ['auth_header', /\b(?:authorization|x-api-key|proxy-authorization)\s*[:=]\s*(?:bearer|apikey|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi, 'token'],
   ['cookie', /\b(?:set-)?cookie\s*:\s*[^\s=;]+=([^\s;]{12,})/gi, 'token'],
   ['url_credentials', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:([^\s/@]+)@/gi, 'password'],
-  ['config_assignment', /\b[A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*\s*[:=]\s*['"]?([^\s'"]{4,})/gi, 'password'],
+  ['config_assignment', /\b([A-Za-z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*)\s*[:=]\s*['"]?([^\s'"]{4,})/gi, 'password'],
 ];
+
+/** Config names where TOKEN/KEY/SECRET qualifies a number or a setting: MAX_TOKENS, TOKEN_TTL, KEY_ROTATION_DAYS. */
+const QUALIFIED_NAME = /^(?:MAX|MIN)_|_(?:TTL|LENGTH|LEN|COUNT|LIMIT|TIMEOUT|SIZE|EXPIRY|EXPIRES\w*|ROTATION\w*|DAYS|HOURS|SECONDS|MS|BITS|BYTES|ALGORITHM|ALG|TYPE|HEADER|FORMAT|VERSION)$/i;
 
 const PLACEHOLDER = /YOUR|EXAMPLE|PLACEHOLDER|REDACTED|CHANGE_?ME|SAMPLE|DUMMY|FAKE|<[^>]*>|\*{3,}|\.\.\./i;
 /** A shell or template variable reference: `${NAME}`, `$NAME`. Case-sensitive, so `$w` in a random value is not one. */
@@ -115,6 +118,7 @@ const VARIABLE_REFERENCE = /\$\{|\$[A-Z_][A-Z0-9_]*/;
 
 /** Whether a captured value is a placeholder rather than a value. */
 function placeholder(v: string): boolean {
+  if (/^\d+(?:\.\d+)?(?:ms|s|m|h|d|kb|mb|gb|k|m)?$/i.test(v)) return true; // a number or a duration: a setting, not a secret
   return PLACEHOLDER.test(v) || VARIABLE_REFERENCE.test(v) || /^(.)\1+$/.test(v)
     || /^[A-Z][A-Z0-9_]*$/.test(v) // an ALL_CAPS name, e.g. a variable reference
     || /^(?:pass(?:word)?|secret|token|key|value|xxx+|true|false|null|none|empty|yes|no|on|off)$/i.test(v);
@@ -226,7 +230,9 @@ export function findSecret(text: string, secrets: readonly string[]): string | n
   for (const [kind, re, screen] of SCREENED_PATTERNS) {
     re.lastIndex = 0;
     for (let m = re.exec(text); m; m = re.exec(text)) {
-      if (m[1] && (screen === 'token' ? secretLike(m[1]) : passwordLike(m[1]))) return kind;
+      const value = m[m.length - 1];
+      if (kind === 'config_assignment' && QUALIFIED_NAME.test(m[1]!)) continue;
+      if (value && (screen === 'token' ? secretLike(value) : passwordLike(value))) return kind;
     }
   }
   return null;

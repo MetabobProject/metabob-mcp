@@ -61,6 +61,11 @@ describe('secrets', () => {
     'the docs use AWS\'s example key AKIAIOSFODNN7EXAMPLE', // gitleaks:allow (synthetic fixture)
     'set API_KEY=<your key> in .env',
     'git@github.com:org/repo.git',
+    'MAX_TOKENS=4096',
+    'TOKEN_TTL=3600',
+    'KEY_ROTATION_DAYS=90',
+    'max_tokens: 1024',
+    'SESSION_TOKEN_TIMEOUT=30m',
   ])('passes: %s', (text) => {
     expect(findSecret(text, [])).toBeNull();
   });

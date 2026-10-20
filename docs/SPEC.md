@@ -416,7 +416,8 @@ cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's su
   documented example keys are exempt. Authorization headers, cookies, URLs with credentials and
   pasted config assignments (`DB_PASSWORD=…`) count unless the value is a placeholder (`YOUR_…`,
   `EXAMPLE`, `<…>`, `***`, a repeated character, an ALL_CAPS name, `${VAR}`, a literal such as `true`
-  or `password`); a header or cookie token must also be random enough, while a password counts however
+  or `password`, a number or a duration) or the name uses the word as a qualifier (`MAX_TOKENS`, `TOKEN_TTL`,
+  `KEY_ROTATION_DAYS`); a header or cookie token must also be random enough, while a password counts however
   weak it is, since weak passwords are the commonest real leak. The
   refusal is `<tool>: refused: outgoing_secret(<kind>, <field>)`, naming the field and the kind, never
   the value, and suggests describing it masked (`postgres://admin:***@host`).
