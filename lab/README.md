@@ -66,12 +66,16 @@ include `substrate-pull-sync`, so the lab runs the code baked into the image tha
 
 Each node is capped from creation, boot included, by `lab-net.yml`: `LAB_CPUS` (default `2`) CPUs and
 `LAB_MEM` (default `6g`) of memory, with no swap beyond it. Before starting any node, `up` checks the host:
-the nodes it would start, at `LAB_MEM` each, plus `LAB_HEADROOM_MB` (default `2048`) must fit in the
-host's available memory, and the 1-minute load must be under `LAB_MAX_LOAD` (default `10`). Otherwise it
+the nodes it would start, at `LAB_MEM` each, plus a headroom must fit in the host's available memory, and
+the 1- and 5-minute load must be under `LAB_MAX_LOAD` (default `10`), and less than `LAB_MAX_SWAP_PCT` (default `50`) percent of swap may be in use: a host already swapping heavily is under pressure however much memory reads as available. Available memory is a snapshot, so the
+headroom is what the host's other containers can still grow into: each capped co-tenant's limit minus its
+use, plus `LAB_UNBOUNDED_RESERVE_MB` (default `8192`) when any co-tenant has no memory limit, and never less
+than `LAB_HEADROOM_MB` (default `2048`). Otherwise it
 refuses and says why; on a host with no swap the reason says so, since the kernel would kill a process to
 make room, most likely the largest, which on a fleet host is its live substrate. Lower the caps, free the
-host, or run the lab elsewhere; `LAB_FORCE=1` overrides the check and logs that it did. Raise
-`LAB_HEADROOM_MB` on a host where other capped work (a regate, an arm) can still grow to its cap.
+host, or run the lab elsewhere; `LAB_FORCE=1` overrides the check and logs that it did. With swap capped at the memory limit,
+a node that needs more than `LAB_MEM` is killed inside its own container rather than pushing the host: an
+out-of-memory kill in a node means the lab is too small, not broken.
 
 ## Host view
 

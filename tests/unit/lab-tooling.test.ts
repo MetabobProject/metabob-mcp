@@ -238,15 +238,17 @@ describe('lab.sh capacity', () => {
     expect(up.indexOf('capacity_check')).toBeLessThan(up.indexOf('compose_node hub up'));
   });
 
-  const { mkdtempSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
+  const { mkdtempSync, writeFileSync, chmodSync } = require('node:fs') as typeof import('node:fs');
   const { tmpdir } = require('node:os') as typeof import('node:os');
-  function capacity(availKb: number, swapKb: number, load: string, extra: Record<string, string> = {}) {
+  /** capacity_check with fake /proc files and, as cotenants() lines, the host's other containers. */
+  function capacity(availKb: number, swapKb: number, loads: string, cotenants: string[] = [], extra: Record<string, string> = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'labcap-'));
     writeFileSync(join(dir, 'meminfo'), `MemAvailable:   ${availKb} kB\nSwapTotal:      ${swapKb} kB\n`);
-    writeFileSync(join(dir, 'loadavg'), `${load} 1.00 1.00 1/100 1\n`);
+    writeFileSync(join(dir, 'loadavg'), `${loads} 1.00 1/100 1\n`);
     const harness = [
       'info(){ echo "INFO $*"; }; log(){ echo "LOG $*"; }; fail(){ echo "FAIL $*"; exit 1; }; running(){ return 1; }',
       `source <(sed -n '/^mem_mb() {/,/^}/p;/^capacity_check() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      `cotenants(){ printf '%s\\n' ${cotenants.map((l) => JSON.stringify(l)).join(' ')}; }`,
       'capacity_check',
     ].join('\n');
     return spawnSync('bash', ['-c', harness], {
@@ -255,18 +257,54 @@ describe('lab.sh capacity', () => {
     });
   }
 
-  test.skipIf(process.platform === 'win32')('refuses the hub host as measured (9 GB available, no swap) and names why', () => {
-    const r = capacity(9 * 1024 * 1024, 0, '3.98');
+  test.skipIf(process.platform === 'win32')('refuses the hub host as measured: an unbounded live substrate and a capped regate leave no room', () => {
+    // syzygy, 00:32Z: 9 GB available, no swap; substrate-live has no limit, the regate is capped at 8 GB.
+    const r = capacity(9 * 1024 * 1024, 0, '3.98 3.80', ['substrate-live 0 18289', 'regate-x 8192 491'], { LAB_MEM: '3g' });
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('2 node(s) at 6g plus 2048 MB headroom need 14336 MB, and 9216 MB is available with no swap');
+    expect(r.stdout).toContain('2 node(s) at 3g plus 15893 MB headroom need 22037 MB, and 9216 MB is available with no swap');
+    expect(r.stdout).toContain('the headroom reserves 8192 MB for co-tenant(s) with no memory limit: substrate-live');
   });
 
-  test.skipIf(process.platform === 'win32')('passes with room, refuses at the load limit, and smaller caps fit', () => {
-    expect(capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '7.9').status).toBe(0);
-    const loaded = capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '12.5');
-    expect(loaded.status).toBe(1);
-    expect(loaded.stdout).toContain('load is 12.5 (the limit is 10)');
-    expect(capacity(9 * 1024 * 1024, 0, '3.98', { LAB_MEM: '3g' }).status).toBe(0);
-    expect(capacity(9 * 1024 * 1024, 0, '3.98', { LAB_FORCE: '1' }).stdout).toContain('capacity check overridden (LAB_FORCE=1)');
+  test.skipIf(process.platform === 'win32')('passes with room, refuses at the load limit over 1 or 5 minutes, and LAB_FORCE overrides', () => {
+    expect(capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '7.9 6.8').status).toBe(0);
+    const spike = capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '9.1 11.2');
+    expect(spike.status).toBe(1);
+    expect(spike.stdout).toContain('load is 9.1 / 11.2 over 1 and 5 minutes (the limit is 10)');
+    expect(capacity(9 * 1024 * 1024, 0, '3.98 3.80', ['substrate-live 0 18289'], { LAB_FORCE: '1' }).stdout).toContain('capacity check overridden (LAB_FORCE=1)');
+  });
+
+  test.skipIf(process.platform === 'win32')('refuses a host already swapping heavily, however much memory reads as available', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'labswap-'));
+    writeFileSync(join(dir, 'meminfo'), 'MemAvailable:   28000000 kB\nSwapTotal:      67108860 kB\nSwapFree:       30000000 kB\n');
+    writeFileSync(join(dir, 'loadavg'), '4.8 6.1 1.00 1/100 1\n');
+    const harness = [
+      'info(){ echo "INFO $*"; }; log(){ echo "LOG $*"; }; fail(){ echo "FAIL $*"; exit 1; }; running(){ return 1; }; cotenants(){ :; }',
+      `source <(sed -n '/^mem_mb() {/,/^}/p;/^capacity_check() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      'capacity_check',
+    ].join('\n');
+    const r = spawnSync('bash', ['-c', harness], { encoding: 'utf-8', env: { PATH: process.env.PATH ?? '', LAB_MEMINFO: join(dir, 'meminfo'), LAB_LOADAVG: join(dir, 'loadavg') } });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('55% of swap is in use (the limit is 50%)');
+  });
+
+  test.skipIf(process.platform === 'win32')('cotenants() reads the engine: limits from inspect, usage from stats, the lab\'s own nodes left out', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'labeng-'));
+    const eng = join(dir, 'fake-engine');
+    writeFileSync(eng, [
+      '#!/usr/bin/env bash',
+      'case "$1" in',
+      '  stats) printf "substrate-live\\t17.86GiB / 31.34GiB\\nregate-x\\t490.8MiB / 8GiB\\nlab-hub-live\\t1GiB / 6GiB\\n" ;;',
+      '  inspect) case "${@: -1}" in substrate-live) echo 0 ;; regate-x) echo 8589934592 ;; *) echo 6442450944 ;; esac ;;',
+      'esac',
+    ].join('\n'));
+    chmodSync(eng, 0o755);
+    const harness = [
+      `ENG=${JSON.stringify(eng)}`,
+      'c(){ echo "lab-$1-live"; }',
+      `source <(sed -n '/^to_mb() {/,/^}/p;/^cotenants() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      'cotenants',
+    ].join('\n');
+    const r = spawnSync('bash', ['-c', harness], { encoding: 'utf-8' });
+    expect(r.stdout.trim().split('\n')).toEqual(['substrate-live 0 18289', 'regate-x 8192 491']);
   });
 });
