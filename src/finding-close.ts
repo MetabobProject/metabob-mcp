@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
-import { repoIdentity } from './repo-identity.js';
+import { GIT_ENV, repoIdentity } from './repo-identity.js';
 import { plainConceptId } from './tools/_concept-content.js';
 import {
   VERDICT_SHAPE,
@@ -38,7 +38,7 @@ import * as MarkComplete from './tools/mark-complete.js';
 
 function git(cwd: string, args: string[]): string | null {
   try {
-    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).trim();
+    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: GIT_ENV() }).trim();
   } catch {
     return null;
   }
@@ -52,7 +52,7 @@ export function trailerIds(cwd: string, sha: string): string[] {
   const message = git(cwd, ['log', '-1', '--format=%B', sha]) ?? '';
   let parsed = '';
   try {
-    parsed = execFileSync('git', ['-C', cwd, 'interpret-trailers', '--parse'], { input: message, encoding: 'utf8' });
+    parsed = execFileSync('git', ['-C', cwd, 'interpret-trailers', '--parse'], { input: message, encoding: 'utf8', env: GIT_ENV() });
   } catch {
     return [];
   }

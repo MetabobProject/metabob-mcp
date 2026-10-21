@@ -24,7 +24,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
-import { normalizeRemoteUrl, type RepoIdentity } from './repo-identity.js';
+import { GIT_ENV, normalizeRemoteUrl, type RepoIdentity } from './repo-identity.js';
 import { searchConcepts } from './tools/_concept-db.js';
 import { plainConceptId } from './tools/_concept-content.js';
 import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
@@ -106,7 +106,7 @@ const severityOf = (f: AgentFinding) => SEVERITY_RANK[(/^\[([A-Z]+)\]/.exec(f.su
 export function validRef(ref: string): boolean {
   if (!ref || ref.length > 100 || ref.startsWith('-')) return false;
   try {
-    execFileSync('git', ['check-ref-format', '--branch', ref], { stdio: 'ignore' });
+    execFileSync('git', ['check-ref-format', '--branch', ref], { stdio: 'ignore', env: GIT_ENV() });
     return true;
   } catch {
     return false;
@@ -249,12 +249,12 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
       return release(`claimed ${key}, but writing ${a.taskDir} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     try {
-      execFileSync('git', ['clone', '--quiet', ...(ref ? ['--branch', ref] : []), '--', a.origin, a.workDir], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+      execFileSync('git', ['clone', '--quiet', ...(ref ? ['--branch', ref] : []), '--', a.origin, a.workDir], { stdio: ['ignore', 'ignore', 'pipe'], env: GIT_ENV() });
     } catch (err) {
       return release(`claimed ${key}, but cloning ${a.origin} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || String(err)}`);
     }
     // The base the entrypoint passes to finding close (<base>..HEAD): later rebases never widen the range to other cells' commits.
-    const base = execFileSync('git', ['-C', a.workDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const base = execFileSync('git', ['-C', a.workDir, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: GIT_ENV() }).trim();
     (record as Record<string, unknown>).base = base;
     writeFileSync(join(a.taskDir, 'task.json'), JSON.stringify(record, null, 2) + '\n');
     return say(0, `pulled ${key}: ${record.summary} (claimed until ${record.claim.until}; push to ${policy.push_to}, integrate by ${policy.integrate})`, { task: record });
