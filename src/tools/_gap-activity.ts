@@ -281,7 +281,7 @@ export function renderGap(g: GapRow, match: MatchKind): string[] {
     return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${when(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
   }
   if (lease) {
-    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing a change to this file now, and its landing replaces the file, so an edit made before then is lost or conflicts. Don't edit it yet: tell your user, or wait and check again with path_activity`];
+    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing a change to this file. An edit made before then is lost or conflicts when it lands. Whether to edit it now is your user's decision: tell them`];
   }
   if (stale && leaseState(stale) === 'no_expiry') {
     return [`${head}`, `    landing lease held by ${stale.holder}, no expiry recorded (may be stale): not counted as being landed; check before editing`];

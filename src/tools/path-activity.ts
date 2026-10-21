@@ -15,7 +15,7 @@ import { gapsForPath, holdOf, landingLeaseOf, pathMapper, readGaps, renderGap, s
 export const PathActivityTool = {
   name: 'path_activity',
   description:
-    "Before editing shared files: what the substrate has in flight on them. For each path, the open gaps that name it (as their edit site, in a directory, or in their goal), and for each gap whether the system is landing it right now (a live landing lease: its landing replaces the file, so don't edit it until the lease ends), it is queued for the system (prefer letting it land, or dispatch it), or it is held by an operator ruling (with its review date). Paths are workspace-relative or in the gap store's `repos/<vessel>/…` form. Read-only.",
+    "Before editing shared files: what the substrate has in flight on them. For each path, the open gaps that name it (as their edit site, in a directory, or in their goal), and for each gap whether the system is landing it right now (a live landing lease: an edit before it ends is lost or conflicts when the change lands), it is queued for the system (prefer letting it land, or dispatch it), or it is held by an operator ruling (with its review date). Paths are workspace-relative or in the gap store's `repos/<vessel>/…` form. Read-only.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -50,7 +50,7 @@ export const InputSchema = z.object({
 export type PathActivityInput = z.infer<typeof InputSchema>;
 
 const NEXT = {
-  landing: 'Being landed: the system\'s landing replaces the file, so an edit before the lease ends is lost or conflicts. Do not edit it now: tell your user, or wait until the lease ends and check again.',
+  landing: 'Being landed: an edit before the lease ends is lost or conflicts when the change lands. Tell your user before editing this file.',
   queued: 'Queued: prefer letting the system land it, or dispatch it as a goal.',
   held: 'Held: the ruling says what lifts it; it is not open work.',
   none: 'Nothing in flight: make the change, and record it.',

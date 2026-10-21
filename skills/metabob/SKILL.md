@@ -151,8 +151,8 @@ breaking what other agents depend on:
 The substrate develops itself on the same code, so share it the way a careful colleague would:
 
 - **Before editing a shared file, `path_activity { paths }`.** A gap the system is landing
-  (a live landing lease) means don't edit the file until the lease ends: the landing replaces
-  the file, so your edit is lost or conflicts; tell your user, or wait and check again. A
+  (a live landing lease) means an edit before the lease ends is lost or conflicts when the
+  change lands; tell your user before editing the file: it is their decision. A
   queued gap means prefer letting the system land it, or dispatch it; a held gap names the
   ruling and its review date. With nothing in flight, make the change and record it.
 - **Leave the system's leases alone.** Maintenance windows and gap landings are the
