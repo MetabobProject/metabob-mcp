@@ -170,6 +170,21 @@ describe('claim_finding', () => {
     expect(out).not.toContain('claim:');
   });
 
+  test('a claim write concept-db gives up on is retried once', async () => {
+    let refused = 0;
+    const { rows } = await db({ onWrite: () => {} });
+    const stub = await installShapeStub({
+      conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }),
+      concept_create_write: (p) => {
+        if (refused++ === 0) return { status: 404, body: { error: 'Not found', shape: 'concept_create_write' } };
+        rows.push({ id: 'concept:v900', shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date().toISOString() });
+        return { body: { success: true, content: JSON.stringify({ id: 'v900' }) } };
+      },
+    });
+    expect(await run(seeded())).toContain('Claimed finding agf_task1');
+    expect(stub.calls('concept_create_write')).toHaveLength(2);
+  });
+
   test('a closed finding cannot be claimed', async () => {
     const { rows } = await db({ rows: [other('endorsed (resolved)', Date.now() - MIN)] });
     expect(await run(seeded())).toContain('is already closed (fixed)');

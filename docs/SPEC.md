@@ -556,6 +556,7 @@ Each line holds:
 - `via`: `stdio` or `loopback`;
 - `args`: each argument's name and size, never its value, the same description as the tool-call log line (`src/outgoing-guard.ts@describeArgsForLog`): `string(<length>)`, `array(<length>)`, or the type;
 - `outcome`: `ok`, `refused` (the outgoing guard), `not_attached` (the attachment gate) or `error`;
+- `result`, when the tool reports one (`src/call-log.ts@reportResult`): what its answer did, beyond the call running. `claim_finding` reports its claim outcome (`claimed`, `renewed`, `released`, `held`, `lost`, `unsettled`, `closed`, `refused`, `error`); `mark_complete` reports `ok`, `pending`, `not_applied` or `not_shared` (`src/tools/mark-complete.ts@markCompleteResult`).
 - `ms`.
 
 Nothing in it is sent anywhere. The file is created mode 0600, and a write that fails never fails the call. It records only what the server sees, so it can't show whether a call came before an edit; the cell lab gets that from the first-modify times in `/work`.
@@ -617,9 +618,10 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 **Tasks, listed apart.** A finding in category `task` (its `category:` line, else the summary's `[SEV][task]`) is work assigned on the ledger, for example a coordinator's task board, not a problem in the code (`src/tools/_findings.ts@task-findings`). So an agent checking a file before an edit doesn't take another agent's task for a problem to fix:
 - the headline counts findings without tasks, then adds `; N open tasks, listed apart`;
 - the findings sections leave tasks out;
+- closed tasks are listed after the open ones as `Closed tasks (N):` with `[FIXED in <sha>]` or `[RETRACTED]`, at most 5, and the header counts them (`; N closed`), so a coordinator sees completion without filtering for it;
 - a final **Tasks** section lists the open tasks from both sources, once each, with any live claim (§ claim_finding) or pending fix, and says to claim one before starting. Claimed tasks are never hidden, since who is on what is the coordination signal. They are ordered so the next move comes first: claimed by this checkout ("yours"), unclaimed, claimed by others, then those with a fix pending. The header counts each group, e.g. `(3 open: 1 yours, 1 unclaimed, 1 claimed by others)`.
 
-With `category` including `task`, tasks are the list itself and there is no separate section. `get_analysis_context` counts and lists problems only, and its headline names the open tasks the same way.
+With `category` including `task`, tasks are the list itself and there is no separate section. A `category` filter applies to the recalled findings as it does to the local ones. `get_analysis_context` counts and lists problems only, and its headline names the open tasks the same way.
 
 ### record_finding
 
@@ -798,7 +800,7 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
 **What the tool does:**
 1. It resolves the finding (its local seed and siblings, or the recalled concept and every `agf_*` id it carries) and reads the verdicts.
 2. A closed finding is refused. A finding held by someone else is reported with its holder and is not claimed.
-3. Otherwise it writes the claim, reads the verdicts back and applies the rule. When another claimer holds it, it writes a withdrawal and says who won.
+3. Otherwise it writes the claim, reads the verdicts back and applies the rule. A claim write concept-db gives up on (`no_producer` or `producer_timeout`, seen under concurrent writes) is retried once after a short random pause; repeating it is safe, since a second claim of one's own renews it. When another claimer holds it, it writes a withdrawal and says who won.
    A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
 4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
 

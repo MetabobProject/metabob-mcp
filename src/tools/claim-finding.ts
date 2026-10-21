@@ -17,6 +17,7 @@ import {
   workspaceRepo,
 } from './_findings.js';
 import type { RepoIdentity } from '../repo-identity.js';
+import { reportResult } from '../call-log.js';
 import { plainConceptId } from './_concept-content.js';
 import {
   CLAIM_DEFAULT_MINUTES,
@@ -143,7 +144,9 @@ export async function handle(
   localStore?: LocalStore | null,
   opts: ClaimOptions = {},
 ): Promise<string> {
-  return (await claim(input, sessionId, localStore, opts)).message;
+  const result = await claim(input, sessionId, localStore, opts);
+  reportResult(result.outcome);
+  return result.message;
 }
 
 /** claim_finding's work, with its outcome as a value: what `metabob-mcp task pull` acts on. */
@@ -203,7 +206,14 @@ export async function claim(
   }
 
   const until = new Date(Date.now() + input.minutes * 60_000);
-  const posted = await write(input.minutes, 'claimed');
+  let posted = await write(input.minutes, 'claimed');
+  // Under concurrent writes concept-db can give up on a write (seen on the lab: 8 of 80 at 8 claimers, answered as
+  // no_producer). A claim write is safe to repeat, since under the holder rule a second claim of one's own renews
+  // it, so it is retried once after a short random pause.
+  if (!posted.ok && /^(no_producer|producer_timeout)/.test(posted.error ?? '')) {
+    await pause(pauses.length && pauses[0] === 0 ? 0 : 200 + Math.floor(Math.random() * 400));
+    posted = await write(input.minutes, 'claimed');
+  }
   if (!posted.ok) return failed(posted.error);
 
   // Two claimers can both get here: read back and apply the rule every reader applies, but only once the read

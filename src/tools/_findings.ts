@@ -677,7 +677,16 @@ export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindin
     seen.add(s.id);
     entries.push({ group: 1, text: `  • ${s.brief}\n    files: ${s.file_path}\n    id: ${s.id}\n` });
   }
-  if (!entries.length) return '';
+  // Closed tasks stay visible, so a coordinator sees completion without filtering for it.
+  const closed = recall.status === 'ok' ? recall.findings.filter(f => isTaskFinding(f) && f.verdict) : [];
+  const closedLines = closed.slice(0, 5).map(f => {
+    const tag = f.verdict === 'fixed' ? (f.fix ? `[FIXED in ${f.fix.sha.slice(0, 10)}]` : '[FIXED]') : '[RETRACTED]';
+    return `  • ${tag} ${findingSummaryText(f.summary) || f.id} (id: ${f.id})\n`;
+  });
+  const closedPart = closed.length
+    ? `Closed tasks (${closed.length}${closed.length > closedLines.length ? `, ${closedLines.length} shown` : ''}):\n${closedLines.join('')}`
+    : '';
+  if (!entries.length) return closedPart ? `Tasks: none open.\n${closedPart}`.trimEnd() : '';
   entries.sort((a, b) => a.group - b.group);
   const count = (g: number) => entries.filter(e => e.group === g).length;
   const parts = [
@@ -687,8 +696,8 @@ export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindin
     count(3) ? `${count(3)} with a fix pending` : '',
   ].filter(Boolean).join(', ');
   const shown = entries.slice(0, max);
-  return `Tasks: work assigned on the ledger, not problems in the code (${entries.length} open: ${parts}${entries.length > shown.length ? `; ${shown.length} shown` : ''}). `
-    + 'Before you start one, claim it with claim_finding; one claimed by someone else is theirs.\n' + shown.map(e => e.text).join('');
+  return (`Tasks: work assigned on the ledger, not problems in the code (${entries.length} open: ${parts}${entries.length > shown.length ? `; ${shown.length} shown` : ''}${closed.length ? `; ${closed.length} closed` : ''}). `
+    + 'Before you start one, claim it with claim_finding; one claimed by someone else is theirs.\n' + shown.map(e => e.text).join('') + closedPart).trimEnd();
 }
 
 /**

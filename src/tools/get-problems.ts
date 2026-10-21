@@ -10,6 +10,7 @@ import {
   renderTasksSection,
   retireClosedSeeds,
   TASK_CATEGORY,
+  findingCategory,
   withoutTasks,
   workspaceRepo,
 } from './_findings.js';
@@ -85,7 +86,10 @@ export async function handle(
   // not take "none in the local store" for "no open findings".
   const headline = openFindingsHeadline(all?.filtered ?? null, recall);
   const core = `${headline}\n\n${localFindings(input, localStore, local, startTime)}\n\n${NO_SERVER_ANALYSIS}`;
-  const section = renderFindingsSection(askedForTasks ? recall : withoutTasks(recall), { max: 10 });
+  // The category filter applies to the recalled findings as it does to the local ones.
+  const cats = input.category?.length ? new Set(input.category.map(c => c.toLowerCase())) : null;
+  const recalled = cats && recall.status === 'ok' ? { ...recall, findings: recall.findings.filter(f => cats.has(findingCategory(f))) } : recall;
+  const section = renderFindingsSection(askedForTasks ? recalled : withoutTasks(recalled), { max: 10 });
   const tasks = askedForTasks ? '' : renderTasksSection(localTasks, recall);
   return [core, section, tasks].filter(Boolean).join('\n\n');
 }

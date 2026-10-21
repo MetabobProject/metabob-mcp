@@ -260,3 +260,12 @@ test('a finding with no linked concept retires only itself', async () => {
   expect(store.getSeedById('agf_solo')).toBeNull();
   expect(store.getSeedById('agf_other')).not.toBeNull();
 });
+
+test('markCompleteResult names what the reply did, for the call log', () => {
+  expect(MarkComplete.markCompleteResult('Finding agf_x left open: fix pending in 3ms')).toBe('pending');
+  expect(MarkComplete.markCompleteResult('Finding agf_x left open, fix pending, from the shared record')).toBe('pending');
+  expect(MarkComplete.markCompleteResult('Finding agf_x left open: nothing in this checkout changed since it was recorded. No verdict was recorded.')).toBe('not_applied');
+  expect(MarkComplete.markCompleteResult('Problem ID "p" is not a finding id, so nothing was recorded.')).toBe('not_applied');
+  expect(MarkComplete.markCompleteResult('Finding agf_x endorsed (finding resolved, retired from get_problems) in 2ms\n  concept-db: concept-db unreachable (x) — verdict recorded locally only')).toBe('not_shared');
+  expect(MarkComplete.markCompleteResult('Finding agf_x endorsed (finding resolved, retired from get_problems) in 2ms\n  concept-db: verdict shared via concept-db (concept c1)')).toBe('ok');
+});

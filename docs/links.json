@@ -516,6 +516,7 @@
       },
       "src/tools/mark-complete.ts": {
         "SPEC": [
+          "call-log",
           "mark_complete"
         ]
       },
@@ -933,6 +934,7 @@
         "src/auth-service.ts@AuthService",
         "src/auth-service.ts@org-check",
         "src/call-log.ts@logCall",
+        "src/call-log.ts@reportResult",
         "src/cli.ts",
         "src/cli.ts@main",
         "src/cochange-predictor.ts@addFile",
@@ -1034,6 +1036,7 @@
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/init-workspace.ts@handle",
         "src/tools/mark-complete.ts@handle",
+        "src/tools/mark-complete.ts@markCompleteResult",
         "src/tools/path-activity.ts@handle",
         "src/tools/predict-cochanges.ts@handle",
         "src/tools/provide-feedback.ts@handle",
@@ -1130,6 +1133,7 @@
       "src/auth-service.ts@AuthService": "4358b48b7f51",
       "src/auth-service.ts@org-check": "43179ed4e402",
       "src/call-log.ts@logCall": "45d6e42824e6",
+      "src/call-log.ts@reportResult": "836e5ddf991e",
       "src/cli.ts@main": "7d5d3f63a3bd",
       "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
@@ -1230,7 +1234,8 @@
       "src/tools/index.ts@TOOL_REGISTRY": "c2ebce7570f5",
       "src/tools/index.ts@substrateToolRefusal": "33e28bf195bc",
       "src/tools/init-workspace.ts@handle": "4bdf740420c9",
-      "src/tools/mark-complete.ts@handle": "4bdf740420c9",
+      "src/tools/mark-complete.ts@handle": "60ef626862ff",
+      "src/tools/mark-complete.ts@markCompleteResult": "bfd43e1bb6c3",
       "src/tools/path-activity.ts@handle": "5034330ff43d",
       "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
       "src/tools/provide-feedback.ts@handle": "73fbe202d3b1",

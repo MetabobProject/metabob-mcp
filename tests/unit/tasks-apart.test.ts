@@ -90,3 +90,22 @@ test('tasks this checkout holds come first, marked as yours', async () => {
   expect(tasks.indexOf('• mine')).toBeLessThan(tasks.indexOf('• free'));
   expect(tasks.indexOf('• free')).toBeLessThan(tasks.indexOf('• theirs'));
 });
+
+test('closed tasks stay visible in the default view, and a category filter applies to the recall too', async () => {
+  const repo = workspaceRepo()!.id;
+  const rows = [
+    { id: 'concept:cf_done', shape: 'code_finding', summary: '[MEDIUM][task] x: make average() correct', content: `repo: ${repo}\nfiles: src/s.ts\ncategory: task\nfinding_ids: agf_done` },
+    { id: 'concept:cf_open', shape: 'code_finding', summary: '[LOW][task] x: add median()', content: `repo: ${repo}\nfiles: src/s.ts\ncategory: task\nfinding_ids: agf_open` },
+    { id: 'concept:cf_test', shape: 'code_finding', summary: '[LOW][testing] x: no test for average()', content: `repo: ${repo}\nfiles: src/s.ts\ncategory: testing\nfinding_ids: agf_test` },
+    { id: 'concept:v1', shape: 'finding_verdict', created_at: new Date().toISOString(), summary: '[verdict:endorse] x', content: 'finding: agf_done\nverdict: endorsed (resolved)\nfix: commit 04f4759f93aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+  ];
+  await installShapeStub({ conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }) });
+  const out = await GetProblems.handle(GetProblems.InputSchema.parse({}), api, 's', null);
+  const tasks = out.slice(out.indexOf('Tasks: work assigned'));
+  expect(tasks).toContain('(1 open: 1 unclaimed; 1 closed)');
+  expect(tasks).toContain('Closed tasks (1):');
+  expect(tasks).toMatch(/\[FIXED in 04f4759f93\] make average\(\) correct/);
+  const only = await GetProblems.handle(GetProblems.InputSchema.parse({ category: ['task'] }), api, 's', null);
+  expect(only).not.toContain('no test for average()');
+  expect(only).toContain('add median()');
+});

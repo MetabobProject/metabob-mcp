@@ -53,7 +53,7 @@ import { translateTlsError } from './tls-error.js';
 import { NetError } from './net.js';
 import { ZodError } from 'zod';
 import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
-import { logCall } from './call-log.js';
+import { logCall, withResult } from './call-log.js';
 import { sessionId, setWorkspaceOperator } from './operator-id.js';
 import { keepAttachedMarker } from './attached-marker.js';
 
@@ -289,12 +289,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     // Execute tool — pass localStore as fourth arg for cache-aware handlers
-    const result = await (tool.handler as (
+    const ran = await withResult(() => (tool.handler as (
       input: any,
       apiClient: any,
       sessionId: string,
       localStore?: LocalStore | null,
-    ) => Promise<string>)(validatedInput, apiClient, SESSION_ID, localStore);
+    ) => Promise<string>)(validatedInput, apiClient, SESSION_ID, localStore));
+    const result = ran.value;
 
     success = true;
     circuitBreaker.recordSuccess();
@@ -304,7 +305,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
     log('info', `Tool ${name} completed in ${duration}ms`);
-    logCall({ session: SESSION_ID, tool: name, args, outcome: 'ok', ms: duration });
+    logCall({ session: SESSION_ID, tool: name, args, outcome: 'ok', ms: duration, result: ran.result });
 
     // Return MCP response
     return {

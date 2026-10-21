@@ -15,7 +15,7 @@ import { getAttachment } from './attachment.js';
 import { proxySummary } from './net.js';
 import { ZodError } from 'zod';
 import { guardToolInput } from './outgoing-guard.js';
-import { logCall, type CallOutcome } from './call-log.js';
+import { logCall, withResult, type CallOutcome } from './call-log.js';
 
 /**
  * Shapes the substrate DISPATCHES TO the agent (solicited decisions) rather than
@@ -374,7 +374,7 @@ export async function resolveImpulseContent(
   const { toolName, toolInput } = resolvePointerToTool(pointer);
   // The call log covers this path too, marked as the loopback's (SPEC §call-log).
   const started = Date.now();
-  const logged = (outcome: CallOutcome) => logCall({ session: sessionId, tool: toolName, args: toolInput, outcome, ms: Date.now() - started, via: 'loopback' });
+  const logged = (outcome: CallOutcome, result?: string) => logCall({ session: sessionId, tool: toolName, args: toolInput, outcome, ms: Date.now() - started, via: 'loopback', result });
   // Gate AFTER shape→tool mapping so every shape is covered, not just
   // mcp:tool_call.
   if (!isToolPermitted(toolName)) {
@@ -405,9 +405,9 @@ export async function resolveImpulseContent(
     throw new Error(refusal);
   }
   try {
-    const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
-    logged('ok');
-    return { toolName, content };
+    const ran = await withResult(() => tool.handler(validatedInput, apiClient, sessionId, localStore));
+    logged('ok', ran.result);
+    return { toolName, content: ran.value };
   } catch (err) {
     logged('error');
     throw err;

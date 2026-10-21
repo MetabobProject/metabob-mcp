@@ -71,3 +71,11 @@ test('mcp:tool_call takes its input as `arguments` too, as MCP clients name it',
   const both = await post({ type: 'mcp:tool_call', tool: 'get_problems', input: {}, arguments: {} });
   expect(JSON.stringify(await both.json())).toContain('not both');
 });
+
+test('a tool that answers with a refusal logs its result kind, not just "ok"', async () => {
+  await server.call('claim_finding', { problem_id: 'agf_not_here' });
+  await server.call('mark_complete', { problem_id: 'prob_not_a_finding' });
+  const lines = readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  expect(lines.find(l => l.tool === 'claim_finding')).toMatchObject({ outcome: 'ok', result: 'refused' });
+  expect(lines.find(l => l.tool === 'mark_complete')).toMatchObject({ outcome: 'ok', result: 'not_applied' });
+});

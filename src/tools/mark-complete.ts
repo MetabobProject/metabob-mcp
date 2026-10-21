@@ -20,6 +20,7 @@ import { plainConceptId } from './_concept-content.js';
 import { fixLocation, hasRemote, type FixLocation } from '../repo-identity.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { claimWarning } from './claim-finding.js';
+import { reportResult } from '../call-log.js';
 
 /**
  * An endorse of a fix that is still uncommitted does not close the finding: the fix exists only in this
@@ -124,7 +125,25 @@ export const InputSchema = z.object({
 
 export type MarkCompleteInput = z.infer<typeof InputSchema>;
 
-export async function handle(
+/**
+ * The result kind of a mark_complete reply, for the call log (SPEC §call-log): `pending` (left open with a fix
+ * pending), `not_applied` (left open, nothing written, or an id it refuses), `not_shared` (closed locally, but the
+ * shared verdict was not written), else `ok`. Read from the reply's own fixed wording.
+ */
+export function markCompleteResult(out: string): string {
+  if (/left open(:|,) fix pending/.test(out)) return 'pending';
+  if (/left open:|is not a finding id|not found in the local store|cannot be updated|could not be read|no verdict was recorded/i.test(out)) return 'not_applied';
+  if (/concept-db: (write failed|not shared|concept-db unreachable|.*verdict recorded locally only)/.test(out)) return 'not_shared';
+  return 'ok';
+}
+
+export async function handle(...args: Parameters<typeof closeOrPend>): Promise<string> {
+  const out = await closeOrPend(...args);
+  reportResult(markCompleteResult(out));
+  return out;
+}
+
+async function closeOrPend(
   input: MarkCompleteInput,
   apiClient: AnalysisAPIClient,
   sessionId: string,
@@ -239,7 +258,7 @@ export async function handle(
         (claimed ? `  claim:      ${claimed}\n` : '') +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         (loc ? `  fix:        ${fixShown(loc)}\n` : '') +
-        `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
+        `  relevance:  ${!usage ? `not recorded until the fix is ${unpushed ? 'pushed' : 'committed'}` : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
         (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : unpushed ? `\n  ${UNPUSHED_NOTE(loc.sha)}` : '')
@@ -316,7 +335,7 @@ export async function handle(
       const linkedRef = conceptIdFromRefs(seed.refs_json);
       const conceptId = linkedRef ? plainConceptId(linkedRef) : null;
       if (pending) {
-        relevanceStatus = 'relevance: not recorded until the fix is committed';
+        relevanceStatus = `relevance: not recorded until the fix is ${unpushed ? 'pushed' : 'committed'}`;
       } else if (conceptId) {
         const outcome = input.action === 'endorse' ? 'success' : 'failure';
         const usage = await recordConceptUsage(conceptId, outcome);
