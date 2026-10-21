@@ -34,12 +34,22 @@ function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>): string
       + 'Commit it, then mark_complete endorse again to close the finding with its commit.';
 }
 
-/** Nothing in this checkout postdates the finding, so nothing here can be its fix: no verdict is written. */
-function noFixHere(id: string, recordedAt: Date | undefined): string {
-  return `Finding ${id} left open: nothing in this checkout changed since it was recorded${recordedAt ? ` (${recordedAt.toISOString()})` : ''}`
-    + ' — no commit since then and no uncommitted change — so nothing here can be its fix, and no verdict was recorded.\n'
+/**
+ * Nothing in this checkout can be shown to be the fix, so no verdict is written: the finding's files are not here
+ * (`absent`), or nothing changed since the finding was recorded, or it has no recorded time to tell (`none`).
+ */
+function noFixHere(id: string, loc: FixLocation, recordedAt: Date | undefined): string {
+  const why = loc.kind === 'absent'
+    ? 'none of its files is in this checkout, so this is not the checkout the fix is in'
+    : recordedAt
+    ? `nothing in this checkout changed since it was recorded (${recordedAt.toISOString()}) — no commit since then and no uncommitted change — so nothing here can be its fix`
+    : 'it has no recorded time, so no commit here can be shown to postdate it, and this checkout has no uncommitted change';
+  return `Finding ${id} left open: ${why}. No verdict was recorded.\n`
     + '  If the fix is in another checkout, endorse it there, or pull it and endorse here. If it was never a bug, discard it.';
 }
+
+/** Kinds for which an endorse writes nothing. */
+const NO_FIX = new Set<FixLocation['kind']>(['none', 'absent']);
 
 function fixShown(loc: FixLocation): string {
   if (loc.kind === 'commit') {
@@ -47,7 +57,7 @@ function fixShown(loc: FixLocation): string {
       + (loc.elsewhere ? ' — the newest commit since the finding; it touches none of the finding\'s files' : '');
   }
   if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
-  return 'unknown (not a git checkout, or the finding\'s files are not in it), so the finding is closed without a commit';
+  return 'unknown (not a git checkout), so the finding is closed without a commit';
 }
 
 export const MarkCompleteTool = {
@@ -134,7 +144,7 @@ export async function handle(
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
       const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt) : null;
-      if (loc?.kind === 'none') return noFixHere(plainId, remote.recordedAt);
+      if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
       const pending = loc?.kind === 'uncommitted';
       const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const tag = pending ? 'pending' : input.action;
@@ -213,7 +223,7 @@ export async function handle(
     // The finding's recorded time: its earliest seed, since record_finding writes all of them at once.
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
     const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt) : null;
-    if (loc?.kind === 'none') return noFixHere(seedId, recordedAt);
+    if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
     const pending = loc?.kind === 'uncommitted';
 
     // A pending fix retires nothing: the finding is still open, here as everywhere else.

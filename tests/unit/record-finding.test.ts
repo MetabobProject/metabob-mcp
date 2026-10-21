@@ -20,6 +20,7 @@ import * as AnnotateComponent from '../../src/tools/annotate-component';
 import { setResolverIdentity } from '../../src/resolver-identity';
 import { setAttachment } from '../../src/attachment';
 import { installShapeStub, type ShapeHandler } from '../helpers/shape-stub';
+import { NO_GIT } from '../helpers/no-git';
 
 const SESSION = 'test-session';
 
@@ -225,7 +226,7 @@ test('mark_complete: endorse records a success usage on the finding concept', as
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: id, action: 'endorse' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
 
   const usageHits = stub.calls('conceptUsage_write').map((p) => p.usageData);
@@ -250,7 +251,7 @@ test('mark_complete: discard records a failure usage on the finding concept', as
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: id, action: 'discard' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
 
   const usageHits = stub.calls('conceptUsage_write').map((p) => p.usageData);
@@ -269,7 +270,7 @@ test('mark_complete: endorse retires an agf_* finding from the cache', async () 
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: id, action: 'endorse' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
   expect(out).toContain('endorsed');
   expect(localStore.getCachedSeeds('src/b.ts').length).toBe(0);
@@ -286,7 +287,7 @@ test('mark_complete: discard deletes an agf_* finding', async () => {
 
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: id, action: 'discard' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
   expect(out).toContain('discarded');
   expect(localStore.getSeedById(id)).toBeNull();
@@ -295,7 +296,7 @@ test('mark_complete: discard deletes an agf_* finding', async () => {
 test('mark_complete: unknown agf_* id reports not found', async () => {
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'agf_doesnotexist' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
   expect(out).toContain('not found');
 });
@@ -388,7 +389,7 @@ test('mark_complete (local-seed path): verdict carries reviewed_by, session and 
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: id, action: 'endorse' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
 
   // posts[0] is the finding; posts[1] is the verdict.
@@ -421,7 +422,7 @@ test('mark_complete (remote/recalled path): verdict carries reviewed_by, session
   const out = await MarkComplete.handle(
     // No local seed exists for this concept id — the fleet case.
     MarkComplete.InputSchema.parse({ problem_id: 'concept_cf_remote', action: 'endorse' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
   expect(out).toContain('verdict shared');
 
@@ -446,7 +447,7 @@ test('mark_complete (remote path): unresolvable identity still stamps origin: re
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'concept_cf_anon', action: 'discard' }),
-    mockApiClient, SESSION, localStore,
+    mockApiClient, SESSION, localStore, NO_GIT,
   );
 
   const content = contentOf(posts[0]);

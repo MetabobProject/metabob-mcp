@@ -14,6 +14,7 @@ import * as RecordFinding from '../../src/tools/record-finding';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import { DUPLICATE_JACCARD, sameFindingSummary, workspaceRepo } from '../../src/tools/_findings';
 import { installShapeStub, type ShapeStub } from '../helpers/shape-stub';
+import { NO_GIT } from '../helpers/no-git';
 
 const apiClient = {} as AnalysisAPIClient;
 type Row = { id: string; shape: string; summary: string; content: string };
@@ -112,7 +113,7 @@ describe('record_finding duplicate check', () => {
 
   test('a closed finding is not a duplicate: endorsed locally, or closed by a verdict', async () => {
     const first = await record(['src/x.ts'], 'stale cache after deploy');
-    await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: agf(first), action: 'endorse' }), apiClient, 's', store);
+    await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: agf(first), action: 'endorse' }), apiClient, 's', store, NO_GIT);
     // The seed is stale and the shared concept carries a finding_verdict now.
     const again = await record(['src/x.ts'], 'stale cache after deploy');
     expect(again).toStartWith('Finding recorded');

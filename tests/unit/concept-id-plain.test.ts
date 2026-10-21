@@ -20,6 +20,7 @@ import * as ConceptCreate from '../../src/tools/concept-create';
 import * as ConceptLink from '../../src/tools/concept-link';
 import * as ConceptSequence from '../../src/tools/concept-sequence';
 import { installShapeStub } from '../helpers/shape-stub';
+import { NO_GIT } from '../helpers/no-git';
 
 const apiClient = {} as AnalysisAPIClient;
 const written = (row: Record<string, unknown>) => ({ body: { success: true, content: JSON.stringify(row) } });
@@ -67,7 +68,7 @@ test('mark_complete accepts a wrapped id and prints it plain, with a plain verdi
   );
   const out = await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: '⟨concept_fin-ding⟩', action: 'endorse' }),
-    apiClient, 's', localStore,
+    apiClient, 's', localStore, NO_GIT,
   );
   expect(out).toContain('(via concept_fin-ding)');
   expect(out).toContain('concept concept_ver-dict');

@@ -21,6 +21,7 @@ import type { LocalStore, SeedRecord } from '../../src/local-store';
 import { plainConceptId } from '../../src/tools/_concept-content';
 import { setAttachment } from '../../src/attachment';
 import { installShapeStub, type ShapeStub } from '../helpers/shape-stub';
+import { NO_GIT } from '../helpers/no-git';
 
 const realVesselId = process.env.VESSEL_ID;
 
@@ -141,7 +142,7 @@ test('mark_complete: a ⟨⟩-wrapped concept id retires the local seed', async 
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'endorse' }),
     client,
     SESSION,
-    spy.store,
+    spy.store, NO_GIT,
   );
 
   // The gate must match the wrapped form, or the seed is never touched.
@@ -160,7 +161,7 @@ test('mark_complete: a ⟨⟩-wrapped concept id discards via the local store', 
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'discard' }),
     client,
     SESSION,
-    spy.store,
+    spy.store, NO_GIT,
   );
 
   expect(spy.deleted).toEqual(['agf_local1']);
@@ -178,7 +179,7 @@ test('mark_complete: a seed whose refs_json kept the wrapper still resolves, and
     MarkComplete.InputSchema.parse({ problem_id: 'agf_local1', action: 'endorse' }),
     client,
     SESSION,
-    { ...spy.store, getSeedById: () => seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) } as unknown as LocalStore,
+    { ...spy.store, getSeedById: () => seed({ refs_json: JSON.stringify([`concept:${WRAPPED}`]) }) } as unknown as LocalStore, NO_GIT,
   );
 
   const usage = stub.calls('conceptUsage_write')[0];
@@ -195,7 +196,7 @@ test('mark_complete: a wrapped id with no local seed reads the concept by its ba
     MarkComplete.InputSchema.parse({ problem_id: WRAPPED, action: 'endorse' }),
     client,
     SESSION,
-    spy.store,
+    spy.store, NO_GIT,
   );
 
   // The wrapped id must reach concept-db by its plain form.
@@ -216,7 +217,7 @@ test('mark_complete: a concept carrying no agf_* id keys its verdict on the conc
     MarkComplete.InputSchema.parse({ problem_id: PLAIN, action: 'endorse' }),
     client,
     SESSION,
-    spy.store,
+    spy.store, NO_GIT,
   );
 
   expect(stub.calls('concept_create_write')).toHaveLength(1);
@@ -236,7 +237,7 @@ test('mark_complete: a concept carrying a real agf_* id still keys the verdict o
     MarkComplete.InputSchema.parse({ problem_id: PLAIN, action: 'endorse' }),
     client,
     SESSION,
-    spy.store,
+    spy.store, NO_GIT,
   );
 
   expect(findingLine(stub)).toBe('finding: agf_remote9');

@@ -18,6 +18,7 @@ import * as MarkComplete from '../../src/tools/mark-complete';
 import { makeTempStore, cleanupTempStores } from '../helpers/temp-store';
 import { setAttachment } from '../../src/attachment';
 import { installShapeStub } from '../helpers/shape-stub';
+import { NO_GIT } from '../helpers/no-git';
 
 const SESSION = 'mark-complete-verdict-session';
 
@@ -45,7 +46,7 @@ for (const action of ['endorse', 'discard'] as const) {
     }) as unknown as typeof fetch;
     try {
       const input = MarkComplete.InputSchema.parse({ problem_id: 'prob_456', action });
-      const out = await MarkComplete.handle(input, api, SESSION);
+      const out = await MarkComplete.handle(input, api, SESSION, undefined, NO_GIT);
       expect(out).toContain('"prob_456" is not a finding id, so nothing was recorded');
       expect(calls).toEqual([]);
     } finally {
@@ -99,7 +100,7 @@ async function markCompleteAgainstFakeDb(
     // whole point — another agent recorded it somewhere else.
     const { store } = makeTempStore('mark-complete-verdict-');
     const input = MarkComplete.InputSchema.parse({ problem_id: FLEET_CONCEPT, action });
-    const output = await MarkComplete.handle(input, makeApiClient(), SESSION, store);
+    const output = await MarkComplete.handle(input, makeApiClient(), SESSION, store, NO_GIT);
     return {
       verdicts: stub.calls('concept_create_write').map((p) => p.conceptData),
       usage: stub.calls('conceptUsage_write').map((p) => p.usageData),
@@ -201,7 +202,7 @@ test('a verdict retires every seed sharing the finding, not just the one named',
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'agf_f2', action: 'endorse' }),
-    makeApiClient(), SESSION, store,
+    makeApiClient(), SESSION, store, NO_GIT,
   );
 
   // Endorse marks stale: none of the three should still be served.
@@ -228,7 +229,7 @@ test('discard removes every seed sharing the finding', async () => {
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'agf_x1', action: 'discard' }),
-    makeApiClient(), SESSION, store,
+    makeApiClient(), SESSION, store, NO_GIT,
   );
 
   expect(store.getSeedById('agf_x1')).toBeNull();
@@ -253,7 +254,7 @@ test('a finding with no linked concept retires only itself', async () => {
 
   await MarkComplete.handle(
     MarkComplete.InputSchema.parse({ problem_id: 'agf_solo', action: 'discard' }),
-    makeApiClient(), SESSION, store,
+    makeApiClient(), SESSION, store, NO_GIT,
   );
 
   expect(store.getSeedById('agf_solo')).toBeNull();

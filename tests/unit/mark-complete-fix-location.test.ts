@@ -63,7 +63,12 @@ describe('fixLocation', () => {
   test('a commit older than the finding is never its fix, and a path git does not know is unknown, never HEAD', () => {
     const dir = checkout('old');
     expect(fixLocation(dir, ['stats.ts'], new Date())).toEqual({ kind: 'none' });
-    expect(fixLocation(dir, ['src/nope.ts'], new Date())).toEqual({ kind: 'unknown' });
+    expect(fixLocation(dir, ['src/nope.ts'], new Date())).toEqual({ kind: 'absent' });
+    // With no recorded time no commit can be shown to postdate the finding.
+    writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
+    git(dir, 'commit', '-qam', 'fix');
+    expect(fixLocation(dir, ['stats.ts'])).toEqual({ kind: 'none' });
+    expect(fixLocation(dir, ['stats.ts'], new Date(Date.now() - 60_000)).kind).toBe('commit');
   });
 
   test('a fix in another file: uncommitted there is pending (outside), committed it is the newest commit since the finding', () => {
@@ -167,17 +172,32 @@ describe('mark_complete endorse', () => {
     const stub = await db();
     const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, dir);
     expect(out).toContain('nothing in this checkout changed since it was recorded');
-    expect(out).toContain('no verdict was recorded');
+    expect(out).toContain('No verdict was recorded');
     expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
     expect(stub.calls('concept_create_write')).toHaveLength(0);
     expect(stub.calls('conceptUsage_write')).toHaveLength(0);
+  });
+
+  test('a git checkout without the finding\'s files is not where the fix is: no verdict, the finding stays open', async () => {
+    const dir = checkout('endorse-absent');
+    const { store } = makeTempStore('fixloc-absent-');
+    store.upsertSeed({
+      id: 'agf_gone1', workspace_id: 'default', file_path: 'src/nope.ts', line_start: 1, line_end: 1,
+      category: 'correctness', severity: 'MEDIUM', brief: 'elsewhere', confidence: 1, refs_json: '[]',
+      produced_at: Date.now(), read_at: null, stale: false,
+    });
+    const stub = await db();
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_gone1' }), api, 's', store, dir);
+    expect(out).toContain('none of its files is in this checkout');
+    expect(store.getSeedById('agf_gone1')?.stale).toBe(false);
+    expect(stub.calls('concept_create_write')).toHaveLength(0);
   });
 
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {
     const store = seeded();
     const stub = await db();
     const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, mkdtempSync(join(root, 'plain-')));
-    expect(out).toContain('fix: unknown (not a git checkout, or the finding\'s files are not in it)');
+    expect(out).toContain('fix: unknown (not a git checkout)');
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
     expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('verdict: endorsed (resolved)');
   });

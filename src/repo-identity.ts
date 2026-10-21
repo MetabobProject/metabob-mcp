@@ -135,18 +135,22 @@ export function clearRepoIdentityCache(): void {
  * (SPEC §mark_complete). A fix commit postdates the finding (`recordedAt`, less FIX_SKEW_MS for clocks), since a
  * commit older than the finding cannot be its fix; a fix may touch files other than the finding's.
  *
- * - `unknown`: not a git checkout, or none of `files` is known to git here (not tracked and not on disk).
+ * - `unknown`: not a git checkout.
+ * - `absent`: a git checkout where none of `files` is known (not tracked and not on disk): not where the fix is.
  * - `uncommitted`: one of the finding's files has changes git has not committed (modified, staged, untracked or
  *   deleted), or, with no commit since the finding touching them, other tracked files do (`outside`: the fix may be
  *   among them).
  * - `commit`: the newest commit since the finding touching its files, else the newest commit since it at all
- *   (`elsewhere`), with its branch and whether a remote branch holds it.
- * - `none`: a clean checkout with no commit since the finding was recorded: nothing here can be its fix.
+ *   (`elsewhere`), with its branch and whether a remote branch holds it. Never without `recordedAt`: with no
+ *   recorded time no commit can be shown to postdate the finding.
+ * - `none`: a clean checkout with no commit since the finding was recorded (or no recorded time): nothing here can
+ *   be shown to be its fix.
  */
 export type FixLocation =
   | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
   | { kind: 'none' }
+  | { kind: 'absent' }
   | { kind: 'unknown' };
 
 /** Allowance for the recording machine's clock running ahead of the committing machine's. */
@@ -158,22 +162,21 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   if (top === null) return { kind: 'unknown' };
   const paths = files.map(f => f.trim()).filter(Boolean)
     .filter(f => existsSync(resolve(cwd, f)) || !!git(cwd, ['ls-files', '--', f]));
-  if (!paths.length) return { kind: 'unknown' };
+  if (!paths.length) return { kind: 'absent' };
   const ref = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = ref && ref !== 'HEAD' ? ref : undefined;
   const base = git(cwd, ['rev-parse', 'HEAD']) || undefined;
   const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
   if (status === null) return { kind: 'unknown' };
   if (status) return { kind: 'uncommitted', branch, base };
-  const since = recordedAt && Number.isFinite(recordedAt.getTime())
-    ? [`--since=${new Date(recordedAt.getTime() - FIX_SKEW_MS).toISOString()}`] : [];
+  const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
+  const since = timed ? [`--since=${new Date(recordedAt!.getTime() - FIX_SKEW_MS).toISOString()}`] : [];
   const commit = (sha: string, elsewhere?: boolean): FixLocation =>
     ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...(elsewhere ? { elsewhere } : {}) });
-  const touching = git(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]);
+  const touching = timed ? git(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]) : null;
   if (touching) return commit(touching);
   if (git(cwd, ['status', '--porcelain', '--untracked-files=no'])) return { kind: 'uncommitted', branch, base, outside: true };
-  // With no recorded time, any commit could predate the finding: only one touching its files counts.
-  const any = since.length ? git(cwd, ['log', '-1', '--format=%H', ...since]) : null;
+  const any = timed ? git(cwd, ['log', '-1', '--format=%H', ...since]) : null;
   return any ? commit(any, true) : { kind: 'none' };
 }
 
