@@ -278,7 +278,7 @@ const FINDINGS_MAX_SCAN = 300;
 export async function fetchConceptById(
   _apiClient: AnalysisAPIClient,
   conceptId: string,
-): Promise<{ summary: string; files: string; repo: string; repoName: string; findingId: string } | null> {
+): Promise<{ summary: string; files: string; repo: string; repoName: string; findingId: string; recordedAt?: Date } | null> {
   if (!(await conceptDbAvailable())) return null;
   const plain = plainConceptId(conceptId);
   const read = await getConcept(plain);
@@ -295,6 +295,7 @@ export async function fetchConceptById(
     repo: headerLine(content, 'repo'),
     repoName: headerLine(content, 'repo_name'),
     findingId,
+    ...(row.created_at && Number.isFinite(Date.parse(row.created_at)) ? { recordedAt: new Date(row.created_at) } : {}),
   };
 }
 
@@ -392,8 +393,9 @@ export interface ParsedVerdict {
  */
 export function fixLines(loc: FixLocation): string[] {
   const branch = 'branch' in loc && loc.branch ? [`fix_branch: ${loc.branch}`] : [];
-  if (loc.kind === 'commit') return [`fix: commit ${loc.sha}`, ...branch, ...(loc.pushed ? [] : ['fix_pushed: no'])];
-  if (loc.kind === 'uncommitted') return ['fix: uncommitted', ...branch, ...(loc.base ? [`fix_base: ${loc.base}`] : [])];
+  if (loc.kind === 'commit') return [`fix: commit ${loc.sha}`, ...branch, ...(loc.pushed ? [] : ['fix_pushed: no']), ...(loc.elsewhere ? ['fix_touches_finding_files: no'] : [])];
+  if (loc.kind === 'uncommitted') return ['fix: uncommitted', ...branch, ...(loc.base ? [`fix_base: ${loc.base}`] : []), ...(loc.outside ? ['fix_files: outside the finding\'s files'] : [])];
+  if (loc.kind === 'none') return [];
   return ['fix: unknown (not a git checkout)'];
 }
 

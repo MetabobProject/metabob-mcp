@@ -607,6 +607,11 @@
       "tests/unit/lab-tooling.test.ts": {
         "LAB": []
       },
+      "tests/unit/mark-complete-fix-location.test.ts": {
+        "SPEC": [
+          "mark_complete"
+        ]
+      },
       "tests/unit/net.test.ts": {
         "CONFORMANCE": [
           "c8-proxy-and-tls-in-the-vessel-role"

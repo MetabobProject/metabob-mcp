@@ -25,14 +25,29 @@ import { activeWorkspacePath } from '../local-index.js';
  * checkout's working tree, and every other checkout of the repository still has the bug. It is recorded as a
  * pending fix instead, and the finding stays open org-wide until an endorse can name a commit. SPEC §mark_complete
  */
-const PENDING_NOTE =
-  'The fix is uncommitted in this checkout, so the finding stays open for other agents (shown "fix pending"). '
-  + 'Commit it, then mark_complete endorse again to close the finding with its commit.';
+function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>): string {
+  return loc.outside
+    ? 'The finding\'s files are clean and no commit since the finding touches them, but this checkout has uncommitted changes '
+      + 'in other files. If the fix is among them, commit it, then mark_complete endorse again; until then the finding stays '
+      + 'open for other agents (shown "fix pending").'
+    : 'The fix is uncommitted in this checkout, so the finding stays open for other agents (shown "fix pending"). '
+      + 'Commit it, then mark_complete endorse again to close the finding with its commit.';
+}
+
+/** Nothing in this checkout postdates the finding, so nothing here can be its fix: no verdict is written. */
+function noFixHere(id: string, recordedAt: Date | undefined): string {
+  return `Finding ${id} left open: nothing in this checkout changed since it was recorded${recordedAt ? ` (${recordedAt.toISOString()})` : ''}`
+    + ' — no commit since then and no uncommitted change — so nothing here can be its fix, and no verdict was recorded.\n'
+    + '  If the fix is in another checkout, endorse it there, or pull it and endorse here. If it was never a bug, discard it.';
+}
 
 function fixShown(loc: FixLocation): string {
-  if (loc.kind === 'commit') return `commit ${loc.sha.slice(0, 10)}${loc.branch ? ` on ${loc.branch}` : ''}${loc.pushed ? '' : ' (not on any remote branch yet)'}`;
-  if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}`;
-  return 'unknown (not a git checkout), so the finding is closed without a commit';
+  if (loc.kind === 'commit') {
+    return `commit ${loc.sha.slice(0, 10)}${loc.branch ? ` on ${loc.branch}` : ''}${loc.pushed ? '' : ' (not on any remote branch yet)'}`
+      + (loc.elsewhere ? ' — the newest commit since the finding; it touches none of the finding\'s files' : '');
+  }
+  if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
+  return 'unknown (not a git checkout, or the finding\'s files are not in it), so the finding is closed without a commit';
 }
 
 export const MarkCompleteTool = {
@@ -118,7 +133,8 @@ export async function handle(
         return `Concept "${plainId}" could not be read from concept-db, so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(',')) : null;
+      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt) : null;
+      if (loc?.kind === 'none') return noFixHere(plainId, remote.recordedAt);
       const pending = loc?.kind === 'uncommitted';
       const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const tag = pending ? 'pending' : input.action;
@@ -174,7 +190,7 @@ export async function handle(
         `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
-        (pending ? `\n  ${PENDING_NOTE}` : '')
+        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc)}` : '')
       );
     }
     if (!seed) {
@@ -194,7 +210,10 @@ export async function handle(
     const siblings = conceptRef ? localStore.getSeedsByConceptRef(conceptRef) : [];
     const toRetire = siblings.length > 0 ? siblings.map(s => s.id) : [seedId];
     const files = siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path];
-    const loc = input.action === 'endorse' ? fixLocation(workspace, files) : null;
+    // The finding's recorded time: its earliest seed, since record_finding writes all of them at once.
+    const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
+    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt) : null;
+    if (loc?.kind === 'none') return noFixHere(seedId, recordedAt);
     const pending = loc?.kind === 'uncommitted';
 
     // A pending fix retires nothing: the finding is still open, here as everywhere else.
@@ -265,7 +284,7 @@ export async function handle(
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (loc) out += `\n  fix: ${fixShown(loc)}`;
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
-    if (pending) out += `\n  ${PENDING_NOTE}`;
+    if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc)}`;
     return out;
   }
 

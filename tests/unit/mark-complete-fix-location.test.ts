@@ -31,27 +31,49 @@ function git(dir: string, ...args: string[]): string {
   return execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...args], { encoding: 'utf8' }).trim();
 }
 
-/** A repository with stats.ts committed on branch `main`. */
+const HOUR_AGO = new Date(Date.now() - 3_600_000).toISOString();
+
+/** A repository with stats.ts and util.ts committed on branch `main` an hour ago, before any finding. */
 function checkout(name: string): string {
   const dir = join(root, name);
   execFileSync('git', ['init', '-q', '-b', 'main', dir]);
   writeFileSync(join(dir, 'stats.ts'), 'export const average = (xs: number[]) => xs.length;\n');
+  writeFileSync(join(dir, 'util.ts'), 'export const sum = (xs: number[]) => xs.length;\n');
   git(dir, 'add', '.');
-  git(dir, 'commit', '-qm', 'stats');
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'stats'],
+    { env: { ...process.env, GIT_AUTHOR_DATE: HOUR_AGO, GIT_COMMITTER_DATE: HOUR_AGO } });
   return dir;
 }
 
 describe('fixLocation', () => {
-  test('clean files name the last commit touching them and its branch; edits and new files are uncommitted', () => {
+  test('a commit since the finding touching its files is the fix; edits and new files are uncommitted', () => {
     const dir = checkout('loc');
     const head = git(dir, 'rev-parse', 'HEAD');
-    expect(fixLocation(dir, ['stats.ts'])).toEqual({ kind: 'commit', sha: head, branch: 'main', pushed: false });
+    const recorded = new Date();
     writeFileSync(join(dir, 'stats.ts'), 'export const average = (xs: number[]) => 0;\n');
-    expect(fixLocation(dir, ['stats.ts'])).toEqual({ kind: 'uncommitted', branch: 'main', base: head });
-    git(dir, 'checkout', '-q', '--', 'stats.ts');
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'uncommitted', branch: 'main', base: head });
+    git(dir, 'commit', '-qam', 'fix');
+    const fix = git(dir, 'rev-parse', 'HEAD');
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false });
     writeFileSync(join(dir, 'median.ts'), 'x\n');
-    expect(fixLocation(dir, ['stats.ts', 'median.ts']).kind).toBe('uncommitted');
+    expect(fixLocation(dir, ['stats.ts', 'median.ts'], recorded).kind).toBe('uncommitted');
     expect(fixLocation(mkdtempSync(join(root, 'plain-')), ['stats.ts'])).toEqual({ kind: 'unknown' });
+  });
+
+  test('a commit older than the finding is never its fix, and a path git does not know is unknown, never HEAD', () => {
+    const dir = checkout('old');
+    expect(fixLocation(dir, ['stats.ts'], new Date())).toEqual({ kind: 'none' });
+    expect(fixLocation(dir, ['src/nope.ts'], new Date())).toEqual({ kind: 'unknown' });
+  });
+
+  test('a fix in another file: uncommitted there is pending (outside), committed it is the newest commit since the finding', () => {
+    const dir = checkout('other');
+    const recorded = new Date();
+    writeFileSync(join(dir, 'util.ts'), 'export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);\n');
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toMatchObject({ kind: 'uncommitted', outside: true });
+    git(dir, 'commit', '-qam', 'fix sum');
+    const fix = git(dir, 'rev-parse', 'HEAD');
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, elsewhere: true });
   });
 
   test('commitInHead: HEAD\'s history yes, another branch\'s commit or an unknown one no, no git null', () => {
@@ -119,11 +141,43 @@ describe('mark_complete endorse', () => {
     expect(stub.calls('conceptUsage_write').map(p => p.usageData.outcome)).toEqual(['success']);
   });
 
+  test('a fix in another file, uncommitted, leaves the finding open; committed, closes it and says it touches none of its files', async () => {
+    const dir = checkout('endorse-other');
+    const store = seeded();
+    const stub = await db();
+    writeFileSync(join(dir, 'util.ts'), 'export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);\n');
+    const input = MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' });
+    const pending = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(pending).toContain('left open: fix pending');
+    expect(pending).toContain('uncommitted changes in other files. If the fix is among them, commit it');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain("fix_files: outside the finding's files");
+    git(dir, 'commit', '-qam', 'fix sum');
+    const closed = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(closed).toContain("it touches none of the finding's files");
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+    const content = String(stub.calls('concept_create_write')[1]!.conceptData.content);
+    expect(content).toContain(`fix: commit ${git(dir, 'rev-parse', 'HEAD')}`);
+    expect(content).toContain('fix_touches_finding_files: no');
+  });
+
+  test('a clean file whose only commit predates the finding: nothing to endorse, no verdict, the finding stays open', async () => {
+    const dir = checkout('endorse-old');
+    const store = seeded();
+    const stub = await db();
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, dir);
+    expect(out).toContain('nothing in this checkout changed since it was recorded');
+    expect(out).toContain('no verdict was recorded');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    expect(stub.calls('concept_create_write')).toHaveLength(0);
+    expect(stub.calls('conceptUsage_write')).toHaveLength(0);
+  });
+
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {
     const store = seeded();
     const stub = await db();
     const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, mkdtempSync(join(root, 'plain-')));
-    expect(out).toContain('fix: unknown (not a git checkout)');
+    expect(out).toContain('fix: unknown (not a git checkout, or the finding\'s files are not in it)');
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
     expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('verdict: endorsed (resolved)');
   });
