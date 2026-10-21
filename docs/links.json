@@ -9,6 +9,7 @@
       "LAB": "lab/README.md",
       "PUBLISHING": "docs/PUBLISHING.md",
       "QUICK_START": "docs/QUICK_START.md",
+      "README": "README.md",
       "SPEC": "docs/SPEC.md",
       "USER_GUIDE": "docs/USER-GUIDE.md"
     },
@@ -115,6 +116,10 @@
       ],
       "lab/README.md": [
         "lab/**"
+      ],
+      "README.md": [
+        "scripts/claude-plugin/edit-check.mjs",
+        "scripts/claude-plugin/hooks.json"
       ]
     },
     "retired": {},
@@ -131,12 +136,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "1921edc",
-        "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
+        "at": "c40ef45",
+        "why": "attachment.ts names a proxy's refusal as proxy_refused and attach-check says when scopes are unknown; no key-file row or conformance requirement changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "55bef51",
-        "why": "attachment.ts gates writes on the key's reported scopes and names a proxy refusal; the usage-history read stays the one direct edge; no requirement or its status changes"
+        "at": "c40ef45",
+        "why": "attachment.ts names a proxy's refusal as proxy_refused and attach-check says when scopes are unknown; no key-file row or conformance requirement changes"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
@@ -151,6 +156,14 @@
   "derived": {
     "note": "REBUILT by `node scripts/doclinks.mjs build` — do not edit by hand.",
     "codeCitesDocs": {
+      "lab/lab.sh": {
+        "README": []
+      },
+      "scripts/claude-plugin/edit-check.mjs": {
+        "README": [
+          "claude-code-plugin"
+        ]
+      },
       "src/agent-delivery.ts": {
         "CONFORMANCE": [
           "c11-attachment-model",
@@ -549,6 +562,9 @@
           "impulse-shapes"
         ]
       },
+      "tests/claude-sessions/scenarios.ts": {
+        "README": []
+      },
       "tests/unit/agent-delivery.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -560,6 +576,11 @@
         ],
         "SPEC": [
           "concept-graph-tools"
+        ]
+      },
+      "tests/unit/edit-check-hook.test.ts": {
+        "README": [
+          "claude-code-plugin"
         ]
       },
       "tests/unit/goal-tools-by-shape.test.ts": {
@@ -593,6 +614,7 @@
         ]
       },
       "tests/unit/outgoing-guard.test.ts": {
+        "README": [],
         "SPEC": [
           "outgoing-text-guard"
         ]
@@ -680,6 +702,7 @@
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
         "lab/lab.sh",
+        "scripts/claude-plugin/edit-check.mjs",
         "scripts/doclinks.mjs",
         "scripts/git-hooks/install.sh",
         "src/api-client.ts",
@@ -706,6 +729,7 @@
         "CLAUDE.md",
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
+        "scripts/claude-plugin/edit-check.mjs",
         "scripts/git-hooks/install.sh"
       ],
       "docs/CONFORMANCE.md": [

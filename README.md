@@ -156,10 +156,11 @@ claude mcp add metabob -- metabob-mcp
 claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.0.0.1:18080 -- npx @metabob/mcp@latest
 ```
 
-### Claude Code plugin (MCP server + skill)
+### Claude Code plugin (MCP server + skill + edit check)
 
-This repo doubles as a plugin marketplace. The plugin bundles the MCP server
-and the `metabob` participation skill (how an agent takes part: coordinator, operator, verifier, client of shared memory):
+This repo doubles as a plugin marketplace. The plugin bundles the MCP server,
+the `metabob` participation skill (how an agent takes part: coordinator, operator, verifier, client of shared memory),
+and an edit check:
 
 ```bash
 claude plugin marketplace add MetabobProject/metabob-mcp
@@ -181,6 +182,15 @@ and the substrate endpoint in `~/.metabob/config.json`:
 Alternatively, export `METABOB_API_KEY` and `METABOB_ENDPOINT` in your shell profile — the plugin's
 MCP server inherits your environment. With either missing the server still starts with its local
 tools, and says once which input is missing.
+
+**The edit check** (`scripts/claude-plugin/hooks.json`, `scripts/claude-plugin/edit-check.mjs`, wired by the plugin manifest's `hooks` field). Before an agent's first edit of an
+existing file in a session, the plugin holds that edit once and asks the agent to run `get_problems`
+for the file and `path_activity` on it, then retry: other agents may have recorded problems on the
+file, and the substrate may have work in flight there. Instructions alone did not change what agents
+do on edit tasks; holding the first edit once did. A file the agent already checked with either tool
+is not held, nor is a new file, nor a second edit of the same file. `METABOB_EDIT_CHECK=off` turns it
+off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other
+clients get the same guidance from the server instructions and the skill only.
 
 ### Claude Desktop
 

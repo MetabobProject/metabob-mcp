@@ -15,5 +15,6 @@
     "impact-analysis",
     "co-change",
     "mcp"
-  ]
+  ],
+  "hooks": "./scripts/claude-plugin/hooks.json"
 }

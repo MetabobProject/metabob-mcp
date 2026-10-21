@@ -50,6 +50,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `src/vessel-server.ts` | Hono HTTP server on `127.0.0.1` — `/health` (with the attachment state), `/v2/capabilities`, `POST /v2/impulses/resolve`, for local callers |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
+| `scripts/claude-plugin/hooks.json`, `scripts/claude-plugin/edit-check.mjs` | The Claude Code plugin's edit check: before an agent's first edit of an existing file in a session, hold it once and ask for `get_problems` / `path_activity` on it; a file already checked through either tool is not held; `METABOB_EDIT_CHECK=off` disables it (README § Claude Code plugin) |
 | `docs/SPEC.md` | Full tool specification with input/output schemas |
 | `docs/links.json` | Docs ↔ code link database, maintained by `scripts/doclinks.mjs` (see `docs/DOCLINKS.md`) |
 
@@ -142,6 +143,7 @@ wins over its derived value only when set explicitly.
 | `METABOB_STDIO_KEEPALIVE` | _(unset)_ | Set to `1` to survive stdin EOF — headless operation (the loopback HTTP resolver only). Otherwise the process exits on stdin EOF or `SIGHUP`, so an orphaned server does not outlive its MCP client |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `METABOB_TOOLS` | _(unset → all)_ | Comma-separated tool allowlist, enforced on stdio and on the loopback resolver |
+| `METABOB_EDIT_CHECK` | _(on)_ | `off` disables the Claude Code plugin's edit check (README § Claude Code plugin); `METABOB_EDIT_CHECK_DIR` moves its per-session state from the temp directory |
 | `METABOB_CLIENT_CLAIM` | _(unset → off)_ | `1` adds `client_claim { operator, session, client }` to every write's pointer (docs/SPEC.md § Client claim); off until a live write smoke confirms the producers accept it. Dispatch `operator:` / `session:` tags and feedback notes are always on |
 | `MB_OPERATOR_ID` | _(this workspace's vesselId)_ | Operator identity declared on goal dispatch (`operator:` tag), in `provide_feedback` label notes and on every write (`client_claim.operator`); unset, the stable `metabob-mcp-<hash>` vesselId, so sessions in different workspaces never share one default |
 | `VESSEL_ID` | _(derived)_ | The coordination identity: keys the local agent-task queue and is the `recorded_by` / `reviewed_by` author of findings and verdicts. Defaults to a stable `metabob-mcp-<hash(apiKey+workspace)>`. Never registered anywhere |
