@@ -10,6 +10,10 @@
  *   node edit-check.mjs post   PostToolUse on the metabob get_problems / path_activity tools: the files they
  *                              named count as checked, so a file the agent already checked is never held
  *
+ * In a repository the substrate does not mount there is nothing in flight to check: when path_activity answers
+ * that the repository is not one the substrate mounts (src/tools/path-activity.ts@unmounted-repo), the session's
+ * directory is recorded as unmounted, and a later hold there asks for get_problems only.
+ *
  * Held at most once per file per session, and only when the metabob server is attached for this directory or an
  * ancestor (src/attached-marker.ts writes the marker): with no key, a rejected key or no server, there is no shared
  * ledger behind the check, so nothing is held. A new file (a Write to a path that does not exist) is not held:
@@ -23,6 +27,8 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 const OFF = /^(off|0|false|no)$/i;
+/** path_activity's answer for a repository the substrate does not mount (src/tools/path-activity.ts@unmounted-repo). */
+const UNMOUNTED = /may not be a repository this substrate mounts/;
 
 function readInput() {
   try {
@@ -32,22 +38,21 @@ function readInput() {
   }
 }
 
-/** This session's state file: one line per entry, `held <path>` or `checked <path>`. */
+/** This session's state file: one line per entry, `held <path>`, `checked <path>` or `unmounted <dir>`. */
 function stateFile(sessionId) {
   const tag = createHash('sha256').update(String(sessionId ?? 'no-session')).digest('hex').slice(0, 16);
   return join(process.env.METABOB_EDIT_CHECK_DIR || tmpdir(), `metabob-edit-check-${tag}`);
 }
 
 function readState(file) {
-  const held = new Set();
-  const checked = new Set();
-  if (!existsSync(file)) return { held, checked };
+  const sets = { held: new Set(), checked: new Set(), unmounted: new Set() };
+  if (!existsSync(file)) return sets;
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     const i = line.indexOf(' ');
     if (i < 0) continue;
-    (line.slice(0, i) === 'held' ? held : checked).add(line.slice(i + 1));
+    (sets[line.slice(0, i)] ?? sets.checked).add(line.slice(i + 1));
   }
-  return { held, checked };
+  return sets;
 }
 
 /** A path as forward slashes, absolute against the session's working directory. */
@@ -104,12 +109,17 @@ function pre(input) {
   // With no attached server there is no shared ledger to check: hold nothing.
   if (!attached(cwd)) return;
   const state = stateFile(input.session_id);
-  const { held, checked } = readState(state);
+  const { held, checked, unmounted } = readState(state);
   if (held.has(file) || wasChecked(file, checked)) return;
   appendFileSync(state, `held ${file}\n`);
+  const local = [...unmounted].some((d) => file === d || file.startsWith(`${d}/`));
   const reason = [
-    `Held, not an error. metabob: before editing ${target}, call get_problems for it and path_activity on it: other agents may have recorded`,
-    'problems on it, and the substrate may have work in flight there. If you notice a problem you are not fixing,',
+    local
+      ? `Held, not an error. metabob: before editing ${target}, call get_problems for it: other agents may have recorded problems on it.`
+        + ' (path_activity is not needed here: the substrate does not mount this repository, so nothing is in flight on it.)'
+      : `Held, not an error. metabob: before editing ${target}, call get_problems for it and path_activity on it: other agents may have recorded`
+        + ' problems on it, and the substrate may have work in flight there.',
+    'If you notice a problem you are not fixing,',
     'record_finding it; a bug mentioned only in your reply is lost to the next agent. Then retry this edit: it is held',
     'once per file, only so the check happens first (METABOB_EDIT_CHECK=off turns this off).',
   ].join(' ');
@@ -123,9 +133,12 @@ function post(input) {
   const named = [];
   if (Array.isArray(ti.paths)) named.push(...ti.paths);
   for (const k of ['file_path', 'file', 'path']) if (typeof ti[k] === 'string') named.push(ti[k]);
-  if (!named.length) return;
   const state = stateFile(input.session_id);
-  appendFileSync(state, named.map((p) => `checked ${norm(String(p), input.cwd)}\n`).join(''));
+  if (named.length) appendFileSync(state, named.map((p) => `checked ${norm(String(p), input.cwd)}\n`).join(''));
+  // The response shape differs by client version (a string, content blocks), so search its serialized form.
+  if (/path_activity$/.test(String(input.tool_name ?? '')) && UNMOUNTED.test(JSON.stringify(input.tool_response ?? ''))) {
+    appendFileSync(state, `unmounted ${norm('.', input.cwd)}\n`);
+  }
 }
 
 try {

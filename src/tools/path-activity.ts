@@ -82,6 +82,9 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
   // The origin-basename rule maps any repository; one the substrate does not mount has no gaps,
   // and its "no open gaps" must not read as "nothing in flight".
   const unmounted = mapper.kind === 'vessel' && mapper.prefix && !storeNamesPrefix(open.rows, mapper.prefix) ? mapper.prefix : null;
+  // @anchor unmounted-repo
+  // The plugin's edit check (scripts/claude-plugin/edit-check.mjs) matches this sentence to stop asking for
+  // path_activity in this repository: keep "may not be a repository this substrate mounts" in it.
   if (unmounted) {
     lines.push(`${unmounted.slice('repos/'.length)} may not be a repository this substrate mounts (no open gap names ${unmounted}/), so it has no gaps to show; only paths given as repos/<vessel>/… are checked.`, '');
   }

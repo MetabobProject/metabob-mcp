@@ -101,6 +101,33 @@ describe('edit check', () => {
     expect(new RegExp(`^(?:${hooks.PostToolUse[0].matcher})$`).test('mcp__metabob__get_problems')).toBe(true);
   });
 
+  // In a repository the substrate does not mount nothing is in flight: once path_activity says so, holds there ask
+  // for get_problems only.
+  test('after path_activity reports the repository unmounted, a hold there asks for get_problems only', () => {
+    const s = setup();
+    const env = { METABOB_EDIT_CHECK_DIR: s.state, METABOB_MARKER_DIR: s.state };
+    const both = JSON.parse(hook('pre', edit(s, 'src/math.ts'), env).out).hookSpecificOutput.permissionDecisionReason;
+    expect(both).toContain('call get_problems for it and path_activity on it');
+    const answer = [{ type: 'text', text: 'kappa may not be a repository this substrate mounts (no open gap names repos/kappa/), so it has no gaps to show' }];
+    hook('post', { session_id: s.session, cwd: s.repo, tool_name: 'mcp__plugin_metabob_metabob__path_activity', tool_input: { paths: ['src/math.ts'] }, tool_response: answer }, env);
+    const only = JSON.parse(hook('pre', edit(s, 'src/strings.ts'), env).out).hookSpecificOutput.permissionDecisionReason;
+    expect(only).toContain('call get_problems for it:');
+    expect(only).toContain('path_activity is not needed here: the substrate does not mount this repository');
+    expect(only).not.toContain('path_activity on it');
+    // The same answer from get_problems, or a mounted answer, records nothing.
+    const t = setup();
+    const env2 = { METABOB_EDIT_CHECK_DIR: t.state, METABOB_MARKER_DIR: t.state };
+    hook('post', { session_id: t.session, cwd: t.repo, tool_name: 'mcp__metabob__get_problems', tool_input: {}, tool_response: answer }, env2);
+    hook('post', { session_id: t.session, cwd: t.repo, tool_name: 'mcp__metabob__path_activity', tool_input: {}, tool_response: 'src/x.ts — 1 open gap' }, env2);
+    expect(JSON.parse(hook('pre', edit(t, 'src/math.ts'), env2).out).hookSpecificOutput.permissionDecisionReason).toContain('path_activity on it');
+  });
+
+  test('path_activity\'s unmounted sentence is the one the edit check matches', () => {
+    const src = readFileSync(resolve(import.meta.dir, '..', '..', 'src', 'tools', 'path-activity.ts'), 'utf-8');
+    expect(src).toContain('may not be a repository this substrate mounts');
+    expect(readFileSync(HOOK, 'utf-8')).toContain('may not be a repository this substrate mounts');
+  });
+
   // With no attached server there is no shared ledger behind the check: a plugin installed before a key is set,
   // a rejected key, or no server at all holds nothing.
   test('holds nothing unless a live, recent attached marker covers the directory', () => {
