@@ -4,6 +4,7 @@
 #   ./lab.sh up        bring both nodes up: pull the image when it is not local, write its launch manifest, start the
 #                      hub, issue the spoke's join key from the hub, start the spoke, issue the test keys. Returns at
 #                      once when both nodes are already up and healthy; safe to re-run after a partial failure
+#   ./lab.sh capacity  print whether this host can hold the lab (the check `up` runs first); starts nothing
 #   ./lab.sh check     prove the lab serves the MCP: `attach --check` with keys/mcp-rw.key, then an LLM-free goal
 #                      dispatched through the MCP over stdio until it reaches. Exit 0 = the lab serves
 #   ./lab.sh cycle     destroy, up, check: the from-scratch proof
@@ -169,9 +170,9 @@ cotenants() { # each running container that is not this lab's: "name limit_mb us
 }
 
 capacity_check() { # refuse to start nodes the host cannot hold: the caps, the co-tenants' room to grow, load
-  local need_nodes=0 n avail_kb swap_kb load1 load5 per need headroom max_load growth=0 unbounded="" name limit usage
+  local need_nodes=0 n avail_kb swap_kb load1 load5 per need headroom max_load growth=0 unbounded="" name limit usage largest=0 reserve=0
   for n in hub spoke; do running "$n" || need_nodes=$((need_nodes + 1)); done
-  [ "$need_nodes" = 0 ] && return 0
+  [ "$need_nodes" = 0 ] && { info "capacity: both nodes already running; nothing to start"; return 0; }
   local meminfo="${LAB_MEMINFO:-/proc/meminfo}" loadavg="${LAB_LOADAVG:-/proc/loadavg}"   # overridable for tests
   if [ ! -r "$meminfo" ]; then info "capacity check skipped: no $meminfo on this host"; return 0; fi
   per=$(mem_mb "${LAB_MEM:-6g}"); max_load="${LAB_MAX_LOAD:-10}"
@@ -185,19 +186,24 @@ capacity_check() { # refuse to start nodes the host cannot hold: the caps, the c
   # into. A capped co-tenant can grow to its cap; one with no limit cannot be reasoned about, so it gets a reserve.
   while read -r name limit usage; do
     [ -z "$name" ] && continue
-    if [ "$limit" = 0 ]; then unbounded="${unbounded:+$unbounded, }$name"
+    if [ "$limit" = 0 ]; then unbounded="${unbounded:+$unbounded, }$name"; [ "$usage" -gt "$largest" ] && largest=$usage
     elif [ "$limit" -gt "$usage" ]; then growth=$(( growth + limit - usage )); fi
   done < <(cotenants)
-  [ -n "$unbounded" ] && growth=$(( growth + ${LAB_UNBOUNDED_RESERVE_MB:-8192} ))
+  # One reserve covers all unbounded co-tenants together: LAB_UNBOUNDED_RESERVE_MB, or half the largest one's use if more.
+  if [ -n "$unbounded" ]; then
+    reserve=$(( largest / 2 > ${LAB_UNBOUNDED_RESERVE_MB:-8192} ? largest / 2 : ${LAB_UNBOUNDED_RESERVE_MB:-8192} ))
+    growth=$(( growth + reserve ))
+  fi
   headroom=$(( growth > ${LAB_HEADROOM_MB:-2048} ? growth : ${LAB_HEADROOM_MB:-2048} ))
   need=$(( need_nodes * per + headroom ))
   local why=""
-  [ $(( avail_kb / 1024 )) -lt "$need" ] && why="${need_nodes} node(s) at ${LAB_MEM:-6g} plus ${headroom} MB headroom need ${need} MB, and $(( avail_kb / 1024 )) MB is available$( [ "$swap_kb" = 0 ] && echo ' with no swap, so the kernel would kill a process to make room')$( [ -n "$unbounded" ] && echo "; the headroom reserves ${LAB_UNBOUNDED_RESERVE_MB:-8192} MB for co-tenant(s) with no memory limit: $unbounded")"
+  [ $(( avail_kb / 1024 )) -lt "$need" ] && why="${need_nodes} node(s) at ${LAB_MEM:-6g} plus ${headroom} MB headroom need ${need} MB, and $(( avail_kb / 1024 )) MB is available$( [ "$swap_kb" = 0 ] && echo ' with no swap, so the kernel would kill a process to make room')$( [ -n "$unbounded" ] && echo "; the headroom reserves ${reserve} MB in total for the co-tenant(s) with no memory limit: $unbounded")"
   awk -v a="$load1" -v b="$load5" -v m="$max_load" 'BEGIN{exit !(a >= m || b >= m)}' && why="${why:+$why; }load is $load1 / $load5 over 1 and 5 minutes (the limit is $max_load)"
   # A host already swapping heavily is under memory pressure however much is "available": more resident memory there
   # slows every process on it.
   [ "$swap_pct" -ge "${LAB_MAX_SWAP_PCT:-50}" ] && why="${why:+$why; }${swap_pct}% of swap is in use (the limit is ${LAB_MAX_SWAP_PCT:-50}%)"
-  [ -z "$why" ] && { info "capacity: $(( avail_kb / 1024 )) MB available for ${need} MB (headroom ${headroom} MB), load $load1 / $load5"; return 0; }
+  [ -z "$why" ] && { info "capacity: $(( avail_kb / 1024 )) MB available for ${need} MB (headroom ${headroom} MB), load $load1 / $load5, swap ${swap_pct}% in use"; return 0; }
+  [ "${LAB_DRY_RUN:-0}" = 1 ] && { info "capacity: would refuse: $why"; return 1; }
   if [ "${LAB_FORCE:-0}" = 1 ]; then log "capacity check overridden (LAB_FORCE=1): $why"; return 0; fi
   fail "the host cannot hold the lab: $why. Lower LAB_MEM / LAB_CPUS, free the host, or run the lab elsewhere (LAB_FORCE=1 overrides)"
 }
@@ -309,6 +315,9 @@ cmd_check() {
 : >>"$LOG"
 case "${1:-}" in
   up) cmd_up ;;
+  capacity)
+    # Prints the check `up` would run, and exits 0 when the lab fits; starts nothing.
+    QUIET=0; LAB_DRY_RUN=1 LAB_FORCE=0 capacity_check ;;
   check) cmd_check "${2:-}" ;;
   cycle)
     t_all=$(date +%s)

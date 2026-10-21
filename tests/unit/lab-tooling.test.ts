@@ -231,6 +231,13 @@ describe('lab.sh capacity', () => {
     expect(net).toContain('memswap_limit: ${LAB_MEM:-6g}');
   });
 
+  test('`capacity` runs the same check as a dry run and starts nothing', () => {
+    const script = read('lab.sh');
+    const branch = script.slice(script.indexOf('  capacity)'), script.indexOf(';;', script.indexOf('  capacity)')));
+    expect(branch).toContain('LAB_DRY_RUN=1 LAB_FORCE=0 capacity_check');
+    expect(branch).not.toMatch(/cmd_up|compose_node|issue_key/);
+  });
+
   test('up checks capacity before it starts anything', () => {
     const script = read('lab.sh');
     const up = script.slice(script.indexOf('cmd_up() {'));
@@ -261,8 +268,9 @@ describe('lab.sh capacity', () => {
     // syzygy, 00:32Z: 9 GB available, no swap; substrate-live has no limit, the regate is capped at 8 GB.
     const r = capacity(9 * 1024 * 1024, 0, '3.98 3.80', ['substrate-live 0 18289', 'regate-x 8192 491'], { LAB_MEM: '3g' });
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('2 node(s) at 3g plus 15893 MB headroom need 22037 MB, and 9216 MB is available with no swap');
-    expect(r.stdout).toContain('the headroom reserves 8192 MB for co-tenant(s) with no memory limit: substrate-live');
+    expect(r.stdout).toContain('2 node(s) at 3g plus 16845 MB headroom need 22989 MB, and 9216 MB is available with no swap');
+    // The unbounded reserve is one total, scaled to half the largest unbounded co-tenant (18289 MB → 9144 MB).
+    expect(r.stdout).toContain('the headroom reserves 9144 MB in total for the co-tenant(s) with no memory limit: substrate-live');
   });
 
   test.skipIf(process.platform === 'win32')('passes with room, refuses at the load limit over 1 or 5 minutes, and LAB_FORCE overrides', () => {
