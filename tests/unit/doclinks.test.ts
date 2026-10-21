@@ -85,7 +85,8 @@ describe('doclinks: the real tree', () => {
       const s = m.check(m.gitRepo(ROOT), db).stats;
       expect(s.codeFilesCiting < 28 || s.anchors < 40).toBe(true);
     } finally { rmSync(dir, { recursive: true, force: true }); }
-  });
+    // A second full scan of the real tree, in a freshly imported module: ~3 s on a Windows runner.
+  }, 30_000);
 });
 
 describe('doclinks: every error class fires, and its legitimate twin does not', () => {
