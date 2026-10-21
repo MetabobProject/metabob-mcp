@@ -220,3 +220,53 @@ describe('lab.sh check verdicts', () => {
     expect(throttled.slice(0, 300)).not.toMatch(/\n\s*return 0\n/);
   });
 });
+
+describe('lab.sh capacity', () => {
+  // A lab on a shared host must never take memory from the fleet there: with no swap, the OOM killer's
+  // likeliest victim is the largest process, the host's live substrate.
+  test('every node is capped from creation, boot included', () => {
+    const net = read('lab-net.yml');
+    expect(net).toContain('cpus: ${LAB_CPUS:-2}');
+    expect(net).toContain('mem_limit: ${LAB_MEM:-6g}');
+    expect(net).toContain('memswap_limit: ${LAB_MEM:-6g}');
+  });
+
+  test('up checks capacity before it starts anything', () => {
+    const script = read('lab.sh');
+    const up = script.slice(script.indexOf('cmd_up() {'));
+    expect(up.indexOf('capacity_check')).toBeGreaterThan(-1);
+    expect(up.indexOf('capacity_check')).toBeLessThan(up.indexOf('compose_node hub up'));
+  });
+
+  const { mkdtempSync, writeFileSync } = require('node:fs') as typeof import('node:fs');
+  const { tmpdir } = require('node:os') as typeof import('node:os');
+  function capacity(availKb: number, swapKb: number, load: string, extra: Record<string, string> = {}) {
+    const dir = mkdtempSync(join(tmpdir(), 'labcap-'));
+    writeFileSync(join(dir, 'meminfo'), `MemAvailable:   ${availKb} kB\nSwapTotal:      ${swapKb} kB\n`);
+    writeFileSync(join(dir, 'loadavg'), `${load} 1.00 1.00 1/100 1\n`);
+    const harness = [
+      'info(){ echo "INFO $*"; }; log(){ echo "LOG $*"; }; fail(){ echo "FAIL $*"; exit 1; }; running(){ return 1; }',
+      `source <(sed -n '/^mem_mb() {/,/^}/p;/^capacity_check() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      'capacity_check',
+    ].join('\n');
+    return spawnSync('bash', ['-c', harness], {
+      encoding: 'utf-8',
+      env: { PATH: process.env.PATH ?? '', LAB_MEMINFO: join(dir, 'meminfo'), LAB_LOADAVG: join(dir, 'loadavg'), ...extra },
+    });
+  }
+
+  test.skipIf(process.platform === 'win32')('refuses the hub host as measured (9 GB available, no swap) and names why', () => {
+    const r = capacity(9 * 1024 * 1024, 0, '3.98');
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('2 node(s) at 6g plus 2048 MB headroom need 14336 MB, and 9216 MB is available with no swap');
+  });
+
+  test.skipIf(process.platform === 'win32')('passes with room, refuses at the load limit, and smaller caps fit', () => {
+    expect(capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '7.9').status).toBe(0);
+    const loaded = capacity(28 * 1024 * 1024, 64 * 1024 * 1024, '12.5');
+    expect(loaded.status).toBe(1);
+    expect(loaded.stdout).toContain('load is 12.5 (the limit is 10)');
+    expect(capacity(9 * 1024 * 1024, 0, '3.98', { LAB_MEM: '3g' }).status).toBe(0);
+    expect(capacity(9 * 1024 * 1024, 0, '3.98', { LAB_FORCE: '1' }).stdout).toContain('capacity check overridden (LAB_FORCE=1)');
+  });
+});

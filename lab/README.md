@@ -16,7 +16,7 @@ otherwise.
 
 | command | what it does |
 |---|---|
-| `lab/lab.sh up` | Starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes makes sure the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) exists — creating it after a short grace period, since the light lab masks the unit that clones it — and issues the test keys. Asks the registry for a tag on every `up`, since a local copy of a mutable tag can be any age (a pull of an unchanged tag moves no layers); a digest (`name@sha256:…`) is pulled only when missing. It logs the image's revision, and `check` logs the revision the running nodes use. When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
+| `lab/lab.sh up` | First checks the host can hold the lab (§ Capacity), then starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes makes sure the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) exists — creating it after a short grace period, since the light lab masks the unit that clones it — and issues the test keys. Asks the registry for a tag on every `up`, since a local copy of a mutable tag can be any age (a pull of an unchanged tag moves no layers); a digest (`name@sha256:…`) is pulled only when missing. It logs the image's revision, and `check` logs the revision the running nodes use. When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
 | `lab/lab.sh check` | Proves the lab serves the MCP: writes a temporary MCP config (mode 0600, in a temporary directory removed on exit) from `keys/mcp-rw.key`, the spoke's discovery and the hub's identity; runs `metabob-mcp attach --check` with the repository's `dist/cli.js` (built first when it is missing or older than `src/`); then, through the MCP over stdio (`lab/check-goal.ts`), dispatches the LLM-free goal *How many vessels are currently registered in the discovery registry?* with `run_goal_async` and polls `goal_status` until `reached: yes`. Prints one verdict line; exits nonzero on any failure, and `3` when goal-host's spend-rate policy refuses the identical check goal (attach verified, the reach not re-proven), so a gate keyed on the exit code never passes a reach it did not see. `check --attach-only` stops after `attach --check` |
 | `lab/lab.sh cycle` | `destroy`, `up`, `check`: the from-scratch proof |
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |
@@ -61,6 +61,17 @@ seeders, `substrate-ready` and self-recovery. The image's own inventory step mas
 manifest stays unmodified, and `live`/`served` judge only the selected units. Masked timers and services
 include `substrate-pull-sync`, so the lab runs the code baked into the image that `up` pulls; with
 `git-push-setup` masked, `status` reports per-vessel revisions as unknown, and the spoke's `WORKSPACE_ROOT` is the empty directory `up` creates rather than a super-repo clone: goals that read or edit the super-repo (`feature_compose`, file counts) fail or answer about an empty tree on this lab.
+
+## Capacity
+
+Each node is capped from creation, boot included, by `lab-net.yml`: `LAB_CPUS` (default `2`) CPUs and
+`LAB_MEM` (default `6g`) of memory, with no swap beyond it. Before starting any node, `up` checks the host:
+the nodes it would start, at `LAB_MEM` each, plus `LAB_HEADROOM_MB` (default `2048`) must fit in the
+host's available memory, and the 1-minute load must be under `LAB_MAX_LOAD` (default `10`). Otherwise it
+refuses and says why; on a host with no swap the reason says so, since the kernel would kill a process to
+make room, most likely the largest, which on a fleet host is its live substrate. Lower the caps, free the
+host, or run the lab elsewhere; `LAB_FORCE=1` overrides the check and logs that it did. Raise
+`LAB_HEADROOM_MB` on a host where other capped work (a regate, an arm) can still grow to its cap.
 
 ## Host view
 

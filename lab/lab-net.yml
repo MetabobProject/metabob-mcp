@@ -1,9 +1,14 @@
 # lab-net.yml: a compose OVERRIDE layered on the substrate image's own launch manifest (manifest.yml, written by
 # `lab.sh up` from the image itself, so it is always the current one). It adds one thing: the private lab network with a
 # fixed address per node, so the spoke reaches the hub at an address that does not depend on the host (no LAN IP, no
-# host.containers.internal). Ports, volumes and the container name come from the manifest and the node's env file.
+# host.containers.internal), and a CPU and memory cap on each node. Ports, volumes and the container name come from the manifest and the node's env file.
 services:
   substrate:
+    # Every lab node is capped from creation, boot included, so a lab never takes a shared host from the fleet on it.
+    # lab.sh up refuses to start when the host cannot hold the caps (capacity_check).
+    cpus: ${LAB_CPUS:-2}
+    mem_limit: ${LAB_MEM:-6g}
+    memswap_limit: ${LAB_MEM:-6g}
     networks:
       default: {}
       metabob-lab:

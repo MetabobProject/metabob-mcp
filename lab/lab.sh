@@ -146,12 +146,37 @@ ensure_manifest() {
   info "manifest.yml written from the image ($(sha256sum manifest.yml | cut -c1-12))"
 }
 
+mem_mb() { # $1 a size like 6g, 3072m or 512: megabytes
+  local v="${1,,}"
+  case "$v" in *g) echo $(( ${v%g} * 1024 )) ;; *m) echo "${v%m}" ;; *) echo $(( v / 1048576 )) ;; esac
+}
+
+capacity_check() { # refuse to start nodes the host cannot hold: the caps, headroom, load
+  local need_nodes=0 n avail_kb swap_kb load per need headroom max_load
+  for n in hub spoke; do running "$n" || need_nodes=$((need_nodes + 1)); done
+  [ "$need_nodes" = 0 ] && return 0
+  local meminfo="${LAB_MEMINFO:-/proc/meminfo}" loadavg="${LAB_LOADAVG:-/proc/loadavg}"   # overridable for tests
+  if [ ! -r "$meminfo" ]; then info "capacity check skipped: no $meminfo on this host"; return 0; fi
+  per=$(mem_mb "${LAB_MEM:-6g}"); headroom="${LAB_HEADROOM_MB:-2048}"; max_load="${LAB_MAX_LOAD:-10}"
+  avail_kb=$(awk '/^MemAvailable:/{print $2}' "$meminfo")
+  swap_kb=$(awk '/^SwapTotal:/{print $2}' "$meminfo")
+  load=$(cut -d' ' -f1 "$loadavg")
+  need=$(( need_nodes * per + headroom ))
+  local why=""
+  [ $(( avail_kb / 1024 )) -lt "$need" ] && why="${need_nodes} node(s) at ${LAB_MEM:-6g} plus ${headroom} MB headroom need ${need} MB, and $(( avail_kb / 1024 )) MB is available$( [ "$swap_kb" = 0 ] && echo ' with no swap, so the kernel would kill a process to make room')"
+  awk -v l="$load" -v m="$max_load" 'BEGIN{exit !(l >= m)}' && why="${why:+$why; }load is $load (the limit is $max_load)"
+  [ -z "$why" ] && { info "capacity: $(( avail_kb / 1024 )) MB available for ${need} MB, load $load"; return 0; }
+  if [ "${LAB_FORCE:-0}" = 1 ]; then log "capacity check overridden (LAB_FORCE=1): $why"; return 0; fi
+  fail "the host cannot hold the lab: $why. Lower LAB_MEM / LAB_CPUS, free the host, or run the lab elsewhere (LAB_FORCE=1 overrides)"
+}
+
 cmd_up() {
   local t0; t0=$(date +%s)
   if running hub && running spoke && healthy hub && healthy spoke && net_exists && keys_present; then
     log "already up: lab-hub and lab-spoke are running and healthy, keys present ($(elapsed "$t0")). Prove it serves: ./lab.sh check"
     return 0
   fi
+  capacity_check
   ensure_provider
   mkdir -p "$KEYS"; chmod 700 "$KEYS"
   # A hub without its volume is a new identity: keys issued by an earlier hub would be rejected, so they go.
