@@ -1,6 +1,6 @@
 {
   "name": "@metabob/mcp",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
   "type": "module",
   "bin": {
