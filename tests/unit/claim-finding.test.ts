@@ -9,6 +9,8 @@ import { setAttachment } from '../../src/attachment';
 import { CLAIM_SKEW_MS, claimHolder, parseClaim, type ClaimRecord } from '../../src/tools/_claims';
 import { fetchAgentFindings, renderFindingsSection, resolveAuthorVesselId } from '../../src/tools/_findings';
 import * as ClaimFinding from '../../src/tools/claim-finding';
+import * as MarkComplete from '../../src/tools/mark-complete';
+import { NO_GIT } from '../helpers/no-git';
 import { setResolverIdentity } from '../../src/resolver-identity';
 import { installShapeStub } from '../helpers/shape-stub';
 import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
@@ -106,7 +108,7 @@ const other = (verdict: string, at: number, extra = '') => ({
 
 describe('claim_finding', () => {
   const run = (store: ReturnType<typeof seeded>, args: Record<string, unknown> = {}) =>
-    ClaimFinding.handle(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1', ...args }), api, 's1', store);
+    ClaimFinding.handle(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1', ...args }), api, 's1', store, [0, 0, 0]);
 
   test('claims, renews, releases; each write is a finding_verdict naming the claimer', async () => {
     const { rows } = await db();
@@ -150,7 +152,23 @@ describe('claim_finding', () => {
     expect(out).toContain("concept-db's reads do not show it yet, so whether it holds is not settled");
     expect(out).not.toContain('Claimed finding');
     expect(rows).toHaveLength(1);
-  }, 10_000);
+  });
+
+  test('endorsing a finding another agent holds goes ahead, and says whose claim it ends', async () => {
+    await db({ rows: [other('claimed', Date.now() - MIN, 'claim_minutes: 60\n')] });
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_task1' }), api, 's1', seeded(), NO_GIT);
+    expect(out).toContain('endorsed');
+    expect(out).toMatch(/claim: claimed by metabob-mcp-other until \S+ \S+Z; this endorse closes it anyway, which ends their claim/);
+  });
+
+  test('the holder\'s own endorse carries no claim line', async () => {
+    const { rows } = await db();
+    const store = seeded();
+    await run(store);
+    expect(rows).toHaveLength(1);
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_task1' }), api, 's1', store, NO_GIT);
+    expect(out).not.toContain('claim:');
+  });
 
   test('a closed finding cannot be claimed', async () => {
     const { rows } = await db({ rows: [other('endorsed (resolved)', Date.now() - MIN)] });

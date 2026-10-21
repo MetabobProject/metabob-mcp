@@ -86,7 +86,7 @@ async function target(input: ClaimFindingInput, localStore?: LocalStore | null):
 }
 
 /** The finding's verdict state from concept-db: whether it is closed, and its claim holder now. */
-async function state(ids: string[], ownId?: string): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean; seenOwn: boolean } | string> {
+export async function state(ids: string[], ownId?: string): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean; seenOwn: boolean } | string> {
   const scan = await scanVerdicts();
   if (!scan.ok) return `concept-db could not be read (${scan.detail}), so nothing was claimed.`;
   const wanted = new Set(ids);
@@ -120,6 +120,8 @@ export async function handle(
   _apiClient: AnalysisAPIClient,
   sessionId: string,
   localStore?: LocalStore | null,
+  /** The read-back pauses; tests pass zeros. */
+  pauses: readonly number[] = READ_BACK_PAUSES_MS,
 ): Promise<string> {
   const found = await target(input, localStore);
   if (typeof found === 'string') return found;
@@ -173,7 +175,7 @@ export async function handle(
   // Two claimers can both get here: read back and apply the rule every reader applies, but only once the read
   // shows this claim. Until then it says nothing about who holds the finding.
   let after: Awaited<ReturnType<typeof state>> = 'not read back';
-  for (const ms of READ_BACK_PAUSES_MS) {
+  for (const ms of pauses) {
     await pause(ms);
     after = await state(found.ids, posted.id);
     if (typeof after === 'string' || after.seenOwn) break;
@@ -191,4 +193,16 @@ export async function handle(
   const verb = mine ? 'Renewed your claim on' : 'Claimed';
   return `${verb} finding ${key} until ${when(after.holder?.until ?? until.getTime())}. Other agents see it as claimed by ${me}. `
     + 'Renew it if the work runs longer; mark_complete closes the finding and ends the claim; release it if you stop.' + scanNote;
+}
+
+/**
+ * mark_complete's line when someone other than this vessel holds a live claim on the finding being endorsed:
+ * the endorse still goes ahead, since the claimer may be gone and the fix is what counts. Empty otherwise,
+ * including when the claims cannot be read. SPEC §mark_complete
+ */
+export async function claimWarning(ids: string[]): Promise<string> {
+  const me = await resolveAuthorVesselId();
+  const now = await state(ids);
+  if (typeof now === 'string' || !now.holder || now.holder.by === me) return '';
+  return `claimed by ${now.holder.by} until ${when(now.holder.until)}; this endorse closes it anyway, which ends their claim`;
 }

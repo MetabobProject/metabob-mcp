@@ -373,7 +373,8 @@
       },
       "src/tools/claim-finding.ts": {
         "SPEC": [
-          "claim_finding"
+          "claim_finding",
+          "mark_complete"
         ]
       },
       "src/tools/concept-create.ts": {
@@ -948,6 +949,7 @@
         "src/tools/annotate-component.ts@handle",
         "src/tools/assign-git-changes.ts@handle",
         "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS",
+        "src/tools/claim-finding.ts@claimWarning",
         "src/tools/claim-finding.ts@handle",
         "src/tools/concept-create.ts@handle",
         "src/tools/concept-link.ts@handle",
@@ -1135,6 +1137,7 @@
       "src/tools/annotate-component.ts@handle": "4bdf740420c9",
       "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
       "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS": "2ff747fa54f6",
+      "src/tools/claim-finding.ts@claimWarning": "2acf4036bebe",
       "src/tools/claim-finding.ts@handle": "4bdf740420c9",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",
       "src/tools/concept-link.ts@handle": "4bdf740420c9",

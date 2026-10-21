@@ -670,7 +670,9 @@ Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a mess
 - a git checkout where none of the finding's files is known (neither tracked nor on disk) is not where the fix is: no verdict is written, the same way;
 - outside git: `fix: unknown (not a git checkout)`, and the finding closes without a commit.
 
-No path is written: the checkout is named by `reviewed_by`. An uncommitted fix does **not** close the finding, since every other checkout still has the bug: the verdict is `verdict: fix pending (uncommitted)` with summary `[verdict:pending]`, which a reader knowing only endorsed and discarded parses as no verdict; no local seed is retired, no relevance is recorded, and the output says to commit the fix and endorse again. The endorse that names a commit closes it. Discard records no fix location.
+No path is written: the checkout is named by `reviewed_by`.
+
+**Claims.** An endorse of a finding that another vessel holds a live claim on (§ claim_finding) goes ahead, since the claimer may be gone and the fix is what counts. The reply adds `claim: claimed by <vesselId> until <time>; this endorse closes it anyway, which ends their claim` (`src/tools/claim-finding.ts@claimWarning`). Closing the finding ends every claim on it, since recall shows no holder on a closed finding. An uncommitted fix does **not** close the finding, since every other checkout still has the bug: the verdict is `verdict: fix pending (uncommitted)` with summary `[verdict:pending]`, which a reader knowing only endorsed and discarded parses as no verdict; no local seed is retired, no relevance is recorded, and the output says to commit the fix and endorse again. The endorse that names a commit closes it. Discard records no fix location.
 
 ---
 

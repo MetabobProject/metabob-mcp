@@ -19,6 +19,7 @@ import {
 import { plainConceptId } from './_concept-content.js';
 import { fixLocation, type FixLocation } from '../repo-identity.js';
 import { activeWorkspacePath } from '../local-index.js';
+import { claimWarning } from './claim-finding.js';
 
 /**
  * An endorse of a fix that is still uncommitted does not close the finding: the fix exists only in this
@@ -214,8 +215,10 @@ export async function handle(
       const keyedNote = findingKey === plainId
         ? `\n  keyed on:   the concept id — this finding carries no agf_* id (recorded with no local store), so finding-id joins will not surface this verdict`
         : '';
+      const claimed = input.action === 'endorse' ? await claimWarning(remote.findingIds.length ? remote.findingIds : [findingKey]) : '';
       return (
         `Finding ${plainId} ${pending ? 'left open, fix pending,' : input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
+        (claimed ? `  claim:      ${claimed}\n` : '') +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         (loc ? `  fix:        ${fixShown(loc)}\n` : '') +
         `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
@@ -314,6 +317,10 @@ export async function handle(
     const shown = isConceptId ? `${seedId} (via ${plainId})` : seedId;
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (loc) out += `\n  fix: ${fixShown(loc)}`;
+    if (input.action === 'endorse' && conceptStatus.startsWith('verdict shared')) {
+      const claimed = await claimWarning(toRetire);
+      if (claimed) out += `\n  claim: ${claimed}`;
+    }
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
     if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc, input.fix_commit)}`;
     return out;
