@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { SeedRecord } from '../../src/local-store';
 import { setAttachment } from '../../src/attachment';
-import { commitInHead, fixLocation, setFixGitTimeoutForTests } from '../../src/repo-identity';
+import { GIT_ENV, commitInHead, fixLocation, setFixGitTimeoutForTests } from '../../src/repo-identity';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import { fetchAgentFindings, parseVerdictConcept, renderFindingsSection } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
@@ -256,6 +256,18 @@ describe('mark_complete endorse', () => {
     const closed = await MarkComplete.handle(input, api, 's', store, dir);
     expect(closed).toContain('endorsed (finding resolved');
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+  });
+
+  test('git runs in the C locale, so "not a git repository" is recognised whatever the user\'s language', () => {
+    expect(GIT_ENV()).toMatchObject({ LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' });
+    // With LANG set to German, git under GIT_ENV still says it in English.
+    let stderr = '';
+    try {
+      execFileSync('git', ['-C', mkdtempSync(join(root, 'de-')), 'rev-parse', '--show-toplevel'], { env: { ...GIT_ENV(), LANG: 'de_DE.UTF-8' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      stderr = String((err as { stderr?: Buffer }).stderr ?? '');
+    }
+    expect(stderr).toMatch(/not a git repository/i);
   });
 
   test('when git does not answer in time, nothing closes: a slow checkout never reads as "not a git checkout"', async () => {

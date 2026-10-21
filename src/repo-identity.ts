@@ -81,13 +81,19 @@ export function normalizeRemoteUrl(url: string, base?: string): string | null {
  */
 const FIX_GIT_TIMEOUT_MS = 20_000;
 
+/**
+ * git's environment: no credential prompt, and its messages in English whatever the user's locale, since a
+ * failure is told apart by its message ("not a git repository"; a localized git says "kein Git-Repository").
+ */
+export const GIT_ENV = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C', LANGUAGE: 'C' });
+
 function git(cwd: string, args: string[], timeoutMs = 3_000): string | null {
   try {
     return execFileSync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: timeoutMs,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: GIT_ENV(),
     }).trim();
   } catch {
     // git not installed, not a repository, or no such remote.
@@ -159,7 +165,7 @@ function fgitTry(cwd: string, args: string[]): { out: string } | { failure: GitF
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: fixGitTimeoutMs,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        env: GIT_ENV(),
       }).trim(),
     };
   } catch (err) {
