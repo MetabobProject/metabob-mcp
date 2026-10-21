@@ -146,8 +146,8 @@
         "why": "the loopback resolver's field alias is in SPEC § Impulse shapes, which CLAUDE.md points to; no CLAUDE.md row changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "73a0445",
-        "why": "mcp:tool_call accepting arguments as an alias for input changes no binding, endpoint or network path"
+        "at": "852d602",
+        "why": "result kinds in the local call log add no network path, registration or endpoint"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
