@@ -30,6 +30,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { RESOLVE_TIMEOUT_MS, describeResolveFailure, resolveShape } from '../attachment.js';
 import { operatorId, sessionId } from '../operator-id.js';
+import { bareExecutionId, listExecutionTraces } from './_traces.js';
 import { readWalkState } from './_goal-host.js';
 
 export const ProvideFeedbackTool = {
@@ -98,14 +99,29 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
 
   const goal = input.goal ?? record.goal;
   const executionId = record.executionId;
-  const activityId = record.selectedTemplateId;
+  let activityId = record.selectedTemplateId;
+  let activitySource = '';
+  // A misrouted or failed walk records no selected template, but its trace row still names the activity that
+  // closed it (e.g. satisfier:goal-host-walk-failed). That verdict, not_reached on a misrouted walk, is one of the
+  // most useful labels, so take the activity from the trace listing rather than refuse it.
+  if (!activityId && executionId) {
+    const list = await listExecutionTraces(50);
+    const row = list.kind === 'ok' ? list.rows.find((r) => r.executionId === bareExecutionId(String(executionId))) : undefined;
+    if (row?.templateId) {
+      activityId = row.templateId;
+      activitySource = ` (the dispatch record named no template; ${row.templateId} is from its execution trace)`;
+    }
+  }
 
   const missing: string[] = [];
   if (!goal) missing.push('goal (dispatch record carried none — pass the `goal` argument)');
   if (!executionId) missing.push('executionId (no execution landed for this dispatch)');
-  if (!activityId) missing.push('selectedTemplateId (no template/satisfier was recorded)');
+  if (!activityId) missing.push('the activity (no template was recorded, and the recent trace listing has no row for this execution)');
   if (missing.length) {
-    return `provide_feedback cannot write a label — missing: ${missing.join('; ')}.`;
+    return [
+      `provide_feedback cannot write a label — missing: ${missing.join('; ')}.`,
+      'Your assessment still belongs in the shared record: record_finding (category "goal-routing", with the dispatch id, the goal and what you checked) keeps it where other agents and the system\'s detectors see it.',
+    ].join('\n');
   }
 
   const verdict = VERDICT_MAP[input.verdict];
@@ -157,7 +173,7 @@ export async function handle(input: ProvideFeedbackInput, _apiClient: AnalysisAP
     `  verdict:      ${input.verdict} → ${verdict} (confidence ${confidence})`,
     `  goal:         ${String(goal).slice(0, 100)}`,
     `  executionId:  ${executionId}`,
-    `  activity_id:  ${activityId}`,
+    `  activity_id:  ${activityId}${activitySource}`,
     `  rationale:    ${input.rationale.slice(0, 160)}`,
     `  operator:     ${operator}`,
     `  oracle label: ${labelId}`,

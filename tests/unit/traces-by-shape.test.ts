@@ -131,3 +131,22 @@ describe('recent traces: execution_trace with no id', () => {
     expect(stub.calls('activityExecutionTrace')[0]?.executionId).toBe('exec_978a4b53-8a0');
   });
 });
+
+describe('satisfier reaches', () => {
+  test('the listing marks them as having no task trace', async () => {
+    await installShapeStub({
+      executionTraceList: () => ({ body: { success: true, content: { content: { traces: [
+        { id: 'walk-satisfier-1', templateId: 'satisfier:shellResult', status: 'success', pointer: { executionId: 'walk-satisfier-1' } },
+      ] } } } }),
+    });
+    expect(await executionTrace({}, apiClient)).toContain('walk-satisfier-1  success  satisfier:shellResult  (satisfier reach: no task trace; goal_reasoning on its dispatch shows the walk)');
+  });
+
+  test('reading one answers with goal_reasoning, and makes no request', async () => {
+    const stub = await installShapeStub({ activityExecutionTrace: () => ({ status: 404, body: { error: 'Not found', shape: 'activityExecutionTrace' } }) });
+    const out = await executionTrace({ execution_id: 'walk-satisfier-1' }, apiClient);
+    expect(out).toStartWith('execution_trace: walk-satisfier-1 is a satisfier reach');
+    expect(out).toContain('goal_reasoning { dispatch_id } shows it');
+    expect(stub.calls('activityExecutionTrace')).toHaveLength(0);
+  });
+});

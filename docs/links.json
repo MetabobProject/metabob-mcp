@@ -143,8 +143,8 @@
         "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "lab/README.md": {
-        "at": "e551c35",
-        "why": "e551c35 only spaces out goalWalkState/goal_status polls (3 quick, then up to 15 s); every request stays short and within 60 s (CONFORMANCE c11), and lab check still polls until reached: yes as lab/README states"
+        "at": "f522929",
+        "why": "lab.sh's image_revision now also reads docker's .Config.Labels; the README already says up logs the image's revision"
       }
     }
   },
@@ -858,6 +858,7 @@
         "src/tools/_goal-host.ts@principalLines",
         "src/tools/_goal-host.ts@readWalkState",
         "src/tools/_traces.ts@bareExecutionId",
+        "src/tools/_traces.ts@isSatisfierExecution",
         "src/tools/_traces.ts@listExecutionTraces",
         "src/tools/_traces.ts@readExecutionTrace",
         "src/tools/analyze-impact.ts@handle",
@@ -1034,6 +1035,7 @@
       "src/tools/_goal-host.ts@principalLines": "5933404860fc",
       "src/tools/_goal-host.ts@readWalkState": "387c097b2d0f",
       "src/tools/_traces.ts@bareExecutionId": "c9f249dfcdc8",
+      "src/tools/_traces.ts@isSatisfierExecution": "bb6f370b92cc",
       "src/tools/_traces.ts@listExecutionTraces": "0a4756b4b21c",
       "src/tools/_traces.ts@readExecutionTrace": "a1783a16e202",
       "src/tools/analyze-impact.ts@handle": "4bdf740420c9",

@@ -25,6 +25,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { learningLines, principalLines, readWalkState } from './_goal-host.js';
 import { readExecutionTrace } from './_traces.js';
+import { isSatisfierExecution } from './_traces.js';
 
 export const GoalStatusTool = {
   name: 'goal_status',
@@ -131,7 +132,9 @@ export async function handle(
   ].filter(Boolean) as string[];
 
   // Hydrate once an execution exists and the run is no longer in flight.
-  if (record.executionId && record.status !== 'running') {
+  if (record.executionId && record.status !== 'running' && isSatisfierExecution(record.executionId, record.selectedTemplateId)) {
+    lines.push('', `  (a satisfier reach persists no task trace; goal_reasoning ${record.dispatchId ?? input.dispatch_id} shows the walk)`);
+  } else if (record.executionId && record.status !== 'running') {
     const hydrated = await hydrateTrace(record.executionId);
     if (hydrated) lines.push(...hydrated);
     else lines.push('', '  (trace hydration unavailable — read it with execution_trace)');

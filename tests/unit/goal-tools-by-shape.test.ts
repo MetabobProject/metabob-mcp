@@ -171,6 +171,16 @@ describe('run_goal', () => {
 });
 
 describe('goal_status and goal_reasoning', () => {
+  test('a satisfier reach says it has no task trace and points at goal_reasoning, without a trace read', async () => {
+    const stub = await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true, executionId: 'walk-satisfier-9z', selectedTemplateId: 'satisfier:shellResult' }),
+    });
+    const out = await goalStatus({ dispatch_id: 'd-s' }, apiClient);
+    expect(out).toContain('(a satisfier reach persists no task trace; goal_reasoning d-s shows the walk)');
+    expect(out).not.toContain('read it with execution_trace');
+    expect(stub.calls('activityExecutionTrace')).toHaveLength(0);
+  });
+
   test('goal_status reads the goalWalkState record goal-host wraps', async () => {
     const stub = await installShapeStub({
       goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'running', reached: null, operator: 'dev-mcp', walkLog: ['[goal-host-vessel] selecting template'] }),
@@ -200,6 +210,30 @@ describe('goal_status and goal_reasoning', () => {
 });
 
 describe('provide_feedback', () => {
+  // A misrouted walk records no selected template; its trace row still names the activity that closed it.
+  test('a walk with no selected template is labelled with the activity its trace row names', async () => {
+    const stub = await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: false, goal: 'g', executionId: 'walk-satisfier-1a2b' }),
+      executionTraceList: () => ({ body: { success: true, content: { content: { traces: [
+        { id: 'walk-satisfier-1a2b', templateId: 'satisfier:goal-host-walk-failed', status: 'failure', pointer: { executionId: 'walk-satisfier-1a2b' } },
+      ] } } } }),
+      goal_verification_label_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'goal_verification_labels:m' }) } }),
+    });
+    const out = await provideFeedback({ dispatch_id: 'd-m', verdict: 'not_reached', rationale: 'misrouted to federation_probe' }, apiClient);
+    expect(stub.calls('goal_verification_label_write')[0]).toMatchObject({ execution_id: 'walk-satisfier-1a2b', activity_id: 'satisfier:goal-host-walk-failed', verdict: 'not_achieved' });
+    expect(out).toContain('activity_id:  satisfier:goal-host-walk-failed (the dispatch record named no template; satisfier:goal-host-walk-failed is from its execution trace)');
+  });
+
+  test('with no activity anywhere it refuses, and says where the assessment goes instead', async () => {
+    await installShapeStub({
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: false, goal: 'g', executionId: 'exec-gone' }),
+      executionTraceList: () => ({ body: { success: true, content: { content: { traces: [] } } } }),
+    });
+    const out = await provideFeedback({ dispatch_id: 'd-n', verdict: 'not_reached', rationale: 'r' }, apiClient);
+    expect(out).toContain('provide_feedback cannot write a label');
+    expect(out).toContain('record_finding (category "goal-routing"');
+  });
+
   test('derives the label from goalWalkState and writes goal_verification_label_write once', async () => {
     const stub = await installShapeStub({
       goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true, goal: 'make it green', executionId: 'exec-1', selectedTemplateId: 'tmpl-1' }),

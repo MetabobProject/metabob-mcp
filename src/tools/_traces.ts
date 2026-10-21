@@ -122,3 +122,12 @@ export async function listExecutionTraces(limit: number): Promise<TraceList> {
     failureCount: meta?.summary?.failureCount,
   };
 }
+
+/**
+ * Whether an execution is a satisfier reach, which persists no task trace: goal-host closes the walk itself
+ * (`walk-satisfier-…` ids, `satisfier:` templates), so activityExecutionTrace answers 404 for it, a successful
+ * one included. Its walk is in the dispatch record (goal_reasoning), not in a trace.
+ */
+export function isSatisfierExecution(executionId: string | undefined | null, templateId?: string | null): boolean {
+  return /^walk-satisfier-/.test(String(executionId ?? '')) || /^satisfier:/.test(String(templateId ?? ''));
+}

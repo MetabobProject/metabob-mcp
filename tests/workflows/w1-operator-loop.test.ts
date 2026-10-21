@@ -140,7 +140,8 @@ describe('W1 operator loop', () => {
     const [status] = await pollUntilDone(id);
     expect(verdictLine(status!)).toMatch(/reached:\s+yes/);
     expect(status).toMatch(/status:\s+failed/);
-    expect(status).toContain('trace hydration unavailable');
+    // A satisfier reach persists no task trace: goal_status says so and points at goal_reasoning, without a read.
+    expect(status).toContain('a satisfier reach persists no task trace; goal_reasoning');
 
     const reasoning = await server.text('goal_reasoning', { dispatch_id: id });
     expect(verdictLine(reasoning)).toMatch(/reached:\s+yes/);

@@ -21,7 +21,7 @@
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { listExecutionTraces, readExecutionTrace } from './_traces.js';
+import { isSatisfierExecution, listExecutionTraces, readExecutionTrace } from './_traces.js';
 
 export const ExecutionTraceTool = {
   name: 'execution_trace',
@@ -64,14 +64,23 @@ async function listRecent(limit: number): Promise<string> {
   const lines = [`Recent execution traces, newest first: ${list.rows.length}${counts}`];
   for (const r of list.rows) {
     const dur = r.durationMs !== undefined ? ` ${r.durationMs}ms` : '';
-    lines.push(`  ${r.executionId}  ${r.status ?? '?'}${dur}  ${r.templateId ?? '(no template)'}${r.createdAt ? `  ${r.createdAt}` : ''}`);
+    const noTrace = isSatisfierExecution(r.executionId, r.templateId) ? '  (satisfier reach: no task trace; goal_reasoning on its dispatch shows the walk)' : '';
+    lines.push(`  ${r.executionId}  ${r.status ?? '?'}${dur}  ${r.templateId ?? '(no template)'}${r.createdAt ? `  ${r.createdAt}` : ''}${noTrace}`);
   }
-  lines.push('', 'Read one: execution_trace { execution_id: "<id>" }.');
+  const anySatisfier = list.rows.some((r) => isSatisfierExecution(r.executionId, r.templateId));
+  lines.push('', `Read one: execution_trace { execution_id: "<id>" }.${anySatisfier ? ' Rows marked as satisfier reaches have no task trace to read.' : ''}`);
   return lines.join('\n');
 }
 
 export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPIClient): Promise<string> {
   if (!input.execution_id) return listRecent(input.limit ?? 10);
+  if (isSatisfierExecution(input.execution_id)) {
+    return [
+      `execution_trace: ${input.execution_id} is a satisfier reach: goal-host closed the walk itself, so no task trace`,
+      '  is persisted for it (activity-api answers 404, a successful one included). Its walk is in the dispatch record:',
+      '  goal_reasoning { dispatch_id } shows it, and goal_status gives the reach verdict.',
+    ].join('\n');
+  }
   const read = await readExecutionTrace(input.execution_id);
   if (read.kind === 'not_found') {
     return [
