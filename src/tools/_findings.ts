@@ -246,7 +246,7 @@ export interface AgentFinding {
   /** A fixed finding's fix commit, and whether this checkout's HEAD has it (null: not a git checkout). */
   fix?: { sha: string; branch?: string; pushed: boolean; inHead: boolean | null };
   /** Set on an OPEN finding whose fix an agent endorsed while it was still uncommitted. */
-  pending?: { by?: string; branch?: string; here: boolean };
+  pending?: { by?: string; branch?: string; here: boolean; unpushed?: boolean };
   /** Set on an OPEN finding someone holds a live claim on (src/tools/_claims.ts@claim-holder). */
   claim?: { by: string; until: number; here: boolean };
 }
@@ -384,6 +384,7 @@ export function parseVerdictConcept(
   if (verdict === 'pending') {
     parsed.pendingBy = headerLine(content, 'reviewed_by') || undefined;
     parsed.pendingBranch = branch;
+    parsed.pendingUnpushed = /^verdict:\s*fix pending \(unpushed\)/m.test(content);
   }
   return parsed;
 }
@@ -399,6 +400,8 @@ export interface ParsedVerdict {
   fix?: { sha: string; branch?: string; pushed: boolean };
   pendingBy?: string;
   pendingBranch?: string;
+  /** A pending fix that is committed but on no remote branch, rather than uncommitted. */
+  pendingUnpushed?: boolean;
 }
 
 /**
@@ -571,7 +574,7 @@ export async function fetchAgentFindings(
         if (verdicts.length === 0) continue;
         const best = verdicts.reduce((a, b) => (rank(b) > rank(a) ? b : a));
         if (best.verdict === 'pending') {
-          f.pending = { by: best.pendingBy, branch: best.pendingBranch, here: !!me && best.pendingBy === me };
+          f.pending = { by: best.pendingBy, branch: best.pendingBranch, here: !!me && best.pendingBy === me, ...(best.pendingUnpushed ? { unpushed: true } : {}) };
           continue;
         }
         f.verdict = best.verdict;
@@ -762,6 +765,11 @@ function claimNote(c: NonNullable<AgentFinding['claim']>): string {
 /** An open finding's note when its fix was endorsed uncommitted. */
 function pendingNote(p: NonNullable<AgentFinding['pending']>): string {
   const branch = p.branch ? ` on ${p.branch}` : '';
+  if (p.unpushed) {
+    return p.here
+      ? `[fix pending: committed in this checkout${branch} but not pushed; push it, then mark_complete endorse again]`
+      : `[fix pending: committed in another checkout${p.by ? ` (${p.by})` : ''}${branch} but not pushed; not available here]`;
+  }
   return p.here
     ? `[fix pending: uncommitted in this checkout${branch}; commit it, then mark_complete endorse again]`
     : `[fix pending: uncommitted in another checkout${p.by ? ` (${p.by})` : ''}${branch}; not in this one]`;

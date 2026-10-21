@@ -212,3 +212,8 @@ export function commitInHead(workspacePath: string, sha: string): boolean | null
   // --is-ancestor answers through its exit code: 0 yes, 1 no, 128 when the commit is not in this clone at all.
   return git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) !== null;
 }
+
+/** Whether the checkout at `workspacePath` has any remote: without one, no other checkout can have its commits. */
+export function hasRemote(workspacePath: string): boolean {
+  return !!git(resolve(workspacePath), ['remote']);
+}

@@ -17,7 +17,7 @@ import {
   fixLines,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
-import { fixLocation, type FixLocation } from '../repo-identity.js';
+import { fixLocation, hasRemote, type FixLocation } from '../repo-identity.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { claimWarning } from './claim-finding.js';
 
@@ -26,6 +26,19 @@ import { claimWarning } from './claim-finding.js';
  * checkout's working tree, and every other checkout of the repository still has the bug. It is recorded as a
  * pending fix instead, and the finding stays open org-wide until an endorse can name a commit. SPEC §mark_complete
  */
+/**
+ * A fix commit no remote branch holds, in a checkout that has a remote, does not close the finding either: other
+ * checkouts cannot get it, and in a cell it is gone with the work directory. A checkout with no remote at all still
+ * closes, since no one else can have its commits. SPEC §mark_complete
+ */
+function unpushedFix(loc: FixLocation | null, workspace: string): loc is Extract<FixLocation, { kind: 'commit' }> {
+  return loc?.kind === 'commit' && !loc.pushed && hasRemote(workspace);
+}
+
+const UNPUSHED_NOTE = (sha: string) =>
+  `The fix commit ${sha.slice(0, 10)} is not on any remote branch, so other checkouts cannot get it and the finding stays open (shown "fix pending"). `
+  + 'Push it, then mark_complete endorse again.';
+
 function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>, claimed?: string): string {
   if (claimed && !loc.outside) {
     return `fix_commit ${claimed} was not applied: the finding's files have uncommitted changes, so the finding stays open for other agents (shown "fix pending"). `
@@ -167,8 +180,9 @@ export async function handle(
       }
       const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
-      const pending = loc?.kind === 'uncommitted';
-      const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const unpushed = unpushedFix(loc, workspace);
+      const pending = loc?.kind === 'uncommitted' || unpushed;
+      const verdict = unpushed ? 'fix pending (unpushed)' : pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const tag = pending ? 'pending' : input.action;
       // The finding's own repo line when it has one; else this workspace's.
       const here = workspaceRepo();
@@ -224,7 +238,7 @@ export async function handle(
         `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
-        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : '')
+        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : unpushed ? `\n  ${UNPUSHED_NOTE(loc.sha)}` : '')
       );
     }
     if (!seed) {
@@ -248,7 +262,8 @@ export async function handle(
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
     const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit) : null;
     if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
-    const pending = loc?.kind === 'uncommitted';
+    const unpushed = unpushedFix(loc, workspace);
+    const pending = loc?.kind === 'uncommitted' || unpushed;
 
     // A pending fix retires nothing: the finding is still open, here as everywhere else.
     for (const id of pending ? [] : toRetire) {
@@ -266,7 +281,7 @@ export async function handle(
       conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
     } else {
       const here = workspaceRepo();
-      const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const verdict = unpushed ? 'fix pending (unpushed)' : pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept({
         content: [
           `finding: ${seedId}`,
@@ -323,6 +338,7 @@ export async function handle(
     }
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
     if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc, input.fix_commit)}`;
+    else if (unpushed) out += `\n  ${UNPUSHED_NOTE(loc.sha)}`;
     return out;
   }
 

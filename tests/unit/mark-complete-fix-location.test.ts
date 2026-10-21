@@ -232,6 +232,29 @@ describe('mark_complete endorse', () => {
     expect(stub.calls('concept_create_write')).toHaveLength(0);
   });
 
+  test('with a remote, an unpushed fix commit leaves the finding pending until it is pushed', async () => {
+    const dir = checkout('endorse-unpushed');
+    const bare = join(root, 'endorse-unpushed.git');
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
+    git(dir, 'remote', 'add', 'origin', bare);
+    git(dir, 'push', '-q', 'origin', 'main');
+    const store = seeded();
+    const stub = await db();
+    writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
+    git(dir, 'commit', '-qam', 'fix');
+    const input = MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' });
+    const unpushed = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(unpushed).toContain('left open: fix pending');
+    expect(unpushed).toContain('is not on any remote branch, so other checkouts cannot get it');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('verdict: fix pending (unpushed)');
+    expect(stub.calls('conceptUsage_write')).toHaveLength(0);
+    git(dir, 'push', '-q', 'origin', 'main');
+    const closed = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(closed).toContain('endorsed (finding resolved');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+  });
+
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {
     const store = seeded();
     const stub = await db();
@@ -292,6 +315,12 @@ describe('recall', () => {
     const text = renderFindingsSection(r, { max: 10 });
     expect(text).toContain(`[FIXED in ${sha.slice(0, 10)}]`);
     expect(text).not.toContain('not in this checkout');
+  });
+
+  test('an unpushed pending fix says so in recall', async () => {
+    const r = await recall([verdict('fix pending (unpushed)', 'pending', 'fix: commit 0123456789abcdef0123456789abcdef01234567\nfix_branch: main\nfix_pushed: no\n')], checkout('r-unpushed'));
+    expect(r.findings[0]!.verdict).toBeUndefined();
+    expect(renderFindingsSection(r, { max: 10 })).toContain('[fix pending: committed in another checkout (metabob-mcp-other) on main but not pushed; not available here]');
   });
 
   test('a pending verdict reads as no verdict to a reader that knows only endorsed and discarded', () => {
