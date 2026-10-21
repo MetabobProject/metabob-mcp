@@ -59,3 +59,15 @@ test('a loopback resolver call is logged too, marked as the loopback\'s; arrays 
   expect(loop[0]).toMatchObject({ tool: 'get_problems', outcome: 'ok', args: { category: 'array(2)' } });
   expect(lines.filter(l => l.via === 'stdio').length).toBe(3);
 });
+
+test('mcp:tool_call takes its input as `arguments` too, as MCP clients name it', async () => {
+  const port = await server.vesselPort();
+  const post = (pointer: Record<string, unknown>) => fetch(`http://127.0.0.1:${port}/v2/impulses/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'ApiKey mb_test_workflow_key' }, body: JSON.stringify({ pointer }),
+  });
+  expect((await post({ type: 'mcp:tool_call', tool: 'get_problems', arguments: { category: ['security'] } })).status).toBe(200);
+  const last = readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l)).at(-1);
+  expect(last).toMatchObject({ via: 'loopback', tool: 'get_problems', args: { category: 'array(1)' } });
+  const both = await post({ type: 'mcp:tool_call', tool: 'get_problems', input: {}, arguments: {} });
+  expect(JSON.stringify(await both.json())).toContain('not both');
+});

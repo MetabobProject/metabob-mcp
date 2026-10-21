@@ -74,12 +74,19 @@ export function normalizeRemoteUrl(url: string, base?: string): string | null {
   return id || null;
 }
 
-function git(cwd: string, args: string[]): string | null {
+/**
+ * The identity read runs at startup and must not stall it (3 s). Where a fix lives is read when an agent endorses,
+ * on a checkout that may be busy or a slow runner, so those reads wait longer (FIX_GIT_TIMEOUT_MS): a git call that
+ * times out reads as "not known", and must never decide that a fix predates its finding.
+ */
+const FIX_GIT_TIMEOUT_MS = 20_000;
+
+function git(cwd: string, args: string[], timeoutMs = 3_000): string | null {
   try {
     return execFileSync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 3_000,
+      timeout: timeoutMs,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     }).trim();
   } catch {
@@ -129,6 +136,9 @@ export function clearRepoIdentityCache(): void {
   cache.clear();
 }
 
+/** git, with the fix-location timeout. */
+const fgit = (cwd: string, args: string[]) => git(cwd, args, FIX_GIT_TIMEOUT_MS);
+
 // @anchor fix-location
 /**
  * Where a fix to a finding lives in the checkout at `workspacePath`, as mark_complete records it on an endorse
@@ -167,60 +177,61 @@ export const FIX_SKEW_MS = 2 * 60_000;
  */
 export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date, fixCommit?: string, head = 'HEAD'): FixLocation {
   const cwd = resolve(workspacePath);
-  const top = git(cwd, ['rev-parse', '--show-toplevel']);
+  const top = fgit(cwd, ['rev-parse', '--show-toplevel']);
   if (top === null) return { kind: 'unknown' };
   const paths = files.map(f => f.trim()).filter(Boolean)
-    .filter(f => existsSync(resolve(cwd, f)) || !!git(cwd, ['ls-files', '--', f]));
+    .filter(f => existsSync(resolve(cwd, f)) || !!fgit(cwd, ['ls-files', '--', f]));
   if (!paths.length) return { kind: 'absent' };
-  const ref = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const ref = fgit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = ref && ref !== 'HEAD' ? ref : undefined;
-  const base = git(cwd, ['rev-parse', 'HEAD']) || undefined;
+  const base = fgit(cwd, ['rev-parse', 'HEAD']) || undefined;
   const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
   const after = timed ? recordedAt!.getTime() - FIX_SKEW_MS : NaN;
   const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation =>
-    ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...extra });
+    ({ kind: 'commit', sha, branch, pushed: !!fgit(cwd, ['branch', '-r', '--contains', sha]), ...extra });
 
   // Uncommitted changes in the finding's files come first, even over a claimed commit: a claim must not paper
   // over a fix that is not committed yet. A claim judged against another ref (close by commit, against the merge
   // target) is about that ref, and this checkout's working tree says nothing about it.
   if (!(fixCommit && head !== 'HEAD')) {
-    const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
+    const status = fgit(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
     if (status === null) return { kind: 'unknown' };
     if (status) return { kind: 'uncommitted', branch, base };
   }
 
   if (fixCommit) {
-    const sha = git(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
+    const sha = fgit(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
     if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout` };
-    if (git(cwd, ['merge-base', '--is-ancestor', sha, head]) === null) {
+    if (fgit(cwd, ['merge-base', '--is-ancestor', sha, head]) === null) {
       return { kind: 'rejected', reason: head === 'HEAD' ? `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` : `${sha.slice(0, 10)} is not in ${head}` };
     }
     if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it' };
-    const at = Date.parse(git(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');
-    if (!(at >= after)) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix` };
-    const touches = !!git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha, '--', ...paths]);
+    const at = Date.parse(fgit(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');
+    if (!Number.isFinite(at)) return { kind: 'rejected', reason: `the commit time of ${sha.slice(0, 10)} could not be read, so it cannot be shown to postdate the finding; try again` };
+    if (at < after) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix` };
+    const touches = !!fgit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha, '--', ...paths]);
     return commit(sha, { claimed: true, ...(touches ? {} : { elsewhere: true }) });
   }
 
   const since = timed ? [`--since=${new Date(after).toISOString()}`] : [];
-  const touching = timed ? git(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]) : null;
+  const touching = timed ? fgit(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]) : null;
   if (touching) return commit(touching);
-  if (git(cwd, ['status', '--porcelain', '--untracked-files=no'])) return { kind: 'uncommitted', branch, base, outside: true };
-  const newest = timed ? git(cwd, ['log', '-1', '--format=%H', ...since]) : null;
+  if (fgit(cwd, ['status', '--porcelain', '--untracked-files=no'])) return { kind: 'uncommitted', branch, base, outside: true };
+  const newest = timed ? fgit(cwd, ['log', '-1', '--format=%H', ...since]) : null;
   if (!newest) return { kind: 'none' };
-  const changed = (git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', newest]) ?? '').split('\n').filter(Boolean);
+  const changed = (fgit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', newest]) ?? '').split('\n').filter(Boolean);
   return { kind: 'none', newest: { sha: newest, files: changed } };
 }
 
 /** Whether commit `sha` is in the history of the checkout's HEAD; null when the workspace is not a git checkout. */
 export function commitInHead(workspacePath: string, sha: string): boolean | null {
   const cwd = resolve(workspacePath);
-  if (git(cwd, ['rev-parse', '--show-toplevel']) === null) return null;
+  if (fgit(cwd, ['rev-parse', '--show-toplevel']) === null) return null;
   // --is-ancestor answers through its exit code: 0 yes, 1 no, 128 when the commit is not in this clone at all.
-  return git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) !== null;
+  return fgit(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) !== null;
 }
 
 /** Whether the checkout at `workspacePath` has any remote: without one, no other checkout can have its commits. */
 export function hasRemote(workspacePath: string): boolean {
-  return !!git(resolve(workspacePath), ['remote']);
+  return !!fgit(resolve(workspacePath), ['remote']);
 }

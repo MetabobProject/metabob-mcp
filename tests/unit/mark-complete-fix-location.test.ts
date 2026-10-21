@@ -4,7 +4,7 @@
  * closed org-wide while every other checkout still had the bug, and the next agents read "fixed" over a file that
  * was not.
  */
-import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,9 @@ import * as MarkComplete from '../../src/tools/mark-complete';
 import { fetchAgentFindings, parseVerdictConcept, renderFindingsSection } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
 import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
+
+// Each test runs real git: dozens of processes, slow on a Windows runner.
+setDefaultTimeout(30_000);
 
 const root = mkdtempSync(join(tmpdir(), 'metabob-fixloc-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));

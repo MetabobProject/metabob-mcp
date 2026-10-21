@@ -2,7 +2,7 @@
  * `metabob-mcp task pull` (SPEC §task-pull): a cell's entrypoint takes a task from the ledger, claims it, writes
  * /task and clones /work, so every harness gets its work the same way.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,9 @@ import { setResolverIdentity } from '../../src/resolver-identity';
 import { candidateTasks, integrationPolicy, pullTask, validRef, type PullArgs } from '../../src/task-pull';
 import type { AgentFinding } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
+
+// Each test runs real git: dozens of processes, slow on a Windows runner.
+setDefaultTimeout(30_000);
 
 const root = mkdtempSync(join(tmpdir(), 'metabob-taskpull-'));
 beforeAll(() => setResolverIdentity({ vesselId: 'metabob-mcp-cell1' }));

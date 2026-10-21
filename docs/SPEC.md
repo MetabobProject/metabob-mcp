@@ -1214,7 +1214,7 @@ The vessel accepts `POST /v2/impulses/resolve` from local callers: the server bi
 
 | Shape | Maps to | Pointer fields forwarded |
 |-------|---------|--------------------------|
-| `mcp:tool_call` | any tool by name | `tool`, `input` (default `{}`) |
+| `mcp:tool_call` | any tool by name | `tool`, `input` or its alias `arguments` (what MCP clients call it; default `{}`; both at once is refused) |
 | `code:cochange_prediction` | `predict_cochanges` | `changed_files`, `limit`, `confidence_threshold` |
 | `code:impact_analysis` | `analyze_impact` | `changed_files`, `diff`, `direction`, `max_depth`, `include_tests` |
 | `code:git_change_assignment` | `assign_git_changes` | `changed_files`, `diff`, `include_cochange_predictions`, `prediction_limit` |

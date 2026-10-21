@@ -428,7 +428,11 @@ function resolvePointerToTool(pointer: Record<string, unknown>): {
   if (shape === 'mcp:tool_call') {
     const toolName = pointer.tool as string;
     if (!toolName) throw new Error('pointer.tool is required for mcp:tool_call');
-    const toolInput = (pointer.input as Record<string, unknown>) ?? {};
+    // `arguments` is what MCP clients call it; `input` is this shape's own name. Both at once is ambiguous.
+    if (pointer.input !== undefined && pointer.arguments !== undefined) {
+      throw new Error('mcp:tool_call takes the tool input as `input` or `arguments`, not both');
+    }
+    const toolInput = ((pointer.input ?? pointer.arguments) as Record<string, unknown>) ?? {};
     return { toolName, toolInput };
   }
 
