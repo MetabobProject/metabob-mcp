@@ -14,7 +14,9 @@
  * A convention is untrusted input that steers pushes, so only strict values are accepted and only from the trusted
  * authors (the task's recorder by default); the policy's source is recorded with it.
  *
- * Exit codes: 0 a task was pulled; 3 no open task this cell can take; 2 not attached; 1 any other failure.
+ * Exit codes: 0 a task was pulled; 3 no open task (the cell is done); 4 open tasks exist but others hold them (retry
+ * after the earliest claim end, which --json reports); 2 not attached; 1 any other failure. A failure after the claim
+ * withdraws it, so one bad ref or origin never blocks a task for the claim's length.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -103,6 +105,17 @@ export function integrationPolicy(
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
 const severityOf = (f: AgentFinding) => SEVERITY_RANK[(/^\[([A-Z]+)\]/.exec(f.summary)?.[1] ?? '')] ?? 5;
+
+/** Whether `ref` is a branch name git accepts, never an option: `git check-ref-format --branch`, no leading `-`, at most 100 characters. */
+export function validRef(ref: string): boolean {
+  if (!ref || ref.length > 100 || ref.startsWith('-')) return false;
+  try {
+    execFileSync('git', ['check-ref-format', '--branch', ref], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Open tasks this cell can take, in the order it tries them: its own claims first, then unclaimed by severity. */
 export function candidateTasks(findings: AgentFinding[]): AgentFinding[] {
@@ -196,19 +209,36 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
   if (recall.status !== 'ok') return say(1, `the ledger could not be read (${recall.status}${recall.detail ? `: ${recall.detail}` : ''})`);
   const candidates = candidateTasks(recall.findings);
   const tried: string[] = [];
+  const heldUntil: number[] = recall.findings.filter(f => isTaskFinding(f) && !f.verdict && f.claim && !f.claim.here).map(f => f.claim!.until);
   for (const task of candidates) {
     const result = await claim(ClaimInput.parse({ problem_id: task.id, action: 'claim', minutes: a.minutes }), sessionId, null, { repo, ...(pauses ? { pauses } : {}) });
     tried.push(`${task.id}: ${result.outcome}`);
+    if (result.outcome === 'held' || result.outcome === 'lost') {
+      if (result.holder) heldUntil.push(result.holder.until);
+      continue;
+    }
+    // An unsettled claim is worth retrying soon: the read path had not caught up with the write.
+    if (result.outcome === 'unsettled') {
+      heldUntil.push(Date.now() + 30_000);
+      continue;
+    }
     if (result.outcome !== 'claimed' && result.outcome !== 'renewed') continue;
     const key = result.key!;
+    // Anything that fails from here withdraws the claim: left to lapse, it would block the task for every cell.
+    const release = async (why: string): Promise<PullResult> => {
+      const released = await claim(ClaimInput.parse({ problem_id: task.id, action: 'release' }), sessionId, null, { repo });
+      return say(1, `${why}. ${released.outcome === 'released' ? `The claim on ${key} was withdrawn.` : `The claim on ${key} could not be withdrawn (${released.message}); it lapses on its own.`}`);
+    };
     const details = taskDetails(task.content);
     const recorder = header(task.content, 'recorded_by');
-    const trusted = new Set(a.trust.length ? a.trust : recorder ? [recorder] : []);
+    // Without a configured trust list, the task's recorder vouches for the conventions that shape it: recorded as defaulted.
+    const trustDefaulted = a.trust.length === 0;
+    const trusted = new Set(trustDefaulted ? (recorder ? [recorder] : []) : a.trust);
     const conventions = await readConventions(repo);
     const policy = integrationPolicy(key, details, conventions, trusted);
     for (const r of policy.rejected) process.stderr.write(`warn: integration policy: ${r}\n`);
     const ref = declared(details, 'ref');
-    if (ref && !/^[A-Za-z0-9._/-]{1,100}$/.test(ref)) return say(1, `task ${key} declares ref ${ref}, which is not a ref name this clones`);
+    if (ref && !validRef(ref)) return release(`task ${key} declares ref ${ref}, which is not a branch name git accepts`);
 
     const files = header(task.content, 'files').split(',').map(s => s.trim()).filter(Boolean);
     const related = recall.findings.filter(f => f.id !== task.id && !isTaskFinding(f) && !f.verdict
@@ -226,23 +256,30 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
       ref: ref ?? null,
       policy: { push_to: policy.push_to, integrate: policy.integrate, conflicts: policy.conflicts, source: policy.source },
       claim: { by: result.holder?.by ?? vesselId, until: new Date(result.holder?.until ?? Date.now()).toISOString() },
+      trust: { authors: [...trusted], defaulted: trustDefaulted },
       recorded_by: recorder || null,
       pulled_at: new Date().toISOString(),
       session: sessionId,
     };
-    mkdirSync(a.taskDir, { recursive: true });
-    writeFileSync(join(a.taskDir, 'task.json'), JSON.stringify(record, null, 2) + '\n');
-    writeFileSync(join(a.taskDir, 'context.md'), contextFile(record, task, related));
+    try {
+      mkdirSync(a.taskDir, { recursive: true });
+      writeFileSync(join(a.taskDir, 'task.json'), JSON.stringify(record, null, 2) + '\n');
+      writeFileSync(join(a.taskDir, 'context.md'), contextFile(record, task, related));
+    } catch (err) {
+      return release(`claimed ${key}, but writing ${a.taskDir} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     try {
       execFileSync('git', ['clone', '--quiet', ...(ref ? ['--branch', ref] : []), '--', a.origin, a.workDir], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     } catch (err) {
-      return say(1, `claimed ${key}, but cloning ${a.origin} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || String(err)}. The claim lapses on its own.`);
+      return release(`claimed ${key}, but cloning ${a.origin} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || String(err)}`);
     }
     return say(0, `pulled ${key}: ${record.summary} (claimed until ${record.claim.until}; push to ${policy.push_to}, integrate by ${policy.integrate})`, { task: record });
   }
-  return say(3, candidates.length
-    ? `no open task could be claimed (${tried.join('; ')})`
-    : 'no open task this cell can take: none is open, or every open one is claimed by someone else', { tried });
+  if (heldUntil.length) {
+    const next = new Date(Math.min(...heldUntil)).toISOString();
+    return say(4, `every open task is held by someone else; the earliest claim ends at ${next}${tried.length ? ` (${tried.join('; ')})` : ''}`, { tried, retry_after: next });
+  }
+  return say(3, tried.length ? `no open task could be claimed (${tried.join('; ')})` : 'no open task', { tried });
 }
 
 /** The repository's project_convention concepts, newest first, as integrationPolicy reads them. */

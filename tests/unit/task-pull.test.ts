@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { setAttachment } from '../../src/attachment';
 import { normalizeRemoteUrl } from '../../src/repo-identity';
 import { setResolverIdentity } from '../../src/resolver-identity';
-import { candidateTasks, integrationPolicy, pullTask, type PullArgs } from '../../src/task-pull';
+import { candidateTasks, integrationPolicy, pullTask, validRef, type PullArgs } from '../../src/task-pull';
 import type { AgentFinding } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
 
@@ -125,6 +125,53 @@ describe('pullTask', () => {
     const r = await pullTask(args(o.url, 'p2'), 'sess2', 'metabob-mcp-cell1', [0, 0, 0]);
     expect(r.code).toBe(0);
     expect(r.message).toContain('pulled agf_b');
+  });
+
+  test('when every open task is held by others it exits 4 with the earliest claim end', async () => {
+    const o = origin('o4');
+    const at = Date.now() - 60_000;
+    await ledger(o.repo, [{ n: 'h', sev: 'HIGH' }], [{
+      id: 'concept:held4', shape: 'finding_verdict', created_at: new Date(at).toISOString(),
+      content: 'finding: agf_h\nverdict: claimed\nclaim_minutes: 10\nreviewed_by: metabob-mcp-cell2',
+    }]);
+    const r = await pullTask(args(o.url, 'p4'), 'sess4', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(4);
+    expect(r.extra?.retry_after).toBe(new Date(at + 10 * 60_000).toISOString());
+  });
+
+  test('a bad ref after the claim withdraws the claim, so the task is not blocked', async () => {
+    const o = origin('o5');
+    const rows = await ledger(o.repo, [{ n: 'r', sev: 'HIGH', details: 'ref: ..bad' }]);
+    const a = args(o.url, 'p5');
+    const r = await pullTask(a, 'sess5', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(1);
+    expect(r.message).toContain('not a branch name git accepts');
+    expect(r.message).toContain('The claim on agf_r was withdrawn');
+    expect(rows.filter(x => String(x.content).includes('verdict: claim withdrawn'))).toHaveLength(1);
+    expect(existsSync(a.workDir)).toBe(false);
+  });
+
+  test('a clone failure after the claim withdraws the claim', async () => {
+    const o = origin('o6');
+    const rows = await ledger(o.repo, [{ n: 'c', sev: 'HIGH', details: 'ref: no-such-branch' }]);
+    const r = await pullTask(args(o.url, 'p6'), 'sess6', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(1);
+    expect(r.message).toContain('cloning');
+    expect(rows.filter(x => String(x.content).includes('verdict: claim withdrawn'))).toHaveLength(1);
+  });
+
+  test('task.json records whether the trust list was defaulted', async () => {
+    const o = origin('o7');
+    await ledger(o.repo, [{ n: 'd', sev: 'HIGH' }]);
+    const a = { ...args(o.url, 'p7'), trust: ['coordinator-1'] };
+    expect((await pullTask(a, 'sess7', 'metabob-mcp-cell1', [0, 0, 0])).code).toBe(0);
+    expect(JSON.parse(readFileSync(join(a.taskDir, 'task.json'), 'utf8')).trust).toEqual({ authors: ['coordinator-1'], defaulted: false });
+  });
+
+  test('validRef: git\'s branch-name rules, no leading dash, at most 100 characters', () => {
+    expect(validRef('main')).toBe(true);
+    expect(validRef('task/agf_x')).toBe(true);
+    for (const bad of ['..bad', 'a..b', 'x@{1}', 'a.lock', '-x', '--upload-pack=x', 'a b', 'x'.repeat(101), '']) expect(validRef(bad)).toBe(false);
   });
 
   test('with no task this cell can take it exits 3 and writes nothing', async () => {

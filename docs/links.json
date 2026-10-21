@@ -756,6 +756,11 @@
           "path_activity",
           "resolve_impulse"
         ]
+      },
+      "tests/workflows/w7-task-pull.test.ts": {
+        "SPEC": [
+          "task-pull"
+        ]
       }
     },
     "docCitesCode": {
@@ -935,6 +940,7 @@
         "src/task-pull.ts@candidateTasks",
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@runTaskPull",
+        "src/task-pull.ts@validRef",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_claims.ts@CLAIM_SKEW_MS",
@@ -1063,7 +1069,8 @@
         "tests/workflows/w2-ledger.test.ts",
         "tests/workflows/w3-attachment.test.ts",
         "tests/workflows/w4-skill-contract.test.ts",
-        "tests/workflows/w6-system-coordination.test.ts"
+        "tests/workflows/w6-system-coordination.test.ts",
+        "tests/workflows/w7-task-pull.test.ts"
       ]
     },
     "anchors": {
@@ -1127,6 +1134,7 @@
       "src/task-pull.ts@candidateTasks": "b837bf561ed5",
       "src/task-pull.ts@integration-policy": "8d64a30d9de1",
       "src/task-pull.ts@runTaskPull": "459c7b911e07",
+      "src/task-pull.ts@validRef": "c0cc3246557a",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
       "src/tools/_claims.ts@CLAIM_SKEW_MS": "24fadf0b22ab",

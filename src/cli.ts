@@ -9,7 +9,7 @@
 // `npx @metabob/mcp` starts under Node like every other npm package. The MCP server
 // itself needs Bun — bun:sqlite backs the local seed store — so a server invocation
 // that lands here under Node re-execs into Bun, and prints an actionable install
-// message when Bun is absent. --help, --version, `doctor` and `attach --check` are
+// message when Bun is absent. --help, --version, `doctor`, `attach --check` and `task pull` are
 // Node-safe and stay in-process — they must keep working on a machine that has never
 // seen Bun — so they run under whichever runtime launched them; their requests take
 // the same path as the server's (src/net.ts, identical under Bun and Node).
@@ -18,6 +18,7 @@ const NODE_SAFE_FLAGS = new Set(['--help', '-h', '--version', '-v']);
 const isNodeSafeInvocation =
   process.argv[2] === 'doctor' ||
   process.argv[2] === 'attach' ||
+  process.argv[2] === 'task' ||
   process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
 
 if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
@@ -134,7 +135,7 @@ USAGE:
   npx @metabob/mcp doctor             Diagnose proxy / TLS-inspection issues on the path to the substrate
   npx @metabob/mcp task pull --origin <git url>
                                       Take a task from the ledger, claim it, write /task, clone /work
-                                      (a cell's entrypoint step); exit 0 pulled, 3 none open, 2 not attached
+                                      (a cell's entrypoint step); exit 0 pulled, 3 none open, 4 all held, 2 not attached
 
 OPTIONS:
   --api-key <KEY>              API key for the substrate. Same as METABOB_API_KEY.

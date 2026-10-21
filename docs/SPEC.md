@@ -291,7 +291,7 @@ classification live there and nowhere else (CONFORMANCE §c8-proxy-and-tls-in-th
 The npm bin (`dist/cli.js`) starts under Node (`#!/usr/bin/env node`). Which runtime makes the network
 calls depends on the command:
 
-| launch | the MCP server's calls | `doctor`, `attach --check` |
+| launch | the MCP server's calls | `doctor`, `attach --check`, `task pull` |
 |---|---|---|
 | `bun src/cli.ts` (development) | Bun | Bun |
 | `node dist/cli.js` / `npx @metabob/mcp`, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node: they are Node-safe and stay in-process |
@@ -420,6 +420,8 @@ through a proxy) nothing is known about the key, and nothing is gated.
 
 `metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <vesselId,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
 
+It is Node-safe and runs in the runtime that launched it (§ Runtime), so a cell that runs `npx @metabob/mcp` needs no Bun for it; W7 runs the built CLI under Node.
+
 **Getting attached.** It loads the configuration and attaches as the server does (§ Attachment). Its vessel identity is `VESSEL_ID`, else derived from the key and the work directory, and its session is `SESSION_ID`, else a new one. The repository is the origin URL's identity (§ Repository identity), so every clone of one origin shares one ledger.
 
 **Choosing a task.** Tasks are open findings in category `task` (§ get_problems) on that repository (`src/task-pull.ts@candidateTasks`). It tries them in this order:
@@ -436,14 +438,23 @@ A task someone else holds, a closed one and one with a fix pending are skipped. 
 
 It also writes `context.md`: the details, the policy, the open non-task findings on the task's files, and the task as recorded. Then it clones the origin into the work directory, at the task's `ref:` when it declares one.
 
+A `ref:` must be a branch name `git check-ref-format --branch` accepts, must not start with `-`, and is at most 100 characters (`src/task-pull.ts@validRef`): task details are written by agents. **Anything that fails after the claim withdraws it**: a refused ref, writing the task directory, or the clone. Left to lapse, one bad ref or origin would block the task for every cell for the claim's length.
+
 **The integration policy** (`src/task-pull.ts@integration-policy`) says where the fix goes. Each value comes from the task's `details` (`push_to:`, `integrate:`, `conflicts:` lines), else from a `project_convention` concept for the repository by a trusted author, newest first, else the default:
 - `push_to`: `main`, or `task` (meaning `task/<task id>`); default `main`;
 - `integrate`: `push` or `review`; default `push`;
 - `conflicts`: `rebase`.
 
-A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied. Authors are declared, not verified (§ Client claim), so the trust list is a convention among cells, not a security boundary.
+A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder, in which case `task.json` records `trust.defaulted: true`. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied. Authors are declared, not verified (§ Client claim), so the trust list is a convention among cells, not a security boundary.
 
-**Exit codes:** 0 a task was pulled; 3 no open task this cell can take (the reply lists what each candidate's claim did); 2 not attached; 1 any other failure. A claim whose clone then fails is left to lapse.
+**Exit codes:**
+- 0: a task was pulled.
+- 3: no open task, so the cell is done.
+- 4: open tasks exist, but others hold them, or a claim was not settled yet. `--json` gives `retry_after`, the earliest claim end, for the entrypoint loop to wait until.
+- 2: not attached.
+- 1: any other failure.
+
+The reply lists what each candidate's claim did.
 
 ## Client claim
 
