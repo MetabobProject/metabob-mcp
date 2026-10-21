@@ -97,6 +97,14 @@ describe('fixLocation', () => {
     git(dir, 'checkout', '-q', 'main');
     expect(fixLocation(dir, ['stats.ts'], recorded, side)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining("is not in this checkout's HEAD") });
     expect(fixLocation(dir, ['stats.ts'], undefined, old)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('no recorded time') });
+    // Uncommitted changes in the finding's files win over a claim.
+    writeFileSync(join(dir, 'util.ts'), 'claim\n');
+    git(dir, 'commit', '-qam', 'claim');
+    const claim = git(dir, 'rev-parse', 'HEAD');
+    writeFileSync(join(dir, 'stats.ts'), 'dirty\n');
+    expect(fixLocation(dir, ['stats.ts'], recorded, claim)).toMatchObject({ kind: 'uncommitted' });
+    git(dir, 'checkout', '-q', '--', 'stats.ts');
+    expect(fixLocation(dir, ['stats.ts'], recorded, claim)).toMatchObject({ kind: 'commit', sha: claim, claimed: true, elsewhere: true });
     // A claimed commit touching the finding's files is not "elsewhere".
     writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
     git(dir, 'commit', '-qam', 'fix');

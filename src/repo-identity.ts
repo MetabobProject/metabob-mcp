@@ -137,13 +137,15 @@ export function clearRepoIdentityCache(): void {
  *
  * - `unknown`: not a git checkout.
  * - `absent`: a git checkout where none of `files` is known (not tracked and not on disk): not where the fix is.
+ * - `uncommitted`, before anything else, when one of the finding's files has changes git has not committed — even
+ *   with a claimed commit, which must not paper over a fix that is not committed yet.
  * - `commit`: `claimed` — the agent named the fix commit, and it resolves here, is in HEAD's history and postdates
  *   the finding (`elsewhere` when it touches none of the finding's files) — or else the newest commit since the
  *   finding touching its files. With its branch and whether a remote branch holds it.
  * - `rejected`: the claimed commit fails one of those checks (`reason`).
- * - `uncommitted`: one of the finding's files has changes git has not committed (modified, staged, untracked or
- *   deleted), or, with no commit since the finding touching them, other tracked files do (`outside`: the fix may be
- *   among them).
+ * - `uncommitted` also when, with no commit since the finding touching its files, other tracked files have
+ *   uncommitted changes (`outside`: the fix may be among them). Changes count when modified, staged, untracked or
+ *   deleted.
  * - `none`: no commit since the finding touches its files and nothing is uncommitted. A newer commit elsewhere is
  *   not taken as the fix — a pull of unrelated work would close every finding — but named (`newest`), so the agent
  *   can claim it when it is the fix.
@@ -174,6 +176,12 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation =>
     ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...extra });
 
+  // Uncommitted changes in the finding's files come first, even over a claimed commit: a claim must not paper
+  // over a fix that is not committed yet.
+  const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
+  if (status === null) return { kind: 'unknown' };
+  if (status) return { kind: 'uncommitted', branch, base };
+
   if (fixCommit) {
     const sha = git(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
     if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout` };
@@ -187,9 +195,6 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
     return commit(sha, { claimed: true, ...(touches ? {} : { elsewhere: true }) });
   }
 
-  const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
-  if (status === null) return { kind: 'unknown' };
-  if (status) return { kind: 'uncommitted', branch, base };
   const since = timed ? [`--since=${new Date(after).toISOString()}`] : [];
   const touching = timed ? git(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]) : null;
   if (touching) return commit(touching);

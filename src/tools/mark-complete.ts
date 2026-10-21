@@ -25,7 +25,11 @@ import { activeWorkspacePath } from '../local-index.js';
  * checkout's working tree, and every other checkout of the repository still has the bug. It is recorded as a
  * pending fix instead, and the finding stays open org-wide until an endorse can name a commit. SPEC §mark_complete
  */
-function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>): string {
+function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>, claimed?: string): string {
+  if (claimed && !loc.outside) {
+    return `fix_commit ${claimed} was not applied: the finding's files have uncommitted changes, so the finding stays open for other agents (shown "fix pending"). `
+      + 'Commit them and endorse again, or, if they are unrelated to the fix, commit or set them aside and endorse with fix_commit again.';
+  }
   return loc.outside
     ? 'The finding\'s files are clean and no commit since the finding touches them, but this checkout has uncommitted changes '
       + 'in other files. If the fix is among them, commit it, then mark_complete endorse again; until then the finding stays '
@@ -217,7 +221,7 @@ export async function handle(
         `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
-        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc)}` : '')
+        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : '')
       );
     }
     if (!seed) {
@@ -311,7 +315,7 @@ export async function handle(
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (loc) out += `\n  fix: ${fixShown(loc)}`;
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
-    if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc)}`;
+    if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc, input.fix_commit)}`;
     return out;
   }
 
