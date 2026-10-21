@@ -294,6 +294,7 @@
       },
       "src/repo-identity.ts": {
         "SPEC": [
+          "mark_complete",
           "repository-identity"
         ]
       },
@@ -321,6 +322,7 @@
         ],
         "SPEC": [
           "get_problems",
+          "mark_complete",
           "record_finding",
           "repository-identity"
         ]
@@ -878,6 +880,8 @@
         "src/outgoing-guard.ts@describeArgsForLog",
         "src/outgoing-guard.ts@guard-tool-input",
         "src/outgoing-guard.ts@guarded-fields",
+        "src/repo-identity.ts@commitInHead",
+        "src/repo-identity.ts@fix-location",
         "src/repo-identity.ts@normalizeRemoteUrl",
         "src/repo-identity.ts@repoIdentity",
         "src/resolver-identity.ts@getResolverVesselId",
@@ -893,6 +897,7 @@
         "src/tools/_findings.ts@fetchAgentFindings",
         "src/tools/_findings.ts@fetchConceptById",
         "src/tools/_findings.ts@findOpenDuplicate",
+        "src/tools/_findings.ts@fixLines",
         "src/tools/_findings.ts@openFindingsHeadline",
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
@@ -1057,6 +1062,8 @@
       "src/outgoing-guard.ts@describeArgsForLog": "d1140ab34536",
       "src/outgoing-guard.ts@guard-tool-input": "e45b397d7869",
       "src/outgoing-guard.ts@guarded-fields": "0d93b0050521",
+      "src/repo-identity.ts@commitInHead": "506aea0c1daa",
+      "src/repo-identity.ts@fix-location": "8d64a30d9de1",
       "src/repo-identity.ts@normalizeRemoteUrl": "54b6b5099f3e",
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
@@ -1072,6 +1079,7 @@
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
       "src/tools/_findings.ts@fetchConceptById": "b9349d47d051",
       "src/tools/_findings.ts@findOpenDuplicate": "ac0eceeace32",
+      "src/tools/_findings.ts@fixLines": "df4f3a22193e",
       "src/tools/_findings.ts@openFindingsHeadline": "c854e9951c53",
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",

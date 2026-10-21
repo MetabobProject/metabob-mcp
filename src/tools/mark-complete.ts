@@ -14,13 +14,31 @@ import {
   conceptDbUnavailable,
   repoLines,
   workspaceRepo,
+  fixLines,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
+import { fixLocation, type FixLocation } from '../repo-identity.js';
+import { activeWorkspacePath } from '../local-index.js';
+
+/**
+ * An endorse of a fix that is still uncommitted does not close the finding: the fix exists only in this
+ * checkout's working tree, and every other checkout of the repository still has the bug. It is recorded as a
+ * pending fix instead, and the finding stays open org-wide until an endorse can name a commit. SPEC §mark_complete
+ */
+const PENDING_NOTE =
+  'The fix is uncommitted in this checkout, so the finding stays open for other agents (shown "fix pending"). '
+  + 'Commit it, then mark_complete endorse again to close the finding with its commit.';
+
+function fixShown(loc: FixLocation): string {
+  if (loc.kind === 'commit') return `commit ${loc.sha.slice(0, 10)}${loc.branch ? ` on ${loc.branch}` : ''}${loc.pushed ? '' : ' (not on any remote branch yet)'}`;
+  if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}`;
+  return 'unknown (not a git checkout), so the finding is closed without a commit';
+}
 
 export const MarkCompleteTool = {
   name: 'mark_complete',
   description:
-    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved, discard retracts it. Any other id is refused.',
+    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing: a fix still uncommitted in this checkout leaves the finding open, marked fix pending. Any other id is refused.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -51,6 +69,8 @@ export async function handle(
   apiClient: AnalysisAPIClient,
   sessionId: string,
   localStore?: LocalStore | null,
+  /** The checkout whose state says where the fix is; the active workspace by default. */
+  workspace: string = activeWorkspacePath(),
 ): Promise<string> {
   const startTime = Date.now();
 
@@ -98,7 +118,10 @@ export async function handle(
         return `Concept "${plainId}" could not be read from concept-db, so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(',')) : null;
+      const pending = loc?.kind === 'uncommitted';
+      const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const tag = pending ? 'pending' : input.action;
       // The finding's own repo line when it has one; else this workspace's.
       const here = workspaceRepo();
       const repoContent = remote.repo
@@ -117,6 +140,7 @@ export async function handle(
         content: [
           `finding: ${findingKey}`,
           `verdict: ${verdict}`,
+          ...(loc ? fixLines(loc) : []),
           ...repoContent,
           `files: ${remote.files}`,
           `finding summary: ${remote.summary}`,
@@ -127,12 +151,13 @@ export async function handle(
           ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
           `origin: remote`,
         ].join('\n'),
-        summary: `[verdict:${input.action}] ${repoShown}: ${remote.summary}`,
+        summary: `[verdict:${tag}] ${repoShown}: ${remote.summary}`,
         shape: VERDICT_SHAPE,
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
       });
-      const usage = await recordConceptUsage(
+      // A pending fix credits nothing yet: the endorse that names a commit does.
+      const usage = pending ? null : await recordConceptUsage(
         plainId,
         input.action === 'endorse' ? 'success' : 'failure',
       );
@@ -143,11 +168,13 @@ export async function handle(
         ? `\n  keyed on:   the concept id — this finding carries no agf_* id (recorded with no local store), so finding-id joins will not surface this verdict`
         : '';
       return (
-        `Finding ${plainId} ${input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
+        `Finding ${plainId} ${pending ? 'left open, fix pending,' : input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
-        `  relevance:  ${usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
+        (loc ? `  fix:        ${fixShown(loc)}\n` : '') +
+        `  relevance:  ${!usage ? 'not recorded until the fix is committed' : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
-        keyedNote
+        keyedNote +
+        (pending ? `\n  ${PENDING_NOTE}` : '')
       );
     }
     if (!seed) {
@@ -166,8 +193,12 @@ export async function handle(
     const conceptRef = conceptIdFromRefs(seed.refs_json);
     const siblings = conceptRef ? localStore.getSeedsByConceptRef(conceptRef) : [];
     const toRetire = siblings.length > 0 ? siblings.map(s => s.id) : [seedId];
+    const files = siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path];
+    const loc = input.action === 'endorse' ? fixLocation(workspace, files) : null;
+    const pending = loc?.kind === 'uncommitted';
 
-    for (const id of toRetire) {
+    // A pending fix retires nothing: the finding is still open, here as everywhere else.
+    for (const id of pending ? [] : toRetire) {
       if (input.action === 'endorse') {
         localStore.markSeedStaleById(id); // resolved — stop surfacing
       } else {
@@ -182,18 +213,19 @@ export async function handle(
       conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
     } else {
       const here = workspaceRepo();
-      const verdict = input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept({
         content: [
           `finding: ${seedId}`,
           `verdict: ${verdict}`,
+          ...(loc ? fixLines(loc) : []),
           ...repoLines(here),
           `files: ${seed.file_path}`,
           `finding summary: ${seed.brief}`,
           ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
           `origin: local`,
         ].join('\n'),
-        summary: `[verdict:${input.action}] ${here?.name ?? seed.workspace_id}: ${seed.brief}`,
+        summary: `[verdict:${pending ? 'pending' : input.action}] ${here?.name ?? seed.workspace_id}: ${seed.brief}`,
         shape: VERDICT_SHAPE,
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
@@ -210,7 +242,9 @@ export async function handle(
       // into a 404 at the usage chokepoint, silently skipping the relevance fold.
       const linkedRef = conceptIdFromRefs(seed.refs_json);
       const conceptId = linkedRef ? plainConceptId(linkedRef) : null;
-      if (conceptId) {
+      if (pending) {
+        relevanceStatus = 'relevance: not recorded until the fix is committed';
+      } else if (conceptId) {
         const outcome = input.action === 'endorse' ? 'success' : 'failure';
         const usage = await recordConceptUsage(conceptId, outcome);
         relevanceStatus = usage.ok
@@ -222,12 +256,16 @@ export async function handle(
     }
 
     const duration = Date.now() - startTime;
-    const verb = input.action === 'endorse'
+    const verb = pending
+      ? 'left open: fix pending'
+      : input.action === 'endorse'
       ? 'endorsed (finding resolved, retired from get_problems)'
       : 'discarded (finding retracted and removed)';
     const shown = isConceptId ? `${seedId} (via ${plainId})` : seedId;
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
+    if (loc) out += `\n  fix: ${fixShown(loc)}`;
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
+    if (pending) out += `\n  ${PENDING_NOTE}`;
     return out;
   }
 

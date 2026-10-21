@@ -32,7 +32,7 @@ import {
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
-import { repoIdentity, type RepoIdentity } from '../repo-identity.js';
+import { commitInHead, repoIdentity, type FixLocation, type RepoIdentity } from '../repo-identity.js';
 
 /**
  * What the analysis tools say where backend detections would otherwise be.
@@ -242,6 +242,10 @@ export interface AgentFinding {
   /** Set when a `finding_verdict` concept joined on a shared `agf_*` id closed
    *  this finding. Absent means open — no verdict was recorded, not "unknown". */
   verdict?: FindingVerdict;
+  /** A fixed finding's fix commit, and whether this checkout's HEAD has it (null: not a git checkout). */
+  fix?: { sha: string; branch?: string; pushed: boolean; inHead: boolean | null };
+  /** Set on an OPEN finding whose fix an agent endorsed while it was still uncommitted. */
+  pending?: { by?: string; branch?: string; here: boolean };
 }
 
 export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable' | 'refused';
@@ -347,16 +351,50 @@ export function parseFindingIds(content: string): string[] {
 export function parseVerdictConcept(
   content: string,
   summary: string,
-): { findingId: string; verdict: FindingVerdict } | null {
+): ParsedVerdict | null {
   const idMatch = /^finding:\s*(agf_\S+)/m.exec(content);
   if (!idMatch) return null;
-  let verdict: FindingVerdict | null = null;
-  const v = /^verdict:\s*(endorsed|discarded)/m.exec(content);
-  if (v) verdict = v[1] === 'endorsed' ? 'fixed' : 'retracted';
+  let verdict: FindingVerdict | 'pending' | null = null;
+  const v = /^verdict:\s*(endorsed|discarded|fix pending)/m.exec(content);
+  if (v) verdict = v[1] === 'endorsed' ? 'fixed' : v[1] === 'discarded' ? 'retracted' : 'pending';
   else if (summary.includes('[verdict:endorse]')) verdict = 'fixed';
   else if (summary.includes('[verdict:discard]')) verdict = 'retracted';
+  else if (summary.includes('[verdict:pending]')) verdict = 'pending';
   if (!verdict) return null;
-  return { findingId: idMatch[1]!, verdict };
+  const parsed: ParsedVerdict = { findingId: idMatch[1]!, verdict };
+  const branch = headerLine(content, 'fix_branch') || undefined;
+  const commit = /^fix: commit ([0-9a-f]{7,40})\b/m.exec(content);
+  if (verdict === 'fixed' && commit) parsed.fix = { sha: commit[1]!, branch, pushed: headerLine(content, 'fix_pushed') !== 'no' };
+  if (verdict === 'pending') {
+    parsed.pendingBy = headerLine(content, 'reviewed_by') || undefined;
+    parsed.pendingBranch = branch;
+  }
+  return parsed;
+}
+
+/**
+ * A parsed `finding_verdict`. `pending` is an endorse of a fix that was still uncommitted: the finding stays open.
+ * It is written as `verdict: fix pending (uncommitted)` / `[verdict:pending]`, which a reader that knows only
+ * endorsed and discarded parses as no verdict, so the finding reads open there too.
+ */
+export interface ParsedVerdict {
+  findingId: string;
+  verdict: FindingVerdict | 'pending';
+  fix?: { sha: string; branch?: string; pushed: boolean };
+  pendingBy?: string;
+  pendingBranch?: string;
+}
+
+/**
+ * The verdict's lines for where the fix is (SPEC §mark_complete): `fix: commit <sha>` with `fix_branch:` and
+ * `fix_pushed: no` when no remote branch held it, `fix: uncommitted` with the branch and `fix_base:` HEAD, or
+ * `fix: unknown (not a git checkout)`. No path: the checkout is named by the verdict's `reviewed_by`.
+ */
+export function fixLines(loc: FixLocation): string[] {
+  const branch = 'branch' in loc && loc.branch ? [`fix_branch: ${loc.branch}`] : [];
+  if (loc.kind === 'commit') return [`fix: commit ${loc.sha}`, ...branch, ...(loc.pushed ? [] : ['fix_pushed: no'])];
+  if (loc.kind === 'uncommitted') return ['fix: uncommitted', ...branch, ...(loc.base ? [`fix_base: ${loc.base}`] : [])];
+  return ['fix: unknown (not a git checkout)'];
 }
 
 /** Read one `key: value` header line out of a concept body. */
@@ -428,6 +466,8 @@ export interface FindingsScope {
   repo: string | RepoIdentity | null | undefined;
   /** Optional narrowing to findings touching this path. */
   filePath?: string | null | undefined;
+  /** The checkout a fix commit is looked up in; the active workspace by default. */
+  workspace?: string;
 }
 
 /**
@@ -486,22 +526,35 @@ export async function fetchAgentFindings(
   if (findings.length > 0) {
     const verdictScan = await scanConceptShape(VERDICT_SHAPE);
     if (verdictScan.ok) {
-      const verdictById = new Map<string, FindingVerdict>();
+      // A retraction wins over an endorse when both were recorded for the same
+      // id — a known false positive must never re-render as open/fixed — and a
+      // committed fix wins over a pending one. A fix with a commit wins over one without.
+      const rank = (v: ParsedVerdict) => (v.verdict === 'retracted' ? 3 : v.verdict === 'fixed' ? (v.fix ? 2 : 1.5) : 1);
+      const verdictById = new Map<string, ParsedVerdict>();
       for (const row of verdictScan.rows) {
         const parsed = parseVerdictConcept(row.content ?? '', row.summary ?? '');
         if (!parsed) continue;
-        // A retraction wins over an endorse when both were recorded for the
-        // same id — a known false positive must never re-render as open/fixed.
-        if (verdictById.get(parsed.findingId) !== 'retracted') {
-          verdictById.set(parsed.findingId, parsed.verdict);
-        }
+        const held = verdictById.get(parsed.findingId);
+        if (!held || rank(parsed) > rank(held)) verdictById.set(parsed.findingId, parsed);
       }
+      const workspace = scope.workspace ?? activeWorkspacePath();
+      const me = findings.length ? await resolveAuthorVesselId() : undefined;
+      const inHead = new Map<string, boolean | null>();
       for (const f of findings) {
         const verdicts = parseFindingIds(f.content)
           .map(id => verdictById.get(id))
-          .filter((v): v is FindingVerdict => v !== undefined);
+          .filter((v): v is ParsedVerdict => v !== undefined);
         if (verdicts.length === 0) continue;
-        f.verdict = verdicts.includes('retracted') ? 'retracted' : 'fixed';
+        const best = verdicts.reduce((a, b) => (rank(b) > rank(a) ? b : a));
+        if (best.verdict === 'pending') {
+          f.pending = { by: best.pendingBy, branch: best.pendingBranch, here: !!me && best.pendingBy === me };
+          continue;
+        }
+        f.verdict = best.verdict;
+        if (best.fix) {
+          if (!inHead.has(best.fix.sha)) inHead.set(best.fix.sha, commitInHead(workspace, best.fix.sha));
+          f.fix = { ...best.fix, inHead: inHead.get(best.fix.sha)! };
+        }
       }
     }
   }
@@ -582,7 +635,7 @@ export function renderFindingsSection(
     }
     for (const f of shown) {
       const line = f.summary || f.content.split('\n')[0] || f.id;
-      text += `  • ${line}\n`;
+      text += `  • ${line}${f.pending ? `  ${pendingNote(f.pending)}` : ''}\n`;
       if (!opts.compact) {
         const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
         if (fileLine) text += `    ${fileLine}\n`;
@@ -599,9 +652,9 @@ export function renderFindingsSection(
     } else {
       text += `Closed findings (verdict recorded — not open issues):\n`;
       for (const f of closed.slice(0, opts.max)) {
-        const tag = f.verdict === 'fixed' ? '[FIXED]' : '[RETRACTED]';
+        const tag = f.verdict === 'fixed' ? (f.fix ? `[FIXED in ${f.fix.sha.slice(0, 10)}]` : '[FIXED]') : '[RETRACTED]';
         const line = f.summary || f.content.split('\n')[0] || f.id;
-        text += `  • ${tag} ${line} (concept: ${f.id})\n`;
+        text += `  • ${tag} ${line} (concept: ${f.id})${f.fix ? fixNote(f.fix) : ''}\n`;
       }
       if (closed.length > opts.max) {
         text += `  … and ${closed.length - opts.max} more closed\n`;
@@ -609,6 +662,21 @@ export function renderFindingsSection(
     }
   }
   return text.trimEnd();
+}
+
+/** An open finding's note when its fix was endorsed uncommitted. */
+function pendingNote(p: NonNullable<AgentFinding['pending']>): string {
+  const branch = p.branch ? ` on ${p.branch}` : '';
+  return p.here
+    ? `[fix pending: uncommitted in this checkout${branch}; commit it, then mark_complete endorse again]`
+    : `[fix pending: uncommitted in another checkout${p.by ? ` (${p.by})` : ''}${branch}; not in this one]`;
+}
+
+/** A fixed finding's note when this checkout does not have the fix commit. */
+function fixNote(fix: NonNullable<AgentFinding['fix']>): string {
+  if (fix.inHead !== false) return '';
+  const where = [fix.branch ? `fixed on ${fix.branch}` : '', fix.pushed ? '' : 'not pushed when endorsed'].filter(Boolean).join(', ');
+  return ` — the fix is not in this checkout's HEAD${where ? ` (${where})` : ''}`;
 }
 
 /**

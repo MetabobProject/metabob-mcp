@@ -128,3 +128,37 @@ export function repoIdentity(workspacePath: string): RepoIdentity {
 export function clearRepoIdentityCache(): void {
   cache.clear();
 }
+
+// @anchor fix-location
+/**
+ * Where a fix to `files` lives in the checkout at `workspacePath`, as mark_complete records it on an endorse
+ * (SPEC §mark_complete): `uncommitted` when any of the files has changes git has not committed (modified, staged
+ * or untracked), `commit` (the last commit touching them, its branch, and whether a remote branch holds it) when
+ * they are clean, `unknown` when the workspace is not a git checkout or git cannot answer for the files.
+ */
+export type FixLocation =
+  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean }
+  | { kind: 'uncommitted'; branch?: string; base?: string }
+  | { kind: 'unknown' };
+
+export function fixLocation(workspacePath: string, files: string[]): FixLocation {
+  const cwd = resolve(workspacePath);
+  const paths = files.map(f => f.trim()).filter(Boolean);
+  if (!paths.length || git(cwd, ['rev-parse', '--show-toplevel']) === null) return { kind: 'unknown' };
+  const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
+  if (status === null) return { kind: 'unknown' };
+  const ref = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = ref && ref !== 'HEAD' ? ref : undefined;
+  if (status) return { kind: 'uncommitted', branch, base: git(cwd, ['rev-parse', 'HEAD']) || undefined };
+  const sha = git(cwd, ['log', '-1', '--format=%H', '--', ...paths]) || git(cwd, ['rev-parse', 'HEAD']);
+  if (!sha) return { kind: 'unknown' };
+  return { kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]) };
+}
+
+/** Whether commit `sha` is in the history of the checkout's HEAD; null when the workspace is not a git checkout. */
+export function commitInHead(workspacePath: string, sha: string): boolean | null {
+  const cwd = resolve(workspacePath);
+  if (git(cwd, ['rev-parse', '--show-toplevel']) === null) return null;
+  // --is-ancestor answers through its exit code: 0 yes, 1 no, 128 when the commit is not in this clone at all.
+  return git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) !== null;
+}
