@@ -241,6 +241,18 @@ describe('named causes', () => {
     expect(calls.filter(c => c.auth)).toEqual([]);
   });
 
+  test('proxy_refused: a non-JSON 4xx through a proxy names the proxy in the line tools echo', async () => {
+    const { a } = run({
+      discovery: 'http://anchor.example:18100',
+      env: { HTTP_PROXY: 'http://proxy.corp:3128' } as NodeJS.ProcessEnv,
+      script: { hosts: { 'http://anchor.example:18100': () => new Response('Forbidden', { status: 403 }) } },
+    });
+    const s = await a.settled();
+    expect(s.cause).toBe('blocked_by_portal');
+    expect(s.message).toStartWith('proxy_refused: GET http://anchor.example:18100/bootstrap answered HTTP 403');
+    expect(s.message).toContain('it went through the proxy http://proxy.corp:3128, which may be what refused it');
+  });
+
   test('blocked_by_portal: identity answers HTML to the org check', async () => {
     const { a } = run({
       discovery: 'https://hub.example',

@@ -139,7 +139,7 @@ export async function attachCheck(baseEnv: NodeJS.ProcessEnv = process.env): Pro
     hop: 'org check',
     ok: state.auth.status === 'authenticated',
     detail: state.auth.status === 'authenticated'
-      ? `authenticated, orgId=${state.auth.orgId}${state.auth.accountId ? `, account ${state.auth.accountId}` : ''}; scopes ${state.auth.scopes ? state.auth.scopes.join(', ') || 'none' : 'not reported by identity'}`
+      ? `authenticated, orgId=${state.auth.orgId}${state.auth.accountId ? `, account ${state.auth.accountId}` : ''}; scopes ${state.auth.scopes ? state.auth.scopes.join(', ') || 'none' : 'unknown (identity reported none, as the flat org check through a proxy does), so writes are not gated by scope'}`
       : `${state.auth.status}${state.auth.detail ? ` — ${state.auth.detail}` : ''}`,
   });
 

@@ -363,6 +363,7 @@ it.
 |---|---|
 | `proxy_auth_required(<schemes>)` | the proxy answered 407. For `Basic` without credentials, the line says to put them in the proxy URL; with credentials, that it rejected them. For `NTLM` / `Negotiate`, which this process does not speak, the line names the workaround: a local authenticating relay (a px- or cntlm-style proxy) with `HTTPS_PROXY` pointing at it |
 | `proxy_port_blocked(<port>)` | the proxy refused `CONNECT` to a port other than 443 (403 / 405) — Squid's `SSL_ports` default |
+| `proxy_refused` | discovery's `/bootstrap`, reached through a proxy, answered a non-JSON 4xx: the proxy itself may have refused the request (one that allows only HTTPS, say), so the line names the proxy rather than a portal |
 | `proxy_unsupported(<scheme>)` | the proxy URL is not `http://` / `https://`, or does not parse |
 | `tls_intercepted(<issuer>)` | the chain is signed by an issuer this process does not trust — TLS inspection (`TLS_INTERCEPTED`), or an untrusted substrate CA |
 | `tls_name_mismatch(<host>)` | a trusted chain for another name |

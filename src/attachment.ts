@@ -394,6 +394,10 @@ function refusalMessage(state: AttachmentState): string | null {
     case 'anchor_unreachable':
       return `anchor_unreachable: discovery ${state.anchor.discovery} did not answer GET /bootstrap — ${state.bootstrap.detail ?? 'no response'}${osNote(state)}; ${LOCAL_TOOLS_NOTE}`;
     case 'blocked_by_portal': {
+      // Refused by the proxy the request went through, not a portal: say so in the line tools echo.
+      if (state.bootstrap.status === 'not_substrate' && /went through the proxy/.test(state.bootstrap.detail ?? '')) {
+        return `proxy_refused: GET ${state.anchor.discovery}/bootstrap answered ${state.bootstrap.detail}; ${LOCAL_TOOLS_NOTE}`;
+      }
       if (state.network.cause === 'blocked_by_portal' && state.network.causeLine) {
         return `${state.network.causeLine}; ${LOCAL_TOOLS_NOTE}`;
       }
