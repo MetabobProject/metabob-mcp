@@ -181,10 +181,13 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
     ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...extra });
 
   // Uncommitted changes in the finding's files come first, even over a claimed commit: a claim must not paper
-  // over a fix that is not committed yet.
-  const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
-  if (status === null) return { kind: 'unknown' };
-  if (status) return { kind: 'uncommitted', branch, base };
+  // over a fix that is not committed yet. A claim judged against another ref (close by commit, against the merge
+  // target) is about that ref, and this checkout's working tree says nothing about it.
+  if (!(fixCommit && head !== 'HEAD')) {
+    const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
+    if (status === null) return { kind: 'unknown' };
+    if (status) return { kind: 'uncommitted', branch, base };
+  }
 
   if (fixCommit) {
     const sha = git(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);

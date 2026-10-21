@@ -1,6 +1,6 @@
 // Contract (behaviour): SPEC §finding-close
 /**
- * `metabob-mcp finding close --commits <base>..<head>`: close by commit. Run after a push — by a cell's entrypoint
+ * `metabob-mcp finding close --commits-from <file>` (or `--commits <range>`): close by commit. Run after a push — by a cell's entrypoint
  * once it has pushed and verified, or by a person — it closes the findings that commits name in a
  * `Fixes-Finding: agf_…` trailer, once the fix is merged into the integration target on the origin. The commit is
  * the evidence, so no agent's say-so closes anything, and no commit text is sent: only the finding id and the sha.
@@ -69,7 +69,8 @@ export interface CloseReport {
 }
 
 export interface CloseArgs {
-  commits: string;
+  /** A revision range (`<a>..<b>`), or the cell's own commits as listed by --commits-from. */
+  commits: string | string[];
   target: string;
   workDir: string;
   json: boolean;
@@ -95,10 +96,12 @@ export async function closeFromCommits(a: CloseArgs, sessionId: string): Promise
   if (git(cwd, ['fetch', '--quiet', 'origin', a.target]) === null) {
     return { code: 1, message: `git fetch origin ${a.target} failed, so nothing was written: a stale ${remoteTarget} could misjudge what is merged`, reports: [] };
   }
-  const shas = (git(cwd, ['rev-list', '--reverse', a.commits]) ?? '').split('\n').filter(Boolean);
+  const shas = Array.isArray(a.commits)
+    ? a.commits
+    : (git(cwd, ['rev-list', '--reverse', a.commits]) ?? '').split('\n').filter(Boolean);
   const named = new Map<string, string>();
   for (const sha of shas) for (const id of trailerIds(cwd, sha)) named.set(id, sha);
-  if (!named.size) return { code: 0, message: `no commit in ${a.commits} names a finding (Fixes-Finding: agf_…)`, reports: [] };
+  if (!named.size) return { code: 0, message: `no commit in ${Array.isArray(a.commits) ? `the ${a.commits.length} listed` : a.commits} names a finding (Fixes-Finding: agf_…)`, reports: [] };
 
   const repo = repoIdentity(cwd);
   const recall = await fetchAgentFindings({} as never, { repo, workspace: cwd });
@@ -164,8 +167,20 @@ function parseArgs(args: string[]): CloseArgs | string {
     const i = args.indexOf(flag);
     return i >= 0 ? args[i + 1] : undefined;
   };
-  const commits = value('--commits');
-  if (!commits) return 'usage: metabob-mcp finding close --commits <base>..<head> [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]';
+  // --commits-from: the cell's own commits, one sha per line, listed by the entrypoint after it rebased and before
+  // it pushed (`git rev-list origin/<target>..HEAD`). After a rebase a base..HEAD range would also hold other
+  // cells' merged commits, and their trailers would be closed under this cell's name.
+  const from = value('--commits-from');
+  let commits: string | string[] | undefined = value('--commits');
+  if (from) {
+    try {
+      commits = readFileSync(from, 'utf8').split('\n').map(l => l.trim()).filter(Boolean);
+    } catch (err) {
+      return `--commits-from ${from} could not be read: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (!commits.every(c => /^[0-9a-f]{7,40}$/i.test(c))) return `--commits-from ${from} must list commit shas, one per line`;
+  }
+  if (!commits) return 'usage: metabob-mcp finding close (--commits-from <file> | --commits <range>) [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]';
   const workDir = resolve(value('--work-dir') ?? process.cwd());
   // The target: the flag, else the task's integration policy (review merges into main; a push is the integration
   // itself, so its branch is the target), else main.

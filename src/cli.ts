@@ -137,7 +137,7 @@ USAGE:
   npx @metabob/mcp task pull --origin <git url>
                                       Take a task from the ledger, claim it, write /task, clone /work
                                       (a cell's entrypoint step); exit 0 pulled, 3 none open, 4 all held, 2 not attached
-  npx @metabob/mcp finding close --commits <base>..<head>
+  npx @metabob/mcp finding close --commits-from <file>
                                       After a push: close the findings commits name (Fixes-Finding: agf_…)
                                       once the fix is merged into the target on the origin
 
@@ -349,7 +349,7 @@ async function main() {
   // `finding close`: close by commit, after a push (SPEC §finding-close).
   if (process.argv[2] === 'finding') {
     if (process.argv[3] !== 'close') {
-      console.error('usage: metabob-mcp finding close --commits <base>..<head> [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]');
+      console.error('usage: metabob-mcp finding close (--commits-from <file> | --commits <range>) [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]');
       process.exit(1);
     }
     const { runFindingClose } = await import('./finding-close.js');

@@ -155,6 +155,44 @@ describe('closeFromCommits', () => {
     expect(verdicts(rows)).toHaveLength(0);
   });
 
+  test('after a rebase, the cell\'s own commits list keeps other cells\' trailers out of its close', async () => {
+    const r = repo('rebase');
+    const rows = await ledger(r.repoId, 'agf_mine');
+    const at = new Date(Date.now() - 30 * 60_000).toISOString();
+    rows.push({ id: 'concept:concept_agf_theirs', shape: 'code_finding', created_at: at, summary: '[LOW][correctness] r: sum() wrong',
+      content: `repo: ${r.repoId}\nfiles: util.ts\ncategory: correctness\nfinding_ids: agf_theirs\nrecorded_by: someone` });
+    // Cell B fixes its finding and merges first.
+    const b = join(root, 'rebase-b');
+    execFileSync('git', ['clone', '-q', r.bare, b], { stdio: 'ignore' });
+    writeFileSync(join(b, 'util.ts'), 'export const sum = 1;\n');
+    git(b, 'commit', '-qam', 'fix sum\n\nFixes-Finding: agf_theirs');
+    git(b, 'push', '-q', 'origin', 'main');
+    // Cell A fixes its own, then fetches and rebases onto B's work, as L6 says, and lists its own commits before pushing.
+    writeFileSync(join(r.work, 'stats.ts'), 'fixed\n');
+    git(r.work, 'commit', '-qam', 'fix average\n\nFixes-Finding: agf_mine');
+    git(r.work, 'fetch', '-q', 'origin');
+    git(r.work, 'rebase', '-q', 'origin/main');
+    const own = git(r.work, 'rev-list', '--reverse', 'origin/main..HEAD').split('\n').filter(Boolean);
+    git(r.work, 'push', '-q', 'origin', 'main');
+    // base..HEAD would now hold B's commit too.
+    expect(git(r.work, 'rev-list', `${r.base}..HEAD`).split('\n')).toHaveLength(2);
+    const out = await closeFromCommits({ commits: own, target: 'main', workDir: r.work, json: false }, 'sess');
+    expect(out.reports.map(x => [x.id, x.outcome])).toEqual([['agf_mine', 'closed']]);
+    expect(verdicts(rows).some(v => v.includes('finding: agf_theirs'))).toBe(false);
+  });
+
+  test('a merged fix closes even with leftover edits in the work tree: the claim is judged on the target', async () => {
+    const r = repo('dirty');
+    const rows = await ledger(r.repoId);
+    writeFileSync(join(r.work, 'stats.ts'), 'fixed\n');
+    git(r.work, 'commit', '-qam', 'fix\n\nFixes-Finding: agf_avg1');
+    git(r.work, 'push', '-q', 'origin', 'main');
+    writeFileSync(join(r.work, 'stats.ts'), 'a later, unrelated edit\n');
+    const out = await close(r.work, `${r.base}..HEAD`);
+    expect(out.reports[0]!.outcome).toBe('closed');
+    expect(verdicts(rows)[0]).toContain('verdict: endorsed (resolved)');
+  });
+
   test('a failed fetch writes nothing', async () => {
     const r = repo('nofetch');
     const rows = await ledger(r.repoId);
