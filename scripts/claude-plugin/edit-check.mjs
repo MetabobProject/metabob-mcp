@@ -10,15 +10,17 @@
  *   node edit-check.mjs post   PostToolUse on the metabob get_problems / path_activity tools: the files they
  *                              named count as checked, so a file the agent already checked is never held
  *
- * Held at most once per file per session. A new file (a Write to a path that does not exist) is not held: there
- * is nothing recorded on it. METABOB_EDIT_CHECK=off turns the check off. Any error lets the edit through: the
+ * Held at most once per file per session, and only when the metabob server is attached for this directory or an
+ * ancestor (src/attached-marker.ts writes the marker): with no key, a rejected key or no server, there is no shared
+ * ledger behind the check, so nothing is held. A new file (a Write to a path that does not exist) is not held:
+ * there is nothing recorded on it. METABOB_EDIT_CHECK=off turns the check off. Any error lets the edit through: the
  * check must never stop an agent from working.
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 const OFF = /^(off|0|false|no)$/i;
 
@@ -64,6 +66,30 @@ function wasChecked(file, checked) {
   return false;
 }
 
+/** The attached marker for `dir`, named as src/attached-marker.ts names it. */
+function markerFor(dir) {
+  const tag = createHash('sha256').update(dir).digest('hex').slice(0, 16);
+  return join(process.env.METABOB_MARKER_DIR || tmpdir(), `metabob-attached-${tag}.json`);
+}
+
+/** Whether a metabob server is attached for `cwd` or an ancestor: a recent marker whose process is alive. */
+function attached(cwd) {
+  let dir = resolve(cwd || process.cwd());
+  try { dir = realpathSync.native(dir); } catch { /* not on disk */ }
+  for (;;) {
+    try {
+      const m = JSON.parse(readFileSync(markerFor(dir), 'utf8'));
+      const fresh = Date.now() - Date.parse(m.at) < 5 * 60_000;
+      let alive = false;
+      try { process.kill(m.pid, 0); alive = true; } catch (e) { alive = e && e.code === 'EPERM'; }
+      if (fresh && alive) return true;
+    } catch { /* no marker here */ }
+    const up = dirname(dir);
+    if (up === dir) return false;
+    dir = up;
+  }
+}
+
 function pre(input) {
   const ti = input.tool_input || {};
   const target = ti.file_path || ti.notebook_path;
@@ -72,12 +98,14 @@ function pre(input) {
   const file = norm(String(target), cwd);
   // A new file has nothing recorded on it.
   if (!existsSync(isAbsolute(String(target)) ? String(target) : resolve(cwd || process.cwd(), String(target)))) return;
+  // With no attached server there is no shared ledger to check: hold nothing.
+  if (!attached(cwd)) return;
   const state = stateFile(input.session_id);
   const { held, checked } = readState(state);
   if (held.has(file) || wasChecked(file, checked)) return;
   appendFileSync(state, `held ${file}\n`);
   const reason = [
-    `metabob: before editing ${target}, call get_problems for it and path_activity on it: other agents may have recorded`,
+    `Held, not an error. metabob: before editing ${target}, call get_problems for it and path_activity on it: other agents may have recorded`,
     'problems on it, and the substrate may have work in flight there. If you notice a problem you are not fixing,',
     'record_finding it; a bug mentioned only in your reply is lost to the next agent. Then retry this edit: it is held',
     'once per file, only so the check happens first (METABOB_EDIT_CHECK=off turns this off).',

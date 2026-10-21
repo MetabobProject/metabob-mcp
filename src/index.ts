@@ -54,6 +54,7 @@ import { NetError } from './net.js';
 import { ZodError } from 'zod';
 import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
 import { sessionId, setWorkspaceOperator } from './operator-id.js';
+import { keepAttachedMarker } from './attached-marker.js';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
@@ -427,6 +428,8 @@ async function main() {
     log: (level, message) => log(level, message),
   });
   setAttachment(attachment);
+  // While attached, a marker tells the Claude Code plugin's edit check there is a shared ledger behind this workspace.
+  const stopAttachedMarker = keepAttachedMarker(attachment, process.env.WORKSPACE_PATH ?? process.cwd());
 
   // The vessel HTTP server (health + capabilities + impulse resolver) serves
   // local callers only: it binds 127.0.0.1, and nothing advertises it. The
@@ -489,6 +492,7 @@ async function main() {
     log('info', 'Shutting down...', { reason });
 
     attachment?.stop();
+    stopAttachedMarker();
     localStore?.close();
     await vesselServer.stop();
     sessionManager.stop();

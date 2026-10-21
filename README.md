@@ -187,8 +187,12 @@ tools, and says once which input is missing.
 existing file in a session, the plugin holds that edit once and asks the agent to run `get_problems`
 for the file and `path_activity` on it, then retry: other agents may have recorded problems on the
 file, and the substrate may have work in flight there. Instructions alone did not change what agents
-do on edit tasks; holding the first edit once did. A file the agent already checked with either tool
-is not held, nor is a new file, nor a second edit of the same file. `METABOB_EDIT_CHECK=off` turns it
+do on edit tasks; holding the first edit once did. It holds only where the metabob server is
+attached: while attached, the server keeps a marker for its workspace in the temp directory
+(`src/attached-marker.ts`), and the check holds an edit only when a live, recent marker covers the
+session's directory, so a plugin installed before a key is set, or with a rejected key, holds nothing.
+A file the agent already checked with either tool is not held, nor is a new file, nor a second edit
+of the same file. `METABOB_EDIT_CHECK=off` turns it
 off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other
 clients get the same guidance from the server instructions and the skill only.
 

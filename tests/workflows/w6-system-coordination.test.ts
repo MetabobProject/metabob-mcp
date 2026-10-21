@@ -11,6 +11,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { FakeSubstrate } from './harness/fake-substrate';
 import { McpServer, cleanupTempDirs, makeWorkspace } from './harness/mcp-client';
+import { existsSync } from 'node:fs';
+import { markerPath } from '../../src/attached-marker';
 
 setDefaultTimeout(30_000);
 const BOOT_TIMEOUT_MS = 30_000;
@@ -20,6 +22,8 @@ const FILE = 'repos/goal-host-vessel/src/index.ts';
 let fake: FakeSubstrate;
 let server: McpServer;
 let detached: McpServer;
+let attachedWs: string;
+let detachedWs: string;
 
 beforeAll(async () => {
   fake = await FakeSubstrate.start();
@@ -34,9 +38,11 @@ beforeAll(async () => {
   ];
   // A super-repo layout: repos/<vessel>/… at the workspace root.
   const files = { [FILE]: 'export function main() { return 1; }\n' };
+  attachedWs = makeWorkspace('w6-super', files);
+  detachedWs = makeWorkspace('w6-detached', files);
   [server, detached] = await Promise.all([
-    McpServer.start({ workspace: makeWorkspace('w6-super', files), env: fake.env() }),
-    McpServer.start({ workspace: makeWorkspace('w6-detached', files), env: { METABOB_API_KEY: undefined, METABOB_ENDPOINT: undefined, DISCOVERY_ENDPOINT: undefined } }),
+    McpServer.start({ workspace: attachedWs, env: fake.env() }),
+    McpServer.start({ workspace: detachedWs, env: { METABOB_API_KEY: undefined, METABOB_ENDPOINT: undefined, DISCOVERY_ENDPOINT: undefined } }),
   ]);
 }, BOOT_TIMEOUT_MS);
 
@@ -97,5 +103,12 @@ describe('W6 working alongside the system', () => {
     // It is truly unattached (its HOME is a temp directory with no config), not attached elsewhere.
     expect(await detached.text('path_activity', { paths: [FILE] })).toContain('not_configured');
     expect(fake.requests.length).toBe(before);
+  });
+
+  // The plugin's edit check holds edits only where a server is attached (README §claude-code-plugin).
+  test('the attached server keeps the attached marker for its workspace; the detached one keeps none', async () => {
+    await server.text('get_analysis_context', {});
+    expect(existsSync(markerPath(attachedWs))).toBe(true);
+    expect(existsSync(markerPath(detachedWs))).toBe(false);
   });
 });

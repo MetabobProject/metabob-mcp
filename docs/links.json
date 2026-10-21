@@ -189,6 +189,11 @@
           "runtime"
         ]
       },
+      "src/attached-marker.ts": {
+        "README": [
+          "claude-code-plugin"
+        ]
+      },
       "src/attachment.ts": {
         "CONFORMANCE": [
           "c11-attachment-model",
@@ -570,6 +575,11 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/attached-marker.test.ts": {
+        "README": [
+          "claude-code-plugin"
+        ]
+      },
       "tests/unit/concepts-by-shape.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -690,6 +700,9 @@
         ]
       },
       "tests/workflows/w6-system-coordination.test.ts": {
+        "README": [
+          "claude-code-plugin"
+        ],
         "SPEC": [
           "path_activity",
           "resolve_impulse"
@@ -707,6 +720,7 @@
         "scripts/git-hooks/install.sh",
         "src/api-client.ts",
         "src/attach-check.ts",
+        "src/attached-marker.ts",
         "src/attachment.ts",
         "src/attachment.ts@attach",
         "src/attachment.ts@attachment-resolve",
@@ -730,7 +744,8 @@
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
         "scripts/claude-plugin/edit-check.mjs",
-        "scripts/git-hooks/install.sh"
+        "scripts/git-hooks/install.sh",
+        "src/attached-marker.ts"
       ],
       "docs/CONFORMANCE.md": [
         "docs/DOCLINKS.md",
