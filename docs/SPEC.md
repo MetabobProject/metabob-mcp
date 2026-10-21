@@ -532,6 +532,13 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 
 ---
 
+**Tasks, listed apart.** A finding in category `task` (its `category:` line, else the summary's `[SEV][task]`) is work assigned on the ledger, for example a coordinator's task board, not a problem in the code (`src/tools/_findings.ts@task-findings`). So an agent checking a file before an edit doesn't take another agent's task for a problem to fix:
+- the headline counts findings without tasks, then adds `; N open tasks, listed apart`;
+- the findings sections leave tasks out;
+- a final **Tasks** section lists the open tasks from both sources, once each, with any live claim (§ claim_finding) or pending fix, and says to claim one before starting.
+
+With `category` including `task`, tasks are the list itself and there is no separate section. `get_analysis_context` counts and lists problems only, and its headline names the open tasks the same way.
+
 ### record_finding
 
 Handler: `src/tools/record-finding.ts@handle`

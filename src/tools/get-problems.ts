@@ -7,7 +7,10 @@ import {
   fetchAgentFindings,
   openFindingsHeadline,
   renderFindingsSection,
+  renderTasksSection,
   retireClosedSeeds,
+  TASK_CATEGORY,
+  withoutTasks,
   workspaceRepo,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
@@ -15,7 +18,7 @@ import type { SeedRecord } from '../local-store.js';
 export const GetProblemsTool = {
   name: 'get_problems',
   description:
-    'List open findings in this codebase, led by one count across both sources and ranked by severity: findings in the local store (record_finding) plus findings other agents recorded on this codebase (concept-db). There is no server-side detection: no workspace content leaves the machine.',
+    'List open findings in this codebase, led by one count across both sources and ranked by severity: findings in the local store (record_finding) plus findings other agents recorded on this codebase (concept-db). Tasks (category "task": work assigned on the ledger, not problems) are listed apart, with who has claimed them. Recall may close the local copy of a finding another session closed. There is no server-side detection: no workspace content leaves the machine.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -72,13 +75,19 @@ export async function handle(
   });
   retireClosedSeeds(recall, localStore);
   const startTime = Date.now();
-  const local = localStore ? filteredSeeds(input, localStore) : null;
+  const all = localStore ? filteredSeeds(input, localStore) : null;
+  // Tasks are listed apart from problems unless they were asked for by category (SPEC §get_problems).
+  const askedForTasks = input.category?.some(c => c.toLowerCase() === TASK_CATEGORY) ?? false;
+  const isTask = (s: SeedRecord) => s.category.toLowerCase() === TASK_CATEGORY;
+  const local = all && !askedForTasks ? { seeds: all.seeds, filtered: all.filtered.filter(s => !isTask(s)) } : all;
+  const localTasks = all && !askedForTasks ? all.filtered.filter(isTask) : [];
   // Lead with one count across both sources: a reader of the first line must
   // not take "none in the local store" for "no open findings".
-  const headline = openFindingsHeadline(local?.filtered ?? null, recall);
+  const headline = openFindingsHeadline(all?.filtered ?? null, recall);
   const core = `${headline}\n\n${localFindings(input, localStore, local, startTime)}\n\n${NO_SERVER_ANALYSIS}`;
-  const section = renderFindingsSection(recall, { max: 10 });
-  return section ? `${core}\n\n${section}` : core;
+  const section = renderFindingsSection(askedForTasks ? recall : withoutTasks(recall), { max: 10 });
+  const tasks = askedForTasks ? '' : renderTasksSection(localTasks, recall);
+  return [core, section, tasks].filter(Boolean).join('\n\n');
 }
 
 /** The local store's open seeds for this workspace (or matching files), then the input's filters. */

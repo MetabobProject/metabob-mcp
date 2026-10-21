@@ -441,7 +441,8 @@
       },
       "src/tools/get-analysis-context.ts": {
         "SPEC": [
-          "get_analysis_context"
+          "get_analysis_context",
+          "get_problems"
         ]
       },
       "src/tools/get-metrics.ts": {
@@ -696,6 +697,11 @@
           "c9-fail-visibly"
         ]
       },
+      "tests/unit/tasks-apart.test.ts": {
+        "SPEC": [
+          "get_problems"
+        ]
+      },
       "tests/unit/traces-by-shape.test.ts": {
         "SPEC": [
           "execution_trace"
@@ -933,6 +939,7 @@
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
+        "src/tools/_findings.ts@task-findings",
         "src/tools/_gap-activity.ts@gapSummaryLines",
         "src/tools/_gap-activity.ts@openGapsOnFilesLines",
         "src/tools/_gap-activity.ts@pathMapper",
@@ -1121,6 +1128,7 @@
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
+      "src/tools/_findings.ts@task-findings": "8d64a30d9de1",
       "src/tools/_gap-activity.ts@gapSummaryLines": "41dd2834ccf4",
       "src/tools/_gap-activity.ts@openGapsOnFilesLines": "b007cd77f4bd",
       "src/tools/_gap-activity.ts@pathMapper": "68351f924e85",

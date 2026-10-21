@@ -9,6 +9,8 @@ import {
   openFindingsHeadline,
   renderFindingsSection,
   retireClosedSeeds,
+  TASK_CATEGORY,
+  withoutTasks,
   workspaceRepo,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
@@ -92,8 +94,8 @@ export async function handle(
   // retires this session's seeds of that finding first. SPEC §get_analysis_context
   const recall = await fetchAgentFindings(apiClient, { repo: workspaceRepo() });
   retireClosedSeeds(recall, localStore);
-  const findingsSection = renderFindingsSection(recall, { max: 5, compact: true });
-  const sharedOpen = recall.status === 'ok' ? recall.findings.filter(f => !f.verdict).length : 0;
+  const findingsSection = renderFindingsSection(withoutTasks(recall), { max: 5, compact: true });
+  const sharedOpen = recall.status === 'ok' ? withoutTasks(recall).findings.filter(f => !f.verdict).length : 0;
 
   // ── Open problems in the local store (same source as get_problems) ───────
   let cacheTag: string | null = null;
@@ -105,8 +107,10 @@ export async function handle(
 
   if (localStore) {
     // Seeds arrive ordered by severity, then location.
-    const seeds = localStore.getAllCachedSeeds();
-    localSeeds = seeds;
+    const all = localStore.getAllCachedSeeds();
+    localSeeds = all;
+    // Tasks are work assigned, not problems: the headline counts them apart (SPEC §get_problems).
+    const seeds = all.filter(s => s.category.toLowerCase() !== TASK_CATEGORY);
     for (const s of seeds) {
       if (s.severity.toUpperCase() === 'CRITICAL') criticalCount++;
       if (s.severity.toUpperCase() === 'HIGH') highCount++;

@@ -624,6 +624,55 @@ export function retireClosedSeeds(
   return retired;
 }
 
+// @anchor task-findings
+/**
+ * Findings in category `task` are work assigned on the ledger (a coordinator's task board), not problems in the
+ * code. get_problems lists them apart, so an agent checking a file before an edit does not take another agent's
+ * task for a problem it should fix. SPEC §get_problems
+ */
+export const TASK_CATEGORY = 'task';
+
+/** The category a recalled finding was recorded with: its `category:` line, else the summary's `[SEV][category]`. */
+export function findingCategory(f: Pick<AgentFinding, 'summary' | 'content'>): string {
+  return (headerLine(f.content, 'category') || /^\[[^\]]*\]\[([^\]]*)\]/.exec(f.summary)?.[1] || '').trim().toLowerCase();
+}
+
+export function isTaskFinding(f: Pick<AgentFinding, 'summary' | 'content'>): boolean {
+  return findingCategory(f) === TASK_CATEGORY;
+}
+
+/** The recall without its tasks: what renderFindingsSection and the headline count as findings. */
+export function withoutTasks(result: AgentFindingsResult): AgentFindingsResult {
+  return result.status === 'ok' ? { ...result, findings: result.findings.filter(f => !isTaskFinding(f)) } : result;
+}
+
+/**
+ * The tasks section: open `task` findings from the local store and the recall, one entry per task, each with its
+ * claim when someone holds one. '' when there are none.
+ */
+export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindingsResult, max = 10): string {
+  const entries: string[] = [];
+  const seen = new Set<string>();
+  const recalled = recall.status === 'ok' ? recall.findings.filter(f => isTaskFinding(f) && !f.verdict) : [];
+  for (const f of recalled) {
+    seen.add(f.id);
+    for (const id of parseFindingIds(f.content)) seen.add(id);
+    const files = headerLine(f.content, 'files');
+    entries.push(`  • ${findingSummaryText(f.summary) || f.id}${f.claim ? `  ${claimNote(f.claim)}` : ''}${f.pending ? `  ${pendingNote(f.pending)}` : ''}\n`
+      + (files ? `    files: ${files}\n` : '') + `    id: ${f.id}\n`);
+  }
+  for (const s of localTasks) {
+    const ref = conceptIdFromRefs(s.refs_json);
+    if (seen.has(s.id) || (ref && seen.has(plainConceptId(ref)))) continue;
+    seen.add(s.id);
+    entries.push(`  • ${s.brief}\n    files: ${s.file_path}\n    id: ${s.id}\n`);
+  }
+  if (!entries.length) return '';
+  const shown = entries.slice(0, max);
+  return `Tasks: work assigned on the ledger, not problems in the code (${entries.length} open${entries.length > shown.length ? `, ${shown.length} shown` : ''}). `
+    + 'Before you start one, claim it with claim_finding; one claimed by someone else is theirs.\n' + shown.join('');
+}
+
 /**
  * Render the cross-agent findings section. Returns '' when there is nothing
  * useful to show (skipped, or reachable but no matches).
@@ -725,6 +774,20 @@ function fixNote(fix: NonNullable<AgentFinding['fix']>): string {
  * `localSeeds` null means the local store is unavailable. SPEC §get_problems
  */
 export function openFindingsHeadline(
+  allLocalSeeds: SeedRecord[] | null,
+  allRecall: AgentFindingsResult,
+): string {
+  // Tasks are counted apart from findings: they are work assigned, not problems.
+  const localSeeds = allLocalSeeds && allLocalSeeds.filter(s => s.category.toLowerCase() !== TASK_CATEGORY);
+  const recall = withoutTasks(allRecall);
+  const taskIds = new Set<string>();
+  for (const s of allLocalSeeds ?? []) if (s.category.toLowerCase() === TASK_CATEGORY) taskIds.add(conceptIdFromRefs(s.refs_json) ? plainConceptId(conceptIdFromRefs(s.refs_json)!) : s.id);
+  if (allRecall.status === 'ok') for (const f of allRecall.findings) if (isTaskFinding(f) && !f.verdict) taskIds.add(f.id);
+  const tasks = taskIds.size ? `; ${taskIds.size} open task${taskIds.size === 1 ? '' : 's'}, listed apart` : '';
+  return openFindingsCount(localSeeds, recall) + tasks;
+}
+
+function openFindingsCount(
   localSeeds: SeedRecord[] | null,
   recall: AgentFindingsResult,
 ): string {
