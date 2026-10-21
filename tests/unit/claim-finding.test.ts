@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { SeedRecord } from '../../src/local-store';
 import { setAttachment } from '../../src/attachment';
-import { claimHolder, parseClaim, type ClaimRecord } from '../../src/tools/_claims';
+import { CLAIM_SKEW_MS, claimHolder, parseClaim, type ClaimRecord } from '../../src/tools/_claims';
 import { fetchAgentFindings, renderFindingsSection, resolveAuthorVesselId } from '../../src/tools/_findings';
 import * as ClaimFinding from '../../src/tools/claim-finding';
 import { setResolverIdentity } from '../../src/resolver-identity';
@@ -34,7 +34,9 @@ const withdraw = (by: string, at: number): ClaimRecord =>
 describe('claimHolder', () => {
   test('a live claim holds; a lapsed one does not', () => {
     expect(claimHolder([claim('a', T, T + 60 * MIN)], T + MIN)?.by).toBe('a');
-    expect(claimHolder([claim('a', T, T + 60 * MIN)], T + 61 * MIN)).toBeNull();
+    // A reader allows CLAIM_SKEW_MS past the end before freeing it, since "now" is its own clock.
+    expect(claimHolder([claim('a', T, T + 60 * MIN)], T + 61 * MIN)?.by).toBe('a');
+    expect(claimHolder([claim('a', T, T + 60 * MIN)], T + 60 * MIN + CLAIM_SKEW_MS)).toBeNull();
   });
 
   test('the earlier claim holds; a tie goes to the lower concept id', () => {
@@ -58,6 +60,8 @@ describe('claimHolder', () => {
   test('parseClaim reads claims and withdrawals, and nothing else', () => {
     const row = (content: string) => ({ id: 'concept:c1', created_at: '2026-10-21T12:00:00Z', content });
     expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_until: 2026-10-21T13:00:00Z\nreviewed_by: v1'))).toMatchObject({ kind: 'claimed', by: 'v1', until: T + 60 * MIN, conceptId: 'c1' });
+    // claim_minutes counts from concept-db's created_at, whatever the claimer's clock wrote in claim_until.
+    expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_minutes: 30\nclaim_until: 2030-01-01T00:00:00Z\nreviewed_by: v1'))?.until).toBe(T + 30 * MIN);
     expect(parseClaim(row('finding: agf_x\nverdict: claim withdrawn\nreviewed_by: v1'))?.kind).toBe('withdrawn');
     expect(parseClaim(row('finding: agf_x\nverdict: endorsed (resolved)\nreviewed_by: v1'))).toBeNull();
     // A claim must name its holder.
@@ -66,17 +70,19 @@ describe('claimHolder', () => {
 });
 
 /** A concept-db that keeps what is written: verdict rows by shape, each stamped with created_at and an id. */
-async function db(opts: { rows?: Array<Record<string, unknown>>; onWrite?: (rows: Array<Record<string, unknown>>, at: number) => void } = {}) {
+async function db(opts: { rows?: Array<Record<string, unknown>>; onWrite?: (rows: Array<Record<string, unknown>>, at: number) => void; lagReads?: boolean } = {}) {
   const rows = opts.rows ?? [];
   let n = 0;
   const stub = await installShapeStub({
-    conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }),
+    // lagReads: list reads never show this test's own writes, as a lagging read path would.
+    conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape && !(opts.lagReads && String(r.id).startsWith('concept:v'))) } }),
     concept_create_write: (p) => {
       const at = Date.now() + n;
       n++;
       opts.onWrite?.(rows, at);
-      rows.push({ id: `concept:v${String(n).padStart(3, '0')}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date(at).toISOString() });
-      return { body: { success: true, content: JSON.stringify({ id: `v${n}` }) } };
+      const id = `v${String(n).padStart(3, '0')}`;
+      rows.push({ id: `concept:${id}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date(at).toISOString() });
+      return { body: { success: true, content: JSON.stringify({ id }) } };
     },
   });
   return { stub, rows };
@@ -137,6 +143,14 @@ describe('claim_finding', () => {
     expect(out).toContain('your claim was withdrawn');
     expect(String(rows.at(-1)!.content)).toContain('verdict: claim withdrawn');
   });
+
+  test('a claim the read-back does not show yet is not settled: nothing is reported as held', async () => {
+    const { rows } = await db({ lagReads: true });
+    const out = await run(seeded());
+    expect(out).toContain("concept-db's reads do not show it yet, so whether it holds is not settled");
+    expect(out).not.toContain('Claimed finding');
+    expect(rows).toHaveLength(1);
+  }, 10_000);
 
   test('a closed finding cannot be claimed', async () => {
     const { rows } = await db({ rows: [other('endorsed (resolved)', Date.now() - MIN)] });

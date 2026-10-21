@@ -6,7 +6,8 @@
  * A claim is a `finding_verdict` concept, like every other verdict on a finding:
  *   finding: agf_…              the finding claimed
  *   verdict: claimed            or `claim withdrawn`
- *   claim_until: <ISO time>     a claim lapses then unless renewed
+ *   claim_minutes: <n>          how long it lasts from when concept-db wrote it (created_at)
+ *   claim_until: <ISO time>     the same end, by the claimer's clock, for people reading the row
  *   reviewed_by: <vesselId>     the claimer (declared, as every author line is)
  * with summary `[verdict:claimed]` / `[verdict:withdrawn]`. A reader that knows only endorsed and discarded
  * parses neither as a verdict, so to it the finding stays open, as it is.
@@ -24,6 +25,13 @@ import { plainConceptId } from './_concept-content.js';
 /** Default and longest claim, in minutes: long enough for one task, short enough that a crashed claimer's claim lapses. */
 export const CLAIM_DEFAULT_MINUTES = 60;
 export const CLAIM_MAX_MINUTES = 240;
+
+/**
+ * A claim's end is concept-db's created_at plus its minutes, so every time the rule compares comes from one clock.
+ * Only "now" is the reader's: a claim counts as live until this long past its end, so a reader whose clock runs
+ * fast never frees a claim early. Erring toward live costs a wait, never a double start.
+ */
+export const CLAIM_SKEW_MS = 2 * 60_000;
 
 export interface ClaimRecord {
   findingId: string;
@@ -59,7 +67,9 @@ export function parseClaim(row: ConceptRow): ClaimRecord | null {
   if (!findingId || !kind || !by || !Number.isFinite(at)) return null;
   const record: ClaimRecord = { findingId, kind, by, at, conceptId: plainConceptId(row.id) };
   if (kind === 'claimed') {
-    const until = Date.parse(line(content, 'claim_until'));
+    const minutes = Number(line(content, 'claim_minutes'));
+    // claim_until (the claimer's clock) only when the row predates claim_minutes.
+    const until = Number.isFinite(minutes) && minutes > 0 ? at + minutes * 60_000 : Date.parse(line(content, 'claim_until'));
     if (!Number.isFinite(until)) return null;
     record.until = until;
   }
@@ -89,16 +99,16 @@ export function claimHolder(records: ClaimRecord[], now: number): ClaimHolder | 
       }
       until = Math.max(until, r.until!);
     }
-    if (until <= now) continue;
+    if (until + CLAIM_SKEW_MS <= now) continue;
     const candidate = { by, since, until, conceptId: startId };
     if (!best || since < best.since || (since === best.since && startId.localeCompare(best.conceptId) < 0)) best = candidate;
   }
   return best;
 }
 
-/** The content lines of a claim (`until` set) or a withdrawal. */
-export function claimLines(findingId: string, until: Date | null): string[] {
-  return until
-    ? [`finding: ${findingId}`, 'verdict: claimed', `claim_until: ${until.toISOString()}`]
+/** The content lines of a claim (`minutes` set) or a withdrawal. */
+export function claimLines(findingId: string, minutes: number | null, now = Date.now()): string[] {
+  return minutes
+    ? [`finding: ${findingId}`, 'verdict: claimed', `claim_minutes: ${minutes}`, `claim_until: ${new Date(now + minutes * 60_000).toISOString()}`]
     : [`finding: ${findingId}`, 'verdict: claim withdrawn'];
 }

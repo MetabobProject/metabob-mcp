@@ -689,11 +689,13 @@ Say an agent is starting work on a finding, so another agent does not start the 
 | `minutes` | integer | `60` | How long the claim lasts from now, at most 240 |
 
 **What a claim is.** A claim is a `finding_verdict`, keyed on the finding's `agf_*` id like every verdict (`src/tools/_claims.ts@claimLines`):
-- `verdict: claimed`, with `claim_until:` and the claimer as `reviewed_by:`, plus `session:`;
+- `verdict: claimed`, with `claim_minutes:`, `claim_until:` and the claimer as `reviewed_by:`, plus `session:`;
 - `verdict: claim withdrawn` for a release;
 - the summary is `[verdict:claimed]` or `[verdict:withdrawn]`.
 
 A reader that knows only endorsed and discarded parses neither as a verdict, so to it the finding reads open, which it is.
+
+**One clock.** A claim ends at concept-db's `created_at` plus `claim_minutes`. `claim_until`, from the claimer's clock, is only for people reading the row, and is used only for a row with no `claim_minutes`. Only "now" comes from the reader's clock: a claim counts as live until two minutes past its end (`src/tools/_claims.ts@CLAIM_SKEW_MS`), so a reader whose clock runs fast never frees a claim early.
 
 **Who holds it.** concept-db has no compare-and-set, so two agents can both write a claim. Every reader applies one rule to the same rows (`src/tools/_claims.ts@claim-holder`):
 - A claimer's current claim begins with the first claim it wrote while none of its earlier claims was live. A later claim while one is live renews it, and a withdrawal ends it.
@@ -703,7 +705,10 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
 1. It resolves the finding (its local seed and siblings, or the recalled concept and every `agf_*` id it carries) and reads the verdicts.
 2. A closed finding is refused. A finding held by someone else is reported with its holder and is not claimed.
 3. Otherwise it writes the claim, reads the verdicts back and applies the rule. When another claimer holds it, it writes a withdrawal and says who won.
+   A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
 4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
+
+**The read window.** Claims are found in the same `finding_verdict` list read the recall uses: up to 300 rows, ordered by relevance and then newest first. A verdict whose relevance falls below its peers can drop out of the window while it is still live. A read of one finding's verdicts would close that gap, and concept-db's search offers no such filter yet.
 
 **Refusals.** A claim must name its holder, so with no vessel identity nothing is written. A read-only key writes nothing and says `key_read_only`. When the verdict scan reached its limit, the reply says an older claim may have been missed.
 

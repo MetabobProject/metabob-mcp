@@ -86,25 +86,34 @@ async function target(input: ClaimFindingInput, localStore?: LocalStore | null):
 }
 
 /** The finding's verdict state from concept-db: whether it is closed, and its claim holder now. */
-async function state(ids: string[]): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean } | string> {
+async function state(ids: string[], ownId?: string): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean; seenOwn: boolean } | string> {
   const scan = await scanVerdicts();
   if (!scan.ok) return `concept-db could not be read (${scan.detail}), so nothing was claimed.`;
   const wanted = new Set(ids);
   let closed: string | null = null;
   const claims = [];
+  let seenOwn = false;
   for (const row of scan.rows) {
     const claim = parseClaim(row);
     if (claim) {
       if (wanted.has(claim.findingId)) claims.push(claim);
+      if (ownId && claim.conceptId === plainConceptId(ownId)) seenOwn = true;
       continue;
     }
     const v = parseVerdictConcept(String(row.content ?? ''), String(row.summary ?? ''));
     if (v && wanted.has(v.findingId) && (v.verdict === 'fixed' || v.verdict === 'retracted')) closed = v.verdict;
   }
-  return { closed, holder: claimHolder(claims, Date.now()), truncated: scan.truncated };
+  return { closed, holder: claimHolder(claims, Date.now()), truncated: scan.truncated, seenOwn };
 }
 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+
+/**
+ * Pauses before each read-back. A read can miss a concept written moments before (seen on the lab: concept-db's
+ * own lookup missed a concept it had just created), so the read-back counts only once it shows this claim.
+ */
+export const READ_BACK_PAUSES_MS = [150, 500, 1_500];
+const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export async function handle(
   input: ClaimFindingInput,
@@ -127,9 +136,9 @@ export async function handle(
   }
   const mine = before.holder?.by === me;
 
-  const write = async (until: Date | null, tag: 'claimed' | 'withdrawn') => postConcept({
+  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => postConcept({
     content: [
-      ...claimLines(key, until),
+      ...claimLines(key, minutes),
       ...repoLines(workspaceRepo()),
       `finding summary: ${found.summary}`,
       ...attributionLines('reviewed_by', me, sessionId),
@@ -158,12 +167,22 @@ export async function handle(
   }
 
   const until = new Date(Date.now() + input.minutes * 60_000);
-  const posted = await write(until, 'claimed');
+  const posted = await write(input.minutes, 'claimed');
   if (!posted.ok) return failed(posted.error);
 
-  // Two claimers can both get here: read back and apply the rule every reader applies.
-  const after = await state(found.ids);
+  // Two claimers can both get here: read back and apply the rule every reader applies, but only once the read
+  // shows this claim. Until then it says nothing about who holds the finding.
+  let after: Awaited<ReturnType<typeof state>> = 'not read back';
+  for (const ms of READ_BACK_PAUSES_MS) {
+    await pause(ms);
+    after = await state(found.ids, posted.id);
+    if (typeof after === 'string' || after.seenOwn) break;
+  }
   if (typeof after === 'string') return `Claim written (concept ${posted.id ?? '?'}), but it could not be read back to confirm it holds: ${after}`;
+  if (!after.seenOwn) {
+    return `Claim written (concept ${posted.id ?? '?'}), but concept-db's reads do not show it yet, so whether it holds is not settled. `
+      + 'Run claim_finding again in a moment to confirm before you start; it lapses on its own if you do not.';
+  }
   if (after.holder && after.holder.by !== me) {
     const withdrawn = await write(null, 'withdrawn');
     return `Finding ${key} was claimed by ${after.holder.by} first (until ${when(after.holder.until)}), so your claim was withdrawn${withdrawn.ok ? '' : ` (the withdrawal failed: ${withdrawn.error}; it lapses at ${when(until.getTime())})`}. `
