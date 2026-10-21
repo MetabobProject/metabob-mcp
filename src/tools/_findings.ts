@@ -33,6 +33,7 @@ import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { plainConceptId } from './_concept-content.js';
 import { commitInHead, repoIdentity, type FixLocation, type RepoIdentity } from '../repo-identity.js';
+import { claimHolder, parseClaim, type ClaimRecord } from './_claims.js';
 
 /**
  * What the analysis tools say where backend detections would otherwise be.
@@ -246,6 +247,8 @@ export interface AgentFinding {
   fix?: { sha: string; branch?: string; pushed: boolean; inHead: boolean | null };
   /** Set on an OPEN finding whose fix an agent endorsed while it was still uncommitted. */
   pending?: { by?: string; branch?: string; here: boolean };
+  /** Set on an OPEN finding someone holds a live claim on (src/tools/_claims.ts@claim-holder). */
+  claim?: { by: string; until: number; here: boolean };
 }
 
 export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable' | 'refused';
@@ -275,14 +278,20 @@ const FINDINGS_MAX_SCAN = 300;
  * normal case in a fleet where a manager assigns work someone else found.
  * Read as the `conceptGraph` root (src/tools/_concept-db.ts@getConcept).
  */
-export async function fetchConceptById(
-  _apiClient: AnalysisAPIClient,
-  conceptId: string,
-): Promise<{ summary: string; files: string; repo: string; repoName: string; findingId: string; recordedAt?: Date } | null> {
-  if (!(await conceptDbAvailable())) return null;
+export interface RecalledConcept { summary: string; files: string; repo: string; repoName: string; findingId: string; findingIds: string[]; recordedAt?: Date }
+
+export async function fetchConceptById(_apiClient: AnalysisAPIClient, conceptId: string): Promise<RecalledConcept | null> {
+  const read = await readConceptById(conceptId);
+  return 'error' in read ? null : read;
+}
+
+/** fetchConceptById, with the reason when it could not be read: the attachment's or the network's named cause, or concept-db's answer. */
+export async function readConceptById(conceptId: string): Promise<RecalledConcept | { error: string }> {
+  if (!(await conceptDbAvailable())) return { error: await conceptDbUnavailable() };
   const plain = plainConceptId(conceptId);
   const read = await getConcept(plain);
-  if (!read.ok || !read.value) return null;
+  if (!read.ok) return { error: read.error };
+  if (!read.value) return { error: `concept-db has no concept ${plain}` };
   const row = read.value;
   const content = String(row.content ?? '');
   // The agf_* id the finding was minted with. The dashboard's verdict join
@@ -295,6 +304,7 @@ export async function fetchConceptById(
     repo: headerLine(content, 'repo'),
     repoName: headerLine(content, 'repo_name'),
     findingId,
+    findingIds: parseFindingIds(content),
     ...(row.created_at && Number.isFinite(Date.parse(row.created_at)) ? { recordedAt: new Date(row.created_at) } : {}),
   };
 }
@@ -313,6 +323,11 @@ type ConceptScan =
  * about how far back they look — a verdict the finding scan can see but the
  * verdict scan cannot would silently render a closed finding as open.
  */
+/** Every `finding_verdict` row, as the recall's verdict join reads them (claims included). */
+export async function scanVerdicts(): Promise<ConceptScan> {
+  return scanConceptShape(VERDICT_SHAPE);
+}
+
 async function scanConceptShape(shape: string): Promise<ConceptScan> {
   const found = await searchConcepts({ shape, limit: FINDINGS_MAX_SCAN });
   if (!found.ok) return { ok: false, detail: found.error };
@@ -533,7 +548,10 @@ export async function fetchAgentFindings(
       // committed fix wins over a pending one. A fix with a commit wins over one without.
       const rank = (v: ParsedVerdict) => (v.verdict === 'retracted' ? 3 : v.verdict === 'fixed' ? (v.fix ? 2 : 1.5) : 1);
       const verdictById = new Map<string, ParsedVerdict>();
+      const claimsById = new Map<string, ClaimRecord[]>();
       for (const row of verdictScan.rows) {
+        const claim = parseClaim(row);
+        if (claim) claimsById.set(claim.findingId, [...(claimsById.get(claim.findingId) ?? []), claim]);
         const parsed = parseVerdictConcept(row.content ?? '', row.summary ?? '');
         if (!parsed) continue;
         const held = verdictById.get(parsed.findingId);
@@ -542,8 +560,12 @@ export async function fetchAgentFindings(
       const workspace = scope.workspace ?? activeWorkspacePath();
       const me = findings.length ? await resolveAuthorVesselId() : undefined;
       const inHead = new Map<string, boolean | null>();
+      const now = Date.now();
       for (const f of findings) {
-        const verdicts = parseFindingIds(f.content)
+        const ids = parseFindingIds(f.content);
+        const holder = claimHolder(ids.flatMap(id => claimsById.get(id) ?? []), now);
+        if (holder) f.claim = { by: holder.by, until: holder.until, here: !!me && holder.by === me };
+        const verdicts = ids
           .map(id => verdictById.get(id))
           .filter((v): v is ParsedVerdict => v !== undefined);
         if (verdicts.length === 0) continue;
@@ -553,6 +575,8 @@ export async function fetchAgentFindings(
           continue;
         }
         f.verdict = best.verdict;
+        // A closed finding has no holder: the claim ended with the work.
+        delete f.claim;
         if (best.fix) {
           if (!inHead.has(best.fix.sha)) inHead.set(best.fix.sha, commitInHead(workspace, best.fix.sha));
           f.fix = { ...best.fix, inHead: inHead.get(best.fix.sha)! };
@@ -637,7 +661,7 @@ export function renderFindingsSection(
     }
     for (const f of shown) {
       const line = f.summary || f.content.split('\n')[0] || f.id;
-      text += `  • ${line}${f.pending ? `  ${pendingNote(f.pending)}` : ''}\n`;
+      text += `  • ${line}${f.pending ? `  ${pendingNote(f.pending)}` : ''}${f.claim ? `  ${claimNote(f.claim)}` : ''}\n`;
       if (!opts.compact) {
         const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
         if (fileLine) text += `    ${fileLine}\n`;
@@ -664,6 +688,14 @@ export function renderFindingsSection(
     }
   }
   return text.trimEnd();
+}
+
+/** An open finding's note while someone holds a live claim on it. */
+function claimNote(c: NonNullable<AgentFinding['claim']>): string {
+  const until = new Date(c.until).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+  return c.here
+    ? `[claimed by this checkout until ${until}]`
+    : `[claimed by ${c.by} until ${until}: someone is working on it]`;
 }
 
 /** An open finding's note when its fix was endorsed uncommitted. */

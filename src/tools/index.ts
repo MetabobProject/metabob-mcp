@@ -5,6 +5,7 @@ import * as PredictCochanges from './predict-cochanges.js';
 import * as AnalyzeImpact from './analyze-impact.js';
 import * as AnnotateComponent from './annotate-component.js';
 import * as MarkComplete from './mark-complete.js';
+import * as ClaimFinding from './claim-finding.js';
 import * as GetMetrics from './get-metrics.js';
 import * as AssignGitChanges from './assign-git-changes.js';
 import * as GetAnalysisContext from './get-analysis-context.js';
@@ -72,6 +73,11 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
     ...MarkComplete.MarkCompleteTool,
     handler: MarkComplete.handle,
     validateInput: (i: any) => MarkComplete.InputSchema.parse(i),
+  },
+  claim_finding: {
+    ...ClaimFinding.ClaimFindingTool,
+    handler: ClaimFinding.handle,
+    validateInput: (i: any) => ClaimFinding.InputSchema.parse(i),
   },
   get_metrics: {
     ...GetMetrics.GetMetricsTool,
@@ -208,6 +214,7 @@ export const SUBSTRATE_TOOLS: ReadonlySet<string> = new Set([
   'registry_query',
   'execution_trace',
   'path_activity',
+  'claim_finding',
   'resolve_impulse',
   'concept_search',
   'concept_neighbors',

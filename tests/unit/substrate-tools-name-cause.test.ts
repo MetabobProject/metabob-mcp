@@ -20,6 +20,7 @@ const INPUTS: Record<string, Record<string, unknown>> = {
   registry_query: { mode: 'shapes' },
   execution_trace: { execution_id: 'e1' },
   path_activity: { paths: ['repos/x/src/a.ts'] },
+  claim_finding: { problem_id: 'concept_c1' },
   resolve_impulse: { shape: 'memoryNote', pointer: {} },
   concept_search: { query: 'q' },
   concept_neighbors: { concept_id: 'c1' },

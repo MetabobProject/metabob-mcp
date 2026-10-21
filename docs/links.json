@@ -61,6 +61,8 @@
         "src/tools/index.ts",
         "src/tools/init-workspace.ts",
         "src/tools/mark-complete.ts",
+        "src/tools/claim-finding.ts",
+        "src/tools/_claims.ts",
         "src/tools/predict-cochanges.ts",
         "src/tools/provide-feedback.ts",
         "src/tools/pull-assigned-work.ts",
@@ -308,6 +310,11 @@
           "c8-proxy-and-tls-in-the-vessel-role"
         ]
       },
+      "src/tools/_claims.ts": {
+        "SPEC": [
+          "claim_finding"
+        ]
+      },
       "src/tools/_concept-db.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -362,6 +369,11 @@
       "src/tools/assign-git-changes.ts": {
         "SPEC": [
           "assign_git_changes"
+        ]
+      },
+      "src/tools/claim-finding.ts": {
+        "SPEC": [
+          "claim_finding"
         ]
       },
       "src/tools/concept-create.ts": {
@@ -585,6 +597,11 @@
       "tests/unit/attached-marker.test.ts": {
         "README": [
           "claude-code-plugin"
+        ]
+      },
+      "tests/unit/claim-finding.test.ts": {
+        "SPEC": [
+          "claim_finding"
         ]
       },
       "tests/unit/concepts-by-shape.test.ts": {
@@ -898,6 +915,8 @@
         "src/server-instructions.ts@SERVER_INSTRUCTIONS",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tls-trust.ts@systemCaAdditions",
+        "src/tools/_claims.ts@claim-holder",
+        "src/tools/_claims.ts@claimLines",
         "src/tools/_concept-content.ts@plainConceptId",
         "src/tools/_concept-content.ts@renderConceptContent",
         "src/tools/_concept-db.ts",
@@ -927,6 +946,7 @@
         "src/tools/analyze-impact.ts@handle",
         "src/tools/annotate-component.ts@handle",
         "src/tools/assign-git-changes.ts@handle",
+        "src/tools/claim-finding.ts@handle",
         "src/tools/concept-create.ts@handle",
         "src/tools/concept-link.ts@handle",
         "src/tools/concept-neighbors.ts@handle",
@@ -1080,6 +1100,8 @@
       "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
+      "src/tools/_claims.ts@claim-holder": "fde67965fff8",
+      "src/tools/_claims.ts@claimLines": "f9168c2bf1fb",
       "src/tools/_concept-content.ts@plainConceptId": "1ca1fe8ca5a1",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
       "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
@@ -1087,7 +1109,7 @@
       "src/tools/_findings.ts@conceptDbReachable": "1c46b7236612",
       "src/tools/_findings.ts@duplicate-finding": "8d64a30d9de1",
       "src/tools/_findings.ts@fetchAgentFindings": "8f26d74b5544",
-      "src/tools/_findings.ts@fetchConceptById": "b9349d47d051",
+      "src/tools/_findings.ts@fetchConceptById": "97bacbfabaa1",
       "src/tools/_findings.ts@findOpenDuplicate": "ac0eceeace32",
       "src/tools/_findings.ts@fixLines": "df4f3a22193e",
       "src/tools/_findings.ts@openFindingsHeadline": "c854e9951c53",
@@ -1109,6 +1131,7 @@
       "src/tools/analyze-impact.ts@handle": "4bdf740420c9",
       "src/tools/annotate-component.ts@handle": "4bdf740420c9",
       "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
+      "src/tools/claim-finding.ts@handle": "4bdf740420c9",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",
       "src/tools/concept-link.ts@handle": "4bdf740420c9",
       "src/tools/concept-neighbors.ts@handle": "4bdf740420c9",

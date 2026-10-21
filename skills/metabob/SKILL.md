@@ -65,6 +65,9 @@ Use it whenever more than one agent or session touches the repository.
    duplicate; pass `force: true` only for a genuinely separate finding.
 2. **Recall**: another agent finds it through `get_problems`, from any machine on
    the same repository (the ledger is keyed by the repository's git remote).
+   Before you start on a finding another agent could also pick up, `claim_finding` it: recall
+   shows "claimed by … until …", and a finding someone else holds is theirs. Renew a long piece
+   of work; release it if you stop.
 3. **Close**: `mark_complete` with `endorse` when fixed and `discard` when it was a
    false positive. Endorse after you commit the fix: the verdict records the commit,
    and a fix still uncommitted in your checkout leaves the finding open for everyone

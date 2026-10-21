@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import {
-  fetchConceptById,
+  readConceptById,
   VERDICT_SHAPE,
   attributionLines,
   conceptIdFromRefs,
@@ -159,9 +159,9 @@ export async function handle(
       if (!(await conceptDbReachable())) {
         return `Concept "${plainId}" has no local seed and concept-db is unavailable (${await conceptDbUnavailable()}), so no verdict was recorded.`;
       }
-      const remote = await fetchConceptById(apiClient, plainId);
-      if (!remote) {
-        return `Concept "${plainId}" could not be read from concept-db, so no verdict was recorded.\n`
+      const remote = await readConceptById(plainId);
+      if ('error' in remote) {
+        return `Concept "${plainId}" could not be read (${remote.error}), so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
       const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit) : null;

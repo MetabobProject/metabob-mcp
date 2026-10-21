@@ -1,0 +1,176 @@
+/**
+ * Claims on findings (SPEC §claim_finding): who is working on one, decided by one rule every reader applies,
+ * since concept-db has no compare-and-set and two agents can both write a claim.
+ */
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import type { AnalysisAPIClient } from '../../src/api-client';
+import type { SeedRecord } from '../../src/local-store';
+import { setAttachment } from '../../src/attachment';
+import { claimHolder, parseClaim, type ClaimRecord } from '../../src/tools/_claims';
+import { fetchAgentFindings, renderFindingsSection, resolveAuthorVesselId } from '../../src/tools/_findings';
+import * as ClaimFinding from '../../src/tools/claim-finding';
+import { setResolverIdentity } from '../../src/resolver-identity';
+import { installShapeStub } from '../helpers/shape-stub';
+import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
+
+// This process's vessel identity: the claimer every claim here names.
+beforeAll(() => setResolverIdentity({ vesselId: 'metabob-mcp-thiscell' }));
+afterAll(() => setResolverIdentity({ vesselId: undefined }));
+
+afterEach(() => {
+  cleanupTempStores();
+  setAttachment(null);
+});
+
+const api = {} as AnalysisAPIClient;
+const MIN = 60_000;
+const T = Date.parse('2026-10-21T12:00:00Z');
+
+const claim = (by: string, at: number, until: number, id = `c_${by}_${at}`): ClaimRecord =>
+  ({ findingId: 'agf_x', kind: 'claimed', by, at, until, conceptId: id });
+const withdraw = (by: string, at: number): ClaimRecord =>
+  ({ findingId: 'agf_x', kind: 'withdrawn', by, at, conceptId: `w_${by}_${at}` });
+
+describe('claimHolder', () => {
+  test('a live claim holds; a lapsed one does not', () => {
+    expect(claimHolder([claim('a', T, T + 60 * MIN)], T + MIN)?.by).toBe('a');
+    expect(claimHolder([claim('a', T, T + 60 * MIN)], T + 61 * MIN)).toBeNull();
+  });
+
+  test('the earlier claim holds; a tie goes to the lower concept id', () => {
+    expect(claimHolder([claim('b', T + 1, T + 60 * MIN), claim('a', T, T + 60 * MIN)], T + MIN)?.by).toBe('a');
+    expect(claimHolder([claim('b', T, T + 60 * MIN, 'c_2'), claim('a', T, T + 60 * MIN, 'c_9')], T + MIN)?.by).toBe('b');
+  });
+
+  test('a renewal keeps the claim\'s start, so a later claimer never overtakes the holder', () => {
+    const records = [claim('a', T, T + 10 * MIN), claim('b', T + 5 * MIN, T + 65 * MIN), claim('a', T + 9 * MIN, T + 70 * MIN)];
+    const h = claimHolder(records, T + 30 * MIN)!;
+    expect(h).toMatchObject({ by: 'a', since: T, until: T + 70 * MIN });
+  });
+
+  test('a withdrawal ends the claim, and a claim after a lapse starts again', () => {
+    expect(claimHolder([claim('a', T, T + 60 * MIN), withdraw('a', T + MIN), claim('b', T + 2 * MIN, T + 60 * MIN)], T + 3 * MIN)?.by).toBe('b');
+    // a lapsed at T+10; b claimed at T+12; a claims again at T+13: b began first.
+    const records = [claim('a', T, T + 10 * MIN), claim('b', T + 12 * MIN, T + 60 * MIN), claim('a', T + 13 * MIN, T + 60 * MIN)];
+    expect(claimHolder(records, T + 20 * MIN)?.by).toBe('b');
+  });
+
+  test('parseClaim reads claims and withdrawals, and nothing else', () => {
+    const row = (content: string) => ({ id: 'concept:c1', created_at: '2026-10-21T12:00:00Z', content });
+    expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_until: 2026-10-21T13:00:00Z\nreviewed_by: v1'))).toMatchObject({ kind: 'claimed', by: 'v1', until: T + 60 * MIN, conceptId: 'c1' });
+    expect(parseClaim(row('finding: agf_x\nverdict: claim withdrawn\nreviewed_by: v1'))?.kind).toBe('withdrawn');
+    expect(parseClaim(row('finding: agf_x\nverdict: endorsed (resolved)\nreviewed_by: v1'))).toBeNull();
+    // A claim must name its holder.
+    expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_until: 2026-10-21T13:00:00Z'))).toBeNull();
+  });
+});
+
+/** A concept-db that keeps what is written: verdict rows by shape, each stamped with created_at and an id. */
+async function db(opts: { rows?: Array<Record<string, unknown>>; onWrite?: (rows: Array<Record<string, unknown>>, at: number) => void } = {}) {
+  const rows = opts.rows ?? [];
+  let n = 0;
+  const stub = await installShapeStub({
+    conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }),
+    concept_create_write: (p) => {
+      const at = Date.now() + n;
+      n++;
+      opts.onWrite?.(rows, at);
+      rows.push({ id: `concept:v${String(n).padStart(3, '0')}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date(at).toISOString() });
+      return { body: { success: true, content: JSON.stringify({ id: `v${n}` }) } };
+    },
+  });
+  return { stub, rows };
+}
+
+function seeded() {
+  const { store } = makeTempStore('claim-');
+  const seed: SeedRecord = {
+    id: 'agf_task1', workspace_id: 'default', file_path: 'src/stats.ts', line_start: 1, line_end: 1,
+    category: 'task', severity: 'MEDIUM', brief: 'fix average()', confidence: 1,
+    refs_json: JSON.stringify(['concept:cf_task1']), produced_at: Date.now(), read_at: null, stale: false,
+  };
+  store.upsertSeed(seed);
+  return store;
+}
+
+const other = (verdict: string, at: number, extra = '') => ({
+  id: `concept:o${at}`, shape: 'finding_verdict', created_at: new Date(at).toISOString(),
+  content: `finding: agf_task1\nverdict: ${verdict}\n${extra}reviewed_by: metabob-mcp-other`,
+});
+
+describe('claim_finding', () => {
+  const run = (store: ReturnType<typeof seeded>, args: Record<string, unknown> = {}) =>
+    ClaimFinding.handle(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1', ...args }), api, 's1', store);
+
+  test('claims, renews, releases; each write is a finding_verdict naming the claimer', async () => {
+    const { rows } = await db();
+    const store = seeded();
+    const me = await resolveAuthorVesselId();
+    expect(await run(store)).toContain('Claimed finding agf_task1 until');
+    expect(String(rows[0]!.content)).toMatch(new RegExp(`^verdict: claimed$[\\s\\S]*^claim_until: \\S+$[\\s\\S]*^reviewed_by: ${me}$`, 'm'));
+    expect(String(rows[0]!.summary)).toStartWith('[verdict:claimed]');
+    expect(await run(store, { action: 'renew', minutes: 90 })).toContain('Renewed your claim on finding agf_task1');
+    expect(await run(store, { action: 'release' })).toContain('Released your claim');
+    expect(String(rows[2]!.content)).toContain('verdict: claim withdrawn');
+    expect(await run(store, { action: 'release' })).toContain('You hold no claim');
+  });
+
+  test('a finding another agent holds is reported with its holder and not claimed', async () => {
+    const { rows } = await db({ rows: [other('claimed', Date.now() - MIN, `claim_until: ${new Date(Date.now() + 30 * MIN).toISOString()}\n`)] });
+    const out = await run(seeded());
+    expect(out).toContain('is claimed by metabob-mcp-other until');
+    expect(out).toContain('it was not claimed');
+    expect(rows).toHaveLength(1);
+  });
+
+  test('a race: a claim written first by another agent wins on read-back, and this claim is withdrawn', async () => {
+    const { rows } = await db({
+      onWrite: (rs, at) => {
+        // The other agent's claim lands between our check and our write, stamped just before ours.
+        if (!rs.some(r => String(r.content).includes('metabob-mcp-other'))) {
+          rs.push(other('claimed', at - 1, `claim_until: ${new Date(at + 60 * MIN).toISOString()}\n`));
+        }
+      },
+    });
+    const out = await run(seeded());
+    expect(out).toContain('was claimed by metabob-mcp-other first');
+    expect(out).toContain('your claim was withdrawn');
+    expect(String(rows.at(-1)!.content)).toContain('verdict: claim withdrawn');
+  });
+
+  test('a closed finding cannot be claimed', async () => {
+    const { rows } = await db({ rows: [other('endorsed (resolved)', Date.now() - MIN)] });
+    expect(await run(seeded())).toContain('is already closed (fixed)');
+    expect(rows).toHaveLength(1);
+  });
+
+  test('with no vessel identity nothing is claimed, since a claim must name its holder', async () => {
+    await db();
+    setResolverIdentity({ vesselId: undefined });
+    try {
+      // resolveAuthorVesselId re-derives from METABOB_API_KEY when boot set none; this test process has no key.
+      const out = await run(seeded());
+      if (!(await resolveAuthorVesselId())) expect(out).toContain('could not name its holder; nothing was claimed');
+    } finally {
+      setResolverIdentity({ vesselId: 'metabob-mcp-thiscell' });
+    }
+  });
+
+  test('a read-only key writes no claim and says so', async () => {
+    await installShapeStub({ conceptSearch: () => ({ body: { content: [] } }) }, { scopes: ['read'] });
+    expect(await run(seeded())).toContain('key_read_only');
+  });
+
+  test('recall shows a live claim on an open finding, and none once it is closed', async () => {
+    const finding = { id: 'concept:cf_task1', shape: 'code_finding', summary: '[MEDIUM][task] kappa: fix average()', content: 'repo: kappa\nfiles: src/stats.ts\nfinding_ids: agf_task1' };
+    const live = other('claimed', Date.now() - MIN, `claim_until: ${new Date(Date.now() + 30 * MIN).toISOString()}\n`);
+    await db({ rows: [finding, live] });
+    let r = await fetchAgentFindings(api, { repo: 'kappa' });
+    expect(r.findings[0]!.claim).toMatchObject({ by: 'metabob-mcp-other', here: false });
+    expect(renderFindingsSection(r, { max: 10 })).toMatch(/\[claimed by metabob-mcp-other until \S+ \S+Z: someone is working on it\]/);
+    await db({ rows: [finding, live, other('endorsed (resolved)', Date.now())] });
+    r = await fetchAgentFindings(api, { repo: 'kappa' });
+    expect(r.findings[0]!.claim).toBeUndefined();
+    expect(r.findings[0]!.verdict).toBe('fixed');
+  });
+});

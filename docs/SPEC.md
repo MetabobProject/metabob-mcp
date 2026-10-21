@@ -527,7 +527,7 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 - Leads with one count of open findings across both sources (`src/tools/_findings.ts@openFindingsHeadline`), e.g. `Open findings: 2 (0 in the local store, 2 recorded by agents on this codebase)`. A finding in both — this session's seed of a finding it shared — counts once and is reported as `; N in both`: local seeds group by their linked concept id, so a multi-file finding is one finding, and a recalled finding overlaps a group when it is that concept or carries one of its `agf_*` ids. Only recalled findings with no verdict count. A recall that did not run (no attachment, or concept-db refused or unreachable) is named rather than counted as zero, and so is an unavailable local store. The local count is after the `severity`/`category`/`file_path` filters; the recall count is the open list the section below shows before its cap of 10.
 - Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. If the local store failed to open, the output says so.
 - States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request.
-- It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): one `conceptSearch { shape: "code_finding", limit: 300 }` read in list mode (no `query`; the shape takes no offset), kept when the concept belongs to the current repository (its `repo:` header equals the repository identity or the workspace basename, § repository-identity; else its `workspace:` basename) and, when `file_path` is given, names that file. Returning the full 300 rows is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts, read the same way, close findings, which move to a separate "Closed findings" list; a retraction outranks a fix, a fix with a commit one without, and any fix a pending one. A fixed finding with a fix commit shows `[FIXED in <sha>]`, and when the commit is not in this checkout's HEAD (`src/repo-identity.ts@commitInHead`) it adds `— the fix is not in this checkout's HEAD (fixed on <branch>, not pushed when endorsed)`. A pending fix keeps the finding in the open list, tagged `[fix pending: uncommitted in another checkout (<reviewed_by>) on <branch>; not in this one]`, or `in this checkout …; commit it, then mark_complete endorse again` when this vessel wrote it. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
+- It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): one `conceptSearch { shape: "code_finding", limit: 300 }` read in list mode (no `query`; the shape takes no offset), kept when the concept belongs to the current repository (its `repo:` header equals the repository identity or the workspace basename, § repository-identity; else its `workspace:` basename) and, when `file_path` is given, names that file. Returning the full 300 rows is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts, read the same way, close findings, which move to a separate "Closed findings" list; a retraction outranks a fix, a fix with a commit one without, and any fix a pending one. A fixed finding with a fix commit shows `[FIXED in <sha>]`, and when the commit is not in this checkout's HEAD (`src/repo-identity.ts@commitInHead`) it adds `— the fix is not in this checkout's HEAD (fixed on <branch>, not pushed when endorsed)`. A live claim (§ claim_finding) tags an open finding `[claimed by <vesselId> until <time>: someone is working on it]`. A pending fix keeps the finding in the open list, tagged `[fix pending: uncommitted in another checkout (<reviewed_by>) on <branch>; not in this one]`, or `in this checkout …; commit it, then mark_complete endorse again` when this vessel wrote it. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 - The recall runs before the local cache is read, and retires this session's seeds of every finding it shows closed (`src/tools/_findings.ts@retireClosedSeeds`), matched by the seed's linked concept id or by the `agf_*` ids the concept carries: a fixed finding's seeds go stale, a retracted finding's are deleted — the same retirement `mark_complete` applies. A verdict another session recorded therefore removes the finding from this session's open list too.
 
 ---
@@ -671,6 +671,43 @@ Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a mess
 - outside git: `fix: unknown (not a git checkout)`, and the finding closes without a commit.
 
 No path is written: the checkout is named by `reviewed_by`. An uncommitted fix does **not** close the finding, since every other checkout still has the bug: the verdict is `verdict: fix pending (uncommitted)` with summary `[verdict:pending]`, which a reader knowing only endorsed and discarded parses as no verdict; no local seed is retired, no relevance is recorded, and the output says to commit the fix and endorse again. The endorse that names a commit closes it. Discard records no fix location.
+
+---
+
+### claim_finding
+
+Handler: `src/tools/claim-finding.ts@handle`
+
+Say an agent is starting work on a finding, so another agent does not start the same work.
+
+**Input**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `problem_id` | string | **required** | An `agf_*` finding id, or the `concept_*` id recall shows |
+| `action` | `claim\|renew\|release` | `claim` | Claim before starting, renew while working, release on stopping without closing |
+| `minutes` | integer | `60` | How long the claim lasts from now, at most 240 |
+
+**What a claim is.** A claim is a `finding_verdict`, keyed on the finding's `agf_*` id like every verdict (`src/tools/_claims.ts@claimLines`):
+- `verdict: claimed`, with `claim_until:` and the claimer as `reviewed_by:`, plus `session:`;
+- `verdict: claim withdrawn` for a release;
+- the summary is `[verdict:claimed]` or `[verdict:withdrawn]`.
+
+A reader that knows only endorsed and discarded parses neither as a verdict, so to it the finding reads open, which it is.
+
+**Who holds it.** concept-db has no compare-and-set, so two agents can both write a claim. Every reader applies one rule to the same rows (`src/tools/_claims.ts@claim-holder`):
+- A claimer's current claim begins with the first claim it wrote while none of its earlier claims was live. A later claim while one is live renews it, and a withdrawal ends it.
+- Of the claimers whose claim is live now, the one whose claim began earliest holds it; on a tie, the lower concept id.
+
+**What the tool does:**
+1. It resolves the finding (its local seed and siblings, or the recalled concept and every `agf_*` id it carries) and reads the verdicts.
+2. A closed finding is refused. A finding held by someone else is reported with its holder and is not claimed.
+3. Otherwise it writes the claim, reads the verdicts back and applies the rule. When another claimer holds it, it writes a withdrawal and says who won.
+4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
+
+**Refusals.** A claim must name its holder, so with no vessel identity nothing is written. A read-only key writes nothing and says `key_read_only`. When the verdict scan reached its limit, the reply says an older claim may have been missed.
+
+**Recall.** Recall shows a live claim on an open finding as `[claimed by <vesselId> until <time>: someone is working on it]`, or `[claimed by this checkout until <time>]` (§ get_problems). A closed finding shows no claim: `mark_complete` ends it.
 
 ---
 
