@@ -131,6 +131,8 @@ export async function handle(
   localStore?: LocalStore | null,
   /** The checkout whose state says where the fix is; the active workspace by default. */
   workspace: string = activeWorkspacePath(),
+  /** Close by commit: the ref a fix_commit must be in (default the checkout's HEAD), and how the fix was named. */
+  opts: { head?: string; via?: 'trailer' } = {},
 ): Promise<string> {
   const startTime = Date.now();
 
@@ -148,13 +150,14 @@ export async function handle(
   const plainId = plainConceptId(input.problem_id);
   const isConceptId = plainId.startsWith('concept_');
   if (input.problem_id.startsWith('agf_') || isConceptId) {
-    if (!localStore) {
+    // A concept id needs no local store: with no seed, the verdict is written from the recalled concept (below),
+    // which is how `metabob-mcp finding close` closes a finding in a cell, where there is no local store.
+    if (!localStore && !isConceptId) {
       return `Finding "${plainId}" cannot be updated — local store unavailable in this session.`;
     }
-    const seed = isConceptId
+    const seed = !localStore ? null : isConceptId
       // Either stored form matches: getSeedByConceptRef normalises the id and
-      // queries both, so a bare id finds a wrapped row and vice versa. The
-      // retry that used to live here only covered wrapped-id-against-bare-row.
+      // queries both, so a bare id finds a wrapped row and vice versa.
       ? localStore.getSeedByConceptRef(input.problem_id)
       : localStore.getSeedById(input.problem_id);
     // NO LOCAL SEED, CONCEPT ID: write the verdict from the concept itself.
@@ -178,7 +181,7 @@ export async function handle(
         return `Concept "${plainId}" could not be read (${remote.error}), so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit) : null;
+      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit, opts.head) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
       const unpushed = unpushedFix(loc, workspace);
       const pending = loc?.kind === 'uncommitted' || unpushed;
@@ -203,6 +206,7 @@ export async function handle(
           `finding: ${findingKey}`,
           `verdict: ${verdict}`,
           ...(loc ? fixLines(loc) : []),
+          ...(opts.via ? [`fix_via: ${opts.via}`] : []),
           ...repoContent,
           `files: ${remote.files}`,
           `finding summary: ${remote.summary}`,
@@ -241,7 +245,7 @@ export async function handle(
         (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : unpushed ? `\n  ${UNPUSHED_NOTE(loc.sha)}` : '')
       );
     }
-    if (!seed) {
+    if (!seed || !localStore) {
       return `Finding "${plainId}" not found in the local store. Use get_problems to list valid IDs.`;
     }
 
@@ -260,7 +264,7 @@ export async function handle(
     const files = siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path];
     // The finding's recorded time: its earliest seed, since record_finding writes all of them at once.
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
-    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit) : null;
+    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit, opts.head) : null;
     if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
     const unpushed = unpushedFix(loc, workspace);
     const pending = loc?.kind === 'uncommitted' || unpushed;
@@ -287,6 +291,7 @@ export async function handle(
           `finding: ${seedId}`,
           `verdict: ${verdict}`,
           ...(loc ? fixLines(loc) : []),
+          ...(opts.via ? [`fix_via: ${opts.via}`] : []),
           ...repoLines(here),
           `files: ${seed.file_path}`,
           `finding summary: ${seed.brief}`,

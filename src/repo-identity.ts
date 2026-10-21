@@ -161,7 +161,11 @@ export type FixLocation =
 /** Allowance for the recording machine's clock running ahead of the committing machine's. */
 export const FIX_SKEW_MS = 2 * 60_000;
 
-export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date, fixCommit?: string): FixLocation {
+/**
+ * `head` is the ref a claimed commit must be in the history of: the checkout's `HEAD` by default; close by commit
+ * passes the integration target (`origin/main`), since the fix is checked where it was merged.
+ */
+export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date, fixCommit?: string, head = 'HEAD'): FixLocation {
   const cwd = resolve(workspacePath);
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (top === null) return { kind: 'unknown' };
@@ -185,8 +189,8 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   if (fixCommit) {
     const sha = git(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
     if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout` };
-    if (git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) === null) {
-      return { kind: 'rejected', reason: `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` };
+    if (git(cwd, ['merge-base', '--is-ancestor', sha, head]) === null) {
+      return { kind: 'rejected', reason: head === 'HEAD' ? `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` : `${sha.slice(0, 10)} is not in ${head}` };
     }
     if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it' };
     const at = Date.parse(git(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');

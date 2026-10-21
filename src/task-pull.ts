@@ -23,12 +23,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { attach, setAttachment } from './attachment.js';
-import { applyConfiguration, discoveryEndpointSource, unattachedMessage } from './config.js';
+import { attachForCli } from './cli-attach.js';
 import { normalizeRemoteUrl, type RepoIdentity } from './repo-identity.js';
-import { resolveVesselId } from './vessel-identity.js';
-import { setResolverIdentity } from './resolver-identity.js';
 import { searchConcepts } from './tools/_concept-db.js';
 import { plainConceptId } from './tools/_concept-content.js';
 import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
@@ -171,26 +167,10 @@ export async function runTaskPull(args: string[]): Promise<number> {
     return say(1, `${a.taskDir} and ${a.workDir} must be empty or missing: a task gets fresh directories, never reused ones`);
   }
 
-  const { warnings } = applyConfiguration(process.env);
-  for (const w of warnings) process.stderr.write(`warn: ${w}\n`);
-  const missing = unattachedMessage(process.env);
-  if (missing) return say(2, missing);
-  const attachment = attach({
-    discovery: process.env.DISCOVERY_ENDPOINT!,
-    discoverySource: discoveryEndpointSource(process.env),
-    key: process.env.METABOB_API_KEY!.trim(),
-    identityOverride: process.env.IDENTITY_ENDPOINT,
-    heartbeatMs: 0,
-    env: process.env,
-    log: (level, message) => { if (level !== 'debug') process.stderr.write(`${level}: ${message}\n`); },
-  });
-  const state = await attachment.settled();
-  setAttachment(attachment);
-  if (state.auth.status !== 'authenticated') return say(2, `not attached: ${state.cause ?? state.auth.status}`);
-
-  const vesselId = await resolveVesselId({ explicit: process.env.VESSEL_ID, apiKey: process.env.METABOB_API_KEY, workspaceRoot: a.workDir });
-  setResolverIdentity({ vesselId });
-  const result = await pullTask(a, process.env.SESSION_ID || randomUUID(), vesselId);
+  const attached = await attachForCli(a.workDir);
+  if (!attached.ok) return say(2, attached.cause);
+  const vesselId = attached.vesselId;
+  const result = await pullTask(a, attached.sessionId, vesselId);
   return say(result.code, result.message, result.extra);
 }
 
@@ -273,6 +253,10 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
     } catch (err) {
       return release(`claimed ${key}, but cloning ${a.origin} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || String(err)}`);
     }
+    // The base the entrypoint passes to finding close (<base>..HEAD): later rebases never widen the range to other cells' commits.
+    const base = execFileSync('git', ['-C', a.workDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    (record as Record<string, unknown>).base = base;
+    writeFileSync(join(a.taskDir, 'task.json'), JSON.stringify(record, null, 2) + '\n');
     return say(0, `pulled ${key}: ${record.summary} (claimed until ${record.claim.until}; push to ${policy.push_to}, integrate by ${policy.integrate})`, { task: record });
   }
   if (heldUntil.length) {

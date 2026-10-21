@@ -434,7 +434,9 @@ A task someone else holds, a closed one and one with a fix pending are skipped. 
 - the task id, its concept id and finding ids, summary, severity, files and details;
 - the origin, repository and ref;
 - the integration policy with each value's source;
-- the claim (holder, end), the recorder, the time and the session.
+- the claim (holder, end), the recorder, the time and the session;
+- the trust list for conventions and whether it was defaulted;
+- `base`, the commit the clone checked out, which the entrypoint passes to `finding close` as `<base>..HEAD`.
 
 It also writes `context.md`: the details, the policy, the open non-task findings on the task's files, and the task as recorded. Then it clones the origin into the work directory, at the task's `ref:` when it declares one.
 
@@ -455,6 +457,25 @@ A convention steers pushes, so it is untrusted input. It counts only from an aut
 - 1: any other failure.
 
 The reply lists what each candidate's claim did.
+
+### finding close
+
+`metabob-mcp finding close --commits <base>..<head> [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]` (`src/finding-close.ts@runFindingClose`) is close by commit. A cell's entrypoint runs it after it has pushed and verified, passing the `base` that `task pull` recorded, so a later rebase never widens the range to other cells' commits. A person can run it after a push too. It is Node-safe, like `task pull`.
+
+**The claim.** A commit in the range claims a fix with a `Fixes-Finding: agf_…` trailer, one per finding (`src/finding-close.ts@trailerIds`, git's own trailer parse). Only the finding id and the commit sha are sent, never commit text.
+
+**The target.** The branch the fix must be merged into is `--target`, else the task's policy (`main` under `review`, otherwise its `push_to`), else `main`. It is fetched first (`git fetch origin <target>`). If the fetch fails nothing is written, since a stale view of the origin could misjudge what is merged.
+
+**Each finding the range names:**
+- **Must be an open finding of this repository.** An unknown id, another repository's, or a closed finding is reported and never written, so a typo can't close someone else's finding.
+- **Merged** means the commit is in `origin/<target>`'s history, or a commit there carries the same `Fixes-Finding: <id>` line anywhere in its message. A squash merge concatenates the source messages into its body, where git's trailer parse doesn't look. The finding is then endorsed through `mark_complete`'s checks (§ mark_complete), with that commit as `fix_commit` checked against `origin/<target>`, plus `fix_via: trailer`, so the verdict reads `fix_claimed: yes`.
+- **Reverted:** a merged fix that a later commit on the target reverts (git revert's "This reverts commit <sha>") is reported as reverted and not written.
+- **Pushed but not merged** (on some remote branch, as under `review`): the verdict is `fix pending (awaiting merge)` with `fix_target:`. Recall tags it `[fix pending: pushed by <vesselId>, awaiting merge into <target>]`. A later `finding close` after the merge closes it.
+- **On no remote branch:** nothing is written; it is reported as unpushed.
+
+**Plain endorse vs close by commit.** `mark_complete endorse` closes a finding once its fix commit is on a remote branch (§ mark_complete). `finding close` closes it only once the fix is merged into the target. Under the `review` policy the cell uses `finding close`, so a fix pushed for review stays pending until merged.
+
+**Exit codes:** 0 done, with each finding's outcome reported; 2 not attached; 1 any other failure, including a failed fetch.
 
 ## Client claim
 

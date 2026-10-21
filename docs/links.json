@@ -63,6 +63,8 @@
         "src/tools/mark-complete.ts",
         "src/tools/claim-finding.ts",
         "src/task-pull.ts",
+        "src/finding-close.ts",
+        "src/cli-attach.ts",
         "src/tools/_claims.ts",
         "src/tools/predict-cochanges.ts",
         "src/tools/provide-feedback.ts",
@@ -214,6 +216,11 @@
           "c3-identity"
         ]
       },
+      "src/cli-attach.ts": {
+        "SPEC": [
+          "task-pull"
+        ]
+      },
       "src/cli.ts": {
         "CLAUDE": [
           "environment-variables"
@@ -221,6 +228,7 @@
         "SPEC": [
           "attach-check",
           "configuration-lookup",
+          "finding-close",
           "precedence",
           "runtime",
           "task-pull"
@@ -250,6 +258,11 @@
         "SPEC": [
           "attachment",
           "network"
+        ]
+      },
+      "src/finding-close.ts": {
+        "SPEC": [
+          "finding-close"
         ]
       },
       "src/index.ts": {
@@ -626,6 +639,11 @@
           "claude-code-plugin"
         ]
       },
+      "tests/unit/finding-close.test.ts": {
+        "SPEC": [
+          "finding-close"
+        ]
+      },
       "tests/unit/goal-tools-by-shape.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -915,6 +933,8 @@
         "src/config.ts@unattachedMessage",
         "src/config.ts@withoutEndpoints",
         "src/cpg-inference.ts",
+        "src/finding-close.ts@runFindingClose",
+        "src/finding-close.ts@trailerIds",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
         "src/net.ts",
@@ -1107,6 +1127,8 @@
       "src/config.ts@unattachedMessage": "c37187992372",
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
       "src/doctor.ts@probeAttachment": "d514e5f837ea",
+      "src/finding-close.ts@runFindingClose": "0d058d26d794",
+      "src/finding-close.ts@trailerIds": "32f2c325ccd3",
       "src/index.ts@HEALTH_PORT": "3b0f11787db8",
       "src/index.ts@health-port-range-warning": "fa8dd2a85884",
       "src/index.ts@main": "7d5d3f63a3bd",

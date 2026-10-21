@@ -246,7 +246,7 @@ export interface AgentFinding {
   /** A fixed finding's fix commit, and whether this checkout's HEAD has it (null: not a git checkout). */
   fix?: { sha: string; branch?: string; pushed: boolean; inHead: boolean | null };
   /** Set on an OPEN finding whose fix an agent endorsed while it was still uncommitted. */
-  pending?: { by?: string; branch?: string; here: boolean; unpushed?: boolean };
+  pending?: { by?: string; branch?: string; here: boolean; unpushed?: boolean; awaitingMerge?: string };
   /** Set on an OPEN finding someone holds a live claim on (src/tools/_claims.ts@claim-holder). */
   claim?: { by: string; until: number; here: boolean };
 }
@@ -385,6 +385,7 @@ export function parseVerdictConcept(
     parsed.pendingBy = headerLine(content, 'reviewed_by') || undefined;
     parsed.pendingBranch = branch;
     parsed.pendingUnpushed = /^verdict:\s*fix pending \(unpushed\)/m.test(content);
+    if (/^verdict:\s*fix pending \(awaiting merge\)/m.test(content)) parsed.pendingAwaitingMerge = headerLine(content, 'fix_target') || 'main';
   }
   return parsed;
 }
@@ -402,6 +403,8 @@ export interface ParsedVerdict {
   pendingBranch?: string;
   /** A pending fix that is committed but on no remote branch, rather than uncommitted. */
   pendingUnpushed?: boolean;
+  /** A pending fix pushed for review: the branch it is to be merged into. */
+  pendingAwaitingMerge?: string;
 }
 
 /**
@@ -574,7 +577,7 @@ export async function fetchAgentFindings(
         if (verdicts.length === 0) continue;
         const best = verdicts.reduce((a, b) => (rank(b) > rank(a) ? b : a));
         if (best.verdict === 'pending') {
-          f.pending = { by: best.pendingBy, branch: best.pendingBranch, here: !!me && best.pendingBy === me, ...(best.pendingUnpushed ? { unpushed: true } : {}) };
+          f.pending = { by: best.pendingBy, branch: best.pendingBranch, here: !!me && best.pendingBy === me, ...(best.pendingUnpushed ? { unpushed: true } : {}), ...(best.pendingAwaitingMerge ? { awaitingMerge: best.pendingAwaitingMerge } : {}) };
           continue;
         }
         f.verdict = best.verdict;
@@ -765,6 +768,7 @@ function claimNote(c: NonNullable<AgentFinding['claim']>): string {
 /** An open finding's note when its fix was endorsed uncommitted. */
 function pendingNote(p: NonNullable<AgentFinding['pending']>): string {
   const branch = p.branch ? ` on ${p.branch}` : '';
+  if (p.awaitingMerge) return `[fix pending: pushed${p.by ? ` by ${p.by}` : ''}, awaiting merge into ${p.awaitingMerge}]`;
   if (p.unpushed) {
     return p.here
       ? `[fix pending: committed in this checkout${branch} but not pushed; push it, then mark_complete endorse again]`

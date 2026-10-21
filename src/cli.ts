@@ -19,6 +19,7 @@ const isNodeSafeInvocation =
   process.argv[2] === 'doctor' ||
   process.argv[2] === 'attach' ||
   process.argv[2] === 'task' ||
+  process.argv[2] === 'finding' ||
   process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
 
 if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
@@ -136,6 +137,9 @@ USAGE:
   npx @metabob/mcp task pull --origin <git url>
                                       Take a task from the ledger, claim it, write /task, clone /work
                                       (a cell's entrypoint step); exit 0 pulled, 3 none open, 4 all held, 2 not attached
+  npx @metabob/mcp finding close --commits <base>..<head>
+                                      After a push: close the findings commits name (Fixes-Finding: agf_…)
+                                      once the fix is merged into the target on the origin
 
 OPTIONS:
   --api-key <KEY>              API key for the substrate. Same as METABOB_API_KEY.
@@ -342,6 +346,21 @@ function validateOptions(options: CLIOptions): void {
 async function main() {
   // Doctor subcommand: handle BEFORE parseArgs (strict mode rejects positionals).
   // Form: `npx @metabob/mcp doctor [...]`
+  // `finding close`: close by commit, after a push (SPEC §finding-close).
+  if (process.argv[2] === 'finding') {
+    if (process.argv[3] !== 'close') {
+      console.error('usage: metabob-mcp finding close --commits <base>..<head> [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]');
+      process.exit(1);
+    }
+    const { runFindingClose } = await import('./finding-close.js');
+    try {
+      process.exit(await runFindingClose(process.argv.slice(4)));
+    } catch (err) {
+      console.error('[metabob-mcp finding] fatal:', err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  }
+
   // `task pull`: a cell's entrypoint step, before any harness starts (SPEC §task-pull).
   if (process.argv[2] === 'task') {
     if (process.argv[3] !== 'pull') {

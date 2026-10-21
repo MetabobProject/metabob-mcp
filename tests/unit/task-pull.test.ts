@@ -111,6 +111,8 @@ describe('pullTask', () => {
     expect(task.policy).toMatchObject({ push_to: 'task/agf_t2', integrate: 'review', conflicts: 'rebase', source: { push_to: 'task', conflicts: 'default' } });
     expect(readFileSync(join(a.taskDir, 'context.md'), 'utf8')).toContain('Add median().');
     expect(existsSync(join(a.workDir, 'stats.ts'))).toBe(true);
+    // The base finding close takes its range from.
+    expect(task.base).toBe(execFileSync('git', ['-C', a.workDir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
     const claims = rows.filter(x => String(x.content).includes('verdict: claimed'));
     expect(claims).toHaveLength(1);
     expect(String(claims[0]!.content)).toContain(`repo: ${o.repo}`);
