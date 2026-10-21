@@ -572,6 +572,11 @@
       "tests/claude-sessions/scenarios.ts": {
         "README": []
       },
+      "tests/helpers/no-git.ts": {
+        "SPEC": [
+          "mark_complete"
+        ]
+      },
       "tests/unit/agent-delivery.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"

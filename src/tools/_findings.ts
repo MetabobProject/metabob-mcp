@@ -393,9 +393,9 @@ export interface ParsedVerdict {
  */
 export function fixLines(loc: FixLocation): string[] {
   const branch = 'branch' in loc && loc.branch ? [`fix_branch: ${loc.branch}`] : [];
-  if (loc.kind === 'commit') return [`fix: commit ${loc.sha}`, ...branch, ...(loc.pushed ? [] : ['fix_pushed: no']), ...(loc.elsewhere ? ['fix_touches_finding_files: no'] : [])];
+  if (loc.kind === 'commit') return [`fix: commit ${loc.sha}`, ...branch, ...(loc.pushed ? [] : ['fix_pushed: no']), ...(loc.claimed ? ['fix_claimed: yes'] : []), ...(loc.elsewhere ? ['fix_touches_finding_files: no'] : [])];
   if (loc.kind === 'uncommitted') return ['fix: uncommitted', ...branch, ...(loc.base ? [`fix_base: ${loc.base}`] : []), ...(loc.outside ? ['fix_files: outside the finding\'s files'] : [])];
-  if (loc.kind === 'none' || loc.kind === 'absent') return [];
+  if (loc.kind === 'none' || loc.kind === 'absent' || loc.kind === 'rejected') return [];
   return ['fix: unknown (not a git checkout)'];
 }
 

@@ -133,30 +133,33 @@ export function clearRepoIdentityCache(): void {
 /**
  * Where a fix to a finding lives in the checkout at `workspacePath`, as mark_complete records it on an endorse
  * (SPEC §mark_complete). A fix commit postdates the finding (`recordedAt`, less FIX_SKEW_MS for clocks), since a
- * commit older than the finding cannot be its fix; a fix may touch files other than the finding's.
+ * commit older than the finding cannot be its fix; with no recorded time no commit can be shown to.
  *
  * - `unknown`: not a git checkout.
  * - `absent`: a git checkout where none of `files` is known (not tracked and not on disk): not where the fix is.
+ * - `commit`: `claimed` — the agent named the fix commit, and it resolves here, is in HEAD's history and postdates
+ *   the finding (`elsewhere` when it touches none of the finding's files) — or else the newest commit since the
+ *   finding touching its files. With its branch and whether a remote branch holds it.
+ * - `rejected`: the claimed commit fails one of those checks (`reason`).
  * - `uncommitted`: one of the finding's files has changes git has not committed (modified, staged, untracked or
  *   deleted), or, with no commit since the finding touching them, other tracked files do (`outside`: the fix may be
  *   among them).
- * - `commit`: the newest commit since the finding touching its files, else the newest commit since it at all
- *   (`elsewhere`), with its branch and whether a remote branch holds it. Never without `recordedAt`: with no
- *   recorded time no commit can be shown to postdate the finding.
- * - `none`: a clean checkout with no commit since the finding was recorded (or no recorded time): nothing here can
- *   be shown to be its fix.
+ * - `none`: no commit since the finding touches its files and nothing is uncommitted. A newer commit elsewhere is
+ *   not taken as the fix — a pull of unrelated work would close every finding — but named (`newest`), so the agent
+ *   can claim it when it is the fix.
  */
 export type FixLocation =
-  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean }
+  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
-  | { kind: 'none' }
+  | { kind: 'none'; newest?: { sha: string; files: string[] } }
+  | { kind: 'rejected'; reason: string }
   | { kind: 'absent' }
   | { kind: 'unknown' };
 
 /** Allowance for the recording machine's clock running ahead of the committing machine's. */
 export const FIX_SKEW_MS = 2 * 60_000;
 
-export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date): FixLocation {
+export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date, fixCommit?: string): FixLocation {
   const cwd = resolve(workspacePath);
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   if (top === null) return { kind: 'unknown' };
@@ -166,18 +169,35 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const ref = git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = ref && ref !== 'HEAD' ? ref : undefined;
   const base = git(cwd, ['rev-parse', 'HEAD']) || undefined;
+  const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
+  const after = timed ? recordedAt!.getTime() - FIX_SKEW_MS : NaN;
+  const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation =>
+    ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...extra });
+
+  if (fixCommit) {
+    const sha = git(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
+    if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout` };
+    if (git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) === null) {
+      return { kind: 'rejected', reason: `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` };
+    }
+    if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it' };
+    const at = Date.parse(git(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');
+    if (!(at >= after)) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix` };
+    const touches = !!git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha, '--', ...paths]);
+    return commit(sha, { claimed: true, ...(touches ? {} : { elsewhere: true }) });
+  }
+
   const status = git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
   if (status === null) return { kind: 'unknown' };
   if (status) return { kind: 'uncommitted', branch, base };
-  const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
-  const since = timed ? [`--since=${new Date(recordedAt!.getTime() - FIX_SKEW_MS).toISOString()}`] : [];
-  const commit = (sha: string, elsewhere?: boolean): FixLocation =>
-    ({ kind: 'commit', sha, branch, pushed: !!git(cwd, ['branch', '-r', '--contains', sha]), ...(elsewhere ? { elsewhere } : {}) });
+  const since = timed ? [`--since=${new Date(after).toISOString()}`] : [];
   const touching = timed ? git(cwd, ['log', '-1', '--format=%H', ...since, '--', ...paths]) : null;
   if (touching) return commit(touching);
   if (git(cwd, ['status', '--porcelain', '--untracked-files=no'])) return { kind: 'uncommitted', branch, base, outside: true };
-  const any = timed ? git(cwd, ['log', '-1', '--format=%H', ...since]) : null;
-  return any ? commit(any, true) : { kind: 'none' };
+  const newest = timed ? git(cwd, ['log', '-1', '--format=%H', ...since]) : null;
+  if (!newest) return { kind: 'none' };
+  const changed = (git(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', newest]) ?? '').split('\n').filter(Boolean);
+  return { kind: 'none', newest: { sha: newest, files: changed } };
 }
 
 /** Whether commit `sha` is in the history of the checkout's HEAD; null when the workspace is not a git checkout. */

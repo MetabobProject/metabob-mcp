@@ -68,7 +68,8 @@ Use it whenever more than one agent or session touches the repository.
 3. **Close**: `mark_complete` with `endorse` when fixed and `discard` when it was a
    false positive. Endorse after you commit the fix: the verdict records the commit,
    and a fix still uncommitted in your checkout leaves the finding open for everyone
-   else, marked fix pending, until you endorse again after committing. A `concept_*` id is enough when that is all you hold: with no
+   else, marked fix pending, until you endorse again after committing. When the fix
+   commit touches none of the finding's files, name it: `fix_commit: "<sha>"`. A `concept_*` id is enough when that is all you hold: with no
    local seed the verdict is written from the recalled concept itself, and the
    output says plainly that nothing local was retired. One call closes every file
    of a multi-file finding.

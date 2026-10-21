@@ -71,14 +71,37 @@ describe('fixLocation', () => {
     expect(fixLocation(dir, ['stats.ts'], new Date(Date.now() - 60_000)).kind).toBe('commit');
   });
 
-  test('a fix in another file: uncommitted there is pending (outside), committed it is the newest commit since the finding', () => {
+  test('a fix in another file: uncommitted there is pending (outside); committed, it is named but not taken unless claimed', () => {
     const dir = checkout('other');
     const recorded = new Date();
     writeFileSync(join(dir, 'util.ts'), 'export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);\n');
     expect(fixLocation(dir, ['stats.ts'], recorded)).toMatchObject({ kind: 'uncommitted', outside: true });
     git(dir, 'commit', '-qam', 'fix sum');
     const fix = git(dir, 'rev-parse', 'HEAD');
-    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, elsewhere: true });
+    // A pull of unrelated work must not close every finding: the newer commit is named, not taken.
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'none', newest: { sha: fix, files: ['util.ts'] } });
+    expect(fixLocation(dir, ['stats.ts'], recorded, fix.slice(0, 7)))
+      .toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, claimed: true, elsewhere: true });
+  });
+
+  test('a claimed fix commit must exist here, be in HEAD and postdate the finding', () => {
+    const dir = checkout('claim');
+    const old = git(dir, 'rev-parse', 'HEAD');
+    const recorded = new Date();
+    expect(fixLocation(dir, ['stats.ts'], recorded, old)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('predates the finding') });
+    expect(fixLocation(dir, ['stats.ts'], recorded, 'deadbeef')).toMatchObject({ kind: 'rejected', reason: 'deadbeef is not a commit in this checkout' });
+    git(dir, 'checkout', '-qb', 'side');
+    writeFileSync(join(dir, 'util.ts'), 'side\n');
+    git(dir, 'commit', '-qam', 'side');
+    const side = git(dir, 'rev-parse', 'HEAD');
+    git(dir, 'checkout', '-q', 'main');
+    expect(fixLocation(dir, ['stats.ts'], recorded, side)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining("is not in this checkout's HEAD") });
+    expect(fixLocation(dir, ['stats.ts'], undefined, old)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('no recorded time') });
+    // A claimed commit touching the finding's files is not "elsewhere".
+    writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
+    git(dir, 'commit', '-qam', 'fix');
+    const fix = git(dir, 'rev-parse', 'HEAD');
+    expect(fixLocation(dir, ['stats.ts'], recorded, fix)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, claimed: true });
   });
 
   test('commitInHead: HEAD\'s history yes, another branch\'s commit or an unknown one no, no git null', () => {
@@ -146,7 +169,7 @@ describe('mark_complete endorse', () => {
     expect(stub.calls('conceptUsage_write').map(p => p.usageData.outcome)).toEqual(['success']);
   });
 
-  test('a fix in another file, uncommitted, leaves the finding open; committed, closes it and says it touches none of its files', async () => {
+  test('a fix in another file: uncommitted, pending; committed, open with the commit named; claimed with fix_commit, closed', async () => {
     const dir = checkout('endorse-other');
     const store = seeded();
     const stub = await db();
@@ -158,11 +181,19 @@ describe('mark_complete endorse', () => {
     expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
     expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain("fix_files: outside the finding's files");
     git(dir, 'commit', '-qam', 'fix sum');
-    const closed = await MarkComplete.handle(input, api, 's', store, dir);
-    expect(closed).toContain("it touches none of the finding's files");
+    const sha = git(dir, 'rev-parse', 'HEAD');
+    const named = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(named).toContain(`The newest commit since then is ${sha.slice(0, 10)}, touching util.ts, which is not taken as the fix on its own. No verdict was recorded.`);
+    expect(named).toContain(`endorse with fix_commit: "${sha.slice(0, 10)}"`);
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    expect(stub.calls('concept_create_write')).toHaveLength(1);
+    const claimed = MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1', fix_commit: sha.slice(0, 10) });
+    const closed = await MarkComplete.handle(claimed, api, 's', store, dir);
+    expect(closed).toContain("(named as the fix) — it touches none of the finding's files");
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
     const content = String(stub.calls('concept_create_write')[1]!.conceptData.content);
-    expect(content).toContain(`fix: commit ${git(dir, 'rev-parse', 'HEAD')}`);
+    expect(content).toContain(`fix: commit ${sha}`);
+    expect(content).toContain('fix_claimed: yes');
     expect(content).toContain('fix_touches_finding_files: no');
   });
 

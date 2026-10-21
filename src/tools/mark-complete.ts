@@ -36,9 +36,20 @@ function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>): string
 
 /**
  * Nothing in this checkout can be shown to be the fix, so no verdict is written: the finding's files are not here
- * (`absent`), or nothing changed since the finding was recorded, or it has no recorded time to tell (`none`).
+ * (`absent`); no commit since the finding touches them and nothing is uncommitted, or it has no recorded time to
+ * tell (`none`); or the claimed `fix_commit` failed a check (`rejected`).
  */
 function noFixHere(id: string, loc: FixLocation, recordedAt: Date | undefined): string {
+  if (loc.kind === 'rejected') {
+    return `Finding ${id} left open: fix_commit ${loc.reason}. No verdict was recorded.`;
+  }
+  if (loc.kind === 'none' && loc.newest) {
+    const files = loc.newest.files;
+    const shown = files.slice(0, 3).join(', ') + (files.length > 3 ? `, and ${files.length - 3} more` : '');
+    return `Finding ${id} left open: no commit since it was recorded touches its files, and none of them has an uncommitted change. `
+      + `The newest commit since then is ${loc.newest.sha.slice(0, 10)}${shown ? `, touching ${shown}` : ''}, which is not taken as the fix on its own. No verdict was recorded.\n`
+      + `  If that commit is the fix, endorse with fix_commit: "${loc.newest.sha.slice(0, 10)}". If the fix is elsewhere, endorse where it is. If it was never a bug, discard it.`;
+  }
   const why = loc.kind === 'absent'
     ? 'none of its files is in this checkout, so this is not the checkout the fix is in'
     : recordedAt
@@ -49,12 +60,13 @@ function noFixHere(id: string, loc: FixLocation, recordedAt: Date | undefined): 
 }
 
 /** Kinds for which an endorse writes nothing. */
-const NO_FIX = new Set<FixLocation['kind']>(['none', 'absent']);
+const NO_FIX = new Set<FixLocation['kind']>(['none', 'absent', 'rejected']);
 
 function fixShown(loc: FixLocation): string {
   if (loc.kind === 'commit') {
     return `commit ${loc.sha.slice(0, 10)}${loc.branch ? ` on ${loc.branch}` : ''}${loc.pushed ? '' : ' (not on any remote branch yet)'}`
-      + (loc.elsewhere ? ' — the newest commit since the finding; it touches none of the finding\'s files' : '');
+      + (loc.claimed ? ' (named as the fix)' : '')
+      + (loc.elsewhere ? ' — it touches none of the finding\'s files' : '');
   }
   if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
   return 'unknown (not a git checkout), so the finding is closed without a commit';
@@ -63,7 +75,7 @@ function fixShown(loc: FixLocation): string {
 export const MarkCompleteTool = {
   name: 'mark_complete',
   description:
-    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing: a fix still uncommitted in this checkout leaves the finding open, marked fix pending. Any other id is refused.',
+    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing: a fix still uncommitted in this checkout leaves the finding open, marked fix pending, and a finding no commit since it touches stays open unless you name its fix with fix_commit. Any other id is refused.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -77,6 +89,10 @@ export const MarkCompleteTool = {
         enum: ['endorse', 'discard'],
         default: 'endorse',
       },
+      fix_commit: {
+        type: 'string',
+        description: 'Endorse only: the commit that fixes it, when that commit does not touch the finding\'s files (the symptom is in one file, the fix in another). It must be in this checkout\'s HEAD and postdate the finding.',
+      },
     },
     required: ['problem_id'],
   },
@@ -85,6 +101,7 @@ export const MarkCompleteTool = {
 export const InputSchema = z.object({
   problem_id: z.string().min(1),
   action: z.enum(['endorse', 'discard']).default('endorse'),
+  fix_commit: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, 'a commit sha (7 to 40 hex digits)').optional(),
 });
 
 export type MarkCompleteInput = z.infer<typeof InputSchema>;
@@ -143,7 +160,7 @@ export async function handle(
         return `Concept "${plainId}" could not be read from concept-db, so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt) : null;
+      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
       const pending = loc?.kind === 'uncommitted';
       const verdict = pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
@@ -222,7 +239,7 @@ export async function handle(
     const files = siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path];
     // The finding's recorded time: its earliest seed, since record_finding writes all of them at once.
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
-    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt) : null;
+    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit) : null;
     if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
     const pending = loc?.kind === 'uncommitted';
 
