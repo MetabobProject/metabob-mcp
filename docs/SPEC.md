@@ -54,7 +54,10 @@ own sections below.
 
 The `initialize` result carries MCP `instructions` (`src/server-instructions.ts@SERVER_INSTRUCTIONS`),
 which MCP clients place in the agent's context at connect time. They state what the server is for,
-tell the agent to load the `metabob` skill before its first call (it holds the sequencing and the
+lead with what to do before editing files other agents or the substrate also work on (`get_problems`
+for those files, then `path_activity` on them; `record_finding` for a problem noticed and not fixed,
+since a bug mentioned only in a reply is lost; `mark_complete` for what was fixed), tell the agent to
+load the `metabob` skill before its first call (it holds the sequencing and the
 rules), name the first-call set in one sentence (`get_analysis_context`, `get_problems`,
 `record_finding`, `mark_complete`) as the fallback when the skill is not available, so a client that
 defers tool schemas loads all four with one tool search, name the ledger and goal loops and the
@@ -221,7 +224,7 @@ the missing input, or `attaching` while pending). Neither carries the key. Befor
 | field | values |
 |---|---|
 | `anchor` | `{ discovery, source }` — `explicit`, `derived-h1`, or `none` |
-| `bootstrap` | `{ status, identityEndpoint?, detail? }` — `ok`, `unreachable`, `not_substrate` (non-JSON or HTML), or `skipped` (no anchor) |
+| `bootstrap` | `{ status, identityEndpoint?, detail? }` — `ok`, `unreachable`, `not_substrate` (non-JSON or HTML; when the request went through a proxy and was refused, the detail names the proxy as what may have refused it), or `skipped` (no anchor) |
 | `identity` | `{ endpoint, source, advertised, tried }` — source `explicit`, `bootstrap`, `rehosted-h1`, or `none`; `tried` lists every address contacted, in order |
 | `auth` | `{ status, orgId?, keyId?, accountId?, scopes?, detail? }` (never the identity's jwt) — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
 | `cause` | the named cause keyed calls are refused with, or `null` |
@@ -344,7 +347,7 @@ request.
   anchor or proxy fails as `connect_timeout` within it, apart from the response budget.
 - **Response budget**: the caller's, covering the whole request — `/bootstrap` and the org check 5 s,
   the identity dial 2 s, `resolve()` its family's cap (§ Attachment, never above 60 s), the history
-  read 10 s. A connected target that does not answer in time is `response_timeout` — slow, not blocked.
+  read 3 s. A connected target that does not answer in time is `response_timeout` — slow, not blocked.
 - **Retries**: on idempotent requests only (reads, and the org check), within the response budget, at
   most twice (after 0.25 s and 0.75 s), for transient failures: a reset connection, a proxy's 5xx to
   `CONNECT`, and — for `/bootstrap` — a 502/503/504. Never on a write, a 4xx, an auth failure or a
@@ -401,6 +404,16 @@ GNOME `gsettings`; best-effort, 1.5 s) and named in the failure — "the OS prox
 script (…), which this process does not see; set HTTPS_PROXY". With none found, a `connect_timeout`
 still says that a network reachable only through a proxy needs `HTTPS_PROXY`. `doctor` reports the same
 settings. Nothing here runs at startup or blocks it.
+
+## Read-only key
+
+A write is never sent with a key whose validated scopes lack `write` (or `admin`)
+(`src/attachment.ts@read-only-key`): every non-read resolve answers `key_read_only: this key has scopes
+[read]; the <shape> write was not sent`, and reads are untouched. Producers do not all enforce scopes
+yet, and a refusal that came back through a peer forward would read as `no_producer`, so the cockpit
+does not rely on them. `record_finding` and `mark_complete` keep their local half and say the shared half
+was not sent and other agents will not see it. With no scopes reported (the flat org check, used
+through a proxy) nothing is known about the key, and nothing is gated.
 
 ## Client claim
 
@@ -797,7 +810,7 @@ Before editing shared files, what the substrate has in flight on them.
 - **being landed** — a live landing lease: its holder, attempt and expiry exactly as stored, marked as the holder's own claim (holders are caller-supplied), and "don't race it". The store keeps a lease after its `until` passes, so a lapsed one is shown as lapsed (when, and who held it) and the gap counts as queued, not being landed; a lease is lapsed only 2 minutes past its `until`, so a slightly fast local clock never frees a landing early; a lease with no `until` is shown as possibly stale and not counted as being landed. Times print with their date and how long ago or ahead they are;
 - **queued** — neither: queued for the system.
 
-The output ends with what to do, one line for each state present: wait and look again for a gap being landed, prefer letting the system land or dispatching a queued one, a held gap is not open work, and with nothing in flight make the change and record it. A failed read is one named line. The paths are matched locally and never sent, so the outgoing guard does not check them.
+The output ends with what to do, one line for each state present: wait and look again for a gap being landed, prefer letting the system land or dispatching a queued one, a held gap is not open work, and with nothing in flight make the change and record it. A substrate that serves no gap store (`no_producer(substrateGap)`) is not an error to stop on: the tool says there is nothing in flight to check and to go ahead. Any other failed read is one named line. The paths are matched locally and never sent, so the outgoing guard does not check them.
 
 ### registry_query
 
@@ -829,7 +842,7 @@ With an `execution_id`, resolves `activityExecutionTrace { executionId, format: 
 
 Handler: `src/tools/resolve-impulse.ts@handle`
 
-The advanced escape hatch: resolve one of the substrate's plain reads (`memoryNote`, `traceAggregateReport`, `llmSpendSummary`, …) or one of two memory writes. Prefer a dedicated tool when one fits.
+The advanced escape hatch: resolve one of the substrate's plain reads (`memoryNote`, `traceAggregateReport`, `llmSpendSummary`, …) or the memory write `memoryNote_write`. Prefer a dedicated tool when one fits.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -838,7 +851,7 @@ The advanced escape hatch: resolve one of the substrate's plain reads (`memoryNo
 
 For an allowed shape, the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer. It is sent once and never retried (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
-**It is an allowlist.** A shape, named by `shape` or by `pointer.type`, resolves only when it is one of the plain reads in `src/tools/resolve-impulse.ts@escape-hatch-reads` (records, reports, statistics, summaries and policies) or one of the memory writes with no dedicated tool, `memoryNote_write` and `concept_supersede_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). A shape's name does not tell a read from an action (`bash`, `code_replace_lines`, `surrealdb_import` and `llm_completion` read like reads), so everything else is refused before any request, unlisted reads included: a shell, file edits, git and GitHub, restarts, cutovers, composes, dispatch, credit, trace deletion. The refusal says to dispatch the work as a goal, so goal-host routes it and its judge grades it, or to use a dedicated tool. The known writes carry their own reason and alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
+**It is an allowlist.** A shape, named by `shape` or by `pointer.type`, resolves only when it is one of the plain reads in `src/tools/resolve-impulse.ts@escape-hatch-reads` (records, reports, statistics, summaries and policies) or the memory write with no dedicated tool, `memoryNote_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). A shape's name does not tell a read from an action (`bash`, `code_replace_lines`, `surrealdb_import` and `llm_completion` read like reads), so everything else is refused before any request, unlisted reads included: a shell, file edits, git and GitHub, restarts, cutovers, composes, dispatch, credit, trace deletion. The refusal says to dispatch the work as a goal, so goal-host routes it and its judge grades it, or to use a dedicated tool. The known writes carry their own reason and alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
 
 | Writes | Why an agent does not make them | Instead |
 |---|---|---|
@@ -851,7 +864,8 @@ For an allowed shape, the attachment's `resolve()` (§ Attachment): `{ pointer }
 | `pushPolicy_write`, `llmModelPolicy_write`, `docFixPolicy_write`, `renderPolicy_write` | system policy is an operator's decision; this key carries no operator authority | ask the person, or record a finding proposing the change |
 | `goal_verification_label_write`, `poolImpulse_write`, `substrateGap_write` | the oracle corpus; walk input with no stamped principal; gaps, which the system's detectors file | `provide_feedback`; dispatch a goal; `record_finding` |
 | `concept_create_write`, `conceptLink_write`, `conceptUsage_write`, `solicitationResponse_write` | each has a dedicated tool that checks its input and records provenance | `concept_create`, `concept_link`, `concept_record_usage`, `submit_resolution` |
-| `concept_write`, `concept_delete_write`, `concept_retire_write` | overwriting, deleting or retiring the system's memory | `concept_supersede_write`, which keeps the history |
+| `concept_write`, `concept_delete_write`, `concept_retire_write` | overwriting, deleting or retiring the system's memory | `concept_create` the corrected concept and `concept_link` it `derived_from` the wrong one, which keeps the history |
+| `concept_supersede_write` | advertised by concept-db but not implemented there (it throws) | as above |
 
 `tests/fixtures/registry-vocabulary.json` decides every shape of a live vocabulary, allowed or refused, and a unit test holds the code's allowlist to it, so a refreshed snapshot with a new shape fails the build until someone decides it; at run time an undecided shape is refused. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
 
@@ -901,7 +915,7 @@ Handler: `src/tools/concept-usage-stats.ts@handle`
 | `include_history` | boolean | `true` | Include recent usage rows |
 | `history_limit` | number | `10` | Max usage rows (max 50) |
 
-`conceptUsageStats { concept_id }` (total uses, success and failure rates) and, with history, the recent usage rows (outcome, time, trace and activity per row). No concept-db shape serves usage history, so the rows are the one direct REST read the substrate tools make (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`): concept-db is located through discovery's `vesselCapability`, through the attachment, and read at `GET /concepts/:id/usage?limit=N` (10 s) on the attachment's request path (§ Network). A failed history read still returns the stats, with `Recent usage: unavailable — <cause>` naming why.
+`conceptUsageStats { concept_id }` (total uses, success and failure rates) and, with history, the recent usage rows (outcome, time, trace and activity per row). No concept-db shape serves usage history, so the rows are the one direct REST read the substrate tools make (`src/tools/concept-usage-stats.ts@usage-history-direct-edge`): concept-db is located through discovery's `vesselCapability`, through the attachment, and read at `GET /concepts/:id/usage?limit=N` (3 s) on the attachment's request path (§ Network). An advertised private address (RFC 1918, CGNAT, link-local) on another host than discovery is not dialled, since it is almost always out of reach from the client. A failed or skipped history read still returns the stats, with `Recent usage: unavailable — recent rows come from concept-db directly at <address>, …; the aggregate above is complete`.
 
 ### concept_sequence
 

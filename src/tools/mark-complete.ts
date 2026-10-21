@@ -200,7 +200,7 @@ export async function handle(
       });
       conceptStatus = result.ok
         ? `verdict shared via concept-db (concept ${result.id ?? '?'})`
-        : `concept-db unreachable (${result.error}) — verdict recorded locally only`;
+        : /^key_read_only/.test(result.error ?? '') ? `not shared (${result.error}) — verdict recorded locally only; other agents will not see it` : `concept-db unreachable (${result.error}) — verdict recorded locally only`;
 
       // Fold the verdict into the finding concept's relevance directly: an
       // endorsed finding proved useful (success), a discarded one was a false

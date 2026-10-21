@@ -607,6 +607,11 @@
           "record_finding"
         ]
       },
+      "tests/unit/record-finding.test.ts": {
+        "SPEC": [
+          "read-only-key"
+        ]
+      },
       "tests/unit/repo-identity.test.ts": {
         "SPEC": [
           "repository-identity"
@@ -618,6 +623,7 @@
         ],
         "SPEC": [
           "client-claim",
+          "read-only-key",
           "resolve_impulse"
         ]
       },
@@ -794,6 +800,7 @@
         "src/attachment.ts@classifyDiscoveryAnswer",
         "src/attachment.ts@network-diagnosis",
         "src/attachment.ts@no-producer-line",
+        "src/attachment.ts@read-only-key",
         "src/attachment.ts@rehost-h1",
         "src/attachment.ts@resolve-timeouts",
         "src/attachment.ts@resolveShape",
@@ -970,6 +977,7 @@
       "src/attachment.ts@describeResolveFailure": "d6609db310a1",
       "src/attachment.ts@network-diagnosis": "8d64a30d9de1",
       "src/attachment.ts@no-producer-line": "c05541483db5",
+      "src/attachment.ts@read-only-key": "a540fe0dcec1",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
       "src/attachment.ts@resolve-timeouts": "784f64c1544e",
       "src/attachment.ts@resolveShape": "ea88ab26b8c9",

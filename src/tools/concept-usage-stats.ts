@@ -88,6 +88,17 @@ const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
  * outbound path (src/net.ts@net-request) — so the proxy, trust and connect
  * budget are those of every other request.
  */
+/** How long the direct read of recent rows may take: short, since the aggregate already answers. */
+const HISTORY_TIMEOUT_MS = 3_000;
+
+/** RFC 1918, CGNAT and link-local IPv4: addresses another host's private network uses. */
+function isPrivateAddress(host: string): boolean {
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  if (!m) return false;
+  const a = Number(m[1]), b = Number(m[2]);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254);
+}
+
 async function fetchUsageHistory(conceptId: string, limit: number): Promise<{ rows: UsageRow[] } | { error: string }> {
   let base: string | undefined;
   try {
@@ -114,6 +125,16 @@ async function fetchUsageHistory(conceptId: string, limit: number): Promise<{ ro
     return { error: `concept-db's advertised endpoint ${base} does not parse` };
   }
 
+  // The recent rows come from concept-db's own address, not through discovery. A private address on another host than
+  // discovery is almost always out of reach from here, so it is not dialled; an agent waits for nothing.
+  try {
+    const host = new URL(base).hostname;
+    const anchorHost = discovery ? new URL(discovery).hostname : null;
+    if (isPrivateAddress(host) && host !== anchorHost) {
+      return { error: `recent rows come from concept-db directly at ${base}, a private address on another host than discovery, which this machine cannot reach; the aggregate above is complete` };
+    }
+  } catch { /* parsed above */ }
+
   const headers: Record<string, string> = {};
   const apiKey = process.env.METABOB_API_KEY;
   if (apiKey) headers['Authorization'] = `ApiKey ${apiKey}`;
@@ -122,13 +143,15 @@ async function fetchUsageHistory(conceptId: string, limit: number): Promise<{ ro
   try {
     const res = await fetchImpl(url, {
       headers,
-      signal: AbortSignal.timeout(11_000),
-      net: { timeoutMs: 10_000 },
+      signal: AbortSignal.timeout(HISTORY_TIMEOUT_MS + 1_000),
+      net: { timeoutMs: HISTORY_TIMEOUT_MS },
     } as NetInit);
-    if (!res.ok) return { error: `GET ${url} answered HTTP ${res.status}` };
+    if (!res.ok) return { error: `recent rows come from concept-db directly at ${base}, which answered HTTP ${res.status}; the aggregate above is complete` };
     return { rows: ((await res.json()) as HistoryResponse).usage ?? [] };
   } catch (err) {
-    return { error: classifyNetError(err)?.line ?? (err instanceof Error ? err.message : String(err)) };
+    const line = classifyNetError(err)?.line;
+    const cause = (line && /^[a-z_]+(?:\([^)]*\))?/.exec(line)?.[0]) ?? (err instanceof Error ? err.message : String(err));
+    return { error: `recent rows come from concept-db directly at ${base}, which did not answer from here (${cause}); the aggregate above is complete` };
   }
 }
 

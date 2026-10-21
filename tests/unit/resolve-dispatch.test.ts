@@ -57,6 +57,24 @@ describe('classifyDiscoveryAnswer', () => {
 });
 
 describe('attachment.resolve()', () => {
+  // SPEC §read-only-key: a key whose validated scopes lack write sends no write; reads are untouched.
+  test('a read-scoped key sends no write, names why, and still reads', async () => {
+    const stub = await installShapeStub({ memoryNote_write: () => ({ body: { ok: true } }), memoryNote: () => ({ body: { ok: true } }) }, { scopes: ['read'] });
+    const err = await resolveShape({ type: 'memoryNote_write', note: 'n' }).catch((e) => e);
+    expect(String(err.message)).toBe('key_read_only: this key has scopes [read]; the memoryNote_write write was not sent');
+    expect(stub.calls('memoryNote_write')).toHaveLength(0);
+    expect((await resolveShape({ type: 'memoryNote' }, { read: true })).status).toBe(200);
+  });
+
+  test('a write-scoped key writes; with no scopes reported nothing is gated', async () => {
+    const rw = await installShapeStub({ memoryNote_write: () => ({ body: { ok: true } }) }, { scopes: ['read', 'write'] });
+    await resolveShape({ type: 'memoryNote_write', note: 'n' });
+    expect(rw.calls('memoryNote_write')).toHaveLength(1);
+    const unknown = await installShapeStub({ memoryNote_write: () => ({ body: { ok: true } }) });
+    await resolveShape({ type: 'memoryNote_write', note: 'n' });
+    expect(unknown.calls('memoryNote_write')).toHaveLength(1);
+  });
+
   test('posts {pointer} to discovery /resolve and answers the producer status and body', async () => {
     const stub = await installShapeStub({ goalWalkState: () => ({ status: 404, body: { resolved: false, error: 'dispatch not found' } }) });
     const res = await resolveShape({ type: 'goalWalkState', dispatchId: 'd1' });

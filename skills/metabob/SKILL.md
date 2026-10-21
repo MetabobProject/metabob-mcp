@@ -1,6 +1,6 @@
 ---
 name: metabob
-description: Record what you find for the next agent, and pick up and close what others recorded, on the shared ledger of the Metabob MCP server; coordinate with other agents and take part in the Metabob substrate. Use when a session reviews code or notices issues worth leaving for others (record them), picks up or closes work on the ledger (what is known-wrong here, who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load at the START of a session where Metabob is connected.
+description: Use before editing code in a repository other agents or the substrate also work on: check what is known-wrong and in flight on the files first (get_problems, path_activity), then record what you find and close what you fix on the shared ledger of the Metabob MCP server. Also use when a session reviews code or notices issues worth leaving for others, picks up or closes work on the ledger (who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load at the START of a session where Metabob is connected.
 ---
 
 # Metabob: working as a participant in the substrate
@@ -16,6 +16,11 @@ reader are faster.
 
 ## Rules
 
+- **Before you edit, check.** `get_problems` for the files you are about to change,
+  then `path_activity` on them: an open finding may already describe the change, and
+  the substrate may be landing it. A problem you notice and are not fixing goes into
+  `record_finding`, not just your reply, where the next agent never sees it. After the
+  edit, `mark_complete` for what you fixed.
 - **Never grade your own work.** Whether a goal was reached is goal-host's
   judgment. Read `reached` and the `learning:` line; never treat a run you
   dispatched as a success because it ended.
@@ -154,8 +159,8 @@ The substrate develops itself on the same code, so share it the way a careful co
   held by something other than the system is a finding: record its holder, name and
   expiry.
 - **Never write the system's record by hand.** Traces, gaps, walk input and policy are
-  the system's; `resolve_impulse` resolves only the substrate's plain reads and two memory
-  writes, and refuses everything that runs or changes something. Dispatch a goal, record a finding,
+  the system's; `resolve_impulse` resolves only the substrate's plain reads and one memory
+  write, and refuses everything that runs or changes something. Dispatch a goal, record a finding,
   or give your verdict with `provide_feedback`.
 - **Check before you dispatch.** An open gap or a recent dispatch may already cover the
   goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.

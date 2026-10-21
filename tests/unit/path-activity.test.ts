@@ -80,6 +80,13 @@ describe('the read', () => {
     expect(wrapped.ok && wrapped.rows.length).toBe(GAPS.length);
   });
 
+  test('a substrate with no gap store says there is nothing in flight, not an error', async () => {
+    await installShapeStub({});
+    const out = await pathActivity({ paths: [FILE] }, apiClient);
+    expect(out).toStartWith('path_activity: this substrate keeps no gap store (no substrateGap producer answered)');
+    expect(out).toContain('Go ahead with the edit');
+  });
+
   test('a failed read is one named line', async () => {
     await installShapeStub({});
     const r = await readGaps('open');

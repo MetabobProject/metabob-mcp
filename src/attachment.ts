@@ -207,6 +207,14 @@ export function shapeFamily(shape: string): 'discovery' | 'trace' | 'concept' | 
   return 'other';
 }
 
+/** A write refused before it was sent: the key's validated scopes lack `write`. Per call, not an attachment state. */
+export class ReadOnlyKeyError extends Error {
+  constructor(readonly shape: string, readonly scopes: string[]) {
+    super(`key_read_only: this key has scopes [${scopes.join(', ')}]; the ${shape} write was not sent`);
+    this.name = 'ReadOnlyKeyError';
+  }
+}
+
 export class AttachmentRefusedError extends Error {
   constructor(readonly attachCause: AttachCause, message: string) {
     super(message);
@@ -288,7 +296,7 @@ export function describeResolveFailure(err: unknown, opts: { noProducer?: string
   if (err instanceof ResolveError && err.kind === 'no_producer' && opts.noProducer) {
     return `no_producer(${err.shape}): ${opts.noProducer}`;
   }
-  if (err instanceof ResolveError || err instanceof AttachmentRefusedError) return err.message;
+  if (err instanceof ResolveError || err instanceof AttachmentRefusedError || err instanceof ReadOnlyKeyError) return err.message;
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -553,7 +561,10 @@ export function attach(options: AttachOptions): Attachment {
         noteTls(discovery);
         const text = await res.text();
         if (looksLikeHtmlOrNonJson(res.headers.get('content-type'), text)) {
-          state.bootstrap = { status: 'not_substrate', detail: `HTTP ${res.status}, ${res.headers.get('content-type') ?? 'no content-type'}` };
+          // Through a proxy, a non-JSON refusal may be the proxy's own (one that allows only HTTPS, say), not the anchor's.
+          const via = selectProxy(`${discovery}/bootstrap`, env).proxy;
+          const proxyNote = via && res.status >= 400 ? `; it went through the proxy ${redactUrl(via)}, which may be what refused it (a proxy that allows only HTTPS, say)` : '';
+          state.bootstrap = { status: 'not_substrate', detail: `HTTP ${res.status}, ${res.headers.get('content-type') ?? 'no content-type'}${proxyNote}` };
         } else if (!res.ok) {
           state.bootstrap = { status: 'unreachable', detail: `HTTP ${res.status}` };
         } else {
@@ -666,6 +677,14 @@ export function attach(options: AttachOptions): Attachment {
         throw new AttachmentRefusedError(state.cause ?? 'not_configured', state.message ?? 'not_configured: no discovery endpoint');
       }
       const shape = typeof pointer.type === 'string' ? pointer.type : '(no type)';
+      // A key whose validated scopes lack `write` writes nothing: producers do not all enforce scopes yet, and a
+      // refusal that came back through a peer forward would read as no_producer, so the write is never sent.
+      // With no scopes reported (the flat org check, through a proxy) nothing is known, and nothing is gated.
+      // @anchor read-only-key
+      const scopes = state.auth.scopes;
+      if (opts?.read !== true && scopes && !scopes.includes('write') && !scopes.includes('admin')) {
+        throw new ReadOnlyKeyError(shape, scopes);
+      }
       const timeoutMs = Math.min(opts?.timeoutMs ?? RESOLVE_TIMEOUT_MS.concept, RESOLVE_MAX_TIMEOUT_MS);
       const url = `${discovery}/resolve`;
 

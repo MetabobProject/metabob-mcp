@@ -166,6 +166,26 @@ describe('concept_usage_stats', () => {
     expect(out).toContain('Recent usage: unavailable — no_producer(vesselCapability)');
   });
 
+  test('a private advertised address on another host is not dialled, and the reply says the aggregate is complete', async () => {
+    let dialled = false;
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async (...a: Parameters<typeof fetch>) => { dialled = true; return orig(...a); }) as typeof fetch;
+    try {
+      await installShapeStub({
+        conceptUsageStats: () => ({ body: { content: { concept_id: 'c_1', total_uses: 1 } } }),
+        vesselCapability: (p) => ({ body: { content: { shape: p.shape, found: true, vessels: [{ endpoint: 'http://10.89.77.10:18260' }] } } }),
+      });
+      const t0 = Date.now();
+      const out = await conceptUsageStats({ concept_id: 'c_1', include_history: true, history_limit: 10 }, apiClient);
+      expect(out).toContain('recent rows come from concept-db directly at http://10.89.77.10:18260, a private address on another host than discovery');
+      expect(out).toContain('the aggregate above is complete');
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(dialled).toBe(false);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
+
   test('an unreachable concept-db names the cause of the missing history', async () => {
     await installShapeStub({
       conceptUsageStats: () => ({ body: { content: { total_uses: 1 } } }),
@@ -177,7 +197,7 @@ describe('concept_usage_stats', () => {
     globalThis.fetch = netFetch();
     try {
       const out = await conceptUsageStats({ concept_id: 'c_1', include_history: true, history_limit: 10 }, apiClient);
-      expect(out).toContain('Recent usage: unavailable — connect_refused(127.0.0.1:1)');
+      expect(out).toContain('Recent usage: unavailable — recent rows come from concept-db directly at http://127.0.0.1:1, which did not answer from here (connect_refused(127.0.0.1:1)); the aggregate above is complete');
     } finally {
       globalThis.fetch = realFetch;
     }

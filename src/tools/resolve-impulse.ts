@@ -101,12 +101,14 @@ export const COORDINATION_WRITES: Readonly<Record<string, string>> = {
   conceptLink_write: TOOL('conceptLink_write', 'concept_link'),
   conceptUsage_write: TOOL('conceptUsage_write', 'concept_record_usage'),
   solicitationResponse_write: TOOL('solicitationResponse_write', 'submit_resolution'),
+  concept_supersede_write:
+    `concept_supersede_write is advertised by concept-db but not implemented there (it throws); to correct a wrong concept, ${'add the corrected concept with concept_create and concept_link it derived_from the wrong one'}`,
   concept_write:
-    "concept_write overwrites a concept in the system's memory; add to memory with concept_create, and correct a wrong concept with concept_supersede_write, which keeps the history",
+    "concept_write overwrites a concept in the system's memory; add to memory with concept_create, and add the corrected concept with concept_create and concept_link it derived_from the wrong one, which keeps the history",
   concept_delete_write:
-    "concept_delete_write removes a concept from the system's memory, which belongs to the system; correct a wrong concept with concept_supersede_write, which keeps the history",
+    "concept_delete_write removes a concept from the system's memory, which belongs to the system; add the corrected concept with concept_create and concept_link it derived_from the wrong one, which keeps the history",
   concept_retire_write:
-    "concept_retire_write retires a concept through the system's own lifecycle; correct a wrong concept with concept_supersede_write, or record a finding",
+    "concept_retire_write retires a concept through the system's own lifecycle; add the corrected concept with concept_create and concept_link it derived_from the wrong one, which keeps the history, or record a finding",
 };
 
 /**
@@ -116,7 +118,6 @@ export const COORDINATION_WRITES: Readonly<Record<string, string>> = {
 // @anchor escape-hatch-writes
 export const WRITES_THROUGH_ESCAPE_HATCH: Readonly<Record<string, string>> = {
   memoryNote_write: 'adds a note to the system memory, as the session hooks do (law 10: memory belongs to the system)',
-  concept_supersede_write: 'records a correction that keeps the history, so a wrong claim stops propagating',
 };
 
 /**
@@ -170,13 +171,13 @@ function timeoutMs(): number {
 export const ResolveImpulseTool = {
   name: 'resolve_impulse',
   description:
-    "ADVANCED escape hatch: resolve one of the substrate's plain reads (records, reports, statistics, summaries, policies) via MCP instead of raw `curl /resolve` POSTs, e.g. memoryNote, traceAggregateReport, llmSpendSummary. The pointer goes to discovery's /resolve, which forwards it to the shape's producer. Prefer the dedicated tools when they fit — run_goal / run_goal_async (goals), goal_reasoning (walk inspection), provide_feedback (oracle verdicts). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. Only allowlisted shapes resolve: plain reads, and the two memory writes memoryNote_write and concept_supersede_write. Anything that runs or changes something (a shell, git, a restart, a cutover, a compose, a dispatch, credit, traces, policy) is refused with what to do instead: dispatch a goal, or use the dedicated tool.",
+    "ADVANCED escape hatch: resolve one of the substrate's plain reads (records, reports, statistics, summaries, policies) via MCP instead of raw `curl /resolve` POSTs, e.g. memoryNote, traceAggregateReport, llmSpendSummary. The pointer goes to discovery's /resolve, which forwards it to the shape's producer. Prefer the dedicated tools when they fit — run_goal / run_goal_async (goals), goal_reasoning (walk inspection), provide_feedback (oracle verdicts). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. Only allowlisted shapes resolve: plain reads, and the memory write memoryNote_write. Anything that runs or changes something (a shell, git, a restart, a cutover, a compose, a dispatch, credit, traces, policy) is refused with what to do instead: dispatch a goal, or use the dedicated tool.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       shape: {
         type: 'string',
-        description: 'The shape (pointer.type) to resolve: one of the allowlisted reads (e.g. memoryNote, traceAggregateReport) or memoryNote_write / concept_supersede_write.',
+        description: 'The shape (pointer.type) to resolve: one of the allowlisted reads (e.g. memoryNote, traceAggregateReport) or memoryNote_write.',
       },
       pointer: {
         type: 'object',

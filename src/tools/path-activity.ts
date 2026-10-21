@@ -64,7 +64,13 @@ export async function handle(input: PathActivityInput, _apiClient: AnalysisAPICl
 export async function pathActivityReport(input: PathActivityInput, workspace: string): Promise<string> {
   const mapper = pathMapper(workspace);
   const open = await readGaps('open');
-  if (!open.ok) return `path_activity: ${open.message}`;
+  if (!open.ok) {
+    // A substrate that serves no gap store has nothing in flight to check: not an error to stop on before an edit.
+    if (/^no_producer\(substrateGap\)/.test(open.message)) {
+      return 'path_activity: this substrate keeps no gap store (no substrateGap producer answered), so there is nothing in flight to check on these paths. Go ahead with the edit; record_finding for anything you notice, mark_complete for what you fix.';
+    }
+    return `path_activity: ${open.message}`;
+  }
   const closed = input.include_closed ? await readGaps('closed') : null;
   if (closed && !closed.ok) return `path_activity: ${closed.message}`;
 

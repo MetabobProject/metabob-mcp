@@ -139,6 +139,18 @@ test('record_finding: concept-db unreachable is non-fatal and reported', async (
   expect(localStore.getCachedSeeds('src/a.ts').length).toBe(1);
 });
 
+// A read-scoped key must never report a shared write (SPEC §read-only-key).
+test('record_finding: with a read-scoped key the finding stays local and is reported as not shared', async () => {
+  const stub = await installShapeStub({ concept_create_write: () => written({ id: 'concept:never' }) }, { scopes: ['read'] });
+  const input = RecordFinding.InputSchema.parse({ files: ['src/a.ts'], summary: 'off by one', severity: 'LOW', category: 'correctness' });
+  const output = await RecordFinding.handle(input, mockApiClient, SESSION, localStore);
+  expect(output).toContain('not shared (key_read_only: this key has scopes [read]; the concept_create_write write was not sent)');
+  expect(output).toContain('other agents will not see it');
+  expect(output).not.toContain('shared org-wide');
+  expect(stub.calls('concept_create_write')).toHaveLength(0);
+  expect(localStore.getCachedSeeds('src/a.ts').length).toBeGreaterThan(0);
+});
+
 test('record_finding: pushes a code_finding concept when concept-db is up', async () => {
   let received: Record<string, unknown> | null = null;
   await conceptDb({

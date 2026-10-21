@@ -36,7 +36,7 @@ export interface ShapeStub {
 
 export async function installShapeStub(
   handlers: Record<string, ShapeHandler>,
-  opts: { discovery?: string } = {},
+  opts: { discovery?: string; scopes?: string[] } = {},
 ): Promise<ShapeStub> {
   const discovery = opts.discovery ?? STUB_DISCOVERY;
   const pointers: Array<Record<string, any>> = [];
@@ -50,7 +50,10 @@ export async function installShapeStub(
     }
     if (url.origin === STUB_IDENTITY && url.pathname === '/health') return Response.json({ status: 'ok' });
     if (url.origin === STUB_IDENTITY && url.pathname === '/v1/auth/resolve') {
-      return Response.json({ valid: true, org_id: 'org_stub', key_id: 'key_stub' });
+      // With scopes, identity answers the nested form, which reports them; otherwise the flat form, which does not.
+      return opts.scopes
+        ? Response.json({ success: true, data: { orgId: 'org_stub', keyId: 'key_stub', scopes: opts.scopes } })
+        : Response.json({ valid: true, org_id: 'org_stub', key_id: 'key_stub' });
     }
     if (url.origin === discovery && url.pathname === '/resolve') {
       const { pointer } = (await req.json()) as { pointer: Record<string, any> };

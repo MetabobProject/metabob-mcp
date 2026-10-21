@@ -226,7 +226,7 @@ export async function handle(
     });
     conceptStatus = result.ok
       ? `shared org-wide via concept-db (concept ${result.id ?? '?'})`
-      : `concept-db unreachable (${result.error}) — finding recorded locally only`;
+      : /^key_read_only/.test(result.error ?? '') ? `not shared (${result.error}) — finding recorded locally only; other agents will not see it` : `concept-db unreachable (${result.error}) — finding recorded locally only`;
 
     // Stash the minted concept id on each seed so a later mark_complete can
     // attribute a usage/relevance signal to it (see _findings.conceptIdFromRefs).
