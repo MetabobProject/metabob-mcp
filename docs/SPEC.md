@@ -545,6 +545,18 @@ summaries, re-typed code, an encoded or split key and personal data in prose pas
 
 ---
 
+## Call log
+
+With `METABOB_CALL_LOG=<path>`, the server appends one JSON line per MCP tool call to that file on this machine (`src/call-log.ts@logCall`). It is opt-in and off by default. It lets the order of an agent's metabob calls be scored for any harness, with or without hooks or a transcript; the cell lab's scorer reads it.
+
+Each line holds:
+- `ts`, `session` and `tool`;
+- `args`: each argument's name and size, never its value, the same description as the tool-call log line (`src/outgoing-guard.ts@describeArgsForLog`);
+- `outcome`: `ok`, `refused` (the outgoing guard), `not_attached` (the attachment gate) or `error`;
+- `ms`.
+
+Nothing in it is sent anywhere. The file is created mode 0600, and a write that fails never fails the call. It records only what the server sees, so it can't show whether a call came before an edit; the cell lab gets that from the first-modify times in `/work`.
+
 ## Tools
 
 The analysis tools. Every handler returns a single text block.

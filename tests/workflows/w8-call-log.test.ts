@@ -1,0 +1,46 @@
+/**
+ * W8 — the opt-in call log (METABOB_CALL_LOG), through a real server process: one line per tool call with the
+ * tool, argument names and sizes and the outcome, never an argument's value, so the cell lab can score the order of
+ * metabob calls for any harness. SPEC §call-log
+ */
+
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { FakeSubstrate } from './harness/fake-substrate';
+import { McpServer, cleanupTempDirs, makeWorkspace, tempDir } from './harness/mcp-client';
+
+setDefaultTimeout(30_000);
+
+let fake: FakeSubstrate;
+let server: McpServer;
+let logFile: string;
+// A credential-shaped value the outgoing guard refuses, which must not reach the log either.
+const SECRET = 'AKIA' + 'Q3EGRTZXWV7NP4LB';
+
+beforeAll(async () => {
+  fake = await FakeSubstrate.start();
+  logFile = join(tempDir('w8-log'), 'calls.jsonl');
+  server = await McpServer.start({ workspace: makeWorkspace('w8'), env: { ...fake.env(), METABOB_CALL_LOG: logFile, SESSION_ID: 'w8-session' } });
+}, 30_000);
+
+afterAll(async () => {
+  await server?.stop();
+  await fake?.stop();
+  cleanupTempDirs();
+}, 30_000);
+
+test('each call is one line: tool, argument names and sizes, outcome; never a value', async () => {
+  await server.text('get_metrics', {});
+  await server.call('record_finding', { files: ['src/index.ts'], summary: `key ${SECRET} committed`, severity: 'HIGH', category: 'security' });
+  await server.call('get_problems', { limit: 'many' });
+  expect(existsSync(logFile)).toBe(true);
+  const raw = readFileSync(logFile, 'utf8');
+  expect(raw).not.toContain(SECRET);
+  expect(raw).not.toContain('committed');
+  const lines = raw.trim().split('\n').map(l => JSON.parse(l));
+  expect(lines.map(l => [l.tool, l.outcome])).toEqual([['get_metrics', 'ok'], ['record_finding', 'refused'], ['get_problems', 'error']]);
+  expect(lines[1]).toMatchObject({ session: 'w8-session', args: { summary: expect.stringMatching(/^string\(\d+\)$/), severity: 'string(4)' } });
+  expect(typeof lines[0].ms).toBe('number');
+  if (process.platform !== 'win32') expect(statSync(logFile).mode & 0o777).toBe(0o600);
+});

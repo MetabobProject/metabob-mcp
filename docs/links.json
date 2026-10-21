@@ -65,6 +65,7 @@
         "src/task-pull.ts",
         "src/finding-close.ts",
         "src/cli-attach.ts",
+        "src/call-log.ts",
         "src/tools/_claims.ts",
         "src/tools/predict-cochanges.ts",
         "src/tools/provide-feedback.ts",
@@ -214,6 +215,14 @@
       "src/auth-service.ts": {
         "CONFORMANCE": [
           "c3-identity"
+        ]
+      },
+      "src/call-log.ts": {
+        "CLAUDE": [
+          "environment-variables"
+        ],
+        "SPEC": [
+          "call-log"
         ]
       },
       "src/cli-attach.ts": {
@@ -779,6 +788,11 @@
         "SPEC": [
           "task-pull"
         ]
+      },
+      "tests/workflows/w8-call-log.test.ts": {
+        "SPEC": [
+          "call-log"
+        ]
       }
     },
     "docCitesCode": {
@@ -917,6 +931,7 @@
         "src/attachment.ts@resolveShape",
         "src/auth-service.ts@AuthService",
         "src/auth-service.ts@org-check",
+        "src/call-log.ts@logCall",
         "src/cli.ts",
         "src/cli.ts@main",
         "src/cochange-predictor.ts@addFile",
@@ -1090,7 +1105,8 @@
         "tests/workflows/w3-attachment.test.ts",
         "tests/workflows/w4-skill-contract.test.ts",
         "tests/workflows/w6-system-coordination.test.ts",
-        "tests/workflows/w7-task-pull.test.ts"
+        "tests/workflows/w7-task-pull.test.ts",
+        "tests/workflows/w8-call-log.test.ts"
       ]
     },
     "anchors": {
@@ -1112,6 +1128,7 @@
       "src/attachment.ts@resolveShape": "ea88ab26b8c9",
       "src/auth-service.ts@AuthService": "4358b48b7f51",
       "src/auth-service.ts@org-check": "43179ed4e402",
+      "src/call-log.ts@logCall": "45d6e42824e6",
       "src/cli.ts@main": "7d5d3f63a3bd",
       "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
       "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",

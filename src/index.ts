@@ -53,6 +53,7 @@ import { translateTlsError } from './tls-error.js';
 import { NetError } from './net.js';
 import { ZodError } from 'zod';
 import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
+import { logCall } from './call-log.js';
 import { sessionId, setWorkspaceOperator } from './operator-id.js';
 import { keepAttachedMarker } from './attached-marker.js';
 
@@ -269,6 +270,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const guarded = guardToolInput(name, validatedInput as Record<string, unknown>);
     if (!guarded.ok) {
       await sessionManager.trackUsage(SESSION_ID, name, Date.now() - startTime, false);
+      logCall({ session: SESSION_ID, tool: name, args, outcome: 'refused', ms: Date.now() - startTime });
       return { content: [{ type: 'text', text: guarded.refusal }], isError: true };
     }
     validatedInput = guarded.input;
@@ -279,6 +281,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const refusal = await substrateToolRefusal(name);
     if (refusal) {
       await sessionManager.trackUsage(SESSION_ID, name, Date.now() - startTime, false);
+      logCall({ session: SESSION_ID, tool: name, args, outcome: 'not_attached', ms: Date.now() - startTime });
       // The attachment logged this refusal once at WARN, naming the requirement,
       // when it settled (src/attachment.ts@attach); each refused call is debug.
       log('debug', `Tool ${name} refused: ${refusal}`);
@@ -301,6 +304,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
 
     log('info', `Tool ${name} completed in ${duration}ms`);
+    logCall({ session: SESSION_ID, tool: name, args, outcome: 'ok', ms: duration });
 
     // Return MCP response
     return {
@@ -314,6 +318,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   } catch (error) {
     const duration = Date.now() - startTime;
     await sessionManager.trackUsage(SESSION_ID, name, duration, success);
+    logCall({ session: SESSION_ID, tool: name, args, outcome: 'error', ms: duration });
 
     // @anchor tls-intercepted-report
     // A rejected certificate chain is reported as TLS_INTERCEPTED, naming the

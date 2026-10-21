@@ -148,6 +148,8 @@ wins over its derived value only when set explicitly.
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 | `METABOB_TOOLS` | _(unset → all)_ | Comma-separated tool allowlist, enforced on stdio and on the loopback resolver |
 | `METABOB_EDIT_CHECK` | _(on)_ | `off` disables the Claude Code plugin's edit check (README § Claude Code plugin); `METABOB_EDIT_CHECK_DIR` moves its per-session state and `METABOB_MARKER_DIR` the server's attached marker from the temp directory |
+| `METABOB_CALL_LOG` | _(unset)_ | A file to append one JSON line per tool call to (tool, argument names and sizes, outcome, duration; never a value), for scoring call order in any harness. Local only, mode 0600 (docs/SPEC.md § Call log) |
+| `METABOB_TASK_TRUST` | _(the task's recorder)_ | `task pull`: comma-separated authors whose `project_convention` concepts may set a task's integration policy (docs/SPEC.md § task pull) |
 | `METABOB_CLIENT_CLAIM` | _(on)_ | `off` stops adding `client_claim { operator, session, client }` to every write's pointer (docs/SPEC.md § Client claim). Dispatch `operator:` / `session:` tags and feedback notes are always on |
 | `MB_OPERATOR_ID` | _(this workspace's vesselId)_ | Operator identity declared on goal dispatch (`operator:` tag), in `provide_feedback` label notes and on every write (`client_claim.operator`); unset, the stable `metabob-mcp-<hash>` vesselId, so sessions in different workspaces never share one default |
 | `VESSEL_ID` | _(derived)_ | The coordination identity: keys the local agent-task queue and is the `recorded_by` / `reviewed_by` author of findings and verdicts. Defaults to a stable `metabob-mcp-<hash(apiKey+workspace)>`. Never registered anywhere |
