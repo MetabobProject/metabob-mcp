@@ -135,8 +135,8 @@
         "why": "auth-service.ts gained an env parameter for its proxy decision (tests pass their own); no documented behaviour changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "830a357",
-        "why": "attachment.ts gates client_claim behind METABOB_CLIENT_CLAIM; no conformance requirement or its status changes"
+        "at": "55bef51",
+        "why": "attachment.ts gates writes on the key's reported scopes and names a proxy refusal; the usage-history read stays the one direct edge; no requirement or its status changes"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
