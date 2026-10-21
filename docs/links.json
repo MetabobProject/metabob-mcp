@@ -146,8 +146,8 @@
         "why": "attachment.ts names a proxy's refusal as proxy_refused and attach-check says when scopes are unknown; no key-file row or conformance requirement changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "ffcad92",
-        "why": "index.ts keeps a local temp-file marker while attached, for the plugin's edit check; no registration, endpoint or network behaviour changes"
+        "at": "3a66a48",
+        "why": "the call log is a local file of tool names and argument sizes; it adds no network path, registration or endpoint"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
@@ -609,6 +609,7 @@
           "c9-fail-visibly"
         ],
         "SPEC": [
+          "call-log",
           "impulse-shapes"
         ]
       },

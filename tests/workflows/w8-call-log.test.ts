@@ -44,3 +44,18 @@ test('each call is one line: tool, argument names and sizes, outcome; never a va
   expect(typeof lines[0].ms).toBe('number');
   if (process.platform !== 'win32') expect(statSync(logFile).mode & 0o777).toBe(0o600);
 });
+
+test('a loopback resolver call is logged too, marked as the loopback\'s; arrays keep their length', async () => {
+  const port = await server.vesselPort();
+  const res = await fetch(`http://127.0.0.1:${port}/v2/impulses/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'ApiKey mb_test_workflow_key' },
+    body: JSON.stringify({ pointer: { type: 'mcp:tool_call', tool: 'get_problems', input: { category: ['security', 'task'] } } }),
+  });
+  expect(res.status).toBe(200);
+  const lines = readFileSync(logFile, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  const loop = lines.filter(l => l.via === 'loopback');
+  expect(loop).toHaveLength(1);
+  expect(loop[0]).toMatchObject({ tool: 'get_problems', outcome: 'ok', args: { category: 'array(2)' } });
+  expect(lines.filter(l => l.via === 'stdio').length).toBe(3);
+});

@@ -143,5 +143,6 @@ describe('size and scope', () => {
 
   test('the log sees field names and sizes, never values', () => {
     expect(describeArgsForLog({ details: `key ${KEY}`, limit: 3 })).toEqual({ details: `string(${`key ${KEY}`.length})`, limit: 'number' });
+    expect(describeArgsForLog({ files: ['a', 'b', 'c'], opts: {} })).toEqual({ files: 'array(3)', opts: 'object' });
   });
 });

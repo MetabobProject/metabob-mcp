@@ -13,13 +13,13 @@ import { describeArgsForLog } from './outgoing-guard.js';
 export type CallOutcome = 'ok' | 'refused' | 'not_attached' | 'error';
 
 export function logCall(
-  entry: { session: string; tool: string; args: unknown; outcome: CallOutcome; ms: number },
+  entry: { session: string; tool: string; args: unknown; outcome: CallOutcome; ms: number; via?: 'stdio' | 'loopback' },
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   const path = env.METABOB_CALL_LOG?.trim();
   if (!path) return;
   try {
-    const line = JSON.stringify({ ts: new Date().toISOString(), session: entry.session, tool: entry.tool, args: describeArgsForLog(entry.args), outcome: entry.outcome, ms: entry.ms });
+    const line = JSON.stringify({ ts: new Date().toISOString(), session: entry.session, via: entry.via ?? 'stdio', tool: entry.tool, args: describeArgsForLog(entry.args), outcome: entry.outcome, ms: entry.ms });
     appendFileSync(path, line + '\n', { mode: 0o600 });
   } catch {
     // A log the agent's process cannot write is the lab's problem, never the call's.

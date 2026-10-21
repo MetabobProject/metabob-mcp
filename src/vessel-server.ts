@@ -15,6 +15,7 @@ import { getAttachment } from './attachment.js';
 import { proxySummary } from './net.js';
 import { ZodError } from 'zod';
 import { guardToolInput } from './outgoing-guard.js';
+import { logCall, type CallOutcome } from './call-log.js';
 
 /**
  * Shapes the substrate DISPATCHES TO the agent (solicited decisions) rather than
@@ -371,27 +372,46 @@ export async function resolveImpulseContent(
   }
 
   const { toolName, toolInput } = resolvePointerToTool(pointer);
+  // The call log covers this path too, marked as the loopback's (SPEC §call-log).
+  const started = Date.now();
+  const logged = (outcome: CallOutcome) => logCall({ session: sessionId, tool: toolName, args: toolInput, outcome, ms: Date.now() - started, via: 'loopback' });
   // Gate AFTER shape→tool mapping so every shape is covered, not just
   // mcp:tool_call.
   if (!isToolPermitted(toolName)) {
+    logged('refused');
     throw new Error(toolNotEnabledMessage(toolName));
   }
   const tool = TOOL_REGISTRY[toolName];
   if (!tool) {
+    logged('error');
     throw new Error(`Unknown tool: ${toolName}`);
   }
-  const guarded = guardToolInput(toolName, tool.validateInput(toolInput) as Record<string, unknown>);
+  let guarded: ReturnType<typeof guardToolInput>;
+  try {
+    guarded = guardToolInput(toolName, tool.validateInput(toolInput) as Record<string, unknown>);
+  } catch (err) {
+    logged('error');
+    throw err;
+  }
   if (!guarded.ok) {
+    logged('refused');
     throw new Error(guarded.refusal);
   }
   const validatedInput = guarded.input;
   // The attachment gate, as on stdio: a substrate tool refuses with the named cause.
   const refusal = await substrateToolRefusal(toolName);
   if (refusal) {
+    logged('not_attached');
     throw new Error(refusal);
   }
-  const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
-  return { toolName, content };
+  try {
+    const content = await tool.handler(validatedInput, apiClient, sessionId, localStore);
+    logged('ok');
+    return { toolName, content };
+  } catch (err) {
+    logged('error');
+    throw err;
+  }
 }
 
 /**

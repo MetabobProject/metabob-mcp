@@ -326,6 +326,7 @@ export function guardToolInput(tool: string, input: Record<string, unknown>, env
 export function describeArgsForLog(args: unknown): Record<string, string> {
   if (!args || typeof args !== 'object') return {};
   return Object.fromEntries(
-    Object.entries(args as Record<string, unknown>).map(([k, v]) => [k, `${typeof v}${typeof v === 'string' ? `(${v.length})` : ''}`]),
+    // Arrays keep their length (how many files a check covered); strings their size; nothing keeps a value.
+    Object.entries(args as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? `array(${v.length})` : `${typeof v}${typeof v === 'string' ? `(${v.length})` : ''}`]),
   );
 }
