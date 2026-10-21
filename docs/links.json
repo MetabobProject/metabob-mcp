@@ -142,11 +142,11 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "8981217",
+        "at": "73a0445",
         "why": "the loopback resolver's field alias is in SPEC § Impulse shapes, which CLAUDE.md points to; no CLAUDE.md row changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "8981217",
+        "at": "73a0445",
         "why": "mcp:tool_call accepting arguments as an alias for input changes no binding, endpoint or network path"
       },
       "docs/SPEC.md": {

@@ -59,7 +59,7 @@ function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>, claimed
  */
 function noFixHere(id: string, loc: FixLocation, recordedAt: Date | undefined): string {
   if (loc.kind === 'rejected') {
-    return `Finding ${id} left open: fix_commit ${loc.reason}. No verdict was recorded.`;
+    return `Finding ${id} left open: ${loc.claim ? 'fix_commit ' : ''}${loc.reason}. No verdict was recorded.`;
   }
   if (loc.kind === 'none' && loc.newest) {
     const files = loc.newest.files;

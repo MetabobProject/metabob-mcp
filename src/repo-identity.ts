@@ -137,7 +137,41 @@ export function clearRepoIdentityCache(): void {
 }
 
 /** git, with the fix-location timeout. */
-const fgit = (cwd: string, args: string[]) => git(cwd, args, FIX_GIT_TIMEOUT_MS);
+const fgit = (cwd: string, args: string[]) => git(cwd, args, fixGitTimeoutMs);
+
+let fixGitTimeoutMs = FIX_GIT_TIMEOUT_MS;
+/** Tests only: a timeout short enough that every fix-location git call times out. */
+export function setFixGitTimeoutForTests(ms: number | null): void {
+  fixGitTimeoutMs = ms ?? FIX_GIT_TIMEOUT_MS;
+}
+
+/**
+ * Why a fix-location git call gave no answer: `not_repo` (git answered that this is not a repository), `missing`
+ * (git is not installed), `timeout` (git did not answer in time), `error` (any other failure). Only the first two
+ * mean "not a git checkout"; a timeout or an error must never close a finding.
+ */
+type GitFailure = 'not_repo' | 'missing' | 'timeout' | 'error';
+
+function fgitTry(cwd: string, args: string[]): { out: string } | { failure: GitFailure } {
+  try {
+    return {
+      out: execFileSync('git', ['-C', cwd, ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: fixGitTimeoutMs,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      }).trim(),
+    };
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { signal?: string; stderr?: Buffer | string };
+    if (e.code === 'ENOENT') return { failure: 'missing' };
+    if (e.code === 'ETIMEDOUT' || e.signal) return { failure: 'timeout' };
+    if (/not a git repository/i.test(String(e.stderr ?? ''))) return { failure: 'not_repo' };
+    return { failure: 'error' };
+  }
+}
+
+const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did not answer in time (or failed) reading this checkout; try again' });
 
 // @anchor fix-location
 /**
@@ -164,7 +198,8 @@ export type FixLocation =
   | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
   | { kind: 'none'; newest?: { sha: string; files: string[] } }
-  | { kind: 'rejected'; reason: string }
+  /** `claim`: the named fix_commit failed a check; otherwise the checkout could not be read. */
+  | { kind: 'rejected'; reason: string; claim?: boolean }
   | { kind: 'absent' }
   | { kind: 'unknown' };
 
@@ -177,8 +212,8 @@ export const FIX_SKEW_MS = 2 * 60_000;
  */
 export function fixLocation(workspacePath: string, files: string[], recordedAt?: Date, fixCommit?: string, head = 'HEAD'): FixLocation {
   const cwd = resolve(workspacePath);
-  const top = fgit(cwd, ['rev-parse', '--show-toplevel']);
-  if (top === null) return { kind: 'unknown' };
+  const top = fgitTry(cwd, ['rev-parse', '--show-toplevel']);
+  if ('failure' in top) return top.failure === 'not_repo' || top.failure === 'missing' ? { kind: 'unknown' } : gitDidNotAnswer();
   const paths = files.map(f => f.trim()).filter(Boolean)
     .filter(f => existsSync(resolve(cwd, f)) || !!fgit(cwd, ['ls-files', '--', f]));
   if (!paths.length) return { kind: 'absent' };
@@ -194,21 +229,21 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   // over a fix that is not committed yet. A claim judged against another ref (close by commit, against the merge
   // target) is about that ref, and this checkout's working tree says nothing about it.
   if (!(fixCommit && head !== 'HEAD')) {
-    const status = fgit(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
-    if (status === null) return { kind: 'unknown' };
-    if (status) return { kind: 'uncommitted', branch, base };
+    const read = fgitTry(cwd, ['status', '--porcelain', '--untracked-files=all', '--', ...paths]);
+    if ('failure' in read) return gitDidNotAnswer();
+    if (read.out) return { kind: 'uncommitted', branch, base };
   }
 
   if (fixCommit) {
     const sha = fgit(cwd, ['rev-parse', '--verify', '--quiet', `${fixCommit}^{commit}`]);
-    if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout` };
+    if (!sha) return { kind: 'rejected', reason: `${fixCommit} is not a commit in this checkout`, claim: true };
     if (fgit(cwd, ['merge-base', '--is-ancestor', sha, head]) === null) {
-      return { kind: 'rejected', reason: head === 'HEAD' ? `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` : `${sha.slice(0, 10)} is not in ${head}` };
+      return { kind: 'rejected', reason: head === 'HEAD' ? `${sha.slice(0, 10)} is not in this checkout's HEAD; endorse from a checkout that has it` : `${sha.slice(0, 10)} is not in ${head}`, claim: true };
     }
-    if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it' };
+    if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it', claim: true };
     const at = Date.parse(fgit(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');
-    if (!Number.isFinite(at)) return { kind: 'rejected', reason: `the commit time of ${sha.slice(0, 10)} could not be read, so it cannot be shown to postdate the finding; try again` };
-    if (at < after) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix` };
+    if (!Number.isFinite(at)) return { kind: 'rejected', reason: `the commit time of ${sha.slice(0, 10)} could not be read, so it cannot be shown to postdate the finding; try again`, claim: true };
+    if (at < after) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix`, claim: true };
     const touches = !!fgit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha, '--', ...paths]);
     return commit(sha, { claimed: true, ...(touches ? {} : { elsewhere: true }) });
   }

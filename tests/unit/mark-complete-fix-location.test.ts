@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { SeedRecord } from '../../src/local-store';
 import { setAttachment } from '../../src/attachment';
-import { commitInHead, fixLocation } from '../../src/repo-identity';
+import { commitInHead, fixLocation, setFixGitTimeoutForTests } from '../../src/repo-identity';
 import * as MarkComplete from '../../src/tools/mark-complete';
 import { fetchAgentFindings, parseVerdictConcept, renderFindingsSection } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
@@ -256,6 +256,27 @@ describe('mark_complete endorse', () => {
     const closed = await MarkComplete.handle(input, api, 's', store, dir);
     expect(closed).toContain('endorsed (finding resolved');
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+  });
+
+  test('when git does not answer in time, nothing closes: a slow checkout never reads as "not a git checkout"', async () => {
+    const dir = checkout('endorse-slow');
+    writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
+    git(dir, 'commit', '-qam', 'fix');
+    const store = seeded();
+    const stub = await db();
+    setFixGitTimeoutForTests(1);
+    try {
+      expect(fixLocation(dir, ['stats.ts'], new Date())).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('git did not answer in time') });
+      const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, dir);
+      expect(out).toContain('git did not answer in time');
+      expect(out).toContain('No verdict was recorded');
+    } finally {
+      setFixGitTimeoutForTests(null);
+    }
+    expect(stub.calls('concept_create_write')).toHaveLength(0);
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    // Outside git, after the same calls, still "not a git checkout".
+    expect(fixLocation(mkdtempSync(join(root, 'plain-')), ['stats.ts'])).toEqual({ kind: 'unknown' });
   });
 
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {

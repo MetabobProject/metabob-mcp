@@ -758,6 +758,7 @@ Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a mess
 - else nothing in the checkout postdates the finding — or the finding has no recorded time, so no commit can be shown to postdate it — and no verdict is written: nothing is retired, and the output says nothing here can be its fix (endorse where the fix is, or discard it);
 - a git checkout where none of the finding's files is known (neither tracked nor on disk) is not where the fix is: no verdict is written, the same way;
 - outside git: `fix: unknown (not a git checkout)`, and the finding closes without a commit.
+- "Outside git" means git answered that this is not a repository, or git is not installed. A git call that times out (20 s) or fails otherwise is never read as "not a git checkout": no verdict is written, and the reply says git did not answer and to try again.
 
 **An unpushed fix doesn't close the finding.** In a checkout that has a remote, a fix commit no remote branch holds (`fix_pushed: no`) leaves the finding open: other checkouts can't get the commit, and in a cell it is gone with the work directory. The verdict is `verdict: fix pending (unpushed)`; nothing is retired, no relevance is recorded, and the reply says to push and endorse again. Recall tags the finding `[fix pending: committed in another checkout (<reviewed_by>) on <branch> but not pushed; not available here]`. A checkout with no remote at all still closes, since no other checkout could have its commits.
 
