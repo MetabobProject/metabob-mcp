@@ -53,7 +53,9 @@ test('get_problems lists tasks apart, with their claims, and the headline counts
   expect(beforeTasks).toContain('token logged');
   expect(beforeTasks).not.toContain('add median()');
   expect(beforeTasks).not.toContain('port stats to bigint');
-  expect(tasks).toContain('(2 open)');
+  expect(tasks).toContain('(2 open: 1 unclaimed, 1 claimed by others)');
+  // The next move first: the unclaimed task comes before the one someone else holds.
+  expect(tasks.indexOf('add median()')).toBeLessThan(tasks.indexOf('port stats to bigint'));
   expect(tasks).toContain('claim it with claim_finding');
   expect(tasks).toMatch(/port stats to bigint {2}\[claimed by metabob-mcp-other until \S+ \S+Z: someone is working on it\]/);
   expect(tasks).toContain('add median()');
@@ -73,4 +75,18 @@ test('get_analysis_context counts and lists problems only', async () => {
   expect(out).toContain('1 open (0 critical, 0 high)');
   expect(out).not.toContain('add median()');
   expect(out).toContain('open tasks, listed apart');
+});
+
+test('tasks this checkout holds come first, marked as yours', async () => {
+  const repo = workspaceRepo()!.id;
+  const task = (n: string, title: string) => ({ id: `concept:cf_${n}`, shape: 'code_finding', summary: `[LOW][task] x: ${title}`, content: `repo: ${repo}\nfiles: src/${n}.ts\ncategory: task\nfinding_ids: agf_${n}` });
+  const claim = (n: string, by: string) => ({ id: `concept:c_${n}`, shape: 'finding_verdict', created_at: new Date(Date.now() - 60_000).toISOString(), content: `finding: agf_${n}\nverdict: claimed\nclaim_minutes: 60\nreviewed_by: ${by}` });
+  const rows = [task('t1', 'theirs'), task('t2', 'free'), task('t3', 'mine'), claim('t1', 'metabob-mcp-other'), claim('t3', 'metabob-mcp-thiscell')];
+  await installShapeStub({ conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }) });
+  const out = await GetProblems.handle(GetProblems.InputSchema.parse({}), api, 's', null);
+  const tasks = out.slice(out.indexOf('Tasks: work assigned'));
+  expect(tasks).toContain('(3 open: 1 yours, 1 unclaimed, 1 claimed by others)');
+  expect(tasks).toMatch(/• mine {2}\[yours: claimed by this checkout until/);
+  expect(tasks.indexOf('• mine')).toBeLessThan(tasks.indexOf('• free'));
+  expect(tasks.indexOf('• free')).toBeLessThan(tasks.indexOf('• theirs'));
 });

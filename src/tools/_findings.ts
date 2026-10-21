@@ -647,30 +647,42 @@ export function withoutTasks(result: AgentFindingsResult): AgentFindingsResult {
 }
 
 /**
- * The tasks section: open `task` findings from the local store and the recall, one entry per task, each with its
- * claim when someone holds one. '' when there are none.
+ * The tasks section: open `task` findings from the local store and the recall, one entry per task. Claimed tasks
+ * are never hidden, since who is on what is the coordination signal. They are ordered so the next move comes
+ * first: claimed by this checkout, unclaimed, claimed by others, then those with a fix pending. '' when there are
+ * none.
  */
 export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindingsResult, max = 10): string {
-  const entries: string[] = [];
+  type Entry = { group: 0 | 1 | 2 | 3; text: string };
+  const entries: Entry[] = [];
   const seen = new Set<string>();
   const recalled = recall.status === 'ok' ? recall.findings.filter(f => isTaskFinding(f) && !f.verdict) : [];
   for (const f of recalled) {
     seen.add(f.id);
     for (const id of parseFindingIds(f.content)) seen.add(id);
     const files = headerLine(f.content, 'files');
-    entries.push(`  • ${findingSummaryText(f.summary) || f.id}${f.claim ? `  ${claimNote(f.claim)}` : ''}${f.pending ? `  ${pendingNote(f.pending)}` : ''}\n`
-      + (files ? `    files: ${files}\n` : '') + `    id: ${f.id}\n`);
+    const group = f.pending ? 3 : f.claim?.here ? 0 : f.claim ? 2 : 1;
+    const note = f.pending ? `  ${pendingNote(f.pending)}` : f.claim ? `  ${f.claim.here ? `[yours: ${claimNote(f.claim).slice(1)}` : claimNote(f.claim)}` : '';
+    entries.push({ group, text: `  • ${findingSummaryText(f.summary) || f.id}${note}\n` + (files ? `    files: ${files}\n` : '') + `    id: ${f.id}\n` });
   }
   for (const s of localTasks) {
     const ref = conceptIdFromRefs(s.refs_json);
     if (seen.has(s.id) || (ref && seen.has(plainConceptId(ref)))) continue;
     seen.add(s.id);
-    entries.push(`  • ${s.brief}\n    files: ${s.file_path}\n    id: ${s.id}\n`);
+    entries.push({ group: 1, text: `  • ${s.brief}\n    files: ${s.file_path}\n    id: ${s.id}\n` });
   }
   if (!entries.length) return '';
+  entries.sort((a, b) => a.group - b.group);
+  const count = (g: number) => entries.filter(e => e.group === g).length;
+  const parts = [
+    count(0) ? `${count(0)} yours` : '',
+    count(1) ? `${count(1)} unclaimed` : '',
+    count(2) ? `${count(2)} claimed by others` : '',
+    count(3) ? `${count(3)} with a fix pending` : '',
+  ].filter(Boolean).join(', ');
   const shown = entries.slice(0, max);
-  return `Tasks: work assigned on the ledger, not problems in the code (${entries.length} open${entries.length > shown.length ? `, ${shown.length} shown` : ''}). `
-    + 'Before you start one, claim it with claim_finding; one claimed by someone else is theirs.\n' + shown.join('');
+  return `Tasks: work assigned on the ledger, not problems in the code (${entries.length} open: ${parts}${entries.length > shown.length ? `; ${shown.length} shown` : ''}). `
+    + 'Before you start one, claim it with claim_finding; one claimed by someone else is theirs.\n' + shown.map(e => e.text).join('');
 }
 
 /**
