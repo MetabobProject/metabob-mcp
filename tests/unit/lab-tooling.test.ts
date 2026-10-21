@@ -204,6 +204,12 @@ describe('lab.sh image currency', () => {
     expect(script).not.toContain('${LAB_PULL:-0}');
   });
 
+  test('up reads the revision label where docker keeps it as well as where podman does', () => {
+    const fn = read('lab.sh').slice(read('lab.sh').indexOf('image_revision() {'));
+    expect(fn.slice(0, 600)).toContain('index .Config.Labels "org.opencontainers.image.revision"');
+    expect(fn.slice(0, 600)).toContain('index .Labels "org.opencontainers.image.revision"');
+  });
+
   test('up and check state the image revision they ran', () => {
     const script = read('lab.sh');
     expect(script).toMatch(/log "image: \$IMAGE revision/);

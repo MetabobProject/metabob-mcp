@@ -128,8 +128,13 @@ ensure_provider() {
   exit 2
 }
 image_revision() { # $1 image: its OCI revision label, else its id prefix
-  local r; r=$("$ENG" image inspect --format '{{ index .Labels "org.opencontainers.image.revision" }}' "$1" 2>/dev/null)
-  [ -n "$r" ] && [ "$r" != "<no value>" ] && { echo "$r"; return; }
+  # Docker keeps an image's labels under .Config.Labels only; podman also has them at .Labels. Read both, so `up`
+  # names the same git revision `check` reads from the running containers.
+  local r f
+  for f in '{{ index .Config.Labels "org.opencontainers.image.revision" }}' '{{ index .Labels "org.opencontainers.image.revision" }}'; do
+    r=$("$ENG" image inspect --format "$f" "$1" 2>/dev/null) || r=""
+    [ -n "$r" ] && [ "$r" != "<no value>" ] && { echo "$r"; return; }
+  done
   "$ENG" image inspect --format '{{.Id}}' "$1" 2>/dev/null | cut -c1-19
 }
 ensure_manifest() {
