@@ -16,6 +16,7 @@ import {
   scanVerdicts,
   workspaceRepo,
 } from './_findings.js';
+import type { RepoIdentity } from '../repo-identity.js';
 import { plainConceptId } from './_concept-content.js';
 import {
   CLAIM_DEFAULT_MINUTES,
@@ -115,57 +116,90 @@ const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T'
 export const READ_BACK_PAUSES_MS = [150, 500, 1_500];
 const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+export type ClaimOutcome =
+  | 'claimed' | 'renewed' | 'released'
+  | 'held' | 'lost' | 'unsettled' | 'closed' | 'refused' | 'error';
+
+export interface ClaimResult {
+  outcome: ClaimOutcome;
+  message: string;
+  /** The finding's agf_* key the verdicts are written under, once it resolved. */
+  key?: string;
+  /** The holder after the call, when one is known. */
+  holder?: { by: string; until: number };
+}
+
+export interface ClaimOptions {
+  /** The read-back pauses; tests pass zeros. */
+  pauses?: readonly number[];
+  /** The repository the claim names; the active workspace's by default (task pull names the task's). */
+  repo?: RepoIdentity | null;
+}
+
 export async function handle(
   input: ClaimFindingInput,
   _apiClient: AnalysisAPIClient,
   sessionId: string,
   localStore?: LocalStore | null,
-  /** The read-back pauses; tests pass zeros. */
-  pauses: readonly number[] = READ_BACK_PAUSES_MS,
+  opts: ClaimOptions = {},
 ): Promise<string> {
+  return (await claim(input, sessionId, localStore, opts)).message;
+}
+
+/** claim_finding's work, with its outcome as a value: what `metabob-mcp task pull` acts on. */
+export async function claim(
+  input: ClaimFindingInput,
+  sessionId: string,
+  localStore?: LocalStore | null,
+  opts: ClaimOptions = {},
+): Promise<ClaimResult> {
+  const pauses = opts.pauses ?? READ_BACK_PAUSES_MS;
+  const repo = opts.repo === undefined ? workspaceRepo() : opts.repo;
+  const r = (outcome: ClaimOutcome, message: string, extra: Partial<ClaimResult> = {}): ClaimResult => ({ outcome, message, ...extra });
   const found = await target(input, localStore);
-  if (typeof found === 'string') return found;
-  if (!(await conceptDbReachable())) return `${await conceptDbUnavailable()}: a claim is shared through concept-db, so nothing was claimed.`;
+  if (typeof found === 'string') return r('refused', found);
+  if (!(await conceptDbReachable())) return r('error', `${await conceptDbUnavailable()}: a claim is shared through concept-db, so nothing was claimed.`);
   const me = await resolveAuthorVesselId();
-  if (!me) return 'No vessel identity resolves for this session, so a claim could not name its holder; nothing was claimed.';
+  if (!me) return r('refused', 'No vessel identity resolves for this session, so a claim could not name its holder; nothing was claimed.');
   const key = found.ids[0]!;
 
   const before = await state(found.ids);
-  if (typeof before === 'string') return before;
+  if (typeof before === 'string') return r('error', before, { key });
   const scanNote = before.truncated ? '\n  (concept-db\'s verdicts were read up to the scan limit; an older claim may not have been seen)' : '';
   if (before.closed) {
-    return `Finding ${key} is already closed (${before.closed}), so there is nothing to claim. get_problems shows it under Closed findings.`;
+    return r('closed', `Finding ${key} is already closed (${before.closed}), so there is nothing to claim. get_problems shows it under Closed findings.`, { key });
   }
   const mine = before.holder?.by === me;
+  const holder = before.holder ? { by: before.holder.by, until: before.holder.until } : undefined;
 
   const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => postConcept({
     content: [
       ...claimLines(key, minutes),
-      ...repoLines(workspaceRepo()),
+      ...repoLines(repo),
       `finding summary: ${found.summary}`,
       ...attributionLines('reviewed_by', me, sessionId),
     ].join('\n'),
-    summary: `[verdict:${tag}] ${workspaceRepo()?.name ?? 'unknown'}: ${found.summary}`,
+    summary: `[verdict:${tag}] ${repo?.name ?? 'unknown'}: ${found.summary}`,
     shape: VERDICT_SHAPE,
     source_type: 'metabob_annotation',
     pointer: { type: VERDICT_SHAPE },
   });
-  const failed = (error?: string) => /^key_read_only/.test(error ?? '')
+  const failed = (error?: string) => r(/^key_read_only/.test(error ?? '') ? 'refused' : 'error', /^key_read_only/.test(error ?? '')
     ? `Not claimed (${error}): this key cannot write, so other agents would not see a claim.`
-    : `Not claimed: concept-db refused the write (${error}).`;
+    : `Not claimed: concept-db refused the write (${error}).`, { key });
 
   if (input.action === 'release') {
-    if (!mine) return `You hold no claim on finding ${key}, so there is nothing to release.${before.holder ? ` ${before.holder.by} holds it until ${when(before.holder.until)}.` : ''}`;
+    if (!mine) return r('refused', `You hold no claim on finding ${key}, so there is nothing to release.${before.holder ? ` ${before.holder.by} holds it until ${when(before.holder.until)}.` : ''}`, { key, holder });
     const posted = await write(null, 'withdrawn');
-    return posted.ok ? `Released your claim on finding ${key}; it is open for another agent.` : failed(posted.error);
+    return posted.ok ? r('released', `Released your claim on finding ${key}; it is open for another agent.`, { key }) : failed(posted.error);
   }
 
   if (before.holder && !mine) {
-    return `Finding ${key} is claimed by ${before.holder.by} until ${when(before.holder.until)}: someone is working on it, so it was not claimed. `
-      + 'Pick another finding, or wait until the claim lapses.' + scanNote;
+    return r('held', `Finding ${key} is claimed by ${before.holder.by} until ${when(before.holder.until)}: someone is working on it, so it was not claimed. `
+      + 'Pick another finding, or wait until the claim lapses.' + scanNote, { key, holder });
   }
   if (input.action === 'renew' && !mine) {
-    return `You hold no claim on finding ${key} to renew; claim it with action "claim".`;
+    return r('refused', `You hold no claim on finding ${key} to renew; claim it with action "claim".`, { key });
   }
 
   const until = new Date(Date.now() + input.minutes * 60_000);
@@ -180,19 +214,20 @@ export async function handle(
     after = await state(found.ids, posted.id);
     if (typeof after === 'string' || after.seenOwn) break;
   }
-  if (typeof after === 'string') return `Claim written (concept ${posted.id ?? '?'}), but it could not be read back to confirm it holds: ${after}`;
+  if (typeof after === 'string') return r('unsettled', `Claim written (concept ${posted.id ?? '?'}), but it could not be read back to confirm it holds: ${after}`, { key });
   if (!after.seenOwn) {
-    return `Claim written (concept ${posted.id ?? '?'}), but concept-db's reads do not show it yet, so whether it holds is not settled. `
-      + 'Run claim_finding again in a moment to confirm before you start; it lapses on its own if you do not.';
+    return r('unsettled', `Claim written (concept ${posted.id ?? '?'}), but concept-db's reads do not show it yet, so whether it holds is not settled. `
+      + 'Run claim_finding again in a moment to confirm before you start; it lapses on its own if you do not.', { key });
   }
   if (after.holder && after.holder.by !== me) {
     const withdrawn = await write(null, 'withdrawn');
-    return `Finding ${key} was claimed by ${after.holder.by} first (until ${when(after.holder.until)}), so your claim was withdrawn${withdrawn.ok ? '' : ` (the withdrawal failed: ${withdrawn.error}; it lapses at ${when(until.getTime())})`}. `
-      + 'Pick another finding.' + scanNote;
+    return r('lost', `Finding ${key} was claimed by ${after.holder.by} first (until ${when(after.holder.until)}), so your claim was withdrawn${withdrawn.ok ? '' : ` (the withdrawal failed: ${withdrawn.error}; it lapses at ${when(until.getTime())})`}. `
+      + 'Pick another finding.' + scanNote, { key, holder: { by: after.holder.by, until: after.holder.until } });
   }
   const verb = mine ? 'Renewed your claim on' : 'Claimed';
-  return `${verb} finding ${key} until ${when(after.holder?.until ?? until.getTime())}. Other agents see it as claimed by ${me}. `
-    + 'Renew it if the work runs longer; mark_complete closes the finding and ends the claim; release it if you stop.' + scanNote;
+  const heldUntil = after.holder?.until ?? until.getTime();
+  return r(mine ? 'renewed' : 'claimed', `${verb} finding ${key} until ${when(heldUntil)}. Other agents see it as claimed by ${me}. `
+    + 'Renew it if the work runs longer; mark_complete closes the finding and ends the claim; release it if you stop.' + scanNote, { key, holder: { by: me, until: heldUntil } });
 }
 
 /**

@@ -108,7 +108,7 @@ const other = (verdict: string, at: number, extra = '') => ({
 
 describe('claim_finding', () => {
   const run = (store: ReturnType<typeof seeded>, args: Record<string, unknown> = {}) =>
-    ClaimFinding.handle(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1', ...args }), api, 's1', store, [0, 0, 0]);
+    ClaimFinding.handle(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1', ...args }), api, 's1', store, { pauses: [0, 0, 0] });
 
   test('claims, renews, releases; each write is a finding_verdict naming the claimer', async () => {
     const { rows } = await db();

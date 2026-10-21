@@ -24,6 +24,7 @@ bun run typecheck                   # tsc --noEmit
 bun test                            # run tests
 bun run build                       # compile src/ → dist/cli.js (required for npm link)
 bun src/cli.ts attach --check       # attach once and print each hop: proxy, TLS, /bootstrap, identity, org check, one resolve
+bun src/cli.ts task pull --origin <url>  # a cell's entrypoint: claim a ledger task, write /task, clone /work (docs/SPEC.md § task pull)
 npm link                            # register metabob-mcp bin globally for local testing
 bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
 lab/lab.sh up|check|cycle|down|destroy   # two-node lab (hub :24100, spoke :25100): bring up, prove it serves the MCP, tear down (lab/README.md)

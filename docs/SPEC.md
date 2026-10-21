@@ -416,6 +416,35 @@ does not rely on them. `record_finding` and `mark_complete` keep their local hal
 was not sent and other agents will not see it. With no scopes reported (the flat org check, used
 through a proxy) nothing is known about the key, and nothing is gated.
 
+### task pull
+
+`metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <vesselId,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
+
+**Getting attached.** It loads the configuration and attaches as the server does (§ Attachment). Its vessel identity is `VESSEL_ID`, else derived from the key and the work directory, and its session is `SESSION_ID`, else a new one. The repository is the origin URL's identity (§ Repository identity), so every clone of one origin shares one ledger.
+
+**Choosing a task.** Tasks are open findings in category `task` (§ get_problems) on that repository (`src/task-pull.ts@candidateTasks`). It tries them in this order:
+- a task this cell already holds, so a restarted cell resumes it;
+- then unclaimed tasks, most severe first.
+
+A task someone else holds, a closed one and one with a fix pending are skipped. Each candidate is claimed with `claim_finding`'s rule (§ claim_finding). A held, lost, unsettled or refused claim moves on to the next candidate.
+
+**What it writes.** On a claim it writes `task.json` into the task directory:
+- the task id, its concept id and finding ids, summary, severity, files and details;
+- the origin, repository and ref;
+- the integration policy with each value's source;
+- the claim (holder, end), the recorder, the time and the session.
+
+It also writes `context.md`: the details, the policy, the open non-task findings on the task's files, and the task as recorded. Then it clones the origin into the work directory, at the task's `ref:` when it declares one.
+
+**The integration policy** (`src/task-pull.ts@integration-policy`) says where the fix goes. Each value comes from the task's `details` (`push_to:`, `integrate:`, `conflicts:` lines), else from a `project_convention` concept for the repository by a trusted author, newest first, else the default:
+- `push_to`: `main`, or `task` (meaning `task/<task id>`); default `main`;
+- `integrate`: `push` or `review`; default `push`;
+- `conflicts`: `rebase`.
+
+A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied. Authors are declared, not verified (§ Client claim), so the trust list is a convention among cells, not a security boundary.
+
+**Exit codes:** 0 a task was pulled; 3 no open task this cell can take (the reply lists what each candidate's claim did); 2 not attached; 1 any other failure. A claim whose clone then fails is left to lapse.
+
 ## Client claim
 
 Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds

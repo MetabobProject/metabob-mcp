@@ -62,6 +62,7 @@
         "src/tools/init-workspace.ts",
         "src/tools/mark-complete.ts",
         "src/tools/claim-finding.ts",
+        "src/task-pull.ts",
         "src/tools/_claims.ts",
         "src/tools/predict-cochanges.ts",
         "src/tools/provide-feedback.ts",
@@ -221,7 +222,8 @@
           "attach-check",
           "configuration-lookup",
           "precedence",
-          "runtime"
+          "runtime",
+          "task-pull"
         ]
       },
       "src/config.ts": {
@@ -303,6 +305,11 @@
       "src/server-instructions.ts": {
         "SPEC": [
           "agent-instructions"
+        ]
+      },
+      "src/task-pull.ts": {
+        "SPEC": [
+          "task-pull"
         ]
       },
       "src/tls-trust.ts": {
@@ -697,6 +704,11 @@
           "c9-fail-visibly"
         ]
       },
+      "tests/unit/task-pull.test.ts": {
+        "SPEC": [
+          "task-pull"
+        ]
+      },
       "tests/unit/tasks-apart.test.ts": {
         "SPEC": [
           "get_problems"
@@ -920,6 +932,9 @@
         "src/repo-identity.ts@repoIdentity",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/server-instructions.ts@SERVER_INSTRUCTIONS",
+        "src/task-pull.ts@candidateTasks",
+        "src/task-pull.ts@integration-policy",
+        "src/task-pull.ts@runTaskPull",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_claims.ts@CLAIM_SKEW_MS",
@@ -1109,6 +1124,9 @@
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",
+      "src/task-pull.ts@candidateTasks": "b837bf561ed5",
+      "src/task-pull.ts@integration-policy": "8d64a30d9de1",
+      "src/task-pull.ts@runTaskPull": "459c7b911e07",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
       "src/tools/_claims.ts@CLAIM_SKEW_MS": "24fadf0b22ab",
