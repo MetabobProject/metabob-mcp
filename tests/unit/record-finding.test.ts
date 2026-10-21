@@ -139,6 +139,26 @@ test('record_finding: concept-db unreachable is non-fatal and reported', async (
   expect(localStore.getCachedSeeds('src/a.ts').length).toBe(1);
 });
 
+// get_problems shows findings, not the system's gaps, so a finding can duplicate a gap (SPEC §record_finding).
+test('record_finding: names the open gaps whose edit site is the file, from a warm cache, without refusing', async () => {
+  const { clearGapReadCache, readGaps } = await import('../../src/tools/_gap-activity');
+  clearGapReadCache();
+  // The store's repos/<vessel>/… form maps as given in any workspace, so the test does not depend on which one is active.
+  const site = 'repos/kappa/src/db/client.ts';
+  await installShapeStub({
+    concept_create_write: () => written({ id: 'concept:cf_gap' }),
+    substrateGap: () => ({ body: { gaps: [{ id: 'gap-sqli', summary: 'query built by string concatenation', classification_metadata: { edit_site: site } }] } }),
+  });
+  await readGaps('open');
+  const input = RecordFinding.InputSchema.parse({ files: [site], summary: 'SQL injection', severity: 'HIGH', category: 'security' });
+  const output = await RecordFinding.handle(input, mockApiClient, SESSION, localStore);
+  expect(output).toContain('shared org-wide via concept-db');
+  expect(output).toContain(`${site}: 1 open gap(s) have this file as their edit site; one may already describe this:`);
+  expect(output).toContain('gap-sqli: query built by string concatenation');
+  expect(output).toContain('If one is the same issue, mark_complete discard this finding.');
+  clearGapReadCache();
+});
+
 // A read-scoped key must never report a shared write (SPEC §read-only-key).
 test('record_finding: with a read-scoped key the finding stays local and is reported as not shared', async () => {
   const stub = await installShapeStub({ concept_create_write: () => written({ id: 'concept:never' }) }, { scopes: ['read'] });

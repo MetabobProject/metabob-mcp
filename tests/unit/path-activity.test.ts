@@ -112,7 +112,7 @@ describe('matching and rendering', () => {
 
   test('a landing lease shows its holder as a claim, and says not to race it', () => {
     const out = renderGap(GAPS[0]!, 'edit site').join('\n');
-    expect(out).toMatch(/landing lease: held by compose2 \(the holder's own claim\), attempt 5435-x, until 2099-10-20 08:48Z \(in \d+ h\): the system is landing this; don't race it/);
+    expect(out).toMatch(/landing lease: held by compose2 \(the holder's own claim\), attempt 5435-x, until 2099-10-20 08:48Z \(in \d+ h\): the system is landing a change to this file now, and its landing replaces the file, so an edit made before then is lost or conflicts\. Don't edit it yet/);
   });
 
   test('a lapsed landing lease is not being landed: it is shown lapsed and counted as queued', async () => {
@@ -189,7 +189,7 @@ describe('path_activity', () => {
     const out = await pathActivity({ paths: [FILE, 'repos/activity-api/src/none.ts'] }, apiClient);
     expect(out).toContain(`${FILE} — 3 open gaps: 1 being landed by the system now, 1 held, 1 queued`);
     expect(out).toContain('repos/activity-api/src/none.ts — no open gaps');
-    expect(out).toContain('Being landed: wait and look again');
+    expect(out).toContain('Being landed: the system\'s landing replaces the file, so an edit before the lease ends is lost or conflicts. Do not edit it now');
     expect(out).toContain('Queued: prefer letting the system land it');
     expect(out).toContain('Nothing in flight: make the change, and record it.');
   });

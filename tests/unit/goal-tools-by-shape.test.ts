@@ -93,7 +93,7 @@ describe('run_goal_async', () => {
       setWorkspaceOperator(undefined);
     }
     expect(stub.calls('goalDispatchAsync').map((p) => p.operator)).toEqual(['metabob-mcp-abc123', 'alice-review-bot']);
-    // The session rides as a dispatch tag whether or not writes carry client_claim (off by default).
+    // The session rides as a dispatch tag whether or not writes carry client_claim.
     expect(stub.calls('goalDispatchAsync').every((p) => p.tags.includes(`session:${sessionId()}`))).toBe(true);
   });
 

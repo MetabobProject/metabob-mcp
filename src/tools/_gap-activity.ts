@@ -281,7 +281,7 @@ export function renderGap(g: GapRow, match: MatchKind): string[] {
     return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${when(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
   }
   if (lease) {
-    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing this; don't race it`];
+    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing a change to this file now, and its landing replaces the file, so an edit made before then is lost or conflicts. Don't edit it yet: tell your user, or wait and check again with path_activity`];
   }
   if (stale && leaseState(stale) === 'no_expiry') {
     return [`${head}`, `    landing lease held by ${stale.holder}, no expiry recorded (may be stale): not counted as being landed; check before editing`];
@@ -329,4 +329,29 @@ export async function gapSummaryLines(files: string[], workspace: string): Promi
     lines.push(`  ${f}: ${read.truncated ? 'open gaps (the read may be truncated)' : `${hits.length} open gap(s)`}${leased.length ? `, ${leased.length} being landed by the system now` : ''}${held.length ? `, ${held.length} held` : ''}`);
   }
   return lines.length ? ['', 'In flight on the substrate (path_activity for detail):', ...lines] : [];
+}
+
+/**
+ * The open gaps whose edit site is one of `files`, from a warm cache only (never a read): for record_finding to
+ * say a gap may already describe what it records, since get_problems shows findings and not gaps. Empty when
+ * there is no attachment, no cache, or the workspace does not map. Not a refusal: a busy file has hundreds of
+ * gaps, and one on the same file need not be the same issue.
+ */
+export async function openGapsOnFilesLines(files: string[], workspace: string, perFile = 3): Promise<string[]> {
+  if (!getAttachment() || (await substrateRefusal())) return [];
+  // Any workspace: a path given in the store's repos/<vessel>/… form maps as given.
+  const mapper = pathMapper(workspace);
+  const read = peekGaps('open');
+  if (!read) return [];
+  const lines: string[] = [];
+  for (const f of files) {
+    const p = mapper.toStorePath(f);
+    if (!p) continue;
+    const hits = gapsForPath(read.rows, p).filter((h) => h.match === 'edit site');
+    if (!hits.length) continue;
+    lines.push(`  ${f}: ${hits.length} open gap(s) have this file as their edit site; one may already describe this:`);
+    for (const h of hits.slice(0, perFile)) lines.push(`    ${h.gap.id}: ${(h.gap.summary ?? '').replace(/\s+/g, ' ').slice(0, 140)}`);
+    if (hits.length > perFile) lines.push(`    … and ${hits.length - perFile} more (path_activity lists them)`);
+  }
+  return lines.length ? ['', 'Already on the substrate (the system\'s own gaps, which get_problems does not show):', ...lines] : [];
 }

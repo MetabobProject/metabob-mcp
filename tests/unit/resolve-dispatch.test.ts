@@ -85,14 +85,15 @@ describe('attachment.resolve()', () => {
   });
 
   // SPEC §client-claim: a write declares operator, session and client; a read declares nothing.
-  test('with METABOB_CLIENT_CLAIM=1 a write carries client_claim, a read none, and a pointer\'s own claim is kept; off by default', async () => {
+  test('by default a write carries client_claim, a read none, and a pointer\'s own claim is kept; METABOB_CLIENT_CLAIM=off turns it off', async () => {
     const { sessionId } = await import('../../src/operator-id');
     const stub = await installShapeStub({ memoryNote_write: () => ({ body: { ok: true } }), memoryNote: () => ({ body: { ok: true } }) });
-    // Off by default: no claim on a write.
+    // METABOB_CLIENT_CLAIM=off: no claim on a write.
+    process.env.METABOB_CLIENT_CLAIM = 'off';
     await resolveShape({ type: 'memoryNote_write', note: 'off' });
     expect(stub.claims('memoryNote_write')).toEqual([undefined]);
     stub.pointers.length = 0;
-    process.env.METABOB_CLIENT_CLAIM = '1';
+    delete process.env.METABOB_CLIENT_CLAIM;
     try {
       await resolveShape({ type: 'memoryNote_write', note: 'n' });
       await resolveShape({ type: 'memoryNote' }, { read: true });

@@ -418,11 +418,11 @@ through a proxy) nothing is known about the key, and nothing is gated.
 
 ## Client claim
 
-Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`). With
-`METABOB_CLIENT_CLAIM=1` the attachment adds `client_claim: { operator, session, client }` to the pointer of
-every resolve that is not a read (`src/attachment.ts@attachment-resolve`); it is off by default until a live
-write smoke shows that every producer persisting a pointer accepts the field (some substrate tables are
-schemafull). Always, a goal dispatch carries `operator` and a
+Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds
+`client_claim: { operator, session, client }` to the pointer of every resolve that is not a read
+(`src/attachment.ts@attachment-resolve`), unless `METABOB_CLIENT_CLAIM=off`. Some substrate tables are
+schemafull, so a live write smoke checked that every implemented write shape accepts the field. A goal
+dispatch also carries `operator` and a
 `session:<session>` tag, which goal-host stamps into the trace's tags; `provide_feedback` folds
 `[operator: …] [session: …]` into its label notes, and findings and verdicts already carry
 `recorded_by` / `reviewed_by` and `session` in their content.
@@ -566,6 +566,8 @@ The ledger is keyed by repository (`src/repo-identity.ts@repoIdentity`), read on
 A finding carries `repo: <identity>` and `repo_name: <basename>`; a verdict carries the same two lines. Recall matches the `repo:` header against the identity or the basename, case-insensitively, and never against `repo_name:`. A finding whose `repo:` header is a basename is therefore recalled by every repository of that basename; one whose header is an origin identity, only by clones of that repository (and the subdirectory workspace it names).
 
 ---
+
+**The system's own gaps.** `get_problems` shows findings, not the gap store's gaps, so a finding can describe what an open gap already does. When `path_activity`'s cache is warm (it never reads the store itself), the reply lists, per file, up to three open gaps whose edit site is that file, and says to `mark_complete` discard the finding if one is the same issue (`src/tools/_gap-activity.ts@openGapsOnFilesLines`). It does not refuse: a busy file has hundreds of gaps, and one on the same file need not be the same issue.
 
 ### search_codebase
 
@@ -808,7 +810,7 @@ Before editing shared files, what the substrate has in flight on them.
 
 **Output**, one block per path. It leads with the count of open gaps and how many are being landed by the system now, held and queued (a busy file has hundreds). Every gap being landed is listed; then up to `limit` more, held ones first and then queued ones, edit site first, then those with an edit site in a given directory, then those that mention it, each newest first, and a line counting the rest. Each gap shows its id, category and route, and one of:
 - **held** — `classification_metadata.operator_hold`, a parking disposition (`needs_information`, `needs_info`, `awaiting_operator_review`) or a landing awaiting its verdict: `held by operator ruling: <reason>`, with `review by <date>` and `lift: <condition>` from the hold record that carries them, or `no review date recorded`;
-- **being landed** — a live landing lease: its holder, attempt and expiry exactly as stored, marked as the holder's own claim (holders are caller-supplied), and "don't race it". The store keeps a lease after its `until` passes, so a lapsed one is shown as lapsed (when, and who held it) and the gap counts as queued, not being landed; a lease is lapsed only 2 minutes past its `until`, so a slightly fast local clock never frees a landing early; a lease with no `until` is shown as possibly stale and not counted as being landed. Times print with their date and how long ago or ahead they are;
+- **being landed** — a live landing lease: its holder, attempt and expiry exactly as stored, marked as the holder's own claim (holders are caller-supplied), and what an edit now does: the landing replaces the file, so an edit before the lease ends is lost or conflicts, and the agent is told to tell its user or wait. The store keeps a lease after its `until` passes, so a lapsed one is shown as lapsed (when, and who held it) and the gap counts as queued, not being landed; a lease is lapsed only 2 minutes past its `until`, so a slightly fast local clock never frees a landing early; a lease with no `until` is shown as possibly stale and not counted as being landed. Times print with their date and how long ago or ahead they are;
 - **queued** — neither: queued for the system.
 
 The output ends with what to do, one line for each state present: wait and look again for a gap being landed, prefer letting the system land or dispatching a queued one, a held gap is not open work, and with nothing in flight make the change and record it. A substrate that serves no gap store (`no_producer(substrateGap)`) is not an error to stop on: the tool says there is nothing in flight to check and to go ahead. Any other failed read is one named line. The paths are matched locally and never sent, so the outgoing guard does not check them.

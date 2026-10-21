@@ -641,7 +641,8 @@
       },
       "tests/unit/record-finding.test.ts": {
         "SPEC": [
-          "read-only-key"
+          "read-only-key",
+          "record_finding"
         ]
       },
       "tests/unit/repo-identity.test.ts": {
@@ -897,6 +898,7 @@
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
         "src/tools/_gap-activity.ts@gapSummaryLines",
+        "src/tools/_gap-activity.ts@openGapsOnFilesLines",
         "src/tools/_gap-activity.ts@pathMapper",
         "src/tools/_gap-activity.ts@readGaps",
         "src/tools/_goal-host.ts@dispatchGoal",
@@ -1075,6 +1077,7 @@
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
       "src/tools/_gap-activity.ts@gapSummaryLines": "41dd2834ccf4",
+      "src/tools/_gap-activity.ts@openGapsOnFilesLines": "b007cd77f4bd",
       "src/tools/_gap-activity.ts@pathMapper": "68351f924e85",
       "src/tools/_gap-activity.ts@readGaps": "e47446d8f610",
       "src/tools/_goal-host.ts@dispatchGoal": "996354463c1e",

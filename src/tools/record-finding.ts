@@ -20,6 +20,7 @@ import { isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import type { LocalStore } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
+import { openGapsOnFilesLines } from './_gap-activity.js';
 import {
   CONCEPT_REF_PREFIX,
   FINDING_SHAPE,
@@ -250,7 +251,11 @@ export async function handle(
     text += `  files: ${relFiles.join(', ')}\n\n`;
   }
   text += `  local:      ${localStatus}\n`;
-  text += `  concept-db: ${conceptStatus}\n\n`;
+  text += `  concept-db: ${conceptStatus}\n`;
+  // The system's own gaps on these files: get_problems shows findings, not gaps, so a finding can duplicate one.
+  const gaps = await openGapsOnFilesLines(relFiles, activeWorkspacePath());
+  if (gaps.length) text += `${gaps.join('\n')}\n  If one is the same issue, mark_complete discard this finding.\n`;
+  text += '\n';
   text += `Use mark_complete { problem_id: "<agf id>", action: "endorse"|"discard" } when resolved or retracted.\n`;
   text += `Recorded in ${duration}ms`;
   return text;
