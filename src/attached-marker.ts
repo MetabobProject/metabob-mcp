@@ -7,8 +7,9 @@
  *
  * The file is `metabob-attached-<sha256(real workspace path)[:16]>.json` holding `{ pid, orgId, at }`. It is
  * written when the attachment authenticates, refreshed every minute while it stays authenticated, and removed when
- * it stops being authenticated or the process exits. The edit check trusts it only while `pid` is alive and `at` is
- * recent. METABOB_MARKER_DIR moves it (tests).
+ * it stops being authenticated or the process exits. It is written 0600, since the temp directory is shared on a
+ * multi-user host. The edit check trusts it only while `pid` is alive, `at` is recent and, where the OS has user
+ * ids, the file belongs to the current user. METABOB_MARKER_DIR moves it (tests).
  */
 
 import { createHash } from 'node:crypto';
@@ -37,7 +38,8 @@ export function keepAttachedMarker(attachment: Attachment, workspace: string, en
     try {
       const auth = attachment.state().auth;
       if (auth.status === 'authenticated') {
-        writeFileSync(file, JSON.stringify({ pid: process.pid, orgId: auth.orgId ?? null, at: new Date().toISOString() }));
+        // 0600: the temp directory is shared on a multi-user host.
+        writeFileSync(file, JSON.stringify({ pid: process.pid, orgId: auth.orgId ?? null, at: new Date().toISOString() }), { mode: 0o600 });
       } else {
         rmSync(file, { force: true });
       }

@@ -3,7 +3,7 @@
  * absent otherwise and after stop, holding the process id, the org and a time. README §claude-code-plugin
  */
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,6 +26,7 @@ describe('attached marker', () => {
     const m = JSON.parse(readFileSync(file, 'utf8'));
     expect(m).toMatchObject({ pid: process.pid, orgId: 'org_x' });
     expect(Date.now() - Date.parse(m.at)).toBeLessThan(5_000);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     stop();
     expect(existsSync(file)).toBe(false);
   });

@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
@@ -78,7 +78,10 @@ function attached(cwd) {
   try { dir = realpathSync.native(dir); } catch { /* not on disk */ }
   for (;;) {
     try {
-      const m = JSON.parse(readFileSync(markerFor(dir), 'utf8'));
+      const file = markerFor(dir);
+      // Only this user's marker counts: another user on a shared host could plant one.
+      if (typeof process.getuid === 'function' && statSync(file).uid !== process.getuid()) throw new Error('not ours');
+      const m = JSON.parse(readFileSync(file, 'utf8'));
       const fresh = Date.now() - Date.parse(m.at) < 5 * 60_000;
       let alive = false;
       try { process.kill(m.pid, 0); alive = true; } catch (e) { alive = e && e.code === 'EPERM'; }
