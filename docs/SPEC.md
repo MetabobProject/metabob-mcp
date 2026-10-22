@@ -226,6 +226,8 @@ the user signs in):
 - each attempt starts from a fresh state, and the recovery is logged once ("Attached on attempt N, after: <cause>");
 - while an attempt runs, readers (`/health`, the refusal line, the gate) see the last settled attempt, and calls
   that arrive meanwhile wait for it, so none reports a half-reset state as its cause.
+- a cause found more than a minute ago says so in the line tools echo: `… (found 3.1 h ago, at <time>, after N
+  attempts; retrying)`, so a cause served from an earlier attempt never reads as current.
 
 A rejected key, missing configuration, a proxy's refusal and a non-substrate answer are final. Only the long-running server retries, since it is the one with
 the heartbeat; `attach --check`, `doctor`, `task pull` and `finding close` report what they found once.

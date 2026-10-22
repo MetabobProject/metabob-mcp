@@ -746,6 +746,19 @@ export function attach(options: AttachOptions): Attachment {
   };
   void done.then(() => schedule());
 
+  /**
+   * The refusal line as of now: a cause found more than a minute ago says when, and how many attempts it has had, so
+   * a cause served from an earlier attempt never reads as current. SPEC §attachment
+   */
+  const currentMessage = (): string | null => {
+    if (!view.message) return null;
+    const at = view.settledAt ? Date.parse(view.settledAt) : NaN;
+    const age = Date.now() - at;
+    if (!Number.isFinite(age) || age < 60_000) return view.message;
+    const ago = age < 3_600_000 ? `${Math.round(age / 60_000)} min` : `${(age / 3_600_000).toFixed(1)} h`;
+    return `${view.message} (found ${ago} ago, at ${view.settledAt}, after ${attempts} attempt${attempts === 1 ? '' : 's'}${retries && transient() ? '; retrying' : ''})`;
+  };
+
   /** The attachment's state now, attempting again first when the last failure may have passed. */
   const current = async (): Promise<void> => {
     await done;
@@ -757,13 +770,13 @@ export function attach(options: AttachOptions): Attachment {
   const handle: Attachment = {
     state: () => structuredClone(view),
     settled: () => done.then(() => structuredClone(view)),
-    refusal: () => current().then(() => view.message),
+    refusal: () => current().then(() => currentMessage()),
     // CONFORMANCE §c11-attachment-model
     // @anchor attachment-resolve
     async resolve(pointer, opts) {
       await current();
       if (view.cause || view.auth.status !== 'authenticated' || !discovery) {
-        throw new AttachmentRefusedError(view.cause ?? 'not_configured', view.message ?? 'not_configured: no discovery endpoint');
+        throw new AttachmentRefusedError(view.cause ?? 'not_configured', currentMessage() ?? 'not_configured: no discovery endpoint');
       }
       const shape = typeof pointer.type === 'string' ? pointer.type : '(no type)';
       // A key whose validated scopes lack `write` writes nothing: producers do not all enforce scopes yet, and a

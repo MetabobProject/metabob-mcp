@@ -548,3 +548,18 @@ describe('re-attaching after a transient failure', () => {
     expect(bootstraps(oneShot.calls)).toBe(1);
   });
 });
+
+// A cause served from an earlier attempt said nothing of its age, and read as current for hours. SPEC §attachment
+test('a refusal older than a minute says when it was found and how many attempts it has had', async () => {
+  const { a } = run({ discovery: 'http://127.0.0.1:18100', heartbeatMs: 0, script: { hosts: {} } });
+  const fresh = await a.refusal();
+  expect(fresh).toMatch(/^anchor_unreachable/);
+  expect(fresh).not.toContain('found');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 5 * 60_000;
+  try {
+    expect(await a.refusal()).toMatch(/^anchor_unreachable: .* \(found 5 min ago, at \S+, after 1 attempt\)$/);
+  } finally {
+    Date.now = realNow;
+  }
+});
