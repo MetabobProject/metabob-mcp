@@ -40,10 +40,10 @@ jobs:
         run: bun scripts/doclinks.mjs check
 
       - name: Unit tests
-        run: bun test tests/unit/
+        run: bun test --timeout 30000 tests/unit/
 
       - name: Integration tests
-        run: bun test tests/integration/
+        run: bun test --timeout 30000 tests/integration/
         env:
           SESSION_ID: ci-test-session
           LOG_LEVEL: error
@@ -54,6 +54,6 @@ jobs:
       - name: Workflow tests
         # The agent workflows end to end against an in-process fake substrate,
         # driving the built dist/cli.js (tests/workflows/README.md).
-        run: bun test tests/workflows/
+        run: bun test --timeout 30000 tests/workflows/
         env:
           MCP_UNDER_TEST: dist

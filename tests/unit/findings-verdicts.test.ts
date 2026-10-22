@@ -8,7 +8,7 @@
  *  - get_problems surfacing agf_* seeds in the ranked list WITHOUT file_path
  */
 
-import { test, expect, mock, beforeEach, afterEach, setDefaultTimeout } from 'bun:test';
+import { test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,9 +25,6 @@ import {
 import * as GetProblems from '../../src/tools/get-problems';
 import { setAttachment } from '../../src/attachment';
 import { installShapeStub } from '../helpers/shape-stub';
-
-// Spawns git or opens an on-disk store per test: well under a second normally, several on a stalled Windows runner.
-setDefaultTimeout(30_000);
 
 const SESSION = 'test-session';
 

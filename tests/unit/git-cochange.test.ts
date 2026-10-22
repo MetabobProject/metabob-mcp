@@ -1,12 +1,9 @@
-import { expect, test, setDefaultTimeout } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { execSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mineGitCochanges } from '../../src/git-cochange.js';
-
-// Spawns git or opens an on-disk store per test: well under a second normally, several on a stalled Windows runner.
-setDefaultTimeout(30_000);
 
 function makeRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'cochange-'));

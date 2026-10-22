@@ -3,7 +3,7 @@
  * the fix is merged into the target on the origin, and never before, never for another repository's finding,
  * never over a revert, and never from a stale view of the origin.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test, setDefaultTimeout } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,9 +14,6 @@ import { setResolverIdentity } from '../../src/resolver-identity';
 import { closeFromCommits, trailerIds } from '../../src/finding-close';
 import { fetchAgentFindings, renderFindingsSection } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
-
-// Each test runs real git: dozens of processes, slow on a Windows runner.
-setDefaultTimeout(30_000);
 
 const root = mkdtempSync(join(tmpdir(), 'metabob-close-'));
 beforeAll(() => setResolverIdentity({ vesselId: 'metabob-mcp-cell1' }));

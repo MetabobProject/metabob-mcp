@@ -21,7 +21,7 @@ passes, every substrate tool answers with one line naming the cause (`key_reject
 ```bash
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
-bun test                            # run tests
+bun run test                        # run tests (preflight, then a 30 s per-test limit, as CI uses)
 bun run build                       # compile src/ → dist/cli.js (required for npm link)
 bun src/cli.ts attach --check       # attach once and print each hop: proxy, TLS, /bootstrap, identity, org check, one resolve
 bun src/cli.ts task pull --origin <url>  # a cell's entrypoint: claim a ledger task, write /task, clone /work (docs/SPEC.md § task pull)
