@@ -13,7 +13,9 @@ import {
   postConcept,
   repoLines,
   resolveAuthorVesselId,
+  linkVerdict,
   scanVerdicts,
+  verdictRowsFor,
   workspaceRepo,
 } from './_findings.js';
 import type { RepoIdentity } from '../repo-identity.js';
@@ -66,6 +68,8 @@ interface Target {
   /** Every agf_* id the finding carries: a multi-file finding is one finding with one id per file. */
   ids: string[];
   summary: string;
+  /** The finding's concept, which its verdicts and claims are linked to (src/tools/_findings.ts@link-verdict). */
+  conceptId?: string;
 }
 
 async function target(input: ClaimFindingInput, localStore?: LocalStore | null): Promise<Target | string> {
@@ -78,24 +82,25 @@ async function target(input: ClaimFindingInput, localStore?: LocalStore | null):
   if (seed) {
     const ref = conceptIdFromRefs(seed.refs_json);
     const siblings = ref ? localStore!.getSeedsByConceptRef(ref) : [];
-    return { ids: siblings.length ? siblings.map(s => s.id) : [seed.id], summary: seed.brief };
+    return { ids: siblings.length ? siblings.map(s => s.id) : [seed.id], summary: seed.brief, conceptId: ref ? plainConceptId(ref) : undefined };
   }
   if (!isConcept) return `Finding "${plainId}" is not in the local store; claim it by the concept_* id get_problems shows for it.`;
   const remote = await readConceptById(plainId);
   if ('error' in remote) return `Concept "${plainId}" could not be read (${remote.error}), so nothing was claimed.`;
   if (!remote.findingIds.length) return `Concept "${plainId}" carries no agf_* finding id, so it cannot be claimed: verdicts on a finding join on that id.`;
-  return { ids: remote.findingIds, summary: remote.summary };
+  return { ids: remote.findingIds, summary: remote.summary, conceptId: plainId };
 }
 
 /** The finding's verdict state from concept-db: whether it is closed, and its claim holder now. */
-export async function state(ids: string[], ownId?: string): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean; seenOwn: boolean } | string> {
+export async function state(ids: string[], ownId?: string, conceptId?: string): Promise<{ closed: string | null; holder: ClaimHolder | null; truncated: boolean; seenOwn: boolean } | string> {
   const scan = await scanVerdicts();
   if (!scan.ok) return `concept-db could not be read (${scan.detail}), so nothing was claimed.`;
+  const rows = await verdictRowsFor(scan, conceptId ? [conceptId] : []);
   const wanted = new Set(ids);
   let closed: string | null = null;
   const claims = [];
   let seenOwn = false;
-  for (const row of scan.rows) {
+  for (const row of rows) {
     const claim = parseClaim(row);
     if (claim) {
       if (wanted.has(claim.findingId)) claims.push(claim);
@@ -165,17 +170,18 @@ export async function claim(
   const me = await resolveAuthorVesselId();
   if (!me) return r('refused', 'No vessel identity resolves for this session, so a claim could not name its holder; nothing was claimed.');
   const key = found.ids[0]!;
+  const findingConceptId = found.conceptId;
 
-  const before = await state(found.ids);
+  const before = await state(found.ids, undefined, found.conceptId);
   if (typeof before === 'string') return r('error', before, { key });
-  const scanNote = before.truncated ? '\n  (concept-db\'s verdicts were read up to the scan limit; an older claim may not have been seen)' : '';
+  const scanNote = before.truncated ? '\n  (concept-db\'s verdicts were read up to the scan limit; the finding\'s linked claims were read too, but an older claim written before claims were linked may not have been seen)' : '';
   if (before.closed) {
     return r('closed', `Finding ${key} is already closed (${before.closed}), so there is nothing to claim. get_problems shows it under Closed findings.`, { key });
   }
   const mine = before.holder?.by === me;
   const holder = before.holder ? { by: before.holder.by, until: before.holder.until } : undefined;
 
-  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => postConcept({
+  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => linked(await postConcept({
     content: [
       ...claimLines(key, minutes),
       ...repoLines(repo),
@@ -186,7 +192,12 @@ export async function claim(
     shape: VERDICT_SHAPE,
     source_type: 'metabob_annotation',
     pointer: { type: VERDICT_SHAPE },
-  });
+  }));
+  // Each claim and withdrawal is linked to the finding, so its holder is read even when the verdicts outgrow a scan.
+  async function linked<T extends { ok: boolean; id?: string }>(posted: T): Promise<T> {
+    if (posted.ok) await linkVerdict(posted.id, findingConceptId);
+    return posted;
+  }
   const failed = (error?: string) => r(/^key_read_only/.test(error ?? '') ? 'refused' : 'error', /^key_read_only/.test(error ?? '')
     ? `Not claimed (${error}): this key cannot write, so other agents would not see a claim.`
     : `Not claimed: concept-db refused the write (${error}).`, { key });
@@ -221,7 +232,7 @@ export async function claim(
   let after: Awaited<ReturnType<typeof state>> = 'not read back';
   for (const ms of pauses) {
     await pause(ms);
-    after = await state(found.ids, posted.id);
+    after = await state(found.ids, posted.id, found.conceptId);
     if (typeof after === 'string' || after.seenOwn) break;
   }
   if (typeof after === 'string') return r('unsettled', `Claim written (concept ${posted.id ?? '?'}), but it could not be read back to confirm it holds: ${after}`, { key });
@@ -245,9 +256,9 @@ export async function claim(
  * the endorse still goes ahead, since the claimer may be gone and the fix is what counts. Empty otherwise,
  * including when the claims cannot be read. SPEC §mark_complete
  */
-export async function claimWarning(ids: string[]): Promise<string> {
+export async function claimWarning(ids: string[], conceptId?: string): Promise<string> {
   const me = await resolveAuthorVesselId();
-  const now = await state(ids);
+  const now = await state(ids, undefined, conceptId);
   if (typeof now === 'string' || !now.holder || now.holder.by === me) return '';
   return `claimed by ${now.holder.by} until ${when(now.holder.until)}; this endorse closes it anyway, which ends their claim`;
 }

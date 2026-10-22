@@ -29,6 +29,7 @@ import {
   attributionLines,
   fetchAgentFindings,
   parseFindingIds,
+  linkVerdict,
   postConcept,
   repoLines,
   resolveAuthorVesselId,
@@ -154,6 +155,7 @@ export async function closeFromCommits(a: CloseArgs, sessionId: string): Promise
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
       });
+      if (posted.ok) await linkVerdict(posted.id, finding.id);
       reports.push({ id, outcome: posted.ok ? 'awaiting_merge' : 'refused', commit: sha, detail: posted.ok ? `pushed but not yet merged into ${a.target}: recorded as fix pending (awaiting merge)` : `the pending verdict could not be written (${posted.error})` });
       continue;
     }

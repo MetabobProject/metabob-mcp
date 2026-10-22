@@ -24,7 +24,9 @@ import { substrateRefusal } from '../attachment.js';
 import {
   conceptDbAvailable,
   createConcept,
+  conceptGraph,
   getConcept,
+  linkConcepts,
   recordUsage,
   searchConcepts,
   type ConceptRow,
@@ -317,36 +319,106 @@ type ConceptScan =
   | { ok: true; rows: ConceptRow[]; truncated: boolean }
   | { ok: false; detail: string };
 
+/** Most pages of FINDINGS_MAX_SCAN rows one scan reads, when concept-db pages list mode. */
+const FINDINGS_MAX_PAGES = 4;
+/** Set once concept-db answers an offset with the first page again, so later scans read one page only. */
+let offsetIgnored = false;
+
+/** Tests only: forget whether concept-db honours the offset. */
+export function resetOffsetProbeForTests(): void {
+  offsetIgnored = false;
+}
+
 /**
  * Read one concept shape out of concept-db in list mode: `conceptSearch` by
- * shape, relevance DESC, up to FINDINGS_MAX_SCAN rows in one read (the shape
- * takes no offset), so a client-side filter sees more than the top window;
- * `truncated` is set when the cap is reached.
+ * shape, relevance DESC then newest, FINDINGS_MAX_SCAN rows a page, so a
+ * client-side filter sees more than the top window. A full page asks for the next
+ * one by `offset`, up to FINDINGS_MAX_PAGES; a concept-db that does not honour
+ * the offset answers the first page again, and the scan stops there. `truncated`
+ * is set when the last page read was full.
  *
  * Shared by the finding scan and the verdict scan so the two cannot disagree
  * about how far back they look — a verdict the finding scan can see but the
  * verdict scan cannot would silently render a closed finding as open.
  */
+async function scanConceptShape(shape: string): Promise<ConceptScan> {
+  const rows: ConceptRow[] = [];
+  const seen = new Set<string>();
+  let truncated = false;
+  for (let page = 0; page < (offsetIgnored ? 1 : FINDINGS_MAX_PAGES); page++) {
+    const found = await searchConcepts({ shape, limit: FINDINGS_MAX_SCAN, ...(page ? { offset: page * FINDINGS_MAX_SCAN } : {}) });
+    if (!found.ok) {
+      if (page === 0) return { ok: false, detail: found.error };
+      break;
+    }
+    // Dedup by concept id: one answer can carry a row twice (bare and ⟨⟩-wrapped
+    // ids name the same concept). Skip repeats so the rendered recall and its
+    // "top N of M" count stay honest.
+    let fresh = 0;
+    for (const row of found.value) {
+      const key = plainConceptId(row.id);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      rows.push(row);
+      fresh++;
+    }
+    truncated = found.value.length >= FINDINGS_MAX_SCAN;
+    // A short page is the end; a page of rows already seen means the offset was not honoured.
+    if (page > 0 && fresh === 0) offsetIgnored = true;
+    if (!truncated || fresh === 0) break;
+  }
+  return { ok: true, rows, truncated };
+}
+
 /** Every `finding_verdict` row, as the recall's verdict join reads them (claims included). */
 export async function scanVerdicts(): Promise<ConceptScan> {
   return scanConceptShape(VERDICT_SHAPE);
 }
 
-async function scanConceptShape(shape: string): Promise<ConceptScan> {
-  const found = await searchConcepts({ shape, limit: FINDINGS_MAX_SCAN });
-  if (!found.ok) return { ok: false, detail: found.error };
-  const rows: ConceptRow[] = [];
-  const seen = new Set<string>();
-  // Dedup by concept id: one answer can carry a row twice (bare and ⟨⟩-wrapped
-  // ids name the same concept). Skip repeats so the rendered recall and its
-  // "top N of M" count stay honest.
-  for (const row of found.value) {
-    const key = plainConceptId(row.id);
-    if (key && seen.has(key)) continue;
-    if (key) seen.add(key);
-    rows.push(row);
+/** The edge from a verdict to the finding it is about, so a finding's verdicts are read without a scan. */
+export const VERDICT_EDGE = 'derived_from';
+
+/** Most findings whose linked verdicts one recall reads, and most verdicts read per finding. */
+const LINKED_MAX_FINDINGS = 50;
+const LINKED_MAX_VERDICTS = 200;
+
+// @anchor link-verdict
+/**
+ * Link a verdict (claims included) to its finding: `verdict --derived_from--> finding`. Best-effort: an unlinked
+ * verdict is still found by the scan while it is in the window. SPEC §get_problems
+ */
+export async function linkVerdict(verdictId: string | undefined, findingConceptId: string | null | undefined): Promise<void> {
+  if (!verdictId || !findingConceptId) return;
+  await linkConcepts({
+    from_concept_id: plainConceptId(verdictId),
+    to_concept_id: plainConceptId(findingConceptId),
+    edge_type: VERDICT_EDGE,
+    description: 'a verdict on this finding',
+  });
+}
+
+// @anchor verdict-rows-for
+/**
+ * The verdict rows that bear on `findingConceptIds`: the scan's rows, and, when the scan was truncated (older
+ * verdicts fell outside its window), each finding's linked verdicts read through `conceptGraph`, deduplicated by
+ * concept id. Verdicts written before linking stay covered by the scan alone. SPEC §get_problems
+ */
+export async function verdictRowsFor(scan: { rows: ConceptRow[]; truncated: boolean }, findingConceptIds: string[]): Promise<ConceptRow[]> {
+  const ids = [...new Set(findingConceptIds.map(plainConceptId).filter(Boolean))].slice(0, LINKED_MAX_FINDINGS);
+  if (!scan.truncated || !ids.length) return scan.rows;
+  const seen = new Set(scan.rows.map(r => plainConceptId(r.id)));
+  const out = [...scan.rows];
+  const graphs = await Promise.all(ids.map(id => conceptGraph(id, { direction: 'incoming', edge_types: [VERDICT_EDGE], limit: LINKED_MAX_VERDICTS })));
+  for (const g of graphs) {
+    if (!g.ok || !g.value) continue;
+    for (const { neighbor } of g.value.edges) {
+      const key = plainConceptId(neighbor.id);
+      if (neighbor.shape !== VERDICT_SHAPE || !key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(neighbor);
+    }
   }
-  return { ok: true, rows, truncated: found.value.length >= FINDINGS_MAX_SCAN };
+  return out;
 }
 
 /**
@@ -596,13 +668,14 @@ export async function fetchAgentFindings(
   if (findings.length > 0) {
     const verdictScan = await scanConceptShape(VERDICT_SHAPE);
     if (verdictScan.ok) {
+      const verdictRows = await verdictRowsFor(verdictScan, findings.map(f => f.id));
       // A retraction wins over an endorse when both were recorded for the same
       // id — a known false positive must never re-render as open/fixed — and a
       // committed fix wins over a pending one. A fix with a commit wins over one without.
       const rank = (v: ParsedVerdict) => (v.verdict === 'retracted' ? 3 : v.verdict === 'fixed' ? (v.fix ? 2 : 1.5) : 1);
       const verdictById = new Map<string, ParsedVerdict>();
       const claimsById = new Map<string, ClaimRecord[]>();
-      for (const row of verdictScan.rows) {
+      for (const row of verdictRows) {
         const claim = parseClaim(row);
         if (claim) claimsById.set(claim.findingId, [...(claimsById.get(claim.findingId) ?? []), claim]);
         const parsed = parseVerdictConcept(row.content ?? '', row.summary ?? '');

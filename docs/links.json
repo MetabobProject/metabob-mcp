@@ -146,8 +146,8 @@
         "why": "attachment.ts change only ages the refusal text; CLAUDE.md describes named causes, not their wording"
       },
       "docs/CONFORMANCE.md": {
-        "at": "34a24bc",
-        "why": "refusal age is message wording; no participation requirement changes"
+        "at": "9435242",
+        "why": "the write backstop in resolve adds a local refusal and redaction before sending; the single egress, the key and the named failures are unchanged"
       },
       "docs/SPEC.md": {
         "at": "1d3b52a",
@@ -694,6 +694,11 @@
           "repository-identity"
         ]
       },
+      "tests/unit/ledger-window.test.ts": {
+        "SPEC": [
+          "get_problems"
+        ]
+      },
       "tests/unit/mark-complete-fix-location.test.ts": {
         "SPEC": [
           "mark_complete"
@@ -1026,11 +1031,13 @@
         "src/tools/_findings.ts@fetchConceptById",
         "src/tools/_findings.ts@findOpenDuplicate",
         "src/tools/_findings.ts@fixLines",
+        "src/tools/_findings.ts@link-verdict",
         "src/tools/_findings.ts@openFindingsHeadline",
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
         "src/tools/_findings.ts@retireClosedSeeds",
         "src/tools/_findings.ts@task-findings",
+        "src/tools/_findings.ts@verdict-rows-for",
         "src/tools/_gap-activity.ts@gapSummaryLines",
         "src/tools/_gap-activity.ts@openGapsOnFilesLines",
         "src/tools/_gap-activity.ts@pathMapper",
@@ -1238,11 +1245,13 @@
       "src/tools/_findings.ts@fetchConceptById": "97bacbfabaa1",
       "src/tools/_findings.ts@findOpenDuplicate": "ac0eceeace32",
       "src/tools/_findings.ts@fixLines": "df4f3a22193e",
+      "src/tools/_findings.ts@link-verdict": "8d64a30d9de1",
       "src/tools/_findings.ts@openFindingsHeadline": "c854e9951c53",
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
       "src/tools/_findings.ts@retireClosedSeeds": "158fc0931e09",
       "src/tools/_findings.ts@task-findings": "8d64a30d9de1",
+      "src/tools/_findings.ts@verdict-rows-for": "8d64a30d9de1",
       "src/tools/_gap-activity.ts@gapSummaryLines": "41dd2834ccf4",
       "src/tools/_gap-activity.ts@openGapsOnFilesLines": "b007cd77f4bd",
       "src/tools/_gap-activity.ts@pathMapper": "68351f924e85",
@@ -1259,7 +1268,7 @@
       "src/tools/annotate-component.ts@handle": "4bdf740420c9",
       "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
       "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS": "2ff747fa54f6",
-      "src/tools/claim-finding.ts@claimWarning": "2acf4036bebe",
+      "src/tools/claim-finding.ts@claimWarning": "451fb20b7f06",
       "src/tools/claim-finding.ts@handle": "4bdf740420c9",
       "src/tools/concept-create.ts@concept-author-stamp": "8d64a30d9de1",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",

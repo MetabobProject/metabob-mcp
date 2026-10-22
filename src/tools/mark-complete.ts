@@ -16,6 +16,7 @@ import {
   workspaceRepo,
   fixLines,
   filesHere,
+  linkVerdict,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
 import { fixLocation, hasRemote, type FixLocation } from '../repo-identity.js';
@@ -275,6 +276,7 @@ async function closeOrPend(
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
       });
+      if (posted.ok) await linkVerdict(posted.id, plainId);
       // A pending fix credits nothing yet: the endorse that names a commit does.
       const usage = pending ? null : await recordConceptUsage(
         plainId,
@@ -286,7 +288,7 @@ async function closeOrPend(
       const keyedNote = findingKey === plainId
         ? `\n  keyed on:   the concept id — this finding carries no agf_* id (recorded with no local store), so finding-id joins will not surface this verdict`
         : '';
-      const claimed = input.action === 'endorse' ? await claimWarning(remote.findingIds.length ? remote.findingIds : [findingKey]) : '';
+      const claimed = input.action === 'endorse' ? await claimWarning(remote.findingIds.length ? remote.findingIds : [findingKey], plainId) : '';
       return (
         `Finding ${plainId} ${pending ? 'left open, fix pending,' : input.action === 'endorse' ? 'endorsed' : 'discarded'} from the shared record\n` +
         (claimed ? `  claim:      ${claimed}\n` : '') +
@@ -356,6 +358,7 @@ async function closeOrPend(
         source_type: 'metabob_annotation',
         pointer: { type: VERDICT_SHAPE },
       });
+      if (result.ok && conceptRef) await linkVerdict(result.id, plainConceptId(conceptRef));
       conceptStatus = result.ok
         ? `verdict shared via concept-db (concept ${result.id ?? '?'})`
         : /^key_read_only/.test(result.error ?? '') ? `not shared (${result.error}) — verdict recorded locally only; other agents will not see it` : `concept-db unreachable (${result.error}) — verdict recorded locally only`;
@@ -391,7 +394,7 @@ async function closeOrPend(
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (loc) out += `\n  fix: ${fixShown(loc)}`;
     if (input.action === 'endorse' && conceptStatus.startsWith('verdict shared')) {
-      const claimed = await claimWarning(toRetire);
+      const claimed = await claimWarning(toRetire, conceptRef ? plainConceptId(conceptRef) : undefined);
       if (claimed) out += `\n  claim: ${claimed}`;
     }
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;

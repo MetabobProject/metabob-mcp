@@ -71,6 +71,8 @@ export interface SearchFilters {
   shape?: string;
   min_relevance?: number;
   limit: number;
+  /** Rows to skip, for paging list mode; a concept-db that does not honour it answers the first page again. */
+  offset?: number;
 }
 
 export async function searchConcepts(filters: SearchFilters): Promise<Read<ConceptRow[]>> {
@@ -79,6 +81,7 @@ export async function searchConcepts(filters: SearchFilters): Promise<Read<Conce
   if (filters.source_type) pointer.source_type = filters.source_type;
   if (filters.shape) pointer.shape = filters.shape;
   if (filters.min_relevance !== undefined) pointer.min_relevance = filters.min_relevance;
+  if (filters.offset) pointer.offset = filters.offset;
   const r = await read(pointer);
   if (!r.ok) return r;
   if (r.value.status !== 200) return { ok: false, status: r.value.status, error: failure('conceptSearch', r.value.status, r.value.body) };
