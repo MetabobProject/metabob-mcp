@@ -134,10 +134,9 @@ learning signal. It does not overwrite the reach verdict; only a person's `human
 - **Credit**: `concept_record_usage { concept_id, outcome }` when a concept you used
   helped (`success`) or misled you (`failure`), with `neutral` for neither.
 
-What the substrate learns: usage outcomes feed each concept's relevance score. That is
-the most anything here moves: only goals you dispatch (`run_goal`, `run_goal_async`) are
-graded as executions and teach the substrate's own selection. So when the substrate can
-do a task, prefer dispatching it to doing it by hand.
+What the substrate learns: usage outcomes feed each concept's relevance score. Goals you
+dispatch are graded as executions; whether your other interactions also become activities
+the substrate learns from is being verified.
 
 On a repository with no anchor yet, `concept_search` for one named after the repo;
 if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,

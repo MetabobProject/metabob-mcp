@@ -68,6 +68,7 @@ export async function attachmentLines(sessionId: string): Promise<string[]> {
   if (st.auth.status === 'authenticated' && !st.cause) {
     return [`Attachment: attached to org ${st.auth.orgId ?? '?'} via discovery ${st.anchor.discovery ? redactUrl(st.anchor.discovery) : '?'}`, who];
   }
+  if (!st.cause && st.auth.status === 'pending') return ['Attachment: attaching (first attempt in progress)', who];
   return [`Attachment: not attached: ${st.message ?? st.cause ?? st.auth.status}`, who];
 }
 
