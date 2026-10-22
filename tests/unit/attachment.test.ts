@@ -467,3 +467,49 @@ describe('discovery derivation (H1)', () => {
     expect(discoveryEndpointSource({})).toBe('none');
   });
 });
+
+// A server started before its substrate (alongside the fleet, after a reboot or a power loss) attaches once the
+// substrate answers, instead of staying unattached until it restarts. SPEC §attachment
+describe('re-attaching after a transient failure', () => {
+  const DISC = 'http://127.0.0.1:18100';
+  const ID = 'http://127.0.0.1:8101';
+  const bootstraps = (calls: Array<{ url: string }>) => calls.filter(c => c.url.endsWith('/bootstrap')).length;
+
+  test('retries in the background, and attaches once discovery and identity answer', async () => {
+    const hosts: Record<string, Responder> = {};
+    const { a, logs } = run({ discovery: DISC, heartbeatMs: 60_000, reattachDelaysMs: [20], script: { hosts } });
+    expect((await a.settled()).cause).toBe('anchor_unreachable');
+    hosts[DISC] = bootstrapAt(ID);
+    hosts[ID] = identity();
+    for (let i = 0; i < 100 && a.state().cause; i++) await new Promise(r => setTimeout(r, 20));
+    expect(a.state()).toMatchObject({ cause: null, auth: { status: 'authenticated', orgId: ORG } });
+    expect(logs.some(l => /Attached on attempt \d+, after: anchor_unreachable/.test(l.message))).toBe(true);
+  });
+
+  test('a substrate tool called after the failure attempts again at once', async () => {
+    const hosts: Record<string, Responder> = {};
+    const { a } = run({ discovery: DISC, heartbeatMs: 60_000, reattachDelaysMs: [600_000], reattachOnDemandMs: 0, script: { hosts } });
+    expect(await a.refusal()).toMatch(/^anchor_unreachable/);
+    hosts[DISC] = bootstrapAt(ID);
+    hosts[ID] = identity();
+    expect(await a.refusal()).toBeNull();
+    expect((await a.resolve({ type: 'vesselRegistry' }, { read: true })).status).toBe(200);
+  });
+
+  test('a rejected key is final, and a one-shot attachment (heartbeat off) never retries', async () => {
+    const rejected = run({ discovery: DISC, key: 'mb_wrong', heartbeatMs: 60_000, reattachDelaysMs: [10], reattachOnDemandMs: 0, script: { hosts: { [DISC]: bootstrapAt(ID), [ID]: identity() } } });
+    expect((await rejected.a.settled()).cause).toBe('key_rejected');
+    await new Promise(r => setTimeout(r, 60));
+    await rejected.a.refusal();
+    expect(bootstraps(rejected.calls)).toBe(1);
+
+    const hosts: Record<string, Responder> = {};
+    const oneShot = run({ discovery: DISC, heartbeatMs: 0, reattachDelaysMs: [10], reattachOnDemandMs: 0, script: { hosts } });
+    expect((await oneShot.a.settled()).cause).toBe('anchor_unreachable');
+    hosts[DISC] = bootstrapAt(ID);
+    hosts[ID] = identity();
+    await new Promise(r => setTimeout(r, 60));
+    expect(await oneShot.a.refusal()).toMatch(/^anchor_unreachable/);
+    expect(bootstraps(oneShot.calls)).toBe(1);
+  });
+});

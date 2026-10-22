@@ -632,6 +632,11 @@
           "claude-code-plugin"
         ]
       },
+      "tests/unit/attachment.test.ts": {
+        "SPEC": [
+          "attachment"
+        ]
+      },
       "tests/unit/claim-finding.test.ts": {
         "SPEC": [
           "claim_finding"
@@ -928,6 +933,7 @@
         "src/attachment.ts@network-diagnosis",
         "src/attachment.ts@no-producer-line",
         "src/attachment.ts@read-only-key",
+        "src/attachment.ts@reattach",
         "src/attachment.ts@rehost-h1",
         "src/attachment.ts@resolve-timeouts",
         "src/attachment.ts@resolveShape",
@@ -1127,6 +1133,7 @@
       "src/attachment.ts@network-diagnosis": "8d64a30d9de1",
       "src/attachment.ts@no-producer-line": "c05541483db5",
       "src/attachment.ts@read-only-key": "a540fe0dcec1",
+      "src/attachment.ts@reattach": "8d64a30d9de1",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
       "src/attachment.ts@resolve-timeouts": "784f64c1544e",
       "src/attachment.ts@resolveShape": "ea88ab26b8c9",

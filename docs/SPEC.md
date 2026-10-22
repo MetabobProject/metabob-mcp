@@ -181,7 +181,7 @@ There is no built-in default after these. Consequences worth knowing:
 
 ### Attachment
 
-`src/attachment.ts@attach` runs once at startup, in the background: startup and the local tools never
+`src/attachment.ts@attach` runs at startup, in the background (and again after a transient failure, below): startup and the local tools never
 wait on it. It takes the anchor `{discovery, key}` and, in one pass that contacts each address at most
 once:
 
@@ -214,6 +214,18 @@ once:
 
 Once authenticated, the same identity is re-resolved every 5 minutes (the key-issuance heartbeat,
 `src/auth-service.ts@AuthService`); a key revoked meanwhile turns the attachment to `key_rejected`.
+
+**A failure that can pass by itself is retried** (`src/attachment.ts@reattach`). A server started before its
+substrate answers (alongside the fleet, after a reboot or a power loss) would otherwise stay unattached until it
+restarts. After `anchor_unreachable` or `identity_unreachable`:
+- the attachment attempts again in the background, after 5 s, 15 s, 30 s, 1 min, 2 min, then every 5 min, until it
+  attaches;
+- a substrate tool called after the failure attempts again at once, at most every 10 s, so the first call after
+  the substrate comes up succeeds;
+- each attempt starts from a fresh state, and the recovery is logged once ("Attached on attempt N, after: <cause>").
+
+A rejected key and missing configuration are final. Only the long-running server retries, since it is the one with
+the heartbeat; `attach --check`, `doctor`, `task pull` and `finding close` report what they found once.
 
 **State** — one typed object (`src/attachment.ts@AttachmentState`), reported by `doctor` and in the
 loopback `GET /health` as its `attachment` field (`src/vessel-server.ts@health-attachment`), together

@@ -129,8 +129,12 @@ export interface AttachOptions {
    * runs once and nothing repeats.
    */
   authService?: AuthService;
-  /** Key-issuance heartbeat interval; 0 disables it. */
+  /** Key-issuance heartbeat interval; 0 disables it, and with it re-attaching after a transient failure. */
   heartbeatMs?: number;
+  /** Re-attach backoff (tests); REATTACH_DELAYS_MS by default. */
+  reattachDelaysMs?: readonly number[];
+  /** Least time between an on-demand re-attach and the previous attempt (tests); 10 s by default. */
+  reattachOnDemandMs?: number;
   /** The request path; default the one outbound path, src/net.ts, reading proxy and trust from `env`. */
   fetchImpl?: typeof fetch;
   /** Where proxy and trust settings are read; default process.env. */
@@ -225,6 +229,19 @@ export class AttachmentRefusedError extends Error {
 const BOOTSTRAP_TIMEOUT_MS = 5_000;
 const DIAL_TIMEOUT_MS = 2_000;
 const DEFAULT_HEARTBEAT_MS = 5 * 60_000;
+
+// @anchor reattach
+/**
+ * A failure that can pass by itself (discovery or identity not up yet, the network) is attempted again, so a server
+ * started alongside its substrate, or across a reboot or power loss, attaches once the substrate answers instead of
+ * staying unattached until it restarts. Retries back off along REATTACH_DELAYS_MS, then repeat at the last delay, and
+ * a substrate tool called after a failure attempts again at once (at most every REATTACH_ON_DEMAND_MS). Refusals that
+ * do not pass by themselves (a rejected key, nothing configured) are final. Only a long-running attachment (one with
+ * the heartbeat on) retries; a one-shot check (attach --check, doctor, task pull) reports what it found.
+ */
+export const REATTACH_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
+const REATTACH_ON_DEMAND_MS = 10_000;
+const TRANSIENT_CAUSES: ReadonlySet<string> = new Set(['anchor_unreachable', 'identity_unreachable']);
 
 // @anchor resolve-timeouts
 // Client-side caps per producer family, each just above the producer's advertised
@@ -516,6 +533,19 @@ export function attach(options: AttachOptions): Attachment {
     }
   };
 
+  /** Back to the state of a fresh attempt: what the last attempt found is forgotten, the network diagnosis included. */
+  const reset = () => {
+    state.bootstrap = { status: discovery ? 'pending' : 'skipped' };
+    state.identity = { endpoint: null, source: 'none', advertised: null, tried: [] };
+    state.auth = { status: 'pending' };
+    state.cause = null;
+    state.message = null;
+    state.network.cause = null;
+    state.network.causeLine = null;
+    state.network.osProxy = null;
+    state.settledAt = null;
+  };
+
   const settle = (cause: AttachCause | null) => {
     state.cause = cause;
     state.message = refusalMessage(state);
@@ -664,19 +694,62 @@ export function attach(options: AttachOptions): Attachment {
     }
   };
 
-  const done = run().catch((err) => {
+  const once = () => run().catch((err) => {
     state.auth = { status: 'identity_unreachable', detail: err instanceof Error ? err.message : String(err) };
     settle('identity_unreachable');
   }).then(() => state);
 
+  let done = once();
+  let attempts = 1;
+  let lastAttemptAt = Date.now();
+  let inFlight = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const retries = (options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS) > 0;
+  const transient = () => !!state.cause && TRANSIENT_CAUSES.has(state.cause);
+
+  /** One more attempt, unless one is running; logs a recovery once. */
+  const reattach = (): Promise<AttachmentState> => {
+    if (inFlight) return done;
+    inFlight = true;
+    const before = state.message;
+    attempts++;
+    lastAttemptAt = Date.now();
+    reset();
+    done = once().then((st) => {
+      inFlight = false;
+      if (!st.cause) log('info', `Attached on attempt ${attempts}, after: ${before}`);
+      else schedule();
+      return st;
+    });
+    return done;
+  };
+
+  const schedule = () => {
+    if (!retries || !transient() || timer) return;
+    const delays = options.reattachDelaysMs ?? REATTACH_DELAYS_MS;
+    const delay = delays[Math.min(attempts - 1, delays.length - 1)]!;
+    timer = setTimeout(() => {
+      timer = null;
+      if (transient()) void reattach();
+    }, delay);
+    (timer as { unref?: () => void }).unref?.();
+  };
+  void done.then(() => schedule());
+
+  /** The attachment's state now, attempting again first when the last failure may have passed. */
+  const current = async (): Promise<void> => {
+    await done;
+    if (retries && transient() && !inFlight && Date.now() - lastAttemptAt >= (options.reattachOnDemandMs ?? REATTACH_ON_DEMAND_MS)) await reattach();
+  };
+
   const handle: Attachment = {
     state: () => structuredClone(state),
     settled: () => done.then(() => structuredClone(state)),
-    refusal: () => done.then(() => state.message),
+    refusal: () => current().then(() => state.message),
     // CONFORMANCE §c11-attachment-model
     // @anchor attachment-resolve
     async resolve(pointer, opts) {
-      await done;
+      await current();
       if (state.cause || state.auth.status !== 'authenticated' || !discovery) {
         throw new AttachmentRefusedError(state.cause ?? 'not_configured', state.message ?? 'not_configured: no discovery endpoint');
       }
