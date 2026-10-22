@@ -10,7 +10,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { activeWorkspacePath } from '../local-index.js';
-import { gapsForPath, holdOf, landingLeaseOf, pathMapper, readGaps, renderGap, storeNamesPrefix } from './_gap-activity.js';
+import { gapsForPath, holdOf, landingLeaseOf, pathMapper, readGaps, renderGap, storeNamesPrefix, type GapRow } from './_gap-activity.js';
 
 export const PathActivityTool = {
   name: 'path_activity',
@@ -54,7 +54,22 @@ const NEXT = {
   queued: 'Queued: prefer letting the system land it, or dispatch it as a goal.',
   held: 'Held: the ruling says what lifts it; it is not open work.',
   none: 'Nothing in flight: make the change, and record it.',
+  unplaced: 'No gap names these paths, but gaps without an edit site are not ruled out: make the change, and record it.',
 };
+
+// @anchor unplaced-gaps
+/** Open gaps that carry no edit site, by category: path_activity can place them on a path only where their text names it. */
+function unplacedGaps(rows: GapRow[]): { count: number; byCategory: string } {
+  const counts = new Map<string, number>();
+  for (const g of rows) {
+    const site = g.classification_metadata?.['edit_site'];
+    if (typeof site === 'string' && site.trim()) continue;
+    counts.set(g.category ?? 'uncategorised', (counts.get(g.category ?? 'uncategorised') ?? 0) + 1);
+  }
+  const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const shown = top.slice(0, 4).map(([c, n]) => `${c} ${n}`).join(', ');
+  return { count: top.reduce((n, [, k]) => n + k, 0), byCategory: top.length > 4 ? `${shown}, …` : shown };
+}
 
 export async function handle(input: PathActivityInput, _apiClient: AnalysisAPIClient): Promise<string> {
   return pathActivityReport(input, activeWorkspacePath());
@@ -76,6 +91,8 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
 
   const lines: string[] = [];
   const seen = new Set<keyof typeof NEXT>();
+  const unplaced = unplacedGaps(open.rows);
+  let unmatched = false;
   if (mapper.kind === 'none') {
     lines.push('This repository is not one the gap store names (neither the super-repo nor a vessel checkout); only paths given as repos/<vessel>/… are checked.', '');
   }
@@ -91,13 +108,15 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
   for (const path of input.paths) {
     const storePath = unmounted && !path.replace(/\\/g, '/').startsWith('repos/') ? null : mapper.toStorePath(path);
     if (!storePath) {
-      lines.push(`${path} — not a path the gap store names`);
+      lines.push(`${path} — no gap names this path (the gap store places gaps on repos/<vessel>/… paths)`);
+      if (mapper.kind === 'super-repo') unmatched = true;
       continue;
     }
     const hits = gapsForPath(open.rows, storePath);
     if (!hits.length) {
       lines.push(`${storePath} — ${open.truncated ? 'no open gaps found (the read may be truncated)' : 'no open gaps'}`);
       seen.add('none');
+      if (mapper.kind !== 'none' && !unmounted) unmatched = true;
     } else {
       const landing = hits.filter((h) => !holdOf(h.gap) && landingLeaseOf(h.gap));
       const held = hits.filter((h) => holdOf(h.gap));
@@ -119,7 +138,12 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
       if (done.length) lines.push(`  closed: ${done.slice(0, 10).map((h) => h.gap.id).join(', ')}${done.length > 10 ? ` and ${done.length - 10} more` : ''}`);
     }
   }
-  const next = (['landing', 'queued', 'held', 'none'] as const).filter((k) => seen.has(k)).map((k) => NEXT[k]);
+  if (unmatched && unplaced.count) {
+    lines.push('', `${open.truncated ? 'At least ' : ''}${unplaced.count} open gap${unplaced.count === 1 ? ' carries' : 's carry'} no edit site (${unplaced.byCategory}), so they are matched to a path only where their text names it: "no gap names this path" does not rule them out.`);
+    seen.delete('none');
+    seen.add('unplaced');
+  }
+  const next = (['landing', 'queued', 'held', 'none', 'unplaced'] as const).filter((k) => seen.has(k)).map((k) => NEXT[k]);
   if (next.length) lines.push('', ...next);
   return lines.join('\n');
 }

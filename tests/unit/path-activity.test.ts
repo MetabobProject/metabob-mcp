@@ -209,8 +209,36 @@ describe('path_activity', () => {
     await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS } }) });
     const out = await pathActivityReport({ paths: ['src/index.ts', FILE] }, root);
     expect(out).toContain('metabob-mcp may not be a repository this substrate mounts (no open gap names repos/metabob-mcp/)');
-    expect(out).toContain('src/index.ts — not a path the gap store names');
+    expect(out).toContain('src/index.ts — no gap names this path (the gap store places gaps on repos/<vessel>/… paths)');
+    expect(out).not.toContain('carries no edit site');
     expect(out).toContain(`${FILE} — 3 open gaps`);
+  });
+});
+
+describe('gaps without an edit site', () => {
+  function superRepo() {
+    const root = mkdtempSync(join(tmpdir(), 'super-unplaced-'));
+    git(root, 'init', '-q');
+    mkdirSync(join(root, 'repos', 'goal-host-vessel'), { recursive: true });
+    return root;
+  }
+  const DRIFT = Array.from({ length: 3 }, (_, i) => ({ id: `drift${i}`, category: 'docs-drift', summary: 'a doc drifted from the code' }));
+
+  test('a super-repo root path no gap names counts the gaps that name no path, instead of "nothing in flight"', async () => {
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: [...GAPS, ...DRIFT] } }) });
+    const out = await pathActivityReport({ paths: ['docs/', 'repos/activity-api/src/none.ts'] }, superRepo());
+    expect(out).toContain('docs/ — no gap names this path (the gap store places gaps on repos/<vessel>/… paths)');
+    expect(out).toContain('4 open gaps carry no edit site (docs-drift 3, edit_intent_route 1), so they are matched to a path only where their text names it');
+    expect(out).toContain('No gap names these paths, but gaps without an edit site are not ruled out');
+    expect(out).not.toContain('Nothing in flight');
+  });
+
+  test('with every open gap placed on a path, "no open gaps" is nothing in flight', async () => {
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS.filter((g) => g.classification_metadata?.edit_site) } }) });
+    const out = await pathActivityReport({ paths: ['repos/activity-api/src/none.ts'] }, superRepo());
+    expect(out).toContain('repos/activity-api/src/none.ts — no open gaps');
+    expect(out).not.toContain('no edit site');
+    expect(out).toContain('Nothing in flight: make the change, and record it.');
   });
 });
 
