@@ -1274,7 +1274,7 @@
       "src/tools/mark-complete.ts@handle": "60ef626862ff",
       "src/tools/mark-complete.ts@markCompleteResult": "bfd43e1bb6c3",
       "src/tools/path-activity.ts@handle": "5034330ff43d",
-      "src/tools/path-activity.ts@unplaced-gaps": "717c697c45fa",
+      "src/tools/path-activity.ts@unplaced-gaps": "8d64a30d9de1",
       "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
       "src/tools/provide-feedback.ts@handle": "73fbe202d3b1",
       "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER": "d379a2d71e1b",

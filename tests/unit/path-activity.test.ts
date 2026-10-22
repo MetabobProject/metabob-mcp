@@ -233,6 +233,18 @@ describe('gaps without an edit site', () => {
     expect(out).not.toContain('Nothing in flight');
   });
 
+  test('siteless gaps are counted only for the vessel of the path: another vessel\'s give no count', async () => {
+    const placed = GAPS.filter((g) => g.classification_metadata?.edit_site);
+    const theirs = DRIFT.map((g) => ({ ...g, remedy: { vessel: 'goal-host-vessel' } }));
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: [...placed, ...theirs] } }) });
+    const other = await pathActivityReport({ paths: ['repos/activity-api/src/none.ts', 'docs/'] }, superRepo());
+    expect(other).not.toContain('no edit site');
+    expect(other).toContain('Nothing in flight: make the change, and record it.');
+    clearGapReadCache();
+    const own = await pathActivityReport({ paths: ['repos/goal-host-vessel/src/none.ts'] }, superRepo());
+    expect(own).toContain('3 open gaps carry no edit site (docs-drift 3)');
+  });
+
   test('with every open gap placed on a path, "no open gaps" is nothing in flight', async () => {
     await installShapeStub({ substrateGap: () => ({ body: { gaps: GAPS.filter((g) => g.classification_metadata?.edit_site) } }) });
     const out = await pathActivityReport({ paths: ['repos/activity-api/src/none.ts'] }, superRepo());

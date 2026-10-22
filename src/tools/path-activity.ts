@@ -58,17 +58,28 @@ const NEXT = {
 };
 
 // @anchor unplaced-gaps
-/** Open gaps that carry no edit site, by category: path_activity can place them on a path only where their text names it. */
-function unplacedGaps(rows: GapRow[]): { count: number; byCategory: string } {
+/**
+ * Open gaps that carry no edit site, by category, scoped to the vessels of the paths no gap named: path_activity can
+ * place such a gap on a path only where its text names it. A `repos/<v>/…` path counts the gaps whose remedy names
+ * vessel <v> or no vessel; a super-repo path outside `repos/` counts those that name no vessel.
+ */
+function unplacedGaps(rows: GapRow[], scopes: Set<string | null>): { count: number; byCategory: string } {
   const counts = new Map<string, number>();
   for (const g of rows) {
     const site = g.classification_metadata?.['edit_site'];
     if (typeof site === 'string' && site.trim()) continue;
+    const vessel = g.remedy?.vessel?.trim() || null;
+    if (vessel && !scopes.has(vessel)) continue;
     counts.set(g.category ?? 'uncategorised', (counts.get(g.category ?? 'uncategorised') ?? 0) + 1);
   }
   const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const shown = top.slice(0, 4).map(([c, n]) => `${c} ${n}`).join(', ');
   return { count: top.reduce((n, [, k]) => n + k, 0), byCategory: top.length > 4 ? `${shown}, …` : shown };
+}
+
+/** The vessel a store path belongs to (`repos/<v>/…`), or null for a super-repo path outside `repos/`. */
+function vesselOf(storePath: string | null): string | null {
+  return /^repos\/([^/]+)/.exec(storePath ?? '')?.[1] ?? null;
 }
 
 export async function handle(input: PathActivityInput, _apiClient: AnalysisAPIClient): Promise<string> {
@@ -91,8 +102,8 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
 
   const lines: string[] = [];
   const seen = new Set<keyof typeof NEXT>();
-  const unplaced = unplacedGaps(open.rows);
-  let unmatched = false;
+  // The vessels (null: outside repos/) of the paths no gap named, for the count of gaps that name no path.
+  const unmatched = new Set<string | null>();
   if (mapper.kind === 'none') {
     lines.push('This repository is not one the gap store names (neither the super-repo nor a vessel checkout); only paths given as repos/<vessel>/… are checked.', '');
   }
@@ -109,14 +120,14 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
     const storePath = unmounted && !path.replace(/\\/g, '/').startsWith('repos/') ? null : mapper.toStorePath(path);
     if (!storePath) {
       lines.push(`${path} — no gap names this path (the gap store places gaps on repos/<vessel>/… paths)`);
-      if (mapper.kind === 'super-repo') unmatched = true;
+      if (mapper.kind === 'super-repo') unmatched.add(null);
       continue;
     }
     const hits = gapsForPath(open.rows, storePath);
     if (!hits.length) {
       lines.push(`${storePath} — ${open.truncated ? 'no open gaps found (the read may be truncated)' : 'no open gaps'}`);
       seen.add('none');
-      if (mapper.kind !== 'none' && !unmounted) unmatched = true;
+      if (mapper.kind !== 'none' && !unmounted) unmatched.add(vesselOf(storePath));
     } else {
       const landing = hits.filter((h) => !holdOf(h.gap) && landingLeaseOf(h.gap));
       const held = hits.filter((h) => holdOf(h.gap));
@@ -138,7 +149,8 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
       if (done.length) lines.push(`  closed: ${done.slice(0, 10).map((h) => h.gap.id).join(', ')}${done.length > 10 ? ` and ${done.length - 10} more` : ''}`);
     }
   }
-  if (unmatched && unplaced.count) {
+  const unplaced = unmatched.size ? unplacedGaps(open.rows, unmatched) : { count: 0, byCategory: '' };
+  if (unplaced.count) {
     lines.push('', `${open.truncated ? 'At least ' : ''}${unplaced.count} open gap${unplaced.count === 1 ? ' carries' : 's carry'} no edit site (${unplaced.byCategory}), so they are matched to a path only where their text names it: "no gap names this path" does not rule them out.`);
     seen.delete('none');
     seen.add('unplaced');
