@@ -118,9 +118,9 @@ After the operator loop, `provide_feedback { dispatch_id, verdict, rationale }` 
 `reached`, `not_reached` or `partial`. Make the rationale the evidence you checked:
 what you inspected and what you found.
 
-What the substrate learns: your verdict is stored as an `automated` label in its
-oracle corpus, beside goal-host's own verdict, where it can be compared with
-independent ones. It does not overwrite the reach verdict.
+What the substrate learns: nothing directly. Your verdict is stored as an `automated`
+label in its oracle corpus beside goal-host's own verdict: an audit observation, not a
+learning signal. It does not overwrite the reach verdict; only a person's `human` label does.
 
 ## Role: client of shared memory
 
@@ -134,11 +134,15 @@ independent ones. It does not overwrite the reach verdict.
 - **Credit**: `concept_record_usage { concept_id, outcome }` when a concept you used
   helped (`success`) or misled you (`failure`), with `neutral` for neither.
 
-What the substrate learns: usage outcomes feed each concept's relevance score.
+What the substrate learns: usage outcomes feed each concept's relevance score. That is
+the most anything here moves: only goals you dispatch (`run_goal`, `run_goal_async`) are
+graded as executions and teach the substrate's own selection. So when the substrate can
+do a task, prefer dispatching it to doing it by hand.
 
 On a repository with no anchor yet, `concept_search` for one named after the repo;
 if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,
-primary language>", shape: "repo_anchor" }`.
+primary language>", shape: "repo_anchor", source_type: "memo" }`. Use `memo`, not `human_input`:
+the system's prompt selector takes `human_input` concepts as priors by default.
 
 ## Working safely in the code
 
