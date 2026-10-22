@@ -332,6 +332,7 @@
       },
       "src/task-pull.ts": {
         "SPEC": [
+          "repository-identity",
           "task-pull"
         ]
       },
@@ -1001,6 +1002,7 @@
         "src/repo-identity.ts@normalizeRemoteUrl",
         "src/repo-identity.ts@repo-aliases",
         "src/repo-identity.ts@repoIdentity",
+        "src/repo-identity.ts@vesselAliases",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/server-instructions.ts@SERVER_INSTRUCTIONS",
         "src/task-pull.ts@candidateTasks",
@@ -1210,6 +1212,7 @@
       "src/repo-identity.ts@normalizeRemoteUrl": "54b6b5099f3e",
       "src/repo-identity.ts@repo-aliases": "8d64a30d9de1",
       "src/repo-identity.ts@repoIdentity": "79745a878960",
+      "src/repo-identity.ts@vesselAliases": "835a5162d346",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",
       "src/task-pull.ts@candidateTasks": "b837bf561ed5",

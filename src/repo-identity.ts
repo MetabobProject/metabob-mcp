@@ -319,9 +319,14 @@ export function repoAliases(workspacePath: string): RepoAliases | null {
   } else if (root) {
     const url = git(root, ['remote', 'get-url', 'origin']);
     const origin = url ? normalizeRemoteUrl(url, root) : null;
-    const name = origin ? basename(origin).toLowerCase() : '';
-    if (name) out = { kind: 'vessel', name, prefix: `repos/${name}` };
+    out = origin ? vesselAliases(origin) : null;
   }
   aliasCache.set(key, out);
   return out;
+}
+
+/** A vessel checkout's aliases from its origin's identity alone, for a caller with no checkout yet (task pull). */
+export function vesselAliases(originIdentity: string): RepoAliases | null {
+  const name = basename(originIdentity).toLowerCase();
+  return name ? { kind: 'vessel', name, prefix: `repos/${name}` } : null;
 }

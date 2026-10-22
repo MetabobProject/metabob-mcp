@@ -70,11 +70,11 @@ describe('pullTask', () => {
     return { url: bare, repo: normalizeRemoteUrl(bare)! };
   }
 
-  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string }>, verdicts: Array<Record<string, unknown>> = []) {
+  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string; repo?: string; files?: string }>, verdicts: Array<Record<string, unknown>> = []) {
     const rows: Array<Record<string, unknown>> = [
       ...tasks.map(t => ({
         id: `concept:concept_${t.n}`, shape: 'code_finding', summary: `[${t.sev}][task] r: task ${t.n}`, created_at: new Date(Date.now() - 3_600_000).toISOString(),
-        content: `repo: ${repo}\nfiles: stats.ts\nseverity: ${t.sev}\ncategory: task\nfinding_ids: agf_${t.n}\nrecorded_by: coord${t.details ? `\n\n${t.details}` : ''}`,
+        content: `repo: ${t.repo ?? repo}\nfiles: ${t.files ?? 'stats.ts'}\nseverity: ${t.sev}\ncategory: task\nfinding_ids: agf_${t.n}\nrecorded_by: coord${t.details ? `\n\n${t.details}` : ''}`,
       })),
       ...verdicts,
     ];
@@ -116,6 +116,19 @@ describe('pullTask', () => {
     const claims = rows.filter(x => String(x.content).includes('verdict: claimed'));
     expect(claims).toHaveLength(1);
     expect(String(claims[0]!.content)).toContain(`repo: ${o.repo}`);
+  });
+
+  test('a vessel origin pulls a task recorded in the super-repo on its files, with the paths mapped', async () => {
+    const o = origin('development-vessel');
+    await ledger(o.repo, [
+      { n: 'sup', sev: 'HIGH', repo: 'github.com/avigopal/substrate', files: 'repos/development-vessel/stats.ts' },
+      { n: 'other', sev: 'CRITICAL', repo: 'github.com/avigopal/substrate', files: 'repos/activity-api/src/x.ts' },
+    ]);
+    const a = args(o.url, 'pdv');
+    const r = await pullTask(a, 'sess1', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(0);
+    const task = JSON.parse(readFileSync(join(a.taskDir, 'task.json'), 'utf8'));
+    expect(task).toMatchObject({ task_id: 'agf_sup', files: ['stats.ts'], repo: o.repo });
   });
 
   test('skips a task someone else holds and takes the next', async () => {

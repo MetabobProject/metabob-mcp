@@ -441,7 +441,7 @@ It is Node-safe and runs in the runtime that launched it (§ Runtime), so a cell
 
 **Getting attached.** It loads the configuration and attaches as the server does (§ Attachment). Its vessel identity is `VESSEL_ID`, else derived from the key and the work directory, and its session is `SESSION_ID`, else a new one. The repository is the origin URL's identity (§ Repository identity), so every clone of one origin shares one ledger.
 
-**Choosing a task.** Tasks are open findings in category `task` (§ get_problems) on that repository (`src/task-pull.ts@candidateTasks`). It tries them in this order:
+**Choosing a task.** Tasks are open findings in category `task` (§ get_problems) on that repository (`src/task-pull.ts@candidateTasks`). No checkout exists yet, so the super-repo/vessel aliases (§ Repository identity) come from the origin's identity: a vessel origin also reads tasks the super-repo recorded under `repos/<name>/`, and `task.json` names their files as the vessel does (`src/repo-identity.ts@vesselAliases`). An origin that is itself a super-repo reads its own tasks only. It tries them in this order:
 - a task this cell already holds, so a restarted cell resumes it;
 - then unclaimed tasks, most severe first.
 

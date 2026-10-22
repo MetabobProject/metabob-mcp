@@ -24,7 +24,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
-import { GIT_ENV, normalizeRemoteUrl, type RepoIdentity } from './repo-identity.js';
+import { GIT_ENV, normalizeRemoteUrl, vesselAliases, type RepoIdentity } from './repo-identity.js';
 import { searchConcepts } from './tools/_concept-db.js';
 import { headerBlock, plainConceptId } from './tools/_concept-content.js';
 import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
@@ -185,7 +185,9 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
   const repoId = normalizeRemoteUrl(a.origin)!;
   const repo: RepoIdentity = { id: repoId, name: repoId.split('/').pop() || repoId, source: 'origin' };
 
-  const recall = await fetchAgentFindings({} as never, { repo, workspace: tmpdir() });
+  // No checkout exists yet, so the aliases come from the origin: a task recorded in the super-repo on this vessel's
+  // files is found, with its paths mapped (SPEC §repository-identity).
+  const recall = await fetchAgentFindings({} as never, { repo, workspace: tmpdir(), aliases: vesselAliases(repoId) });
   if (recall.status !== 'ok') return say(1, `the ledger could not be read (${recall.status}${recall.detail ? `: ${recall.detail}` : ''})`);
   const candidates = candidateTasks(recall.findings);
   const tried: string[] = [];
@@ -220,7 +222,7 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
     const ref = declared(details, 'ref');
     if (ref && !validRef(ref)) return release(`task ${key} declares ref ${ref}, which is not a branch name git accepts`);
 
-    const files = header(task.content, 'files').split(',').map(s => s.trim()).filter(Boolean);
+    const files = task.files ?? header(task.content, 'files').split(',').map(s => s.trim()).filter(Boolean);
     const related = recall.findings.filter(f => f.id !== task.id && !isTaskFinding(f) && !f.verdict
       && (f.files ?? header(f.content, 'files').split(',').map(s => s.trim())).some(x => files.includes(x)));
     const record = {

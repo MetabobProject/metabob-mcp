@@ -533,6 +533,8 @@ export interface FindingsScope {
   filePath?: string | null | undefined;
   /** The checkout a fix commit is looked up in; the active workspace by default. */
   workspace?: string;
+  /** The super-repo/vessel aliases, when the caller knows them without a checkout; else read from the workspace. */
+  aliases?: RepoAliases | null;
 }
 
 /**
@@ -562,7 +564,7 @@ export async function fetchAgentFindings(
   if (!scan.ok) return { status: 'unreachable', findings: [], detail: scan.detail };
 
   // A super-repo and a vessel checkout name one file under two repositories: recall reads both ledgers.
-  const aliases = repoAliases(scope.workspace ?? activeWorkspacePath());
+  const aliases = scope.aliases !== undefined ? scope.aliases : repoAliases(scope.workspace ?? activeWorkspacePath());
   const findings: AgentFinding[] = [];
   for (const row of scan.rows) {
     const summary = row.summary ?? '';
