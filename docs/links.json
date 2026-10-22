@@ -142,12 +142,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "73a0445",
-        "why": "the loopback resolver's field alias is in SPEC § Impulse shapes, which CLAUDE.md points to; no CLAUDE.md row changes"
+        "at": "34a24bc",
+        "why": "attachment.ts change only ages the refusal text; CLAUDE.md describes named causes, not their wording"
       },
       "docs/CONFORMANCE.md": {
-        "at": "97000e2",
-        "why": "the 97000e2 view snapshot adds no ingress, registration or endpoint; C9 still names the cause, now never a half-reset one"
+        "at": "34a24bc",
+        "why": "refusal age is message wording; no participation requirement changes"
       },
       "docs/SPEC.md": {
         "at": "9e9d35e",
@@ -271,7 +271,8 @@
       },
       "src/finding-close.ts": {
         "SPEC": [
-          "finding-close"
+          "finding-close",
+          "repository-identity"
         ]
       },
       "src/index.ts": {

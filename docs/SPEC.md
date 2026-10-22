@@ -675,9 +675,9 @@ A finding carries `repo: <identity>` and `repo_name: <basename>`; a verdict carr
 
 **A super-repo and a vessel checkout share one ledger** (`src/repo-identity.ts@repo-aliases`). The substrate's super-repo names a vessel's file `repos/<vessel>/<path>` under its own identity, while the vessel's own checkout names it `<path>` under the vessel's. Recall in either reads both, by the rule `path_activity` maps paths with (a `repos/` directory at the root is the super-repo; otherwise the vessel is named by its origin's basename):
 - in a vessel checkout, a finding from another repository whose files sit under `repos/<name>/` is recalled, with that prefix removed;
-- in the super-repo, a finding whose `repo:` names a vessel under `repos/` (its last path segment) is recalled, with `repos/<name>/` added.
+- in the super-repo, a finding whose `repo:` names a vessel under `repos/` is recalled, with `repos/<name>/` added. When `repos/<name>/` is its own checkout with an `origin`, the finding's `repo:` must be that exact identity; otherwise the vessel is matched by name (the last segment of `repo:`).
 
-The file filter, the duplicate check, `task pull`'s related findings and the rendered `files:` line all use the mapped paths. Recording is unchanged, so findings recorded under either identity, before or after, are found from both sides with nothing to migrate. The match is by vessel name: a different super-repo with a `repos/<name>/` of the same name is read too.
+The file filter, the duplicate check, `task pull`'s related findings, the rendered `files:` line and `mark_complete`'s fix location (so `finding close` too) all use the mapped paths: a finding recorded on one side closes from the other once its fix is pushed there. A verdict's own `files:` line keeps the finding's recorded form, since the verdict's `repo:` line is the finding's repository. Recording is unchanged, so findings recorded under either identity, before or after, are found from both sides with nothing to migrate. In a vessel checkout the match is by vessel name: a different super-repo with a `repos/<name>/` of the same name is read too.
 
 ---
 

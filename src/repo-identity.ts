@@ -287,12 +287,13 @@ export function hasRemote(workspacePath: string): boolean {
  * named by its origin's basename):
  * - `vessel`: this is a vessel checkout; findings recorded in a super-repo whose files sit under `repos/<name>/`
  *   are this checkout's, with that prefix removed;
- * - `super`: this is the super-repo; a vessel's own findings (a `repo:` whose last path segment is a directory under
- *   `repos/`) are its, with `repos/<name>/` added.
+ * - `super`: this is the super-repo; a vessel's own findings are its, with `repos/<name>/` added. A vessel directory
+ *   that is its own git repository (a submodule or nested clone) is matched by its origin's exact identity; only one
+ *   with no origin of its own is matched by name (a `repo:` whose last path segment is the directory's name).
  */
 export type RepoAliases =
   | { kind: 'vessel'; name: string; prefix: string }
-  | { kind: 'super'; vessels: ReadonlySet<string> };
+  | { kind: 'super'; vessels: ReadonlyMap<string, string | null> };
 
 const aliasCache = new Map<string, RepoAliases | null>();
 
@@ -304,8 +305,16 @@ export function repoAliases(workspacePath: string): RepoAliases | null {
   const root = top ? real(top) : null;
   if (root && existsSync(join(root, 'repos'))) {
     try {
-      const names = readdirSync(join(root, 'repos'), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name.toLowerCase());
-      out = { kind: 'super', vessels: new Set(names) };
+      const vessels = new Map<string, string | null>();
+      for (const d of readdirSync(join(root, 'repos'), { withFileTypes: true })) {
+        if (!d.isDirectory()) continue;
+        const dir = join(root, 'repos', d.name);
+        // Its own repository only when git's top level is the directory itself, not the super-repo around it.
+        const ownTop = git(dir, ['rev-parse', '--show-toplevel']);
+        const ownUrl = ownTop && real(ownTop) === real(dir) ? git(dir, ['remote', 'get-url', 'origin']) : null;
+        vessels.set(d.name.toLowerCase(), ownUrl ? normalizeRemoteUrl(ownUrl, dir) : null);
+      }
+      out = { kind: 'super', vessels };
     } catch { /* unreadable repos/: no aliases */ }
   } else if (root) {
     const url = git(root, ['remote', 'get-url', 'origin']);

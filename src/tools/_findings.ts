@@ -281,7 +281,7 @@ const FINDINGS_MAX_SCAN = 300;
  * normal case in a fleet where a manager assigns work someone else found.
  * Read as the `conceptGraph` root (src/tools/_concept-db.ts@getConcept).
  */
-export interface RecalledConcept { summary: string; files: string; repo: string; repoName: string; findingId: string; findingIds: string[]; recordedAt?: Date }
+export interface RecalledConcept { summary: string; files: string; repo: string; repoName: string; findingId: string; findingIds: string[]; recordedAt?: Date; content: string }
 
 export async function fetchConceptById(_apiClient: AnalysisAPIClient, conceptId: string): Promise<RecalledConcept | null> {
   const read = await readConceptById(conceptId);
@@ -304,6 +304,7 @@ export async function readConceptById(conceptId: string): Promise<RecalledConcep
   return {
     summary: String(row.summary ?? '').trim(),
     files: headerLine(content, 'files'),
+    content,
     repo: headerLine(content, 'repo'),
     repoName: headerLine(content, 'repo_name'),
     findingId,
@@ -492,7 +493,10 @@ function aliasOf(declared: string, content: string, aliases: RepoAliases | null)
     return files.some(f => f.startsWith(`${aliases.prefix}/`)) ? { strip: `${aliases.prefix}/` } : null;
   }
   const name = declared.split('/').pop() ?? '';
-  return aliases.vessels.has(name) ? { add: `repos/${name}/` } : null;
+  if (!aliases.vessels.has(name)) return null;
+  // A vessel with its own origin is matched by that exact identity; by name only when none is known.
+  const identity = aliases.vessels.get(name);
+  return !identity || identity === declared ? { add: `repos/${name}/` } : null;
 }
 
 /** A finding's files in this workspace's form: as recorded, or mapped from the other ledger of a super-repo/vessel pair. */
@@ -504,6 +508,14 @@ export function localFiles(content: string, repo: RepoMatch | null, aliases: Rep
   if (alias?.strip) return files.filter(f => f.toLowerCase().startsWith(alias.strip!)).map(f => f.slice(alias.strip!.length));
   if (alias?.add) return files.map(f => `${alias.add}${f}`);
   return files;
+}
+
+/**
+ * A finding's files as they are named in the checkout at `workspace`: its recorded paths, mapped when it was
+ * recorded in the other ledger of a super-repo/vessel pair. What a close checks in git (SPEC §repository-identity).
+ */
+export function filesHere(content: string, workspace: string): string[] {
+  return localFiles(content, repoMatch(repoIdentity(workspace)), repoAliases(workspace));
 }
 
 /** Does this concept touch the requested path? Prefers the `files:` header, in this workspace's form. */

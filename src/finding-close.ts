@@ -143,8 +143,9 @@ export async function closeFromCommits(a: CloseArgs, sessionId: string): Promise
           `fix: commit ${sha}`,
           `fix_target: ${a.target}`,
           'fix_via: trailer',
-          ...repoLines(repo),
-          `files: ${/^files:\s*(.*)$/m.exec(headerBlock(finding.content))?.[1] ?? ''}`,
+          // The finding's own repository and files, as mark_complete's verdict names them (SPEC §repository-identity).
+          ...(field(finding, 'repo') ? [`repo: ${field(finding, 'repo')}`] : repoLines(repo)),
+          `files: ${field(finding, 'files')}`,
           ...attributionLines('reviewed_by', me, sessionId),
           'origin: remote',
         ].join('\n'),
@@ -160,6 +161,11 @@ export async function closeFromCommits(a: CloseArgs, sessionId: string): Promise
   }
   const line = reports.map(r => `${r.id}: ${r.outcome}`).join('; ');
   return { code: 0, message: line, reports };
+}
+
+/** A `key:` line of the finding's header block, or '' when it has none. */
+function field(finding: AgentFinding, key: string): string {
+  return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(headerBlock(finding.content))?.[1]?.trim() ?? '';
 }
 
 function parseArgs(args: string[]): CloseArgs | string {

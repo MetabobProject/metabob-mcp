@@ -15,6 +15,7 @@ import {
   repoLines,
   workspaceRepo,
   fixLines,
+  filesHere,
 } from './_findings.js';
 import { plainConceptId } from './_concept-content.js';
 import { fixLocation, hasRemote, type FixLocation } from '../repo-identity.js';
@@ -200,7 +201,7 @@ async function closeOrPend(
         return `Concept "${plainId}" could not be read (${remote.error}), so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const loc = input.action === 'endorse' ? fixLocation(workspace, remote.files.split(','), remote.recordedAt, input.fix_commit, opts.head) : null;
+      const loc = input.action === 'endorse' ? fixLocation(workspace, filesHere(remote.content, workspace), remote.recordedAt, input.fix_commit, opts.head) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
       const unpushed = unpushedFix(loc, workspace);
       const pending = loc?.kind === 'uncommitted' || unpushed;
