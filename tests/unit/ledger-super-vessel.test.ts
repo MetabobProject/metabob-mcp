@@ -154,6 +154,29 @@ describe('closing across a super-repo and a vessel checkout', () => {
     expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('verdict: endorsed (resolved)');
   });
 
+  test('finding close from the vessel checkout: the awaiting-merge verdict names the finding\'s own repo and files', async () => {
+    const { closeFromCommits } = await import('../../src/finding-close');
+    const vessel = checkout('dv-close', 'src/x.ts');
+    const base = execFileSync('git', ['-C', vessel.ws, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const finding = { id: 'concept:concept_y', shape: 'code_finding', summary: '[MEDIUM][correctness] r: bug', created_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+      content: 'repo: github.com/avigopal/substrate\nfiles: repos/dv-close/src/x.ts\ncategory: correctness\nfinding_ids: agf_y' };
+    const written: Array<Record<string, unknown>> = [];
+    await installShapeStub({
+      conceptSearch: (p) => ({ body: { content: p.shape === 'code_finding' ? [finding] : [] } }),
+      concept_create_write: (p) => { written.push(p.conceptData); return { body: { success: true, content: JSON.stringify({ id: 'v1' }) } }; },
+    });
+    gitc(vessel.ws, 'checkout', '-qb', 'task/agf_y');
+    writeFileSync(join(vessel.ws, 'src/x.ts'), 'fixed\n');
+    gitc(vessel.ws, 'commit', '-qam', 'fix\n\nFixes-Finding: agf_y');
+    gitc(vessel.ws, 'push', '-q', 'origin', 'task/agf_y');
+    const out = await closeFromCommits({ commits: `${base}..HEAD`, target: 'main', workDir: vessel.ws, json: false }, 's');
+    expect(out.reports[0]!.outcome).toBe('awaiting_merge');
+    const content = String(written[0]!.content);
+    expect(content).toContain('repo: github.com/avigopal/substrate\n');
+    expect(content).toContain('files: repos/dv-close/src/x.ts\n');
+    expect(content).not.toContain(`repo: ${vessel.id}`);
+  });
+
   test('a vessel directory with its own origin is matched by that exact identity, not by name', async () => {
     const sup = join(root, 'super-exact');
     mkdirSync(join(sup, 'repos', 'api'), { recursive: true });
