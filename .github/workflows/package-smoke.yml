@@ -55,8 +55,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The submodule is public over https (.gitmodules), so the default token fetches it.
           submodules: recursive
-          token: ${{ secrets.AUTOMATION_PAT }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
