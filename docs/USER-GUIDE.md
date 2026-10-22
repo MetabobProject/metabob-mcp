@@ -67,9 +67,14 @@ it; nothing else is needed.
 ### Claude Code: the plugin
 
 ```bash
-claude plugin marketplace add MetabobProject/metabob-mcp
+claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
+
+It needs `git`, Node 18 or later and [Bun](https://bun.sh) 1.1 or later on PATH; the server runs under Bun,
+and without it `/mcp` shows the server failed. Use the https URL as written: the `owner/repo` shorthand
+clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp list` shows
+`plugin:metabob:metabob … ✔ Connected` when it works.
 
 The plugin brings three parts: the MCP server, the `metabob` skill (the rules and order of a session, loaded
 by the agent at the start), and the **edit check** (§ 3). Without the installer's config, put the key and

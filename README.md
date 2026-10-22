@@ -163,9 +163,15 @@ the `metabob` participation skill (how an agent takes part: coordinator, operato
 and an edit check:
 
 ```bash
-claude plugin marketplace add MetabobProject/metabob-mcp
+claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
+
+It needs `git`, Node 18+ and [Bun](https://bun.sh) 1.1+ on PATH: Claude Code clones the marketplace with
+git, the plugin starts the server with `npx`, and the server runs under Bun (without it, the server exits at
+start and `/mcp` shows it failed). Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes
+Claude Code clone over ssh, which fails on a machine with no GitHub ssh key, although the repository is
+public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`.
 
 The plugin ships no credentials. The substrate installer writes them; otherwise put your API key
 and the substrate endpoint in `~/.metabob/config.json`:
