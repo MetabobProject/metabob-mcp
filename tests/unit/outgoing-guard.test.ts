@@ -147,6 +147,19 @@ describe('size and scope', () => {
   });
 });
 
+describe('which credential files are read', () => {
+  // A planted, synthetic token; assertions are booleans only, so no failure can print a value read from a file.
+  const TOKEN = 'npm_SyntheticFixtureToken0123456789abcdefXYZ'; // gitleaks:allow (synthetic fixture)
+
+  test('a passed environment\'s HOME decides the home files read; with none, no home file is read', () => {
+    const home = mkdtempSync(join(tmpdir(), 'guard-home-'));
+    const ws = mkdtempSync(join(tmpdir(), 'guard-ws-'));
+    writeFileSync(join(home, '.npmrc'), `//registry.npmjs.org/:_authToken=${TOKEN}\n`);
+    expect(knownSecrets({ HOME: home } as NodeJS.ProcessEnv, ws).includes(TOKEN)).toBe(true);
+    expect(knownSecrets({} as NodeJS.ProcessEnv, ws).includes(TOKEN)).toBe(false);
+  });
+});
+
 describe('the backstop over server-composed writes (guardOutgoingPointer)', () => {
   const home = homedir();
 

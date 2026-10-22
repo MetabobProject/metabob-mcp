@@ -537,7 +537,9 @@ cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's su
   variables (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`) in this process's environment, in the
   workspace's `.env`, `.env.local`, `.env.development`, `.env.production`, `.env.test`, `.npmrc` and
   `.pypirc`, and in the user's `~/.netrc`, `~/.aws/credentials`, `~/.npmrc` and `~/.pypirc`. These
-  files are read locally, cached by modification time, and never sent. A value counts only when it is at
+  files are read locally, cached by modification time, and never sent. The user's home is this user's for the
+  process's own environment; a caller that passes another environment (a test) names it by that environment's
+  `HOME` or `USERPROFILE`, or reads no home file. A value counts only when it is at
   least 16 characters, not a path or a credential-free URL, not a placeholder, and random enough
   (≥ 3 bits per character), and a variable named for a location or an identifier (`…_PATH`, `_FILE`,
   `_DIR`, `_ID`, `_URL`, `_HOST`, `_PORT`, `_NAME`, `_USER`, `_REGION`) never does. Patterns catch

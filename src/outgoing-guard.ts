@@ -187,11 +187,19 @@ function addIfSecret(out: Set<string>, name: string, raw: string | undefined): v
   out.add(v);
 }
 
+/**
+ * The home directory whose config files are read for known secrets: this user's for the process's own environment,
+ * and only the given environment's `HOME` (or `USERPROFILE`) for any other, so a caller that passes its own environment,
+ * a test above all, decides which credential files are read and never reads the developer's own.
+ */
+function secretsHome(env: NodeJS.ProcessEnv): string {
+  if (env !== process.env) return env.HOME || env.USERPROFILE || '';
+  try { return homedir(); } catch { return ''; }
+}
+
 /** Config files whose secret-named values an agent may paste: the workspace's and the user's. */
-function secretFiles(workspace: string): string[] {
+function secretFiles(workspace: string, home: string): string[] {
   const files = ['.env', '.env.local', '.env.development', '.env.production', '.env.test', '.npmrc', '.pypirc'].map((f) => join(workspace, f));
-  let home = '';
-  try { home = homedir(); } catch { /* no home */ }
   if (home) files.push(join(home, '.netrc'), join(home, '.aws', 'credentials'), join(home, '.npmrc'), join(home, '.pypirc'));
   return files;
 }
@@ -221,7 +229,7 @@ function secretsInFile(path: string): string[] {
 /** Known secrets: the environment's and the config files'. Read locally; never sent. */
 export function knownSecrets(env: NodeJS.ProcessEnv = process.env, workspace = env.WORKSPACE_PATH || process.cwd()): string[] {
   const out = new Set(secretValues(env));
-  for (const f of secretFiles(workspace)) for (const v of secretsInFile(f)) out.add(v);
+  for (const f of secretFiles(workspace, secretsHome(env))) for (const v of secretsInFile(f)) out.add(v);
   return [...out];
 }
 
