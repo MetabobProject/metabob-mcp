@@ -166,6 +166,18 @@ describe('the backstop over server-composed writes (guardOutgoingPointer)', () =
     expect(viaExtra).toEqual({ ok: false, field: 'usageData.trace_id' });
   });
 
+  test('a short password-like value (under 8 characters) never refuses a server-composed write that contains it by chance', () => {
+    // A workspace .env with a short password: known values are 16+ characters of high entropy, so it is not one, and
+    // a server-composed branch or path that contains it by chance writes. Assertions are booleans only, so a failure
+    // never prints a secret read from this machine's files.
+    const ws = mkdtempSync(join(tmpdir(), 'guard-short-'));
+    writeFileSync(join(ws, '.env'), 'DB_PASSWORD=main\n');
+    const short = { WORKSPACE_PATH: ws } as NodeJS.ProcessEnv;
+    expect(knownSecrets(short, ws).includes('main')).toBe(false);
+    const r = guardOutgoingPointer({ type: 'concept_create_write', conceptData: { content: 'fix: commit abc\nfix_branch: main\nfix_target: main' } }, short);
+    expect(r.ok).toBe(true);
+  });
+
   test('ids and hashes are not read as credentials: only exact known values refuse', () => {
     const r = guardOutgoingPointer({ type: 'x', conceptData: { content: 'fix: commit 3039ca85d27ad7839299bb10f2460c336967714a\nworkspace: 9f2c1d0e8b7a6f5e', summary: 'trace mcp:7d1e2f3a-4b5c-6d7e-8f90-a1b2c3d4e5f6' } }, env);
     expect(r.ok).toBe(true);

@@ -378,9 +378,10 @@ export async function scanVerdicts(): Promise<ConceptScan> {
 /** The edge from a verdict to the finding it is about, so a finding's verdicts are read without a scan. */
 export const VERDICT_EDGE = 'derived_from';
 
-/** Most findings whose linked verdicts one recall reads, and most verdicts read per finding. */
+/** Most findings whose linked verdicts one recall reads, most verdicts read per finding, and reads at once. */
 const LINKED_MAX_FINDINGS = 50;
 const LINKED_MAX_VERDICTS = 200;
+const LINKED_CONCURRENCY = 8;
 
 // @anchor link-verdict
 /**
@@ -400,15 +401,19 @@ export async function linkVerdict(verdictId: string | undefined, findingConceptI
 // @anchor verdict-rows-for
 /**
  * The verdict rows that bear on `findingConceptIds`: the scan's rows, and, when the scan was truncated (older
- * verdicts fell outside its window), each finding's linked verdicts read through `conceptGraph`, deduplicated by
- * concept id. Verdicts written before linking stay covered by the scan alone. SPEC §get_problems
+ * verdicts fell outside its window), each finding's linked verdicts read through `conceptGraph`, LINKED_CONCURRENCY
+ * at a time, deduplicated by concept id. Verdicts written before linking stay covered by the scan alone. SPEC §get_problems
  */
 export async function verdictRowsFor(scan: { rows: ConceptRow[]; truncated: boolean }, findingConceptIds: string[]): Promise<ConceptRow[]> {
   const ids = [...new Set(findingConceptIds.map(plainConceptId).filter(Boolean))].slice(0, LINKED_MAX_FINDINGS);
   if (!scan.truncated || !ids.length) return scan.rows;
   const seen = new Set(scan.rows.map(r => plainConceptId(r.id)));
   const out = [...scan.rows];
-  const graphs = await Promise.all(ids.map(id => conceptGraph(id, { direction: 'incoming', edge_types: [VERDICT_EDGE], limit: LINKED_MAX_VERDICTS })));
+  // A few at a time: a busy repository's recall would otherwise put 50 reads on concept-db at once, per agent.
+  const graphs: Awaited<ReturnType<typeof conceptGraph>>[] = [];
+  for (let i = 0; i < ids.length; i += LINKED_CONCURRENCY) {
+    graphs.push(...await Promise.all(ids.slice(i, i + LINKED_CONCURRENCY).map(id => conceptGraph(id, { direction: 'incoming', edge_types: [VERDICT_EDGE], limit: LINKED_MAX_VERDICTS }))));
+  }
   for (const g of graphs) {
     if (!g.ok || !g.value) continue;
     for (const { neighbor } of g.value.edges) {

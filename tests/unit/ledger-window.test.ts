@@ -67,6 +67,26 @@ describe('verdicts outside the scan window', () => {
   });
 });
 
+describe('the linked reads are bounded', () => {
+  test('at most 8 graph reads run at once', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const many = Array.from({ length: 20 }, (_, i) => finding(`m${i}`));
+    await installShapeStub({
+      conceptSearch: (p) => ({ body: { content: p.shape === 'code_finding' ? many : noise } }),
+      conceptGraph: async () => {
+        peak = Math.max(peak, ++inFlight);
+        await new Promise(r => setTimeout(r, 5));
+        inFlight--;
+        return { body: { content: { root: {}, edges: [] } } };
+      },
+    });
+    await fetchAgentFindings({} as never, { repo: REPO, aliases: null });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+  });
+});
+
 describe('paging', () => {
   test('a full page asks for the next by offset; the verdict on page two closes the finding', async () => {
     const page2 = [verdict('concept_va', 'agf_a', 'verdict: endorsed (resolved)')];
@@ -117,6 +137,32 @@ describe('every verdict is linked to its finding', () => {
       expect.objectContaining({ from_concept_id: 'concept_v1', to_concept_id: 'concept_a', edge_type: 'derived_from' }),
       expect.objectContaining({ from_concept_id: 'concept_v2', to_concept_id: 'concept_a', edge_type: 'derived_from' }),
     ]);
+    setResolverIdentity({ vesselId: undefined });
+  });
+
+  test('a claim that loses the race writes no link: neither its claim nor its withdrawal', async () => {
+    const Claim = await import('../../src/tools/claim-finding');
+    const { setResolverIdentity } = await import('../../src/resolver-identity');
+    setResolverIdentity({ vesselId: 'metabob-mcp-me' });
+    let n = 0;
+    // Another claimer's claim, written first: it holds the finding.
+    const theirs = { ...verdict('concept_a0', 'agf_a', 'verdict: claimed\nclaim_minutes: 60\nreviewed_by: metabob-mcp-other'), summary: '[verdict:claimed] r: x', created_at: new Date(Date.now() - 1000).toISOString() };
+    const rows: Array<Record<string, unknown>> = [finding('a')];
+    const stub = await installShapeStub({
+      conceptGraph: (p) => (p.concept_id === 'concept_a' ? { body: { content: { root: finding('a'), edges: [] } } } : { status: 404, body: { error: 'Concept not found' } }),
+      // The rival's claim shows only on the read-back, as when two claimers race.
+      conceptSearch: (p) => ({ body: { content: [...rows, ...(n > 0 ? [theirs] : [])].filter(r => r.shape === p.shape) } }),
+      concept_create_write: (p) => {
+        const id = `concept_v${++n}`;
+        rows.push({ id: `concept:${id}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date().toISOString() });
+        return { body: { success: true, content: JSON.stringify({ id }) } };
+      },
+      conceptLink_write: () => ({ body: { success: true, content: '{}' } }),
+    });
+    const r = await Claim.claim(Claim.InputSchema.parse({ problem_id: 'concept_a', action: 'claim' }), 's', null, { repo: null, pauses: [0] });
+    expect(r.outcome).toBe('lost');
+    expect(stub.calls('concept_create_write')).toHaveLength(2);
+    expect(stub.calls('conceptLink_write')).toHaveLength(0);
     setResolverIdentity({ vesselId: undefined });
   });
 });

@@ -181,7 +181,7 @@ export async function claim(
   const mine = before.holder?.by === me;
   const holder = before.holder ? { by: before.holder.by, until: before.holder.until } : undefined;
 
-  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => linked(await postConcept({
+  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => postConcept({
     content: [
       ...claimLines(key, minutes),
       ...repoLines(repo),
@@ -192,12 +192,11 @@ export async function claim(
     shape: VERDICT_SHAPE,
     source_type: 'metabob_annotation',
     pointer: { type: VERDICT_SHAPE },
-  }));
-  // Each claim and withdrawal is linked to the finding, so its holder is read even when the verdicts outgrow a scan.
-  async function linked<T extends { ok: boolean; id?: string }>(posted: T): Promise<T> {
-    if (posted.ok) await linkVerdict(posted.id, findingConceptId);
-    return posted;
-  }
+  });
+  // A held claim and a release are linked to the finding, so its holder is read even when the verdicts outgrow a
+  // scan. The link is written only once the holder is settled: under a race it would double the writes the race
+  // makes, and a loser's own claim and withdrawal settle nothing a later reader needs past the scan.
+  const link = (id: string | undefined) => linkVerdict(id, findingConceptId);
   const failed = (error?: string) => r(/^key_read_only/.test(error ?? '') ? 'refused' : 'error', /^key_read_only/.test(error ?? '')
     ? `Not claimed (${error}): this key cannot write, so other agents would not see a claim.`
     : `Not claimed: concept-db refused the write (${error}).`, { key });
@@ -205,6 +204,7 @@ export async function claim(
   if (input.action === 'release') {
     if (!mine) return r('refused', `You hold no claim on finding ${key}, so there is nothing to release.${before.holder ? ` ${before.holder.by} holds it until ${when(before.holder.until)}.` : ''}`, { key, holder });
     const posted = await write(null, 'withdrawn');
+    if (posted.ok) await link(posted.id);
     return posted.ok ? r('released', `Released your claim on finding ${key}; it is open for another agent.`, { key }) : failed(posted.error);
   }
 
@@ -245,6 +245,7 @@ export async function claim(
     return r('lost', `Finding ${key} was claimed by ${after.holder.by} first (until ${when(after.holder.until)}), so your claim was withdrawn${withdrawn.ok ? '' : ` (the withdrawal failed: ${withdrawn.error}; it lapses at ${when(until.getTime())})`}. `
       + 'Pick another finding.' + scanNote, { key, holder: { by: after.holder.by, until: after.holder.until } });
   }
+  await link(posted.id);
   const verb = mine ? 'Renewed your claim on' : 'Claimed';
   const heldUntil = after.holder?.until ?? until.getTime();
   return r(mine ? 'renewed' : 'claimed', `${verb} finding ${key} until ${when(heldUntil)}. Other agents see it as claimed by ${me}. `
