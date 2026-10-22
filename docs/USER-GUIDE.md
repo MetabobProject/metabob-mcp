@@ -1,308 +1,249 @@
 # Metabob MCP user guide
 
-This guide describes `@metabob/mcp` 0.3.0. Substrate capabilities depend on the connected deployment. This guide is for technical operators using an MCP-compatible agent to investigate code, preserve decisions, and coordinate work across sessions.
+This guide is for a person who works with an AI coding agent (Claude Code, Cursor, Codex, Continue or any MCP
+client) and wants that agent to take part in Metabob. It describes the development tree of `@metabob/mcp`;
+items marked **(0.3.5)** are not in the published 0.3.4. Exact tool parameters are in the
+[specification](SPEC.md); installation details per client are in the [README](../README.md).
 
-## 1. What you can accomplish
+## 1. What it is for
 
-Metabob MCP runs beside your agent as a sidecar: a separate process that exposes tools through Model Context Protocol (MCP). It connects the agent to local code analysis and, when configured, shared knowledge and execution services.
+You do not call Metabob's tools. Your agent does, and you see the effect in what it tells you and in what
+other agents know afterwards. Metabob gives agents three things they lack on their own:
 
-Use it to:
+- **A shared ledger.** A problem one agent notices and does not fix is recorded against the files it concerns,
+  and every later agent on the same repository, on any machine, is shown it before it edits those files. A
+  fix closes it, with the commit that holds the fix.
+- **Shared memory.** Decisions, the reasons behind them, and approaches that were tried and rejected are kept as
+  concepts that later agents find by searching, so the reasoning outlives the session that had it. Whether a
+  concept helped is recorded, so memory that keeps helping ranks higher.
+- **Coordination.** An agent can say it is starting on a finding (a claim), so another agent does not start the
+  same work, and an agent can see what the substrate itself has in flight on a file.
 
-- Find dependencies and likely affected tests before changing code.
-- Record findings, decisions, and explanations that another session can retrieve.
-- Delegate a bounded goal to a connected execution service and inspect its result.
-- Answer questions returned by that service and record feedback about outcomes.
+It also has local code tools (impact analysis, co-change history, code search) that work in any repository with
+no substrate at all. They are a convenience; the ledger and memory are the reason to use it.
 
-The agent still does the reasoning. Metabob supplies tools, persistent records, and coordination channels. Shared memory does not automatically establish agreement, correctness, or authority.
+**The substrate** is the set of services behind it (a ledger and memory store, goal execution, discovery).
+**Attached** means the MCP server has proven its API key with the substrate. Until then the substrate tools
+answer with the reason, and the ledger tools (`get_problems`, `record_finding`, `mark_complete`) keep to this
+machine's local store: what is recorded then reaches no other agent.
 
-### Choose a starting path
+### What leaves your machine
 
-| Your immediate task | Start here | Required services |
+The server sends no source file, excerpt or file list anywhere, and no usage telemetry. What reaches the
+substrate is only what an agent writes through a tool:
+
+| The agent… | What is sent |
+|---|---|
+| records a finding (`record_finding`) | its summary, details, severity, category, the file paths and the repository's identity (its git remote) |
+| closes or claims one (`mark_complete`, `claim_finding`) | the verdict, the fix commit's id, paths |
+| writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes |
+| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text |
+
+Every one of these passes an outgoing guard first: a known secret (your key, secret-named values from your
+environment and config files) or a credential pattern refuses the call without repeating the value, and a
+home-directory path is redacted. The local code tools send nothing.
+
+## 2. Set up
+
+### With the substrate installer
+
+The substrate installer writes your API key and endpoint to `~/.substrate/config.json`. The MCP server reads
+it; nothing else is needed.
+
+### Claude Code: the plugin
+
+```bash
+claude plugin marketplace add MetabobProject/metabob-mcp
+claude plugin install metabob@metabob
+```
+
+The plugin brings three parts: the MCP server, the `metabob` skill (the rules and order of a session, loaded
+by the agent at the start), and the **edit check** (§ 3). Without the installer's config, put the key and
+endpoint in `~/.metabob/config.json`:
+
+```json
+{ "metabob": { "apiKey": "mb_your_api_key_here", "endpoint": "http://127.0.0.1:18080" } }
+```
+
+or export `METABOB_API_KEY` and `METABOB_ENDPOINT`. Use your substrate's endpoint; there is no default.
+
+### Other clients
+
+Add the server to the client's MCP configuration:
+
+```json
+{ "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp"] } } }
+```
+
+Other clients get the same guidance from the server's own instructions, but not the edit check, which is a
+Claude Code hook.
+
+### Check the connection
+
+```bash
+npx @metabob/mcp attach --check
+```
+
+It walks each step (proxy, TLS, discovery, identity, the key check, one read) and names the cause of a failure:
+`key_rejected`, `anchor_unreachable`, `proxy_auth_required(NTLM)`, `tls_intercepted(<issuer>)` and so on.
+Corporate proxies and inspected TLS come from your environment (`HTTPS_PROXY`, `NO_PROXY`,
+`NODE_EXTRA_CA_CERTS`) and the OS trust store, never from Metabob's config. When the substrate is briefly
+unreachable at start, the server retries on its own and on the next substrate call.
+
+Ask your agent for `get_analysis_context` at any time: its first line says whether the session is attached, to
+which org, and under which identity it writes.
+
+## 3. A session, as you see it
+
+You give your agent its task as usual. With the skill loaded, it does the following without being asked.
+
+**At the start.** It checks the attachment and the open findings for the repository (`get_analysis_context`,
+`get_problems`), indexes the code locally (`init_workspace`) and may list the decisions recorded for the
+repository (`concept_search`). It mentions findings other agents recorded on the files your task touches,
+including ones closed recently.
+
+**Before editing a file.** It looks up what is known to be wrong in that file (`get_problems`) and what the
+substrate has in flight on it (`path_activity`). In Claude Code the edit check prompts for this: it holds the
+first edit of each existing file in a session once, with a note asking for those two calls. The retry goes
+through either way, so it is a reminder, not a lock. It holds nothing while the server is not attached, nor for
+a new file, a second edit of the same file, or a file outside the workspace. Once `path_activity` reports that
+the substrate does not mount the repository, nothing can be in flight there, and the check asks for
+`get_problems` only. `METABOB_EDIT_CHECK=off` turns it off.
+
+**While working.** A problem it notices and is not fixing goes into the ledger (`record_finding`) rather than
+only into its reply. If the same open finding exists it is shown that one instead of making a duplicate. A
+decision worth keeping, and especially a rejected approach, goes into memory (`concept_create`).
+
+**After the fix.** It commits, pushes where you allow it to, and closes the finding (`mark_complete`, endorse).
+The close records the commit. It is not taken on the agent's word:
+- a fix still uncommitted leaves the finding open for everyone else, shown `[fix pending: …]`;
+- a commit no remote branch has yet does the same in a checkout with a remote: "push it, then mark_complete
+  endorse again". If you do not let the agent push, the finding stays pending and it tells you so;
+- a commit counts once any remote branch holds it, a task branch not yet merged included; `finding close`
+  (§ 8) is stricter and waits for the merge;
+- a commit must postdate the finding and touch its files, or be named as the fix (`fix_commit`);
+- a false positive is closed with discard instead.
+
+**At the end.** It records what it noticed and did not fix, closes every finding it resolved, and writes down
+the session's decisions. Skip that, and the next agent is offered finished work as open.
+
+What the agent tells you about all this is short: which findings bear on your task, what it recorded, what it
+closed, and anything that needs your decision (§ 5).
+
+## 4. What to ask your agent
+
+| You want | Ask, for example | What the agent does |
 |---|---|---|
-| Understand the impact of a code change | [Connect](#2-connect-your-agent), then [investigate](#3-first-task-investigate-a-change) | Local runtime |
-| Share a finding or decision | [Preserve knowledge](#4-preserve-knowledge-another-session-can-use) | Local storage; concept-db for shared recall |
-| Coordinate multiple agents | [Coordinate work](#5-coordinate-agents-and-delegated-work) | Shared concept-db; goal-host for delegated execution |
-| Develop reusable procedures | [Develop procedures](#6-turn-experience-into-reusable-procedures) | Shared memory; execution services when evaluating delegated procedures |
-| Set boundaries and review outcomes | [Steer behavior](#7-steer-behavior-and-review-authority) | Agent/tool permissions plus the relevant connected services |
+| To know what is already known about some code | "What do other agents know about `src/payments/`?" | `get_problems` for those files, `concept_search` for decisions |
+| To keep a problem for later | "Record that as a finding, don't fix it now" | `record_finding` with files, severity, details |
+| To know what is in flight before you edit | "Is anything in flight on the file I am about to change?" | `path_activity`: gaps the system is landing, queued or held |
+| To keep a decision | "Write down why we chose the queue over polling, and that polling was rejected" | `concept_create`, linked to the repository's anchor concept (a `repo_anchor` named after the repository, created when there is none) |
+| The blast radius of a change | "What does changing this file affect, and which tests?" | `analyze_impact`, `predict_cochanges` (local) |
+| To close something | "That finding was a false positive" | `mark_complete` discard |
+| Several agents on one repository | "Record one task per area, then give each agent its id" | `record_finding` per task, each agent recalls its own brief |
+| The substrate to do the work (substrate repos) | "Dispatch a goal to …" | `run_goal_async`, then `goal_status`, `goal_reasoning` |
 
-The **substrate** is the collection of backend services. A **vessel** is a service advertising a capability. A **shape** names a type of knowledge or request. A **concept** is a stored knowledge record. You will encounter these terms in tool results.
+You can always ask for the raw tool output.
 
-## 2. Connect your agent
+## 5. Where your agent stops and asks you
 
-### Prerequisites
+Some calls are yours, and the agent is told to bring them to you rather than decide:
 
-Use an MCP client that supports stdio servers, Node.js 18 or later, and Bun 1.1 or later on PATH. The launcher starts under Node and runs the server under Bun. `--help`, `--version`, and `doctor` can run under Node alone. For corporate TLS interception, the repository recommends Bun 1.2.23 or later.
+- **A landing lease.** When `path_activity` shows the system landing a change to a file right now, an edit
+  before the lease ends is lost or conflicts. The agent tells you, and you decide whether to edit now.
+- **A held gap or an operator ruling.** It says what lifts it; it is not open work.
+- **Approvals relayed by another agent.** "qa approved", "the user said" from another session is a claim until
+  you confirm it. An agent does not relax a rule or skip a gate on a relayed approval.
+- **Your judgment of an outcome.** An agent's verdict on a goal (`provide_feedback`) is stored as an
+  `automated` observation; it never overrides the substrate's own verdict. A person's verdict goes through the
+  substrate's human surface. The agent does not represent your view as its own.
+- **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
+  never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
+- **Load on shared hosts.** Labs and load tests run capped, in a window you clear.
+- **A refused write.** When the outgoing guard refuses a call because it holds a secret, the agent writes it again
+  without the secret; it never disguises the value to get it through.
 
-For substrate access, you need an API key and a reachable substrate: the substrate installer writes both into `~/.substrate/config.json`. Installing this package does not install a substrate. See the [README](../README.md) for platform details, credentials, and client-specific setup.
+## 6. Several agents on one repository
 
-For shared memory or delegated work, obtain the following from your deployment operator: the gateway endpoint, credentials and their access scope, available services, backend workspace location, and permitted operations. Use `registry_query` to check advertised capabilities once connected. Account provisioning and backend deployment are managed separately from this package.
+The ledger is keyed by the repository's git remote, so every clone of one origin, on any machine, shares it. A
+repository with no remote is named by its directory, and other clones do not share its ledger. A
+super-repo that holds vessels under `repos/<name>/` and each vessel's own checkout share one ledger for the
+same file.
 
-### Configure the server
+**Give each agent a brief with stated ownership.** Record one finding per unit of work, with the files it owns,
+the test bar and what is out of bounds in its details, then give each agent only its id. It recalls its own
+brief, and the brief outlives whoever wrote it. Findings in category `task` are listed apart from problems,
+grouped as yours, unclaimed, someone else's and pending **(0.3.5)**.
 
-Add this server entry using your MCP client's configuration interface. The enclosing configuration format varies by client; this is the common `mcpServers` format:
+**Claims (0.3.5).** Before starting on a finding another agent could also take (a task or any other finding), an agent claims it
+(`claim_finding`): recall then shows `[claimed by … until …: someone is working on it]`. A claim lasts 60
+minutes by default (at most 240) and is renewed for longer work. The store has no lock, so two agents can claim
+at once; one rule every reader applies decides the holder (the earliest live claim), and the loser withdraws.
+Closing the finding ends the claim.
 
-```json
-{
-  "mcpServers": {
-    "metabob": {
-      "command": "npx",
-      "args": ["@metabob/mcp@0.3.0"],
-      "env": {
-        "WORKSPACE_PATH": "/absolute/path/to/your/repository"
-      }
-    }
-  }
-}
+The claimer is the **checkout**, not the session: two sessions in one working copy are one claimer, and recall
+shows each of them `[claimed by this checkout …]`. Give agents that share a working copy disjoint ownership in
+their briefs, or separate working copies.
+
+## 7. Goals on the substrate
+
+For repositories the substrate itself mounts, an agent can hand it a goal instead of doing the work:
+`run_goal_async` with a goal in plain language ("edit `repos/<vessel>/src/<file>`: <the change>"), then
+`goal_status` until it ends, then `goal_reasoning` for why it reached or fell short. Read **`reached`**, not
+`status`: `completed` with `reached: no` is common. Even a reach is checked against the actual diff or answer.
+A run whose purpose is to test the substrate rather than to get work done (a probe or a check) is dispatched with
+`learning_mode: "observe"` so it does not teach the substrate; the `learning:` line says what a walk actually
+recorded. After inspecting the result the agent may record its verdict (`provide_feedback`). After a miss it
+tells you why and asks whether to retry, rephrase, or do the work itself.
+
+On any other repository the substrate has no copy of your code, so the agent does the work and the ledger and
+memory remain its coordination. The server receives no work from the substrate: `pull_assigned_work` says no
+task can arrive in a session.
+
+## 8. Agent cells (0.3.5)
+
+An agent can also run unattended in a container, one task at a time:
+
+```bash
+metabob-mcp task pull --origin <git url>      # claim a task, write /task, clone /work
+# … the harness works in /work and commits with a trailer:  Fixes-Finding: agf_…
+metabob-mcp finding close --commits-from <file>   # after a push: close the findings those commits name, once merged
 ```
 
-The version is pinned to the version this guide describes. When the substrate installer has run, nothing else is needed: the server reads the config it wrote. Otherwise supply the key and endpoint through your client's environment settings (`METABOB_API_KEY` and `METABOB_ENDPOINT`, or `SUBSTRATE_API_KEY` and `SUBSTRATE_ENDPOINT`) or a config file such as `~/.substrate/config.json`:
+`task pull` takes this cell's own held task first, then the most severe unclaimed one, and writes the task, its
+context (related open findings, the integration policy) and the base commit. `finding close` closes a finding
+only once its fix is merged into the target branch on the origin, never over a revert. The lab's
+`lab/cell.sh` builds such a cell with a pinned harness and caps (lab/README.md, "Agent cell").
 
-```json
-{
-  "metabob": {
-    "apiKey": "mb_your_api_key_here",
-    "endpoint": "http://127.0.0.1:18080"
-  }
-}
-```
+For scoring how agents use the tools in any harness, `METABOB_CALL_LOG=<file>` appends one line per tool call
+(tool, argument names and sizes, outcome, duration; never a value) **(0.3.5)**.
 
-Use your substrate's endpoint; there is no default. Keep credentials out of committed configuration. Config-file selection checks `SUBSTRATE_CONFIG_PATH`, then `METABOB_CONFIG_PATH`, then `.substrate/config.json` and `.metabob/config.json` in the server's launch directory, then `~/.substrate/config.json` and `~/.metabob/config.json`. A `.metabob/config.json` written by another tool (with no `metabob` section) is skipped with a warning, so it never hides your installer config. CLI flags override environment settings, which override file settings. Advanced endpoint overrides are documented in the [specification](SPEC.md#configuration).
+## 9. Memory that improves with use
 
-Reconnect the MCP client. Confirm that it lists tools such as `init_workspace` and `analyze_impact`. Running the server in a terminal alone does not connect it to your agent. To check the connection to the substrate, run `npx @metabob/mcp@0.3.0 attach --check`: it reports each step (proxy, TLS, `/bootstrap`, identity, the key check, one read) and names the cause when one fails.
+A concept records content; the substrate tracks whether it helped. When an agent relies on a concept and it
+helps or misleads, it says so (`concept_record_usage`: success, failure or neutral), and the concept's relevance
+is `(times_succeeded + 1) / (times_loaded + 2)`. Closing a finding does the same for the finding: endorse
+credits it, discard counts against it. Relevance is a ranking signal, not an approval or a permission.
 
-### Quick start after connecting
+Corrections are appended, never overwritten: a wrong concept is answered by a new one linked with `contradicts`
+or `derived_from`, and a contradiction preserves the disagreement without deciding it. Put scope, evidence and
+the conditions that would invalidate the advice in the content; they are conventions, not enforced fields.
 
-Ask your agent:
+## 10. Troubleshooting
 
-> Initialize this repository, report the indexed coverage, and analyze the impact of changing a file I name. Explain the affected components and tests before editing anything.
-
-This first task needs no shared-memory or execution backend. Continue with section 3 for the exact tool arguments. Add shared memory after local analysis works; add delegated execution after confirming backend permissions and resource access.
-
-### Understand where data goes
-
-| Action | Data and effect |
+| Symptom | Next step |
 |---|---|
-| `init_workspace`, `analyze_impact`, `predict_cochanges`, `search_codebase` | Run on the local code index; send nothing off the machine |
-| `record_finding` | Writes local findings and attempts to share them with concept-db |
-| `concept_create` / `concept_link` | Writes knowledge or relationships to the connected concept-db |
-| `run_goal_async` | Starts substrate execution; available capabilities may edit files or create commits |
-| `provide_feedback` / `concept_record_usage` | Writes outcome feedback to backend services |
-
-No workspace content leaves the machine: the server uploads no source files, and it registers nothing with the substrate. What reaches the substrate is what the tools above write. Sharing and access boundaries depend on deployment configuration. A repository name or a label in a concept is not an access-control rule.
-
-## 3. First task: investigate a change
-
-Ask your agent:
-
-> Initialize this repository. Analyze the impact of changing `src/example.ts`, include affected tests, and explain the dependencies you found before making edits.
-
-Replace the path with a real file in your repository. The following blocks are MCP tool arguments, not shell commands. You can ask the agent to make these calls or use your client's tool interface.
-
-**Call `init_workspace`:**
-
-```json
-{
-  "workspace_path": "/absolute/path/to/your/repository"
-}
-```
-
-Check the reported file and component counts. If it reports unparsed files, call it again to continue. The scanner currently limits discovery to 2,000 eligible paths and skips files over 200,000 bytes; a large repository may require initializing a narrower directory. Default extensions cover JavaScript, TypeScript, and Python. Excluded directories and unsupported files are outside this analysis.
-
-**Call `analyze_impact`:**
-
-```json
-{
-  "changed_files": ["src/example.ts"],
-  "direction": "both",
-  "include_tests": true
-}
-```
-
-Expected result: affected components and dependency information within the indexed code. Inspect relevant source and run appropriate tests before treating the proposed impact as complete. Dynamic behavior and unindexed code can leave gaps.
-
-Use `predict_cochanges` for additional git-history hints. Its bundled GCN ranking is based on name features; a GCN-only suggestion is not evidence of a structural dependency.
-
-**Success check:** the agent can explain an affected component, locate the supporting code, and identify what still needs verification.
-
-## 4. Preserve knowledge another session can use
-
-### Record an issue
-
-After verifying an issue, call `record_finding` with its evidence. This example is illustrative; do not record it unless it describes a real finding:
-
-```json
-{
-  "files": ["src/example.ts"],
-  "summary": "Retry handler repeats a non-idempotent write",
-  "details": "Record the triggering condition, observed behavior, and reproduction or test here.",
-  "severity": "HIGH",
-  "category": "correctness"
-}
-```
-
-Save the returned `agf_*` ID and any shared concept ID. Read the result for sharing failures: local persistence can succeed while concept-db is unavailable. Another agent can call `get_problems` to recall shared findings, but a failed or truncated recall is not evidence that no findings exist.
-
-After fixing and verifying the issue, call `mark_complete` with its returned ID and `action: "endorse"`. Use `action: "discard"` for a false positive. Discarding a local finding does not delete the original shared concept; shared verdict writes are best-effort. Read the result to see what was updated.
-
-### Preserve a decision or procedure
-
-Use `concept_create` for knowledge beyond individual code findings:
-
-```json
-{
-  "shape": "review_procedure",
-  "source_type": "memo",
-  "summary": "Review retry changes for duplicate writes",
-  "content": "Scope: this repository's write path. Before changing retries, inspect idempotency handling and test a timeout after the server accepts the write. Evidence: add the actual test and commit references. Owner: add the responsible reviewer. Review again when the write protocol changes."
-}
-```
-
-`review_procedure` is a user-chosen label. It does not install a runnable skill. Include the scope, reasoning, evidence, owner, and conditions that would invalidate the advice. These are conventions in the content, not enforced fields.
-
-Retrieve it with `concept_search`:
-
-```json
-{
-  "query": "retry duplicate writes",
-  "shape": "review_procedure",
-  "content": "full",
-  "limit": 5
-}
-```
-
-If semantic search misses a known record, try list mode with `shape` and no `query`, or read it directly with `{"concept_id": "<returned concept ID>"}`. Search previews can truncate important conditions; read the full body before acting.
-
-Use `concept_link` to connect relevant records with relationships such as `related_to`, `example_of`, or `contradicts`. A contradiction edge preserves disagreement; it does not decide which record is correct. Record the reviewer's resolution and evidence explicitly.
-
-**Success check:** start a fresh session against the same backend and retrieve the decision by ID and by a relevant query. The agent should recover the reasoning and applicability conditions, not just the title.
-
-## 5. Coordinate agents and delegated work
-
-### Give each agent a bounded assignment
-
-Record the goal, owned files or resources, constraints, evidence required, and reviewer. Have each agent recall that brief before starting. Assign distinct ownership or isolated working copies when multiple agents edit code.
-
-Shared records help agents exchange conclusions, rejected approaches, and unresolved questions. The current tools do not provide a consensus protocol or guarantee conflict-free execution. Task claims are advisory, so multiple agents can receive the same task.
-
-### Delegate to the connected execution service
-
-First call `registry_query` with `{"mode": "shapes"}` to inspect available capabilities. An advertised capability still needs working services, credentials, and access to the relevant resources. Your local repository path is not automatically available on the backend.
-
-Choose a small goal appropriate to that deployment. Call `run_goal_async` with a `goal` describing the intended outcome, scope, constraints, and acceptance evidence. This starts execution; it is not a preview. A dispatch is a learning run by default; for a probe that should not teach the substrate, pass `learning_mode: "observe"` and a tag such as `probe:<name>`. The reply states the mode as requested, and the `learning:` line of `goal_status` shows what the walk actually taught. Natural-language limits should be backed by actual tool permissions when they must be enforced.
-
-Follow this sequence:
-
-1. Save the returned `dispatchId`.
-2. Call `goal_status` with `{"dispatch_id": "<returned dispatch ID>"}` until execution ends: a few quick checks, then 10–15 seconds apart.
-3. Inspect the `reached` verdict and call `goal_reasoning` with the same `dispatch_id`.
-4. When an execution ID is available, use `execution_trace` with `{"execution_id": "<returned execution ID>"}`.
-5. Inspect the actual output, diff, or tests against the acceptance criteria.
-6. Record a verdict with `provide_feedback`.
-
-For example, after a partially successful run:
-
-```json
-{
-  "dispatch_id": "<returned dispatch ID>",
-  "verdict": "partial",
-  "rationale": "The requested output exists, but the required failure-case test is missing.",
-  "confidence": 0.9
-}
-```
-
-`completed` describes execution status; it does not prove the goal was reached. Even a positive reach verdict needs checking against the actual result. Some executions lack a template trace; inspect `goal_reasoning` for the walk log. Feedback requires execution/template metadata and can fail when those records are missing. Save the dispatch ID, execution ID, selected template, output references, and your acceptance criteria; review promptly.
-
-If the dispatch has been pruned, `provide_feedback` cannot recover it from an execution ID. Preserve your verdict, evidence, reviewer, and saved IDs in a `memo` concept or your team's review system, and ask the deployment operator to reconcile it. This preserves the assessment but does not attach a goal-verification label to the missing dispatch.
-
-### Questions from the substrate
-
-The server is a client of the substrate: it advertises nothing, so the substrate dispatches no questions to your agent, and `pull_assigned_work` reports that no task can arrive. A person answers the substrate's questions through its human surface. `submit_resolution` still delivers an answer to a task already in the local queue (`~/.metabob/sidecar.db`).
-
-**Success check:** a second agent recovers its assignment from the shared ledger, returns an evidence-backed result, and the reviewer can connect that result to the original task without conflicting edits.
-
-## 6. Turn experience into reusable procedures
-
-The present workflow combines tool support with agent and human review:
-
-1. Capture a successful execution, its input conditions, and verification evidence.
-2. Ask an agent to draft a procedure specifying prerequisites, steps, expected results, exceptions, and escalation conditions.
-3. Store the candidate with `concept_create`; use `memo` for authored guidance or `extracted` for an observed pattern derived from evidence.
-4. Evaluate it on another representative case and on a case where it should not apply.
-5. Record `concept_record_usage` with the candidate's `concept_id` and `outcome: "success"`, `"failure"`, or `"neutral"` according to the observed result. Include a real `trace_id` when available.
-6. Have the responsible owner review the evidence before packaging it into an agent skill or registering an executable workflow using that environment's mechanisms.
-
-Track each procedure through the following states in its content or your team's existing workflow system. These are recommended operating conventions; Metabob does not enforce these transitions:
-
-| State | Evidence needed to advance |
-|---|---|
-| Candidate | Scope, prerequisites, steps, exceptions, owner, and source evidence recorded |
-| Evaluated | Results from a representative case and a case where the procedure must decline or escalate |
-| Approved | Named reviewer, procedure version, permitted actions, policy version, and review date recorded |
-| Deployed | Skill or workflow installed through the execution environment, with matching permissions |
-| Withdrawn | Execution permissions or registration removed in that environment; replacement or withdrawal reason recorded for future recall |
-
-Concept usage contributes to backend relevance scoring. The documented score is `(times_succeeded + 1) / (times_loaded + 2)`: successful usage increases both counts, while failure and neutral usage add a load without success credit. Neutral usage therefore lowers the score; it should not be interpreted as a pull toward 0.5. It does not certify safety, establish causal effectiveness, or grant execution permissions. `concept_sequence` can expose observed sequences when the backend has accumulated them; an empty result is possible.
-
-This repository supplies memory, relationship, feedback, and execution interfaces. A complete automatic process for generating, testing, approving, deploying, and revoking skills is not established here. Packaging and promotion remain explicit work.
-
-### Example application: security operations
-
-An operator could capture a known faulty-port alert with the exact device, port, time window, supporting ticket, and escalation owner. A candidate procedure could compare a new alert against those conditions and flag mismatches for review. Test it with a simultaneous alert from a different device to ensure that familiar noise does not hide a separate incident.
-
-This is an application design example. The repository does not establish ready-made SOC connectors, production alert suppression, or measured security outcomes. Those integrations and evaluations would be part of building the application.
-
-## 7. Steer behavior and review authority
-
-Humans can specify goals and constraints, preserve decisions, resolve disagreements, inspect execution evidence, and record corrections. Separate the information an agent should consider from the permissions its tools actually hold.
-
-| Operator action | What it does today | Boundary |
-|---|---|---|
-| Put scope and escalation rules in assignments and concepts | Makes instructions available for recall | Agent must retrieve and follow them |
-| Inspect `goal_reasoning` and `execution_trace` | Exposes available decision and execution records | Does not by itself prevent an action |
-| Use `provide_feedback` | Stores the agent's verdict as an `automated` goal-verification label | Not ground truth: goal-host does not overwrite a reach verdict with it |
-| Use `concept_record_usage` | Supplies a relevance signal | Relevance is not authorization |
-| Set `MB_OPERATOR_ID` | Adds a configured operator identifier to relevant records | Identifier is not proof that a human reviewed them |
-| Restrict credentials, tool permissions, or backend execution rights | Enforces boundaries in the configured systems | Must be configured outside a stored concept |
-
-Before enabling a procedure to act, identify who owns its approval, which resources it can change, what evidence is required, and how its permissions can be withdrawn. Record those decisions alongside the procedure. The current MCP surface does not establish a complete approval, expiry, or revocation lifecycle.
-
-For feedback, state in the rationale whether the evidence was reviewed by a human or assessed by an agent. `provide_feedback` labels every verdict `automated`, because an agent's key writes it; a person's verdict is recorded through the substrate's human surface.
-
-## 8. Troubleshooting
-
-| Symptom | What to check next |
-|---|---|
-| MCP tools do not appear | Check client logs, Node/Bun on PATH, server entry, and reconnect |
-| Local analysis has no components | Check workspace path, supported extensions, exclusions, parse progress, and scan limits |
-| A substrate tool answers with a named cause (`key_rejected`, `anchor_unreachable`, `proxy_auth_required`, …) | Run `attach --check`; the cause is the attachment's state, not a transient error |
-| Shared concept is missing | Check the original write result, backend/credentials, full-body direct read, and list-mode search |
-| Discovery cannot locate a service | Use `registry_query`; ask the deployment operator to check service registration and endpoint configuration |
-| Same task reaches multiple agents | Use explicit ownership or isolation; claims are not exclusive locks |
-| Answer was recorded but goal did not resume | Check delivery message and `goal_reasoning`; terminal delivery failure does not retry |
-| Goal completed but output is wrong | Inspect actual artifacts, record a supported feedback verdict, and revise the assignment |
-| Feedback cannot be recorded | Check dispatch availability and execution/template metadata; preserve the review in a separate durable record if necessary |
-| Corporate TLS connection fails | Run `npx @metabob/mcp@0.3.0 doctor` and inspect the report with the deployment/IT operator |
-
-The doctor creates a JSON diagnostic artifact in the current directory and does not require an API key. Review the artifact before sharing it.
-
-## 9. Check your deployment before expanding use
-
-Walk through the workflow on your actual deployment with a new user and a bounded task:
-
-1. Complete the local impact investigation and check coverage against the relevant source files.
-2. Record a real, harmless finding; recover it in a second session; close it and confirm the visible result.
-3. Retrieve a decision by ID and query, including the full conditions under which it applies.
-4. Delegate an authorized goal, inspect its output, and record feedback while dispatch metadata is available.
-5. In a test environment, check restart recovery, unavailable services, and duplicate assignments.
-6. Evaluate one candidate procedure on both a matching and a nonmatching case before approving broader use.
-
-Save actual tool outputs with sensitive information removed. Note time to the first useful result, assistance needed, recall failures, duplicate work, and whether the next user avoided repeating an investigation. These observations establish whether preserved experience improves the workflow. Concept counts and successful tool responses alone do not establish that benefit.
-
-## 10. References and scope
-
-- [README](../README.md): installation and configuration reference.
-- [Tool specification](SPEC.md): parameters and backend behavior.
-- [Coordination demonstration](COORDINATION-DEMONSTRATION.md): demonstrated results and known coordination limitations.
-- [Value hypothesis](METABOB-VALUE-HYPOTHESIS.md): evaluation of where shared memory adds value.
-
-This guide was checked against repository source and existing evaluation notes. Its connected-backend workflows still require a fresh end-to-end walkthrough on the deployment used by the reader.
+| The tools do not appear | Reconnect the client; check Node 18+ and Bun 1.1+ on PATH and the server entry |
+| A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
+| "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
+| A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |
+| The agent's close was refused | The commit predates the finding or touches none of its files: name it with `fix_commit` |
+| Two agents did the same work | Give stated, disjoint ownership; in one working copy, claims do not separate sessions |
+| Recall shows nothing | A failed or truncated read is not "no findings"; read the line under the heading |
+| Corporate TLS fails | `npx @metabob/mcp doctor` writes a diagnostic report; review it before sharing |
+
+## 11. References
+
+- [README](../README.md): installation per client, configuration, proxies.
+- [Specification](SPEC.md): every tool's parameters and behaviour.
+- [Conformance](CONFORMANCE.md): how this client takes part in the substrate.

@@ -1100,9 +1100,9 @@
       ],
       "docs/USER-GUIDE.md": [
         "README.md",
-        "docs/COORDINATION-DEMONSTRATION.md",
-        "docs/METABOB-VALUE-HYPOTHESIS.md",
-        "docs/SPEC.md"
+        "docs/CONFORMANCE.md",
+        "docs/SPEC.md",
+        "lab/cell.sh"
       ],
       "lab/README.md": [
         "lab/cell.sh",
