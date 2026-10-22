@@ -1,5 +1,5 @@
 /**
- * The Claude Code plugin installs on a fresh machine (README § Claude Code plugin). Claude Code clones the
+ * The Claude Code plugin installs on a fresh machine (README §claude-code-plugin). Claude Code clones the
  * marketplace with --recurse-submodules, so a submodule reached over ssh fails the install on a machine with no
  * GitHub ssh key, and the README's `owner/repo` shorthand clones over ssh too. Measured in a clean container:
  * with https submodule URLs and the https marketplace URL, the plugin installs and its server connects.

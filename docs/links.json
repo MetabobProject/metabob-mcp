@@ -733,6 +733,11 @@
           "path_activity"
         ]
       },
+      "tests/unit/plugin-install.test.ts": {
+        "README": [
+          "claude-code-plugin"
+        ]
+      },
       "tests/unit/record-finding-duplicate.test.ts": {
         "SPEC": [
           "record_finding"
