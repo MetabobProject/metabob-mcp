@@ -146,8 +146,8 @@
         "why": "the loopback resolver's field alias is in SPEC § Impulse shapes, which CLAUDE.md points to; no CLAUDE.md row changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "852d602",
-        "why": "result kinds in the local call log add no network path, registration or endpoint"
+        "at": "a10aa5c",
+        "why": "retrying a transient attach failure adds no registration, endpoint or ingress; it only repeats the same /bootstrap and org check, and C9's named cause is reported between attempts"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
