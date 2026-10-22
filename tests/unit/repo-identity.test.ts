@@ -4,7 +4,7 @@
  * basename. Every repository called `app` in an org shared one ledger when the
  * basename was the key.
  */
-import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test, setDefaultTimeout } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,9 @@ import { clearRepoIdentityCache, normalizeRemoteUrl, repoIdentity } from '../../
 import * as RecordFinding from '../../src/tools/record-finding';
 import * as GetProblems from '../../src/tools/get-problems';
 import { installShapeStub } from '../helpers/shape-stub';
+
+// Spawns git or opens an on-disk store per test: well under a second normally, several on a stalled Windows runner.
+setDefaultTimeout(30_000);
 
 const apiClient = {} as AnalysisAPIClient;
 const root = mkdtempSync(join(tmpdir(), 'metabob-repo-id-'));

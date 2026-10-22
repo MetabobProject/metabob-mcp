@@ -4,7 +4,7 @@
  * checkout and anything else; match order; held, leased and queued gaps.
  * SPEC §path_activity
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,9 @@ import { handle as pathActivity, pathActivityReport } from '../../src/tools/path
 import { gapSummaryLines } from '../../src/tools/_gap-activity';
 import { installShapeStub } from '../helpers/shape-stub';
 import type { AnalysisAPIClient } from '../../src/api-client';
+
+// Spawns git or opens an on-disk store per test: well under a second normally, several on a stalled Windows runner.
+setDefaultTimeout(30_000);
 
 const apiClient = {} as AnalysisAPIClient;
 const FILE = 'repos/goal-host-vessel/src/index.ts';
