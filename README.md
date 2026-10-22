@@ -192,7 +192,7 @@ attached: while attached, the server keeps a marker for its workspace in the tem
 (`src/attached-marker.ts`), and the check holds an edit only when a live, recent marker of the current user's covers the
 session's directory (the marker is written 0600), so a plugin installed before a key is set, or with a rejected key, holds nothing.
 A file the agent already checked with either tool is not held, nor is a new file, nor a second edit
-of the same file. In a repository the substrate does not mount, nothing is in flight: once
+of the same file, nor a file outside the attached workspace (a cache, a temp file, another checkout). In a repository the substrate does not mount, nothing is in flight: once
 `path_activity` answers that the repository is not one the substrate mounts, holds in the session's
 directory ask for `get_problems` only. `METABOB_EDIT_CHECK=off` turns it
 off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other

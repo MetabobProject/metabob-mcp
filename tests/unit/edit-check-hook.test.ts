@@ -122,6 +122,16 @@ describe('edit check', () => {
     expect(JSON.parse(hook('pre', edit(t, 'src/math.ts'), env2).out).hookSpecificOutput.permissionDecisionReason).toContain('path_activity on it');
   });
 
+  test('a file outside the attached workspace is never held (a cache, a temp file, another checkout)', () => {
+    const s = setup();
+    const env = { METABOB_EDIT_CHECK_DIR: s.state, METABOB_MARKER_DIR: s.state };
+    const elsewhere = mkdtempSync(join(tmpdir(), 'editcheck-elsewhere-'));
+    writeFileSync(join(elsewhere, 'notes.md'), 'x\n');
+    expect(hook('pre', { session_id: s.session, cwd: s.repo, tool_name: 'Edit', tool_input: { file_path: join(elsewhere, 'notes.md') } }, env).out).toBe('');
+    // A file inside the workspace is still held.
+    expect(hook('pre', edit(s, 'src/math.ts'), env).out).not.toBe('');
+  });
+
   test('path_activity\'s unmounted sentence is the one the edit check matches', () => {
     const src = readFileSync(resolve(import.meta.dir, '..', '..', 'src', 'tools', 'path-activity.ts'), 'utf-8');
     expect(src).toContain('may not be a repository this substrate mounts');

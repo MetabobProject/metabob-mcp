@@ -77,8 +77,8 @@ function markerFor(dir) {
   return join(process.env.METABOB_MARKER_DIR || tmpdir(), `metabob-attached-${tag}.json`);
 }
 
-/** Whether a metabob server is attached for `cwd` or an ancestor: a recent marker whose process is alive. */
-function attached(cwd) {
+/** The directory (`cwd` or an ancestor) a live metabob server is attached for, or null: a recent marker whose process is alive. */
+function attachedRoot(cwd) {
   let dir = resolve(cwd || process.cwd());
   try { dir = realpathSync.native(dir); } catch { /* not on disk */ }
   for (;;) {
@@ -90,10 +90,10 @@ function attached(cwd) {
       const fresh = Date.now() - Date.parse(m.at) < 5 * 60_000;
       let alive = false;
       try { process.kill(m.pid, 0); alive = true; } catch (e) { alive = e && e.code === 'EPERM'; }
-      if (fresh && alive) return true;
+      if (fresh && alive) return dir;
     } catch { /* no marker here */ }
     const up = dirname(dir);
-    if (up === dir) return false;
+    if (up === dir) return null;
     dir = up;
   }
 }
@@ -106,8 +106,14 @@ function pre(input) {
   const file = norm(String(target), cwd);
   // A new file has nothing recorded on it.
   if (!existsSync(isAbsolute(String(target)) ? String(target) : resolve(cwd || process.cwd(), String(target)))) return;
-  // With no attached server there is no shared ledger to check: hold nothing.
-  if (!attached(cwd)) return;
+  // With no attached server there is no shared ledger to check: hold nothing. And only a file inside the attached
+  // workspace has a ledger behind it: a file elsewhere (a cache, a temp file, another checkout) is never held.
+  const root = attachedRoot(cwd);
+  if (!root) return;
+  let real = file;
+  try { real = realpathSync.native(isAbsolute(String(target)) ? String(target) : resolve(cwd || process.cwd(), String(target))).replace(/\\/g, '/'); } catch { /* new or unreadable: as given */ }
+  const rootN = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (real !== rootN && !real.startsWith(`${rootN}/`)) return;
   const state = stateFile(input.session_id);
   const { held, checked, unmounted } = readState(state);
   if (held.has(file) || wasChecked(file, checked)) return;
