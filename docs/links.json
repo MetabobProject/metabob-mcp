@@ -1132,7 +1132,7 @@
       "src/attachment.ts@describeResolveFailure": "d6609db310a1",
       "src/attachment.ts@network-diagnosis": "8d64a30d9de1",
       "src/attachment.ts@no-producer-line": "c05541483db5",
-      "src/attachment.ts@read-only-key": "a540fe0dcec1",
+      "src/attachment.ts@read-only-key": "96f3dd53f558",
       "src/attachment.ts@reattach": "8d64a30d9de1",
       "src/attachment.ts@rehost-h1": "bfdf0ec7a2e1",
       "src/attachment.ts@resolve-timeouts": "784f64c1544e",

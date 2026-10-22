@@ -217,14 +217,17 @@ Once authenticated, the same identity is re-resolved every 5 minutes (the key-is
 
 **A failure that can pass by itself is retried** (`src/attachment.ts@reattach`). A server started before its
 substrate answers (alongside the fleet, after a reboot or a power loss) would otherwise stay unattached until it
-restarts. After `anchor_unreachable` or `identity_unreachable`:
+restarts. After `anchor_unreachable`, `identity_unreachable` or `blocked_by_portal` (a captive portal clears once
+the user signs in):
 - the attachment attempts again in the background, after 5 s, 15 s, 30 s, 1 min, 2 min, then every 5 min, until it
   attaches;
 - a substrate tool called after the failure attempts again at once, at most every 10 s, so the first call after
   the substrate comes up succeeds;
-- each attempt starts from a fresh state, and the recovery is logged once ("Attached on attempt N, after: <cause>").
+- each attempt starts from a fresh state, and the recovery is logged once ("Attached on attempt N, after: <cause>");
+- while an attempt runs, readers (`/health`, the refusal line, the gate) see the last settled attempt, and calls
+  that arrive meanwhile wait for it, so none reports a half-reset state as its cause.
 
-A rejected key and missing configuration are final. Only the long-running server retries, since it is the one with
+A rejected key, missing configuration, a proxy's refusal and a non-substrate answer are final. Only the long-running server retries, since it is the one with
 the heartbeat; `attach --check`, `doctor`, `task pull` and `finding close` report what they found once.
 
 **State** — one typed object (`src/attachment.ts@AttachmentState`), reported by `doctor` and in the

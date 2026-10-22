@@ -496,6 +496,41 @@ describe('re-attaching after a transient failure', () => {
     expect((await a.resolve({ type: 'vesselRegistry' }, { read: true })).status).toBe(200);
   });
 
+  test('concurrent calls during a retry all wait for it, and none sees a half-reset state', async () => {
+    // qa's repro: two resolves at once after a transient failure; the second read the reset state as not_configured.
+    const { a } = run({ discovery: 'http://127.0.0.1:1', heartbeatMs: 60_000, reattachDelaysMs: [600_000], reattachOnDemandMs: 0, script: { hosts: {} } });
+    await a.settled();
+    const results = await Promise.all([0, 1, 2].map(() => a.resolve({ type: 'vesselRegistry' }, { read: true }).then(() => 'ok', (e: Error) => e.message)));
+    for (const r of results) expect(r).toMatch(/^anchor_unreachable/);
+    expect(a.state().cause).toBe('anchor_unreachable');
+  });
+
+  test('mid-retry, the state shows the last settled attempt', async () => {
+    const hosts: Record<string, Responder> = {};
+    let release: () => void = () => {};
+    const gate = new Promise<void>(r => { release = r; });
+    const { a } = run({ discovery: DISC, heartbeatMs: 60_000, reattachDelaysMs: [600_000], reattachOnDemandMs: 0, script: { hosts } });
+    await a.settled();
+    // The retry's /bootstrap hangs until released.
+    hosts[DISC] = async (req) => { await gate; return bootstrapAt(ID)(req); };
+    hosts[ID] = identity();
+    const pending = a.refusal();
+    await new Promise(r => setTimeout(r, 10));
+    expect(a.state()).toMatchObject({ cause: 'anchor_unreachable' });
+    release();
+    expect(await pending).toBeNull();
+    expect(a.state().cause).toBeNull();
+  });
+
+  test('a captive portal is transient: once it lets the request through, the attachment attaches', async () => {
+    const hosts: Record<string, Responder> = { [DISC]: () => html() };
+    const { a } = run({ discovery: DISC, heartbeatMs: 60_000, reattachDelaysMs: [600_000], reattachOnDemandMs: 0, script: { hosts } });
+    expect((await a.settled()).cause).toBe('blocked_by_portal');
+    hosts[DISC] = bootstrapAt(ID);
+    hosts[ID] = identity();
+    expect(await a.refusal()).toBeNull();
+  });
+
   test('a rejected key is final, and a one-shot attachment (heartbeat off) never retries', async () => {
     const rejected = run({ discovery: DISC, key: 'mb_wrong', heartbeatMs: 60_000, reattachDelaysMs: [10], reattachOnDemandMs: 0, script: { hosts: { [DISC]: bootstrapAt(ID), [ID]: identity() } } });
     expect((await rejected.a.settled()).cause).toBe('key_rejected');

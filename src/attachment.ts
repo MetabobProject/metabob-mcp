@@ -241,7 +241,8 @@ const DEFAULT_HEARTBEAT_MS = 5 * 60_000;
  */
 export const REATTACH_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 const REATTACH_ON_DEMAND_MS = 10_000;
-const TRANSIENT_CAUSES: ReadonlySet<string> = new Set(['anchor_unreachable', 'identity_unreachable']);
+// A captive portal clears by itself once the user signs in; a proxy's refusal and a non-substrate answer do not.
+const TRANSIENT_CAUSES: ReadonlySet<string> = new Set(['anchor_unreachable', 'identity_unreachable', 'blocked_by_portal']);
 
 // @anchor resolve-timeouts
 // Client-side caps per producer family, each just above the producer's advertised
@@ -478,6 +479,12 @@ export function attach(options: AttachOptions): Attachment {
     lastCheckedAt: null,
   };
 
+  /**
+   * What readers see: the live state during the first attempt and once an attempt settles; during a retry, the last
+   * settled attempt, so `/health`, a refusal and the gate never read a half-reset "pending, no cause".
+   */
+  let view: AttachmentState = state;
+
   if (discovery) {
     try {
       const choice = selectProxy(discovery, env);
@@ -550,6 +557,8 @@ export function attach(options: AttachOptions): Attachment {
     state.cause = cause;
     state.message = refusalMessage(state);
     state.settledAt = new Date().toISOString();
+    // Readers see this attempt from now on.
+    view = state;
     record('attachment', cause ? { ok: false, cause: state.network.cause ?? cause, line: state.message } : { ok: true, cause: null, line: null });
   };
 
@@ -705,15 +714,16 @@ export function attach(options: AttachOptions): Attachment {
   let inFlight = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const retries = (options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS) > 0;
-  const transient = () => !!state.cause && TRANSIENT_CAUSES.has(state.cause);
+  const transient = () => !!view.cause && TRANSIENT_CAUSES.has(view.cause);
 
   /** One more attempt, unless one is running; logs a recovery once. */
   const reattach = (): Promise<AttachmentState> => {
     if (inFlight) return done;
     inFlight = true;
-    const before = state.message;
+    const before = view.message;
     attempts++;
     lastAttemptAt = Date.now();
+    view = structuredClone(state);
     reset();
     done = once().then((st) => {
       inFlight = false;
@@ -740,25 +750,27 @@ export function attach(options: AttachOptions): Attachment {
   const current = async (): Promise<void> => {
     await done;
     if (retries && transient() && !inFlight && Date.now() - lastAttemptAt >= (options.reattachOnDemandMs ?? REATTACH_ON_DEMAND_MS)) await reattach();
+    // A retry another caller started: wait for it, whichever attempt is current.
+    while (inFlight) await done;
   };
 
   const handle: Attachment = {
-    state: () => structuredClone(state),
-    settled: () => done.then(() => structuredClone(state)),
-    refusal: () => current().then(() => state.message),
+    state: () => structuredClone(view),
+    settled: () => done.then(() => structuredClone(view)),
+    refusal: () => current().then(() => view.message),
     // CONFORMANCE §c11-attachment-model
     // @anchor attachment-resolve
     async resolve(pointer, opts) {
       await current();
-      if (state.cause || state.auth.status !== 'authenticated' || !discovery) {
-        throw new AttachmentRefusedError(state.cause ?? 'not_configured', state.message ?? 'not_configured: no discovery endpoint');
+      if (view.cause || view.auth.status !== 'authenticated' || !discovery) {
+        throw new AttachmentRefusedError(view.cause ?? 'not_configured', view.message ?? 'not_configured: no discovery endpoint');
       }
       const shape = typeof pointer.type === 'string' ? pointer.type : '(no type)';
       // A key whose validated scopes lack `write` writes nothing: producers do not all enforce scopes yet, and a
       // refusal that came back through a peer forward would read as no_producer, so the write is never sent.
       // With no scopes reported (the flat org check, through a proxy) nothing is known, and nothing is gated.
       // @anchor read-only-key
-      const scopes = state.auth.scopes;
+      const scopes = view.auth.scopes;
       if (opts?.read !== true && scopes && !scopes.includes('write') && !scopes.includes('admin')) {
         throw new ReadOnlyKeyError(shape, scopes);
       }
