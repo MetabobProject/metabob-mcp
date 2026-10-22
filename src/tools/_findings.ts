@@ -41,7 +41,8 @@ import { claimHolder, parseClaim, type ClaimRecord } from './_claims.js';
  * analyses it; findings are what agents record.
  */
 export const NO_SERVER_ANALYSIS =
-  'Server-side analysis: none. This server sends no workspace content off the machine, so there are no backend detections; problems come from agents (record_finding).';
+  'Server-side analysis: none. This server sends no workspace content off the machine, so there are no backend detections; problems come from agents (record_finding). '
+  + 'These are agent-recorded findings only: the system\'s own open gaps on a file are path_activity\'s, and "none here" does not mean none there.';
 
 /** The concept shape used for agent-recorded findings. */
 export const FINDING_SHAPE = 'code_finding';

@@ -300,7 +300,7 @@ test('get_problems: default call with an empty seed cache still falls through to
     localStore,
   );
   // legacy path with zero results
-  expect(output).toContain('No problems found');
+  expect(output).toContain('No agent-recorded findings');
 });
 
 test('get_problems: severity filter applies to the all-files seed list', async () => {

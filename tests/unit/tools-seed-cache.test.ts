@@ -241,7 +241,7 @@ test('get_problems: an empty seed cache says so and makes no analysis request', 
     mockApiClient, SESSION, store,
   );
 
-  expect(out).toContain('No problems found');
+  expect(out).toContain('No agent-recorded findings');
   expect(out).toContain('Server-side analysis: none');
   expect(mockApiClient.get).not.toHaveBeenCalled();
   expect(mockApiClient.post).not.toHaveBeenCalled();
@@ -260,7 +260,7 @@ test('get_problems: another workspace\'s seeds are not served here', async () =>
   );
 
   expect(out).not.toContain('someone else repo finding');
-  expect(out).toContain('No problems found');
+  expect(out).toContain('No agent-recorded findings');
 });
 
 // ── search_codebase (audit 16, the half the tranche claimed and did not close) ──

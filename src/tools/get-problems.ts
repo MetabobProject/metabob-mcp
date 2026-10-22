@@ -127,7 +127,8 @@ function localFindings(
 
   if (filtered.length === 0) {
     const where = input.file_path ? ` for "${input.file_path}"` : '';
-    return `No problems found${where} in the local store (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).`;
+    return `No agent-recorded findings${where} in the local store (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).`
+      + (input.file_path ? ` For the system's own open gaps on it, path_activity { paths: ["${input.file_path}"] }.` : '');
   }
 
   let text = `${filtered.length} problem${filtered.length === 1 ? '' : 's'}`;
