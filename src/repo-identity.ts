@@ -13,8 +13,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface RepoIdentity {
   /** The ledger key: the normalized origin URL (`github.com/org/repo`), or the basename. Compared case-insensitively. */
@@ -140,6 +140,7 @@ export function repoIdentity(workspacePath: string): RepoIdentity {
 /** Forget cached identities (tests that rewrite a workspace's remote). */
 export function clearRepoIdentityCache(): void {
   cache.clear();
+  aliasCache.clear();
 }
 
 /** git, with the fix-location timeout. */
@@ -275,4 +276,43 @@ export function commitInHead(workspacePath: string, sha: string): boolean | null
 /** Whether the checkout at `workspacePath` has any remote: without one, no other checkout can have its commits. */
 export function hasRemote(workspacePath: string): boolean {
   return !!fgit(resolve(workspacePath), ['remote']);
+}
+
+// @anchor repo-aliases
+/**
+ * The other ledger a workspace shares files with (SPEC §repository-identity). The substrate's super-repo and a
+ * vessel's own checkout name the same file under two repositories and two paths: `repos/<vessel>/src/x.ts` in the
+ * super-repo, `src/x.ts` in the vessel. Recall in either accepts the other's findings, with the paths mapped, by the
+ * rule path_activity maps paths with (a `repos/` directory at the root is the super-repo; otherwise the vessel is
+ * named by its origin's basename):
+ * - `vessel`: this is a vessel checkout; findings recorded in a super-repo whose files sit under `repos/<name>/`
+ *   are this checkout's, with that prefix removed;
+ * - `super`: this is the super-repo; a vessel's own findings (a `repo:` whose last path segment is a directory under
+ *   `repos/`) are its, with `repos/<name>/` added.
+ */
+export type RepoAliases =
+  | { kind: 'vessel'; name: string; prefix: string }
+  | { kind: 'super'; vessels: ReadonlySet<string> };
+
+const aliasCache = new Map<string, RepoAliases | null>();
+
+export function repoAliases(workspacePath: string): RepoAliases | null {
+  const key = resolve(workspacePath);
+  if (aliasCache.has(key)) return aliasCache.get(key)!;
+  let out: RepoAliases | null = null;
+  const top = git(key, ['rev-parse', '--show-toplevel']);
+  const root = top ? real(top) : null;
+  if (root && existsSync(join(root, 'repos'))) {
+    try {
+      const names = readdirSync(join(root, 'repos'), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name.toLowerCase());
+      out = { kind: 'super', vessels: new Set(names) };
+    } catch { /* unreadable repos/: no aliases */ }
+  } else if (root) {
+    const url = git(root, ['remote', 'get-url', 'origin']);
+    const origin = url ? normalizeRemoteUrl(url, root) : null;
+    const name = origin ? basename(origin).toLowerCase() : '';
+    if (name) out = { kind: 'vessel', name, prefix: `repos/${name}` };
+  }
+  aliasCache.set(key, out);
+  return out;
 }

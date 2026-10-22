@@ -687,6 +687,11 @@
       "tests/unit/lab-tooling.test.ts": {
         "LAB": []
       },
+      "tests/unit/ledger-super-vessel.test.ts": {
+        "SPEC": [
+          "repository-identity"
+        ]
+      },
       "tests/unit/mark-complete-fix-location.test.ts": {
         "SPEC": [
           "mark_complete"
@@ -993,6 +998,7 @@
         "src/repo-identity.ts@commitInHead",
         "src/repo-identity.ts@fix-location",
         "src/repo-identity.ts@normalizeRemoteUrl",
+        "src/repo-identity.ts@repo-aliases",
         "src/repo-identity.ts@repoIdentity",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/server-instructions.ts@SERVER_INSTRUCTIONS",
@@ -1197,6 +1203,7 @@
       "src/repo-identity.ts@commitInHead": "506aea0c1daa",
       "src/repo-identity.ts@fix-location": "8d64a30d9de1",
       "src/repo-identity.ts@normalizeRemoteUrl": "54b6b5099f3e",
+      "src/repo-identity.ts@repo-aliases": "8d64a30d9de1",
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",

@@ -671,6 +671,12 @@ The ledger is keyed by repository (`src/repo-identity.ts@repoIdentity`), read on
 
 A finding carries `repo: <identity>` and `repo_name: <basename>`; a verdict carries the same two lines. Recall matches the `repo:` header against the identity or the basename, case-insensitively, and never against `repo_name:`. A finding whose `repo:` header is a basename is therefore recalled by every repository of that basename; one whose header is an origin identity, only by clones of that repository (and the subdirectory workspace it names).
 
+**A super-repo and a vessel checkout share one ledger** (`src/repo-identity.ts@repo-aliases`). The substrate's super-repo names a vessel's file `repos/<vessel>/<path>` under its own identity, while the vessel's own checkout names it `<path>` under the vessel's. Recall in either reads both, by the rule `path_activity` maps paths with (a `repos/` directory at the root is the super-repo; otherwise the vessel is named by its origin's basename):
+- in a vessel checkout, a finding from another repository whose files sit under `repos/<name>/` is recalled, with that prefix removed;
+- in the super-repo, a finding whose `repo:` names a vessel under `repos/` (its last path segment) is recalled, with `repos/<name>/` added.
+
+The file filter, the duplicate check, `task pull`'s related findings and the rendered `files:` line all use the mapped paths. Recording is unchanged, so findings recorded under either identity, before or after, are found from both sides with nothing to migrate. The match is by vessel name: a different super-repo with a `repos/<name>/` of the same name is read too.
+
 ---
 
 **The system's own gaps.** `get_problems` shows findings, not the gap store's gaps, so a finding can describe what an open gap already does. When `path_activity`'s cache is warm (it never reads the store itself), the reply lists, per file, up to three open gaps whose edit site is that file, and says to `mark_complete` discard the finding if one is the same issue (`src/tools/_gap-activity.ts@openGapsOnFilesLines`). It does not refuse: a busy file has hundreds of gaps, and one on the same file need not be the same issue.

@@ -222,7 +222,7 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
 
     const files = header(task.content, 'files').split(',').map(s => s.trim()).filter(Boolean);
     const related = recall.findings.filter(f => f.id !== task.id && !isTaskFinding(f) && !f.verdict
-      && header(f.content, 'files').split(',').map(s => s.trim()).some(x => files.includes(x)));
+      && (f.files ?? header(f.content, 'files').split(',').map(s => s.trim())).some(x => files.includes(x)));
     const record = {
       task_id: key,
       concept_id: plainConceptId(task.id),

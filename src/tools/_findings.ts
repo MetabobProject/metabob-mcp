@@ -32,7 +32,7 @@ import {
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
 import { headerBlock, plainConceptId } from './_concept-content.js';
-import { commitInHead, repoIdentity, type FixLocation, type RepoIdentity } from '../repo-identity.js';
+import { commitInHead, repoAliases, repoIdentity, type FixLocation, type RepoAliases, type RepoIdentity } from '../repo-identity.js';
 import { claimHolder, parseClaim, type ClaimRecord } from './_claims.js';
 
 /**
@@ -248,6 +248,8 @@ export interface AgentFinding {
   fix?: { sha: string; branch?: string; pushed: boolean; inHead: boolean | null };
   /** Set on an OPEN finding whose fix an agent endorsed while it was still uncommitted. */
   pending?: { by?: string; branch?: string; here: boolean; unpushed?: boolean; awaitingMerge?: string };
+  /** The finding's files in this workspace's form (mapped from the other ledger of a super-repo/vessel pair). */
+  files?: string[];
   /** Set on an OPEN finding someone holds a live claim on (src/tools/_claims.ts@claim-holder). */
   claim?: { by: string; until: number; here: boolean };
 }
@@ -470,17 +472,43 @@ function repoMatch(repo: string | RepoIdentity | null | undefined): RepoMatch | 
  * `workspace:` basename, then to a substring scan of the body with attribution
  * stripped, which keeps them recallable without reintroducing the vessel-id match.
  */
-function conceptIsAboutRepo(summary: string, content: string, repo: RepoMatch): boolean {
+function conceptIsAboutRepo(summary: string, content: string, repo: RepoMatch, aliases: RepoAliases | null = null): boolean {
   const declared = headerLine(content, 'repo').toLowerCase();
-  if (declared) return repo.keys.has(declared);
+  if (declared) return repo.keys.has(declared) || aliasOf(declared, content, aliases) !== null;
   const workspace = headerLine(content, 'workspace').toLowerCase();
   if (workspace) return basename(workspace) === repo.name;
   return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(repo.name);
 }
 
-/** Does this concept touch the requested path? Prefers the `files:` header. */
-function conceptTouchesFile(summary: string, content: string, filePath: string): boolean {
-  const files = headerLine(content, 'files').toLowerCase();
+/**
+ * How a finding recorded in the other ledger of a super-repo/vessel pair maps here (src/repo-identity.ts@repo-aliases):
+ * the path prefix to remove (a vessel checkout reading the super-repo's) or to add (the super-repo reading a vessel's),
+ * or null when the finding is not from that other ledger. SPEC §repository-identity
+ */
+function aliasOf(declared: string, content: string, aliases: RepoAliases | null): { strip?: string; add?: string } | null {
+  if (!aliases || !declared) return null;
+  if (aliases.kind === 'vessel') {
+    const files = headerLine(content, 'files').toLowerCase().split(',').map(f => f.trim());
+    return files.some(f => f.startsWith(`${aliases.prefix}/`)) ? { strip: `${aliases.prefix}/` } : null;
+  }
+  const name = declared.split('/').pop() ?? '';
+  return aliases.vessels.has(name) ? { add: `repos/${name}/` } : null;
+}
+
+/** A finding's files in this workspace's form: as recorded, or mapped from the other ledger of a super-repo/vessel pair. */
+export function localFiles(content: string, repo: RepoMatch | null, aliases: RepoAliases | null): string[] {
+  const files = headerLine(content, 'files').split(',').map(f => f.trim()).filter(Boolean);
+  const declared = headerLine(content, 'repo').toLowerCase();
+  if (!declared || repo?.keys.has(declared)) return files;
+  const alias = aliasOf(declared, content, aliases);
+  if (alias?.strip) return files.filter(f => f.toLowerCase().startsWith(alias.strip!)).map(f => f.slice(alias.strip!.length));
+  if (alias?.add) return files.map(f => `${alias.add}${f}`);
+  return files;
+}
+
+/** Does this concept touch the requested path? Prefers the `files:` header, in this workspace's form. */
+function conceptTouchesFile(summary: string, content: string, filePath: string, repo?: RepoMatch | null, aliases: RepoAliases | null = null): boolean {
+  const files = localFiles(content, repo ?? null, aliases).join(', ').toLowerCase();
   if (files) return files.includes(filePath);
   return withoutAttribution(`${summary}\n${content}`).toLowerCase().includes(filePath);
 }
@@ -521,12 +549,14 @@ export async function fetchAgentFindings(
   const scan = await scanConceptShape(FINDING_SHAPE);
   if (!scan.ok) return { status: 'unreachable', findings: [], detail: scan.detail };
 
+  // A super-repo and a vessel checkout name one file under two repositories: recall reads both ledgers.
+  const aliases = repoAliases(scope.workspace ?? activeWorkspacePath());
   const findings: AgentFinding[] = [];
   for (const row of scan.rows) {
     const summary = row.summary ?? '';
     const content = row.content ?? '';
-    if (!conceptIsAboutRepo(summary, content, repo)) continue;
-    if (filePath && !conceptTouchesFile(summary, content, filePath)) continue;
+    if (!conceptIsAboutRepo(summary, content, repo, aliases)) continue;
+    if (filePath && !conceptTouchesFile(summary, content, filePath, repo, aliases)) continue;
     findings.push({
       // Plain form only. This id is what an agent pastes back into
       // mark_complete and concept_record_usage, and concept-db returns the same
@@ -535,6 +565,7 @@ export async function fetchAgentFindings(
       id: plainConceptId(row.id),
       summary,
       content,
+      files: localFiles(content, repo, aliases),
       updated_at: row.updated_at,
     });
   }
@@ -741,7 +772,7 @@ export function renderFindingsSection(
       const line = f.summary || f.content.split('\n')[0] || f.id;
       text += `  • ${line}${f.pending ? `  ${pendingNote(f.pending)}` : ''}${f.claim ? `  ${claimNote(f.claim)}` : ''}\n`;
       if (!opts.compact) {
-        const fileLine = f.content.split('\n').find(l => l.startsWith('files:'));
+        const fileLine = f.files?.length ? `files: ${f.files.join(', ')}` : f.content.split('\n').find(l => l.startsWith('files:'));
         if (fileLine) text += `    ${fileLine}\n`;
         text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
       }
@@ -933,7 +964,7 @@ export function findOpenDuplicate(
   if (recall.status === 'ok') {
     for (const f of recall.findings) {
       if (f.verdict) continue;
-      const recorded = headerLine(f.content, 'files').split(',').map(x => x.trim()).filter(Boolean);
+      const recorded = f.files ?? headerLine(f.content, 'files').split(',').map(x => x.trim()).filter(Boolean);
       if (!recorded.some(r => files.some(file => samePath(r, file)))) continue;
       const text = findingSummaryText(f.summary);
       if (!sameFindingSummary(text, summary)) continue;
