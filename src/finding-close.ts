@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
 import { GIT_ENV, repoIdentity } from './repo-identity.js';
-import { plainConceptId } from './tools/_concept-content.js';
+import { headerBlock, plainConceptId } from './tools/_concept-content.js';
 import {
   VERDICT_SHAPE,
   attributionLines,
@@ -144,7 +144,7 @@ export async function closeFromCommits(a: CloseArgs, sessionId: string): Promise
           `fix_target: ${a.target}`,
           'fix_via: trailer',
           ...repoLines(repo),
-          `files: ${/^files:\s*(.*)$/m.exec(finding.content)?.[1] ?? ''}`,
+          `files: ${/^files:\s*(.*)$/m.exec(headerBlock(finding.content))?.[1] ?? ''}`,
           ...attributionLines('reviewed_by', me, sessionId),
           'origin: remote',
         ].join('\n'),
