@@ -1132,7 +1132,9 @@ stamp (`task pull`'s convention trust reads the first `recorded_by:`). `recorded
 wrote in the leading header block (up to the first blank line) are removed, at any indentation and in any case, and
 the reply names what it removed; the body after the header block is untouched. They are removed whether or not an
 identity resolves. With no vessel identity nothing is stamped: an author is omitted, never faked, and never taken
-from what the agent wrote. Like every author line it is declared, not verified (§ Client claim).
+from what the agent wrote. Readers follow the same rule (`src/tools/_concept-content.ts@header-block`): the author,
+session, repository, files, a verdict and finding ids are read only from the header block, so free text after the
+blank line never supplies them. That covers recall, claims, verdicts and `task pull`'s convention trust. Like every author line it is declared, not verified (§ Client claim).
 
 Writes `concept_create_write { conceptData }` once — the body `POST /concepts` takes; renders the created concept's id, shape, source type, summary, budget and priority.
 

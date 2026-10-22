@@ -117,3 +117,14 @@ export function renderConceptContent(
   }
   return out;
 }
+
+// @anchor header-block
+/**
+ * A concept's header block: its leading `key: value` lines, up to the first blank line. Readers take keys (author,
+ * session, repo, files, verdict) only from here, the same block concept_create stamps the author into, so free text
+ * after the blank line can never supply an author, a session or a verdict. SPEC §concept_create
+ */
+export function headerBlock(content: string): string {
+  const i = content.search(/\n[ \t]*\n/);
+  return i < 0 ? content : content.slice(0, i);
+}

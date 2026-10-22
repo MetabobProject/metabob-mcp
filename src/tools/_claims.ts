@@ -20,7 +20,7 @@
  */
 
 import type { ConceptRow } from './_concept-db.js';
-import { plainConceptId } from './_concept-content.js';
+import { headerBlock, plainConceptId } from './_concept-content.js';
 
 /** Default and longest claim, in minutes: long enough for one task, short enough that a crashed claimer's claim lapses. */
 export const CLAIM_DEFAULT_MINUTES = 60;
@@ -53,13 +53,13 @@ export interface ClaimHolder {
 }
 
 function line(content: string, key: string): string {
-  return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(content)?.[1]?.trim() ?? '';
+  return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(headerBlock(content))?.[1]?.trim() ?? '';
 }
 
 /** A claim or a withdrawal out of a `finding_verdict` row, or null for any other verdict. Unattributed claims are ignored: a holder must be nameable. */
 export function parseClaim(row: ConceptRow): ClaimRecord | null {
   const content = String(row.content ?? '');
-  const findingId = /^finding:\s*(agf_\S+)/m.exec(content)?.[1];
+  const findingId = /^finding:\s*(agf_\S+)/m.exec(headerBlock(content))?.[1];
   const verdict = line(content, 'verdict');
   const kind = verdict === 'claimed' ? 'claimed' : verdict === 'claim withdrawn' ? 'withdrawn' : null;
   const by = line(content, 'reviewed_by');

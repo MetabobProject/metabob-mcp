@@ -26,7 +26,7 @@ import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
 import { GIT_ENV, normalizeRemoteUrl, type RepoIdentity } from './repo-identity.js';
 import { searchConcepts } from './tools/_concept-db.js';
-import { plainConceptId } from './tools/_concept-content.js';
+import { headerBlock, plainConceptId } from './tools/_concept-content.js';
 import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
 import { claim, InputSchema as ClaimInput } from './tools/claim-finding.js';
 import { CLAIM_DEFAULT_MINUTES } from './tools/_claims.js';
@@ -44,7 +44,7 @@ export interface IntegrationPolicy {
 }
 
 function header(content: string, key: string): string {
-  return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(content)?.[1]?.trim() ?? '';
+  return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(headerBlock(content))?.[1]?.trim() ?? '';
 }
 
 /** A task's free text: what follows the blank line after its header block. */

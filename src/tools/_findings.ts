@@ -31,7 +31,7 @@ import {
 } from './_concept-db.js';
 import { resolveVesselId } from '../vessel-identity.js';
 import { getResolverVesselId } from '../resolver-identity.js';
-import { plainConceptId } from './_concept-content.js';
+import { headerBlock, plainConceptId } from './_concept-content.js';
 import { commitInHead, repoIdentity, type FixLocation, type RepoIdentity } from '../repo-identity.js';
 import { claimHolder, parseClaim, type ClaimRecord } from './_claims.js';
 
@@ -350,7 +350,7 @@ async function scanConceptShape(shape: string): Promise<ConceptScan> {
  * `finding_ids:` content line (record_finding's write format).
  */
 export function parseFindingIds(content: string): string[] {
-  const m = /^finding_ids:\s*(.+)$/m.exec(content);
+  const m = /^finding_ids:\s*(.+)$/m.exec(headerBlock(content));
   if (!m) return [];
   return m[1]!
     .split(',')
@@ -368,6 +368,7 @@ export function parseVerdictConcept(
   content: string,
   summary: string,
 ): ParsedVerdict | null {
+  content = headerBlock(content);
   const idMatch = /^finding:\s*(agf_\S+)/m.exec(content);
   if (!idMatch) return null;
   let verdict: FindingVerdict | 'pending' | null = null;
@@ -422,7 +423,7 @@ export function fixLines(loc: FixLocation): string[] {
 
 /** Read one `key: value` header line out of a concept body. */
 function headerLine(content: string, key: string): string {
-  const m = new RegExp(`^${key}: (.*)$`, 'm').exec(content);
+  const m = new RegExp(`^${key}: (.*)$`, 'm').exec(headerBlock(content));
   return m?.[1]?.trim() ?? '';
 }
 

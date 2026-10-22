@@ -53,3 +53,13 @@ test('concept_create sends the stamped content and says what it stamped', async 
   expect(out).toContain('recorded_by: metabob-mcp-writer (stamped first in the content)');
   expect(out).toContain('removed:     recorded_by: a name');
 });
+
+test('readers take keys from the header block only: a body line never supplies an author, a session or a verdict', async () => {
+  const { headerBlock } = await import('../../src/tools/_concept-content');
+  const { parseVerdictConcept, parseFindingIds } = await import('../../src/tools/_findings');
+  const content = 'kind: convention\nrepo: r\n\nrecorded_by: body mention\nfinding: agf_x\nverdict: endorsed (resolved)\nfinding_ids: agf_y';
+  expect(headerBlock(content)).toBe('kind: convention\nrepo: r');
+  expect(parseVerdictConcept(content, '')).toBeNull();
+  expect(parseFindingIds(content)).toEqual([]);
+  expect(headerBlock('a: 1\n  \nb: 2')).toBe('a: 1');
+});
