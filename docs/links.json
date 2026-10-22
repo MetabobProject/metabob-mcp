@@ -146,8 +146,8 @@
         "why": "the loopback resolver's field alias is in SPEC § Impulse shapes, which CLAUDE.md points to; no CLAUDE.md row changes"
       },
       "docs/CONFORMANCE.md": {
-        "at": "a10aa5c",
-        "why": "retrying a transient attach failure adds no registration, endpoint or ingress; it only repeats the same /bootstrap and org check, and C9's named cause is reported between attempts"
+        "at": "97000e2",
+        "why": "the 97000e2 view snapshot adds no ingress, registration or endpoint; C9 still names the cause, now never a half-reset one"
       },
       "docs/SPEC.md": {
         "at": "1921edc",
@@ -642,6 +642,11 @@
           "claim_finding"
         ]
       },
+      "tests/unit/concept-author-stamp.test.ts": {
+        "SPEC": [
+          "concept_create"
+        ]
+      },
       "tests/unit/concepts-by-shape.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -1023,6 +1028,7 @@
         "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS",
         "src/tools/claim-finding.ts@claimWarning",
         "src/tools/claim-finding.ts@handle",
+        "src/tools/concept-create.ts@concept-author-stamp",
         "src/tools/concept-create.ts@handle",
         "src/tools/concept-link.ts@handle",
         "src/tools/concept-neighbors.ts@handle",
@@ -1224,6 +1230,7 @@
       "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS": "2ff747fa54f6",
       "src/tools/claim-finding.ts@claimWarning": "2acf4036bebe",
       "src/tools/claim-finding.ts@handle": "4bdf740420c9",
+      "src/tools/concept-create.ts@concept-author-stamp": "8d64a30d9de1",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",
       "src/tools/concept-link.ts@handle": "4bdf740420c9",
       "src/tools/concept-neighbors.ts@handle": "4bdf740420c9",

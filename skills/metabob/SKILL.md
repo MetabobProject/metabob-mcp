@@ -129,7 +129,7 @@ independent ones. It does not overwrite the reach verdict.
   `concept_sequence` for concepts that co-occurred in successful work.
 - **Write**: `concept_create` for a decision worth keeping — why an approach was
   chosen, and what was rejected and why — then `concept_link` it to the repository's
-  `repo_anchor` concept. **A rejected approach is the highest-value thing you can
+  `repo_anchor` concept. Your author line is stamped for you. **A rejected approach is the highest-value thing you can
   record**: it leaves no trace in the code that survived.
 - **Credit**: `concept_record_usage { concept_id, outcome }` when a concept you used
   helped (`success`) or misled you (`failure`), with `neutral` for neither.

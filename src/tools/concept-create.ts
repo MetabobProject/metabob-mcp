@@ -39,6 +39,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { createConcept } from './_concept-db.js';
 import { plainConceptId } from './_concept-content.js';
+import { attributionLines, resolveAuthorVesselId } from './_findings.js';
 
 const SOURCE_TYPES = [
   'goal',
@@ -123,18 +124,42 @@ interface ConceptResponse {
   error?: string;
 }
 
+// @anchor concept-author-stamp
+/**
+ * The author of a concept, stamped as record_finding stamps a finding's: `recorded_by: <vesselId>` and
+ * `session: <id>` as the content's first lines, so every reader's first match is the stamp (task pull's convention
+ * trust reads the first `recorded_by:`). A `recorded_by:` or `session:` line the agent wrote is replaced, and the
+ * reply says so. With no vessel identity nothing is stamped and the content is sent as written: an author is
+ * omitted, never faked. Declared, not verified, like every author line until principals are stamped from the
+ * credential. SPEC §concept_create
+ */
+export function stampAuthor(content: string, vesselId: string | undefined, sessionId: string | undefined): { content: string; replaced: string[] } {
+  if (!vesselId) return { content, replaced: [] };
+  const replaced: string[] = [];
+  const kept = content.split('\n').filter((line) => {
+    const m = /^(recorded_by|session):\s*(.*)$/.exec(line);
+    if (!m) return true;
+    replaced.push(`${m[1]}: ${m[2]}`);
+    return false;
+  });
+  return { content: [...attributionLines('recorded_by', vesselId, sessionId), ...kept].join('\n'), replaced };
+}
+
 export async function handle(
   input: ConceptCreateInput,
   _apiClient: AnalysisAPIClient,
+  sessionId?: string,
 ): Promise<string> {
   const start = Date.now();
+  const vesselId = await resolveAuthorVesselId();
+  const stamped = stampAuthor(input.content, vesselId, sessionId);
 
   // Pointer defaults: use the shape as pointer.type if caller didn't pass one.
   // concept-db's CreateConceptRequestSchema takes the pointer verbatim.
   const pointer = input.pointer ?? { type: input.shape };
 
   const conceptData: Record<string, unknown> = {
-    content: input.content,
+    content: stamped.content,
     shape: input.shape,
     source_type: input.source_type,
     pointer,
@@ -160,6 +185,10 @@ export async function handle(
   text += `  budget:      ${concept.budget ?? '?'}\n`;
   text += `  priority:    ${typeof concept.priority === 'number' ? concept.priority.toFixed(2) : '?'}\n`;
   if (concept.created_at) text += `  created_at:  ${concept.created_at}\n`;
+  text += vesselId
+    ? `  recorded_by: ${vesselId} (stamped first in the content)\n`
+    : '  recorded_by: not stamped: no vessel identity resolves for this session\n';
+  if (stamped.replaced.length) text += `  replaced:    ${stamped.replaced.join('; ')} (an author line is the tool's to write)\n`;
   text += '\nUse concept_link to wire this concept into the existing graph.';
   return text;
 }

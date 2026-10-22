@@ -1126,6 +1126,12 @@ Handler: `src/tools/concept-create.ts@handle`
 | `budget` | number | concept-db's default | Token budget for resolution snapshots |
 | `priority` | number | concept-db's default | Initial priority, 0..1 |
 
+**The author is stamped** (`src/tools/concept-create.ts@concept-author-stamp`), as `record_finding` stamps a finding's:
+`recorded_by: <vesselId>` and `session: <id>` become the content's first lines, so every reader's first match is the
+stamp (`task pull`'s convention trust reads the first `recorded_by:`). A `recorded_by:` or `session:` line the agent
+wrote is replaced, and the reply names what it replaced. With no vessel identity nothing is stamped and the content
+goes as written: an author is omitted, never faked. Like every author line it is declared, not verified (§ Client claim).
+
 Writes `concept_create_write { conceptData }` once — the body `POST /concepts` takes; renders the created concept's id, shape, source type, summary, budget and priority.
 
 ### concept_record_usage
