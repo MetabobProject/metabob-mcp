@@ -128,21 +128,25 @@ interface ConceptResponse {
 /**
  * The author of a concept, stamped as record_finding stamps a finding's: `recorded_by: <vesselId>` and
  * `session: <id>` as the content's first lines, so every reader's first match is the stamp (task pull's convention
- * trust reads the first `recorded_by:`). A `recorded_by:` or `session:` line the agent wrote is replaced, and the
- * reply says so. With no vessel identity nothing is stamped and the content is sent as written: an author is
- * omitted, never faked. Declared, not verified, like every author line until principals are stamped from the
- * credential. SPEC §concept_create
+ * trust reads the first `recorded_by:`). Author lines the agent wrote in the leading header block (up to the first
+ * blank line) are removed, matched at any indentation and in any case, whether or not an identity resolves, and the
+ * reply says what was removed. The body after the header block is left as written. With no vessel identity nothing
+ * is stamped: an author is omitted, never faked, and never taken from what the agent wrote. Declared, not verified,
+ * like every author line until principals are stamped from the credential. SPEC §concept_create
  */
 export function stampAuthor(content: string, vesselId: string | undefined, sessionId: string | undefined): { content: string; replaced: string[] } {
-  if (!vesselId) return { content, replaced: [] };
+  const lines = content.split('\n');
+  const blank = lines.findIndex((l) => l.trim() === '');
+  const headerEnd = blank < 0 ? lines.length : blank;
   const replaced: string[] = [];
-  const kept = content.split('\n').filter((line) => {
-    const m = /^(recorded_by|session):\s*(.*)$/.exec(line);
+  const header = lines.slice(0, headerEnd).filter((line) => {
+    const m = /^\s*(recorded_by|session)\s*:\s*(.*)$/i.exec(line);
     if (!m) return true;
-    replaced.push(`${m[1]}: ${m[2]}`);
+    replaced.push(line.trim());
     return false;
   });
-  return { content: [...attributionLines('recorded_by', vesselId, sessionId), ...kept].join('\n'), replaced };
+  const stamp = vesselId ? attributionLines('recorded_by', vesselId, sessionId) : [];
+  return { content: [...stamp, ...header, ...lines.slice(headerEnd)].join('\n'), replaced };
 }
 
 export async function handle(
@@ -188,7 +192,7 @@ export async function handle(
   text += vesselId
     ? `  recorded_by: ${vesselId} (stamped first in the content)\n`
     : '  recorded_by: not stamped: no vessel identity resolves for this session\n';
-  if (stamped.replaced.length) text += `  replaced:    ${stamped.replaced.join('; ')} (an author line is the tool's to write)\n`;
+  if (stamped.replaced.length) text += `  removed:     ${stamped.replaced.join('; ')} (an author line is the tool's to write)\n`;
   text += '\nUse concept_link to wire this concept into the existing graph.';
   return text;
 }

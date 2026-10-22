@@ -21,6 +21,24 @@ test('stampAuthor puts the stamp first and replaces an author line the agent wro
   expect(ConceptCreate.stampAuthor('kind: decision', undefined, 's1')).toEqual({ content: 'kind: decision', replaced: [] });
 });
 
+test('only the header block is touched: a session: line in the body stays', () => {
+  const r = ConceptCreate.stampAuthor('kind: decision\n\nsession: quoted in body text', 'metabob-mcp-writer', 's1');
+  expect(r.content).toBe('recorded_by: metabob-mcp-writer\nsession: s1\nkind: decision\n\nsession: quoted in body text');
+  expect(r.replaced).toEqual([]);
+});
+
+test('indented or differently cased author lines in the header block are removed too', () => {
+  const r = ConceptCreate.stampAuthor('kind: rejected\n  recorded_by: indented forgery\nRecorded_By: case forgery\n\nbody', 'metabob-mcp-writer', 's1');
+  expect(r.content).toBe('recorded_by: metabob-mcp-writer\nsession: s1\nkind: rejected\n\nbody');
+  expect(r.replaced).toEqual(['recorded_by: indented forgery', 'Recorded_By: case forgery']);
+});
+
+test('with no identity, an author line the agent wrote is removed and nothing is stamped', () => {
+  const r = ConceptCreate.stampAuthor('kind: convention\nrecorded_by: coordinator\n\nintegrate: review', undefined, 's1');
+  expect(r.content).toBe('kind: convention\n\nintegrate: review');
+  expect(r.replaced).toEqual(['recorded_by: coordinator']);
+});
+
 test('concept_create sends the stamped content and says what it stamped', async () => {
   const stub = await installShapeStub({
     concept_create_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'concept_n1', shape: 'decision', source_type: 'memo' }) } }),
@@ -33,5 +51,5 @@ test('concept_create sends the stamped content and says what it stamped', async 
   expect(sent.split('\n').slice(0, 2)).toEqual(['recorded_by: metabob-mcp-writer', 'session: sess-9']);
   expect(sent).not.toContain('a name');
   expect(out).toContain('recorded_by: metabob-mcp-writer (stamped first in the content)');
-  expect(out).toContain('replaced:    recorded_by: a name');
+  expect(out).toContain('removed:     recorded_by: a name');
 });

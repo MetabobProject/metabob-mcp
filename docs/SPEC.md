@@ -1128,9 +1128,11 @@ Handler: `src/tools/concept-create.ts@handle`
 
 **The author is stamped** (`src/tools/concept-create.ts@concept-author-stamp`), as `record_finding` stamps a finding's:
 `recorded_by: <vesselId>` and `session: <id>` become the content's first lines, so every reader's first match is the
-stamp (`task pull`'s convention trust reads the first `recorded_by:`). A `recorded_by:` or `session:` line the agent
-wrote is replaced, and the reply names what it replaced. With no vessel identity nothing is stamped and the content
-goes as written: an author is omitted, never faked. Like every author line it is declared, not verified (§ Client claim).
+stamp (`task pull`'s convention trust reads the first `recorded_by:`). `recorded_by:` and `session:` lines the agent
+wrote in the leading header block (up to the first blank line) are removed, at any indentation and in any case, and
+the reply names what it removed; the body after the header block is untouched. They are removed whether or not an
+identity resolves. With no vessel identity nothing is stamped: an author is omitted, never faked, and never taken
+from what the agent wrote. Like every author line it is declared, not verified (§ Client claim).
 
 Writes `concept_create_write { conceptData }` once — the body `POST /concepts` takes; renders the created concept's id, shape, source type, summary, budget and priority.
 
