@@ -150,8 +150,8 @@
         "why": "refusal age is message wording; no participation requirement changes"
       },
       "docs/SPEC.md": {
-        "at": "9e9d35e",
-        "why": "finding close's files: read moving to headerBlock is already the rule SPEC § concept_create states for every reader; no behaviour the SPEC describes changed"
+        "at": "1d3b52a",
+        "why": "record_finding's store-less fallback now writes the workspace hash the store already wrote; SPEC describes the workspace: line only as a legacy fallback in recall"
       },
       "lab/README.md": {
         "at": "f522929",

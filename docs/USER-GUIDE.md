@@ -30,18 +30,31 @@ machine's local store: what is recorded then reaches no other agent.
 ### What leaves your machine
 
 The server sends no source file, excerpt or file list anywhere, and no usage telemetry. What reaches the
-substrate is only what an agent writes through a tool:
+substrate is what an agent's tool calls carry. Every request carries your API key (to discovery, which forwards
+it to the producing service; to the identity service for the key check; and, for `concept_usage_stats`' recent
+rows only, straight to concept-db's advertised address). Beyond the key:
 
 | The agent… | What is sent |
 |---|---|
-| records a finding (`record_finding`) | its summary, details, severity, category, the file paths and the repository's identity (its git remote) |
-| closes or claims one (`mark_complete`, `claim_finding`) | the verdict, the fix commit's id, paths |
-| writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes |
-| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text |
+| records a finding (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none) and the directory's name, a hash naming the workspace, the finding's ids, and the author (`recorded_by`, the vessel id) and session |
+| closes a finding (`mark_complete`, `finding close`) | the verdict, the finding's summary again, its files and repository, the fix commit, its branch, the base and target branch names, the author (`reviewed_by`) and session, and whether the verdict came from a local copy |
+| claims one (`claim_finding`) | the finding's id, the claim's length and end, the author and session |
+| writes memory (`concept_create`, `concept_link`, `concept_record_usage`, `resolve_impulse`'s memory note) | the text it writes, its shape and source type, any pointer it gives (which can name a document path), the author and session |
+| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, any `probe:`) |
+| gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
+| answers a queued task (`submit_resolution`) | the answer text |
+| searches or reads (`concept_search`, `goal_status`, `goal_reasoning`, `execution_trace`, …) | the search text, or the ids it reads |
 
-Every one of these passes an outgoing guard first: a known secret (your key, secret-named values from your
-environment and config files) or a credential pattern refuses the call without repeating the value, and a
-home-directory path is redacted. The local code tools send nothing.
+Every write also carries a `client_claim` (the operator, which is `MB_OPERATOR_ID` or the vessel id, the
+session and the client version); `METABOB_CLIENT_CLAIM=off` drops it. `path_activity` and the recall behind
+`get_problems` match paths on this machine: the paths are not sent.
+
+Each string an agent sends passes an outgoing guard first. A known secret (your key, secret-named values from
+your environment and from the workspace's and your config files) or a credential pattern refuses the call
+without repeating the value, and the refusal tells the agent to remove the credential or mask it
+(`postgres://admin:***@host`) and call again; common re-encodings of a secret are caught too. A path under your
+home directory is redacted in prose and refused in a field the substrate acts on. The local code tools send
+nothing.
 
 ## 2. Set up
 
@@ -75,8 +88,10 @@ Add the server to the client's MCP configuration:
 { "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp"] } } }
 ```
 
-Other clients get the same guidance from the server's own instructions, but not the edit check, which is a
-Claude Code hook.
+The server sends its own instructions to the client (load the skill, check before editing, record what you do
+not fix), but not every client shows them to the agent: Codex and Gemini CLI document doing so, others may not.
+In those, put the session rules in the client's rules file (`AGENTS.md`, `.cursor/rules`, Copilot
+instructions; see the README). The edit check is a Claude Code hook and exists only there.
 
 ### Check the connection
 
@@ -99,8 +114,8 @@ You give your agent its task as usual. With the skill loaded, it does the follow
 
 **At the start.** It checks the attachment and the open findings for the repository (`get_analysis_context`,
 `get_problems`), indexes the code locally (`init_workspace`) and may list the decisions recorded for the
-repository (`concept_search`). It mentions findings other agents recorded on the files your task touches,
-including ones closed recently.
+repository (`concept_search`). It mentions findings other agents recorded on the files your task touches;
+`get_problems` also lists recently closed ones, in a trailing section.
 
 **Before editing a file.** It looks up what is known to be wrong in that file (`get_problems`) and what the
 substrate has in flight on it (`path_activity`). In Claude Code the edit check prompts for this: it holds the
@@ -122,6 +137,8 @@ The close records the commit. It is not taken on the agent's word:
 - a commit counts once any remote branch holds it, a task branch not yet merged included; `finding close`
   (§ 8) is stricter and waits for the merge;
 - a commit must postdate the finding and touch its files, or be named as the fix (`fix_commit`);
+- when none of the finding's files is in this checkout, or the finding has no recorded time, nothing here can
+  be shown to be its fix, and it stays open;
 - a false positive is closed with discard instead.
 
 **At the end.** It records what it noticed and did not fix, closes every finding it resolved, and writes down
@@ -147,7 +164,7 @@ You can always ask for the raw tool output.
 
 ## 5. Where your agent stops and asks you
 
-Some calls are yours, and the agent is told to bring them to you rather than decide:
+Some calls are yours. The skill tells the agent to bring these to you rather than decide:
 
 - **A landing lease.** When `path_activity` shows the system landing a change to a file right now, an edit
   before the lease ends is lost or conflicts. The agent tells you, and you decide whether to edit now.
@@ -159,9 +176,8 @@ Some calls are yours, and the agent is told to bring them to you rather than dec
   substrate's human surface. The agent does not represent your view as its own.
 - **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
   never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
-- **Load on shared hosts.** Labs and load tests run capped, in a window you clear.
-- **A refused write.** When the outgoing guard refuses a call because it holds a secret, the agent writes it again
-  without the secret; it never disguises the value to get it through.
+- **Lab and load work on shared hosts.** When an agent runs a lab or a load test, it runs capped, in a window
+  you clear.
 
 ## 6. Several agents on one repository
 
@@ -178,11 +194,13 @@ grouped as yours, unclaimed, someone else's and pending **(0.3.5)**.
 **Claims (0.3.5).** Before starting on a finding another agent could also take (a task or any other finding), an agent claims it
 (`claim_finding`): recall then shows `[claimed by … until …: someone is working on it]`. A claim lasts 60
 minutes by default (at most 240) and is renewed for longer work. The store has no lock, so two agents can claim
-at once; one rule every reader applies decides the holder (the earliest live claim), and the loser withdraws.
-Closing the finding ends the claim.
+at once; one rule every reader applies decides the holder (the earliest live claim, the lower concept id on a
+tie), and the loser writes a withdrawal. Closing the finding ends the claim. The holder sees its own claim as
+`[yours: claimed by this checkout until …]` among the tasks.
 
-The claimer is the **checkout**, not the session: two sessions in one working copy are one claimer, and recall
-shows each of them `[claimed by this checkout …]`. Give agents that share a working copy disjoint ownership in
+The claimer is the **checkout**, not the session: two sessions in one working copy are one claimer. Recall
+shows each of them `[claimed by this checkout …]`, and a second session's claim reads to it as "Renewed your
+claim". Give agents that share a working copy disjoint ownership in
 their briefs, or separate working copies.
 
 ## 7. Goals on the substrate
@@ -237,7 +255,11 @@ the conditions that would invalidate the advice in the content; they are convent
 | A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
 | "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
 | A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |
-| The agent's close was refused | The commit predates the finding or touches none of its files: name it with `fix_commit` |
+| The close says the commit predates the finding | That commit is not the fix; `fix_commit` refuses an older commit too |
+| The close says no commit since the finding touches its files | If the fix is in other files, name its commit with `fix_commit` |
+| The close says the commit is on no remote branch | Push it, then endorse again |
+| The close says none of the finding's files is here | Endorse from the checkout that has the fix |
+| The close says git did not answer in time | Try again |
 | Two agents did the same work | Give stated, disjoint ownership; in one working copy, claims do not separate sessions |
 | Recall shows nothing | A failed or truncated read is not "no findings"; read the line under the heading |
 | Corporate TLS fails | `npx @metabob/mcp doctor` writes a diagnostic report; review it before sharing |
