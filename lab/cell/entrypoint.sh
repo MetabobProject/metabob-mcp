@@ -68,7 +68,7 @@ unset METABOB_ENDPOINT SUBSTRATE_ENDPOINT
 export -n METABOB_API_KEY
 meta[origin]="$CELL_ORIGIN"; meta[model]="$MODEL"; meta[metabob_revision]="$(cat /opt/metabob-mcp/REVISION 2>/dev/null || echo unknown)"
 meta[harness]="claude-code $(claude --version 2>/dev/null | head -1)"; meta[edit_check]="${METABOB_EDIT_CHECK:-on}"
-meta[wall_s]="$WALL_S"; meta[budget_usd]="$BUDGET"
+meta[wall_s]="$WALL_S"; meta[budget_usd]="$BUDGET"; meta[egress]="${CELL_EGRESS:-not stated}"
 
 # 1. task pull
 SESSION_ID="cell-$(cat /proc/sys/kernel/random/uuid)"; export SESSION_ID
@@ -147,6 +147,11 @@ if git -C "$WORK" push -q origin HEAD 2>/dev/null; then meta[push_probe]="SUCCEE
 # 5. the bundle
 # Every commit the clone holds: with a pin, the base, the fixture's and the work's commits, and nothing after the base.
 meta[clone_commits]="$(git -C "$WORK" rev-list --all --count)"
+# Harness-independent: commits the clone holds beyond the pin, the fixture's and the work's. Above 0, it fetched more.
+if [ -n "$PIN" ]; then
+  fx=0; [ -n "${meta[fixture]:-}" ] && fx=1
+  meta[clone_beyond_base]="$(( ${meta[clone_commits]} - 1 - fx - $(git -C "$WORK" rev-list --count "$BASE..HEAD") ))"
+fi
 git -C "$WORK" diff "$BASE..HEAD" > "$OUT/diff.patch"
 git -C "$WORK" diff --name-only "$BASE..HEAD" > "$OUT/names.txt"
 git -C "$WORK" log --format='%H%n%B%n--' "$BASE..HEAD" > "$OUT/commits.txt"

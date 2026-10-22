@@ -44,8 +44,9 @@ cmd_build() {
     git -C "$REPO_ROOT/$path" archive "$sub" | tar -x -C "$ctx/src/$path"
   done < <(git -C "$REPO_ROOT" ls-tree -r "$sha")
   echo "$sha" > "$ctx/src/REVISION"
-  cp cell/Containerfile cell/entrypoint.sh "$ctx/"
-  log "building $IMAGE from $sha (committed source only)"
+  # The recipe comes from the same commit as the source, so the image is $sha's alone.
+  cp "$ctx/src/lab/cell/Containerfile" "$ctx/src/lab/cell/entrypoint.sh" "$ctx/" || fail "build: $sha has no lab/cell recipe"
+  log "building $IMAGE from $sha (committed source and recipe only)"
   "$ENG" build -q --build-arg "METABOB_REVISION=$sha" -t "$IMAGE:${sha:0:12}" -t "$IMAGE:latest" -f "$ctx/Containerfile" "$ctx" >/dev/null
   log "built $IMAGE:${sha:0:12}"
 }
@@ -77,12 +78,16 @@ cmd_run() {
   discovery="${discovery:-http://$(sed -n 's/^LAB_IP=//p' spoke.env | tail -1):8100}"   # the spoke, inside the lab network
   "$ENG" image exists "$IMAGE:latest" 2>/dev/null || "$ENG" image inspect "$IMAGE:latest" >/dev/null 2>&1 || fail "run: no $IMAGE image (./cell.sh build)"
 
+  # What the cell can reach: recorded in cell.json, since the harness holds a provider key.
+  local egress
+  egress="$("$ENG" network inspect "$NETWORK" --format '{{.Driver}} internal={{.Internal}} dns={{.DNSEnabled}}' 2>/dev/null || echo unknown)"
+  case "$egress" in *internal=false*) egress="$NETWORK: $egress (outbound NAT to any host)" ;; *) egress="$NETWORK: $egress" ;; esac
   name="cell-$(date -u +%Y%m%dT%H%M%SZ)"
   ENV_DIR="$(mktemp -d)"; chmod 700 "$ENV_DIR"; tmp="$ENV_DIR"
   ( umask 077
     printf 'METABOB_API_KEY=%s\n' "$(cat "$KEYS/mcp-rw.key")"
     if [ -z "$skip" ]; then k="$(anthropic_key)" || { echo "no ANTHROPIC_API_KEY" >&2; exit 1; }; printf 'ANTHROPIC_API_KEY=%s\n' "$k"; fi
-    printf 'DISCOVERY_ENDPOINT=%s\nCELL_ORIGIN=%s\n' "$discovery" "$origin"
+    printf 'DISCOVERY_ENDPOINT=%s\nCELL_ORIGIN=%s\nCELL_EGRESS=%s\n' "$discovery" "$origin" "$egress"
     for v in CELL_MODEL CELL_WALL_S CELL_BUDGET_USD CELL_CLAIM_MINUTES METABOB_EDIT_CHECK; do
       [ -n "${!v:-}" ] && printf '%s=%s\n' "$v" "${!v}"
     done

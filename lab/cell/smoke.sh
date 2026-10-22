@@ -69,9 +69,10 @@ check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; fails=$((fai
 j() { jq -r "$1" "$T/out/cell.json"; }
 check "the cell exits 0"                          '[ "$rc" = 0 ]'
 check "the base is the pin plus the fixture"      '[ "$(j .pin)" = "$PIN" ] && [ "$(j .fixture)" = test/f.test.ts ]'
-check "the reference fix is not in the clone"     '[ "$(j .clone_commits)" = 3 ] && ! grep -q "$FIX" "$T/out/commits.txt" && [ "$(j .task_pull_base)" = "$FIX" ]'
+check "the reference fix is not in the clone"     '[ "$(j .clone_commits)" = 3 ] && [ "$(j .clone_beyond_base)" = 0 ] && ! grep -q "$FIX" "$T/out/commits.txt" && [ "$(j .task_pull_base)" = "$FIX" ]'
 check "the diff is the harness edit alone"        '[ "$(cat "$T/out/names.txt")" = lib/f.ts ]'
 check "the cell committed with the trailer"       'grep -q "^Fixes-Finding: agf_smoke$" "$T/out/commits.txt" && [ "$(j .commit)" = "cell committed the harness'"'"'s uncommitted changes" ]'
+check "the egress is stated"                      '[ "$(j .egress)" = "not stated" ]'
 check "a push is refused"                         '[ "$(j .push_probe)" = refused ]'
 check "the harness has no METABOB_API_KEY"        'grep -q "\"mcp_key_in_env\":\"\"" "$T/out/transcript.jsonl"'
 check "no key value is in the bundle"             '! grep -rqF -e "$FAKE_MCP_KEY" -e "$FAKE_PROVIDER_KEY" "$T/out"'

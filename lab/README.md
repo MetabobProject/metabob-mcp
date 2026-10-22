@@ -135,7 +135,7 @@ cell mounts nothing and holds no git credential, so it never pushes; its work is
 ```
 
 **The image** (`lab/cell/Containerfile`) is built from `git archive` of a metabob-mcp commit and its submodules,
-so it holds committed source only, recorded as its `org.opencontainers.image.revision`. It has git, bun, the
+recipe included, so it holds that commit's source and recipe only, recorded as its `org.opencontainers.image.revision`. It has git, bun, the
 MCP built as the npm package is, and Claude Code at a pinned version, which speaks the Anthropic provider
 key natively. The plugin is installed as users have it (the skill and the edit check) without its
 `.mcp.json`; the cell's own MCP config starts the built server under the name the edit check matches. It
@@ -147,7 +147,8 @@ inside the lab network) and `CELL_ORIGIN`, plus any `CELL_*` cap that is set. It
 private temp directory, read once by `create` and deleted. A fixture directory, laid out as in the
 repository, is copied into the created container (`podman cp`); nothing is mounted. The container is
 labelled `pilot-cell=<CELL_LABEL>`, capped by `CELL_CPUS` and `CELL_MEM`, and `run` refuses while another
-cell exists.
+cell exists. `metabob-lab` is a bridge network with outbound NAT, so the cell reaches any host: the provider
+API and the origin, and anywhere else. `run` records the network's driver and flags in `cell.json` (`egress`).
 
 **The entrypoint** (`lab/cell/entrypoint.sh`):
 1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45). An exit of 2, 3 or 4 ends the cell with that code.
@@ -162,7 +163,8 @@ cell exists.
 5. `/out`: `task.json`, `context.md`, `task-pull.json`, `diff.patch`, `names.txt` (what the V1 scorer reads),
    `commits.txt`, `transcript.jsonl`, `calls.jsonl` (`METABOB_CALL_LOG`) and `cell.json`. `cell.json` holds
    the origin, model, harness and MCP revisions, edit check, caps, base, pin, fixture, every exit code, cost
-   and turns, how the commit was made, the push probe, the number of commits in the clone, and how often the
+   and turns, how the commit was made, the push probe, the number of commits in the clone and, with a pin, how many it holds beyond the
+   pin, the fixture's and the work's (`clone_beyond_base`: above 0, the clone fetched more), and how often the
    transcript fetches git. Before the cell exits, any key value in `/out` is redacted and the files counted
    (`secret_files_redacted`).
 
