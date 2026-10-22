@@ -113,7 +113,7 @@ export interface WorkspaceScope {
  * tests/unit/local-store-workspace-scope.test.ts asserts the two agree, so the
  * copy cannot drift silently.
  */
-function workspaceIdHash(rootPath: string): string {
+export function workspaceIdHash(rootPath: string): string {
   let firstCommit = '';
   try {
     firstCommit = execSync('git rev-list --max-parents=0 HEAD', {

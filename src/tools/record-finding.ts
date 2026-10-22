@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { isAbsolute, relative } from 'node:path';
 import type { AnalysisAPIClient } from '../api-client.js';
-import type { LocalStore } from '../local-store.js';
+import { workspaceIdHash, type LocalStore } from '../local-store.js';
 import { activeWorkspacePath } from '../local-index.js';
 import { openGapsOnFilesLines } from './_gap-activity.js';
 import {
@@ -132,7 +132,8 @@ export async function handle(
   // workspace, an index pointed at another — the seed was written under a
   // workspace_id this store never queries, so record_finding reported success
   // and get_problems returned nothing.
-  const workspaceId = localStore ? localStore.workspaceScope().id : workspacePath;
+  // Its hash either way: the workspace's path never leaves the machine.
+  const workspaceId = localStore ? localStore.workspaceScope().id : workspaceIdHash(workspacePath);
   // The ledger key (SPEC §repository-identity): the normalized origin URL, else
   // the basename. The summary line shows the basename, for readers.
   const repo = workspaceRepo();

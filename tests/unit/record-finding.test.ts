@@ -197,6 +197,22 @@ test('record_finding: pushes a code_finding concept when concept-db is up', asyn
   expect(String(received!['content'])).toContain('user input concatenated into query');
 });
 
+test('record_finding: with no local store the workspace is still named by its hash, never its path', async () => {
+  let received: Record<string, unknown> | null = null;
+  await conceptDb({
+    concept_create_write: (p) => {
+      received = p.conceptData;
+      return written({ id: 'concept:cf_nostore', shape: 'code_finding' });
+    },
+  });
+  const input = RecordFinding.InputSchema.parse({ files: ['src/db/client.ts'], summary: 'no store', severity: 'LOW', category: 'correctness' });
+  await RecordFinding.handle(input, mockApiClient, SESSION, null);
+  const content = String(received!['content']);
+  const ws = /^workspace: (.*)$/m.exec(content)?.[1] ?? '';
+  expect(ws).toMatch(/^[0-9a-f]{8,}$/);
+  expect(content).not.toContain(process.cwd());
+});
+
 test('record_finding: stashes the minted concept id on the seed refs', async () => {
   await conceptDb({ concept_create_write: () => written({ id: 'concept:cf_refs1', shape: 'code_finding' }) });
 
