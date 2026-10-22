@@ -138,7 +138,7 @@ export async function handle(
     }
     for (const s of seeds.slice(0, input.problem_limit)) {
       recentProblems.push(
-        `  • [${s.severity}] ${s.category}  ${s.file_path}:${s.line_start}\n    ${s.brief.slice(0, 100)}\n    id: ${s.id}`,
+        `  • [${s.severity}] ${s.category}  ${s.file_path}${s.line_start > 0 ? `:${s.line_start}` : ''}\n    ${s.brief.slice(0, 100)}\n    id: ${s.id}`,
       );
     }
     problemsText = `${seeds.length} open (${criticalCount} critical, ${highCount} high)`;

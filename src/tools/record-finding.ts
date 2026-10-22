@@ -67,11 +67,11 @@ export const RecordFindingTool = {
       },
       line_start: {
         type: 'number',
-        description: 'Optional start line the finding refers to',
+        description: 'Optional start line the finding refers to, in the first of `files` (the others get no line range)',
       },
       line_end: {
         type: 'number',
-        description: 'Optional end line the finding refers to',
+        description: 'Optional end line, in the first of `files`',
       },
       status: {
         type: 'string',
@@ -169,14 +169,16 @@ export async function handle(
   const now = Date.now();
   let localStatus = 'local cache unavailable — finding not cached in-session';
   if (localStore) {
-    for (const file of relFiles) {
+    for (const [i, file] of relFiles.entries()) {
       const id = generateFindingId();
+      // The line range anchors the first file only: the others of a multi-file finding get none, not a wrong one.
+      const anchored = i === 0;
       const seed: Omit<SeedRecord, 'read_at'> = {
         id,
         workspace_id: workspaceId,
         file_path: file,
-        line_start: lineStart,
-        line_end: lineEnd,
+        line_start: anchored ? lineStart : 0,
+        line_end: anchored ? lineEnd : 0,
         category: input.category,
         severity: input.severity,
         brief: input.summary,
@@ -203,7 +205,7 @@ export async function handle(
       `files: ${relFiles.join(', ')}`,
     ];
     if (input.line_start !== undefined) {
-      contentLines.push(`lines: ${lineStart}–${lineEnd}`);
+      contentLines.push(`lines: ${lineStart}–${lineEnd}${relFiles.length > 1 ? ` (in ${relFiles[0]})` : ''}`);
     }
     contentLines.push(
       `severity: ${input.severity}`,
@@ -244,7 +246,7 @@ export async function handle(
   let text = `Finding recorded: [${input.severity}][${input.category}] ${input.summary}\n\n`;
   if (ids.length > 0) {
     for (const { file, id } of ids) {
-      text += `  ${file}${input.line_start !== undefined ? `:${lineStart}–${lineEnd}` : ''}  →  ${id}\n`;
+      text += `  ${file}${input.line_start !== undefined && file === relFiles[0] ? `:${lineStart}–${lineEnd}` : ''}  →  ${id}\n`;
     }
     text += '\n';
   } else {

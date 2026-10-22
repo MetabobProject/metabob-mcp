@@ -653,7 +653,7 @@ The write half of agent-side analysis: LLM processing lives on the agent; the se
 | `details` | string | — | Longer explanation / suggested fix |
 | `severity` | `CRITICAL\|HIGH\|MEDIUM\|LOW\|INFO` | **required** | Severity |
 | `category` | string | **required** | Free-form slug (security, correctness, design-constraint, …) |
-| `line_start` | number | — | Start line |
+| `line_start` | number | — | Start line, in the first of `files`; the other files of a multi-file finding get no line range, and the concept's `lines:` header names the file it belongs to |
 | `line_end` | number | — | End line |
 | `status` | string | `open` | Finding status; anything but `open` stores the seed already stale |
 | `force` | boolean | `false` | Record even when the same finding is already open (below) |

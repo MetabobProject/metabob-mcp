@@ -581,3 +581,20 @@ test('annotate_component: agf_* id without a local store is a clean error', asyn
   );
   expect(out).toContain('the local store failed to open');
 });
+
+test('a line range anchors the first file only: the other files of a multi-file finding get none', async () => {
+  const { makeTempStore } = await import('../helpers/temp-store');
+  const RecordFinding = await import('../../src/tools/record-finding');
+  const { store } = makeTempStore('lines-');
+  const out = await RecordFinding.handle(RecordFinding.InputSchema.parse({
+    files: ['src/a.ts', 'src/b.ts'], summary: 'contract mismatch refused late', severity: 'MEDIUM', category: 'correctness',
+    line_start: 830, line_end: 834,
+  }), {} as never, 's', store);
+  const seeds = store.getAllCachedSeeds();
+  const a = seeds.find(x => x.file_path === 'src/a.ts')!;
+  const b = seeds.find(x => x.file_path === 'src/b.ts')!;
+  expect([a.line_start, a.line_end]).toEqual([830, 834]);
+  expect([b.line_start, b.line_end]).toEqual([0, 0]);
+  expect(out).toMatch(/src\/a\.ts:830–834/);
+  expect(out).not.toMatch(/src\/b\.ts:830/);
+});

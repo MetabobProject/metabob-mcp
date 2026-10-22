@@ -138,7 +138,7 @@ function localFindings(
     const s = filtered[i]!;
     localStore.markSeedRead(s.id);
     text += `${i + 1}. [${s.severity}] ${s.category}\n`;
-    text += `   File:    ${s.file_path}:${s.line_start}–${s.line_end}\n`;
+    text += `   File:    ${s.file_path}${s.line_start > 0 ? `:${s.line_start}–${s.line_end}` : ''}\n`;
     text += `   Summary: ${s.brief}\n`;
     if (s.confidence < 0.8) {
       text += `   Confidence: ${(s.confidence * 100).toFixed(0)}%\n`;
