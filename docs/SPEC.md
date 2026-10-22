@@ -862,6 +862,8 @@ Returns a file → component map. Predictions are pooled across the changed file
 
 Handler: `src/tools/get-analysis-context.ts@handle`
 
+It opens with **where this session writes and as whom** (`src/tools/get-analysis-context.ts@attachment-line`): `Attachment: attached to org <orgId> via discovery <url>` (credentials redacted, never the key), or `not attached: <named cause>`, then `as: <vesselId> (session <id>)`. Agents writing to the shared ledger have no other read that shows it.
+
 The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable). The recall runs first and retires the local seeds of findings it shows closed, as `get_problems` does. The problems block leads with the same combined count as `get_problems` (`Open findings: …`), then the local store's line (`local store: N open (c critical, h high)`); the suggested next actions name open shared findings alongside local critical and high ones.
 
 **Input**

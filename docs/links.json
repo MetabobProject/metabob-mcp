@@ -632,6 +632,11 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/analysis-context-attachment.test.ts": {
+        "SPEC": [
+          "get_analysis_context"
+        ]
+      },
       "tests/unit/attached-marker.test.ts": {
         "README": [
           "claude-code-plugin"
@@ -1044,6 +1049,7 @@
         "src/tools/concept-usage-stats.ts@handle",
         "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/execution-trace.ts@handle",
+        "src/tools/get-analysis-context.ts@attachment-line",
         "src/tools/get-analysis-context.ts@handle",
         "src/tools/get-metrics.ts@handle",
         "src/tools/get-problems.ts@handle",
@@ -1247,6 +1253,7 @@
       "src/tools/concept-usage-stats.ts@handle": "4bdf740420c9",
       "src/tools/concept-usage-stats.ts@usage-history-direct-edge": "8d64a30d9de1",
       "src/tools/execution-trace.ts@handle": "7339be11146a",
+      "src/tools/get-analysis-context.ts@attachment-line": "8d64a30d9de1",
       "src/tools/get-analysis-context.ts@handle": "4bdf740420c9",
       "src/tools/get-metrics.ts@handle": "4bdf740420c9",
       "src/tools/get-problems.ts@handle": "4bdf740420c9",

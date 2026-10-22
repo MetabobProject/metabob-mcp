@@ -2,6 +2,8 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
+import { getAttachment } from '../attachment.js';
+import { redactUrl } from '../net.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import {
   NO_SERVER_ANALYSIS,
@@ -12,6 +14,7 @@ import {
   TASK_CATEGORY,
   withoutTasks,
   workspaceRepo,
+  resolveAuthorVesselId,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 
@@ -50,10 +53,28 @@ export const InputSchema = z.object({
 
 export type GetAnalysisContextInput = z.infer<typeof InputSchema>;
 
+// @anchor attachment-line
+/**
+ * Where this session writes, and as whom: the attachment's org and discovery endpoint (never the key), this
+ * session's vesselId and session id, or the named cause when it is not attached. Agents writing to the shared ledger
+ * had no read that showed it. SPEC §get_analysis_context
+ */
+export async function attachmentLines(sessionId: string): Promise<string[]> {
+  const a = getAttachment();
+  const vesselId = await resolveAuthorVesselId();
+  const who = `  as:         ${vesselId ?? 'no vessel identity'} (session ${sessionId || 'unknown'})`;
+  if (!a) return ['Attachment: not attached (no API key or endpoint configured); substrate tools are unavailable', who];
+  const st = a.state();
+  if (st.auth.status === 'authenticated' && !st.cause) {
+    return [`Attachment: attached to org ${st.auth.orgId ?? '?'} via discovery ${st.anchor.discovery ? redactUrl(st.anchor.discovery) : '?'}`, who];
+  }
+  return [`Attachment: not attached: ${st.message ?? st.cause ?? st.auth.status}`, who];
+}
+
 export async function handle(
   input: GetAnalysisContextInput,
   apiClient: AnalysisAPIClient,
-  _sessionId: string,
+  sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
@@ -130,6 +151,7 @@ export async function handle(
   // ── Build structured context for LLM consumption ─────────────────────────
   let text = `Analysis Context\n`;
   text += `════════════════\n\n`;
+  text += (await attachmentLines(sessionId)).join('\n') + '\n\n';
 
   // CPG state
   if (cpgStats) {
