@@ -322,6 +322,42 @@ export function guardToolInput(tool: string, input: Record<string, unknown>, env
   return { ok: true, input: out, notes };
 }
 
+// @anchor guard-outgoing-pointer
+/**
+ * The backstop over what the server itself composes. guardToolInput checks what an agent passes in; a write's pointer
+ * also carries lines the server builds (header blocks, verdicts, author stamps), which no tool input covers. Before a
+ * write leaves (src/attachment.ts@attachment-resolve), every string in its pointer is checked once more: a known secret
+ * value (`extra` adds the attachment's own key) refuses the write, naming the field and never the value, and a path
+ * under this user's home directory is replaced with `~`, field by field. Only exact known values are matched here, not
+ * the credential patterns: a pointer's ids and hashes would read as tokens. SPEC §outgoing-text-guard
+ */
+export function guardOutgoingPointer(
+  pointer: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+  extra: readonly string[] = [],
+): { ok: true; pointer: Record<string, unknown>; redacted: string[] } | { ok: false; field: string } {
+  const secrets = [...knownSecrets(env), ...extra.filter((v) => v.length >= 8)];
+  const homes = homePatterns();
+  const redacted: string[] = [];
+  let leaked: string | null = null;
+  const walk = (value: unknown, path: string): unknown => {
+    if (leaked) return value;
+    if (typeof value === 'string') {
+      if (secrets.some((x) => value.includes(x))) { leaked = path; return value; }
+      if (!hasHomePath(value, homes)) return value;
+      redacted.push(path);
+      return redactHome(value, homes);
+    }
+    if (Array.isArray(value)) return value.map((v, i) => walk(v, `${path}[${i}]`));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, walk(v, path ? `${path}.${k}` : k)]));
+    }
+    return value;
+  };
+  const out = walk(pointer, '') as Record<string, unknown>;
+  return leaked ? { ok: false, field: leaked } : { ok: true, pointer: out, redacted };
+}
+
 /** The tool call's arguments as a log may show them: field names and sizes, never values. */
 export function describeArgsForLog(args: unknown): Record<string, string> {
   if (!args || typeof args !== 'object') return {};

@@ -560,6 +560,17 @@ The tool-call log line names each argument and its size, never its value
 (`src/outgoing-guard.ts@describeArgsForLog`). The guard catches accidents, not adversaries: paraphrase,
 summaries, re-typed code, an encoded or split key and personal data in prose pass it.
 
+**The backstop over what the server composes** (`src/outgoing-guard.ts@guard-outgoing-pointer`). The guard above
+checks a tool's input; a write's pointer also carries lines the server builds itself (header blocks, verdicts, author
+stamps). Before any write leaves, at the one egress (`src/attachment.ts@attachment-resolve`), every string in its
+pointer is checked once more, on both entry points:
+- a known secret value (the attachment's own key, and the values the guard knows) refuses the write with
+  `outgoing_secret(known_secret, <field path>): the <shape> write was not sent`, never repeating the value;
+- a path under this user's home directory is replaced with `~`, and a warning names the shape and each field path.
+
+Only exact known values are matched here, not the credential patterns, since a pointer's ids and hashes would read
+as tokens. Reads are not checked: their text is a tool's guarded input.
+
 ---
 
 ## Call log

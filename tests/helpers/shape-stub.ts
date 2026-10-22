@@ -19,7 +19,7 @@ export type ShapeHandler = (pointer: Record<string, any>) => ShapeAnswer | Promi
 
 export const STUB_DISCOVERY = 'http://discovery.stub';
 const STUB_IDENTITY = 'http://identity.stub';
-const STUB_KEY = 'mb_stub_key';
+export const STUB_KEY = 'mb_stub_key';
 
 export interface ShapeStub {
   attachment: Attachment;

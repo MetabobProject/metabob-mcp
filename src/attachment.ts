@@ -27,6 +27,7 @@ import {
 } from './net.js';
 import { describeOsProxy, detectOsProxy, type OsProxySettings } from './os-proxy.js';
 import { clientClaim, clientClaimEnabled } from './operator-id.js';
+import { guardOutgoingPointer } from './outgoing-guard.js';
 
 // ── Named causes ─────────────────────────────────────────────────────────────
 
@@ -211,6 +212,14 @@ export function shapeFamily(shape: string): 'discovery' | 'trace' | 'concept' | 
   return 'other';
 }
 
+/** A write refused before it was sent: it carries a known secret value (src/outgoing-guard.ts@guard-outgoing-pointer). */
+export class OutgoingSecretError extends Error {
+  constructor(readonly shape: string, readonly field: string) {
+    super(`outgoing_secret(known_secret, ${field}): the ${shape} write was not sent, and the value is not repeated here`);
+    this.name = 'OutgoingSecretError';
+  }
+}
+
 /** A write refused before it was sent: the key's validated scopes lack `write`. Per call, not an attachment state. */
 export class ReadOnlyKeyError extends Error {
   constructor(readonly shape: string, readonly scopes: string[]) {
@@ -314,7 +323,7 @@ export function describeResolveFailure(err: unknown, opts: { noProducer?: string
   if (err instanceof ResolveError && err.kind === 'no_producer' && opts.noProducer) {
     return `no_producer(${err.shape}): ${opts.noProducer}`;
   }
-  if (err instanceof ResolveError || err instanceof AttachmentRefusedError || err instanceof ReadOnlyKeyError) return err.message;
+  if (err instanceof ResolveError || err instanceof AttachmentRefusedError || err instanceof ReadOnlyKeyError || err instanceof OutgoingSecretError) return err.message;
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -786,6 +795,15 @@ export function attach(options: AttachOptions): Attachment {
       const scopes = view.auth.scopes;
       if (opts?.read !== true && scopes && !scopes.includes('write') && !scopes.includes('admin')) {
         throw new ReadOnlyKeyError(shape, scopes);
+      }
+      // The backstop over server-composed lines: a write leaves with no known secret and no home path.
+      if (opts?.read !== true) {
+        const guarded = guardOutgoingPointer(pointer, process.env, key ? [key] : []);
+        if (!guarded.ok) throw new OutgoingSecretError(shape, guarded.field);
+        if (guarded.redacted.length) {
+          log('warn', `outgoing guard: the home directory was replaced with ~ in the ${shape} write (${guarded.redacted.join(', ')})`);
+        }
+        pointer = guarded.pointer;
       }
       const timeoutMs = Math.min(opts?.timeoutMs ?? RESOLVE_TIMEOUT_MS.concept, RESOLVE_MAX_TIMEOUT_MS);
       const url = `${discovery}/resolve`;

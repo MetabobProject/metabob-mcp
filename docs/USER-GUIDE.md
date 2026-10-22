@@ -53,8 +53,9 @@ Each string an agent sends passes an outgoing guard first. A known secret (your 
 your environment and from the workspace's and your config files) or a credential pattern refuses the call
 without repeating the value, and the refusal tells the agent to remove the credential or mask it
 (`postgres://admin:***@host`) and call again; common re-encodings of a secret are caught too. A path under your
-home directory is redacted in prose and refused in a field the substrate acts on. The local code tools send
-nothing.
+home directory is redacted in prose and refused in a field the substrate acts on. Every write is checked once more
+as the server composes it, so a line the server adds itself never carries your key or a home path. The local code
+tools send nothing.
 
 ## 2. Set up
 

@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describeArgsForLog, findSecret, guardToolInput, knownSecrets, secretValues } from '../../src/outgoing-guard';
+import { describeArgsForLog, findSecret, guardOutgoingPointer, guardToolInput, knownSecrets, secretValues } from '../../src/outgoing-guard';
 
 const KEY = 'mbk_Q7f3Zp9LxV2cR8tW1yN4hJ6kD0sGmA5e'; // gitleaks:allow (synthetic fixture)
 const env = { METABOB_API_KEY: KEY, PORT: '8080', DEBUG_TOKEN: 'true', SHORT_SECRET: 'dev' } as NodeJS.ProcessEnv;
@@ -144,5 +144,49 @@ describe('size and scope', () => {
   test('the log sees field names and sizes, never values', () => {
     expect(describeArgsForLog({ details: `key ${KEY}`, limit: 3 })).toEqual({ details: `string(${`key ${KEY}`.length})`, limit: 'number' });
     expect(describeArgsForLog({ files: ['a', 'b', 'c'], opts: {} })).toEqual({ files: 'array(3)', opts: 'object' });
+  });
+});
+
+describe('the backstop over server-composed writes (guardOutgoingPointer)', () => {
+  const home = homedir();
+
+  test('a home path anywhere in a pointer is replaced with ~ and named by its field path; other values pass', () => {
+    const r = guardOutgoingPointer({ type: 'concept_create_write', conceptData: { content: `workspace: ${home}/work/x`, tags: ['a', `${home}/b`], n: 3 } }, env);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.redacted).toEqual(['conceptData.content', 'conceptData.tags[1]']);
+    expect(JSON.stringify(r.pointer)).not.toContain(home);
+    expect((r.pointer.conceptData as Record<string, unknown>).n).toBe(3);
+  });
+
+  test('a known secret refuses, naming the field path, never the value; `extra` adds the attachment key', () => {
+    const r = guardOutgoingPointer({ type: 'x', conceptData: { content: `k=${KEY}` } }, env);
+    expect(r).toEqual({ ok: false, field: 'conceptData.content' });
+    const viaExtra = guardOutgoingPointer({ type: 'x', usageData: { trace_id: 'mcp:attach-key-abcdef12' } }, {}, ['attach-key-abcdef12']);
+    expect(viaExtra).toEqual({ ok: false, field: 'usageData.trace_id' });
+  });
+
+  test('ids and hashes are not read as credentials: only exact known values refuse', () => {
+    const r = guardOutgoingPointer({ type: 'x', conceptData: { content: 'fix: commit 3039ca85d27ad7839299bb10f2460c336967714a\nworkspace: 9f2c1d0e8b7a6f5e', summary: 'trace mcp:7d1e2f3a-4b5c-6d7e-8f90-a1b2c3d4e5f6' } }, env);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('the backstop in the attachment: every write, never a read', () => {
+  test('a server-composed write leaves with the home path redacted; one carrying the key is not sent; a read passes untouched', async () => {
+    const { installShapeStub, STUB_KEY } = await import('../helpers/shape-stub');
+    const { getAttachment, setAttachment } = await import('../../src/attachment');
+    const stub = await installShapeStub({
+      concept_create_write: () => ({ body: { success: true, content: JSON.stringify({ id: 'c1' }) } }),
+      conceptSearch: () => ({ body: { content: [] } }),
+    });
+    const a = getAttachment()!;
+    await a.resolve({ type: 'concept_create_write', conceptData: { content: `workspace: ${homedir()}/w` } });
+    expect(JSON.stringify(stub.calls('concept_create_write')[0])).not.toContain(homedir());
+    await expect(a.resolve({ type: 'concept_create_write', conceptData: { content: `leak ${STUB_KEY}` } })).rejects.toThrow(/outgoing_secret\(known_secret, conceptData\.content\): the concept_create_write write was not sent/);
+    expect(stub.calls('concept_create_write')).toHaveLength(1);
+    await a.resolve({ type: 'conceptSearch', query: `${homedir()}/q` }, { read: true });
+    expect(stub.calls('conceptSearch')[0]!.query).toBe(`${homedir()}/q`);
+    setAttachment(null);
   });
 });
