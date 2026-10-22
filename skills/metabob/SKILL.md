@@ -72,7 +72,7 @@ Use it whenever more than one agent or session touches the repository.
    false positive. Endorse after you commit and push the fix: the verdict records the commit,
    and a fix still uncommitted in your checkout leaves the finding open for everyone
    else, marked fix pending, until you endorse again after committing; so does a commit
-   no remote branch has yet, until you push it. When the fix
+   no remote branch has yet, until you push it, and a commit only on a task branch, until it is merged. When the fix
    commit touches none of the finding's files, name it: `fix_commit: "<sha>"`. A `concept_*` id is enough when that is all you hold: with no
    local seed the verdict is written from the recalled concept itself, and the
    output says plainly that nothing local was retired. One call closes every file

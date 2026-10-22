@@ -37,6 +37,39 @@ function unpushedFix(loc: FixLocation | null, workspace: string): loc is Extract
   return loc?.kind === 'commit' && !loc.pushed && hasRemote(workspace);
 }
 
+/**
+ * A fix pushed only to task branches is not integrated yet: a review merges a task branch, so other checkouts on the
+ * integration branch still have the bug. It is recorded as `fix pending (awaiting merge)`, as close by commit records
+ * it (src/finding-close.ts), and closes when an endorse finds it merged, or when finding close sees the merge. SPEC §mark_complete
+ */
+function awaitingMerge(loc: FixLocation | null): loc is Extract<FixLocation, { kind: 'commit' }> & { awaitingMerge: string } {
+  return loc?.kind === 'commit' && loc.pushed && !!loc.awaitingMerge;
+}
+
+const AWAITING_NOTE = (sha: string, target: string) =>
+  `The fix commit ${sha.slice(0, 10)} is only on task branches, so it is not merged into ${target} yet and the finding stays open (shown "fix pending: … awaiting merge"). `
+  + 'Once it is merged, fetch and mark_complete endorse again, or run finding close.';
+
+/** Why an endorse leaves the finding open, or null when it closes it. */
+type PendingKind = 'uncommitted' | 'unpushed' | 'awaiting merge';
+function pendingKind(loc: FixLocation | null, workspace: string): PendingKind | null {
+  if (loc?.kind === 'uncommitted') return 'uncommitted';
+  if (unpushedFix(loc, workspace)) return 'unpushed';
+  if (awaitingMerge(loc)) return 'awaiting merge';
+  return null;
+}
+
+/** What the fix still needs before the endorse that credits the finding. */
+const UNTIL: Record<PendingKind, string> = { uncommitted: 'committed', unpushed: 'pushed', 'awaiting merge': 'merged' };
+
+/** The note an endorse that leaves the finding open ends with. */
+function pendingTail(loc: FixLocation | null, kind: PendingKind | null, fixCommit?: string): string {
+  if (loc?.kind === 'uncommitted') return pendingNote(loc, fixCommit);
+  if (loc?.kind === 'commit' && kind === 'unpushed') return UNPUSHED_NOTE(loc.sha);
+  if (awaitingMerge(loc)) return AWAITING_NOTE(loc.sha, loc.awaitingMerge);
+  return '';
+}
+
 const UNPUSHED_NOTE = (sha: string) =>
   `The fix commit ${sha.slice(0, 10)} is not on any remote branch, so other checkouts cannot get it and the finding stays open (shown "fix pending"). `
   + 'Push it, then mark_complete endorse again.';
@@ -203,9 +236,9 @@ async function closeOrPend(
       }
       const loc = input.action === 'endorse' ? fixLocation(workspace, filesHere(remote.content, workspace), remote.recordedAt, input.fix_commit, opts.head) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
-      const unpushed = unpushedFix(loc, workspace);
-      const pending = loc?.kind === 'uncommitted' || unpushed;
-      const verdict = unpushed ? 'fix pending (unpushed)' : pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const kind = pendingKind(loc, workspace);
+      const pending = kind !== null;
+      const verdict = kind ? `fix pending (${kind})` : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const tag = pending ? 'pending' : input.action;
       // The finding's own repo line when it has one; else this workspace's.
       const here = workspaceRepo();
@@ -259,10 +292,10 @@ async function closeOrPend(
         (claimed ? `  claim:      ${claimed}\n` : '') +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         (loc ? `  fix:        ${fixShown(loc)}\n` : '') +
-        `  relevance:  ${!usage ? `not recorded until the fix is ${unpushed ? 'pushed' : 'committed'}` : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
+        `  relevance:  ${!usage ? `not recorded until the fix is ${kind ? UNTIL[kind] : 'committed'}` : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
-        (loc?.kind === 'uncommitted' ? `\n  ${pendingNote(loc, input.fix_commit)}` : unpushed ? `\n  ${UNPUSHED_NOTE(loc.sha)}` : '')
+        (kind ? `\n  ${pendingTail(loc, kind, input.fix_commit)}` : '')
       );
     }
     if (!seed || !localStore) {
@@ -286,8 +319,8 @@ async function closeOrPend(
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
     const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit, opts.head) : null;
     if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
-    const unpushed = unpushedFix(loc, workspace);
-    const pending = loc?.kind === 'uncommitted' || unpushed;
+    const kind = pendingKind(loc, workspace);
+    const pending = kind !== null;
 
     // A pending fix retires nothing: the finding is still open, here as everywhere else.
     for (const id of pending ? [] : toRetire) {
@@ -305,7 +338,7 @@ async function closeOrPend(
       conceptStatus = `${await conceptDbUnavailable()} — verdict recorded locally only`;
     } else {
       const here = workspaceRepo();
-      const verdict = unpushed ? 'fix pending (unpushed)' : pending ? 'fix pending (uncommitted)' : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
+      const verdict = kind ? `fix pending (${kind})` : input.action === 'endorse' ? 'endorsed (resolved)' : 'discarded (retracted)';
       const result = await postConcept({
         content: [
           `finding: ${seedId}`,
@@ -336,7 +369,7 @@ async function closeOrPend(
       const linkedRef = conceptIdFromRefs(seed.refs_json);
       const conceptId = linkedRef ? plainConceptId(linkedRef) : null;
       if (pending) {
-        relevanceStatus = `relevance: not recorded until the fix is ${unpushed ? 'pushed' : 'committed'}`;
+        relevanceStatus = `relevance: not recorded until the fix is ${UNTIL[kind!]}`;
       } else if (conceptId) {
         const outcome = input.action === 'endorse' ? 'success' : 'failure';
         const usage = await recordConceptUsage(conceptId, outcome);
@@ -362,8 +395,7 @@ async function closeOrPend(
       if (claimed) out += `\n  claim: ${claimed}`;
     }
     if (relevanceStatus) out += `\n  ${relevanceStatus}`;
-    if (loc?.kind === 'uncommitted') out += `\n  ${pendingNote(loc, input.fix_commit)}`;
-    else if (unpushed) out += `\n  ${UNPUSHED_NOTE(loc.sha)}`;
+    if (kind) out += `\n  ${pendingTail(loc, kind, input.fix_commit)}`;
     return out;
   }
 

@@ -255,6 +255,66 @@ describe('mark_complete endorse', () => {
     expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
   });
 
+  /** A checkout with a bare origin, main pushed, and (unless `noHead`) origin/HEAD naming main. */
+  function withOrigin(name: string, noHead = false): string {
+    const dir = checkout(name);
+    const bare = join(root, `${name}.git`);
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
+    git(dir, 'remote', 'add', 'origin', bare);
+    git(dir, 'push', '-q', 'origin', 'main');
+    if (!noHead) git(dir, 'remote', 'set-head', 'origin', 'main');
+    return dir;
+  }
+
+  test('a fix pushed only to a task branch awaits its merge: pending, credits nothing, closes once merged', async () => {
+    const dir = withOrigin('endorse-task-branch');
+    const store = seeded();
+    const stub = await db();
+    git(dir, 'checkout', '-qb', 'task/agf_avg1');
+    writeFileSync(join(dir, 'stats.ts'), 'fixed\n');
+    git(dir, 'commit', '-qam', 'fix');
+    git(dir, 'push', '-q', 'origin', 'task/agf_avg1');
+    const input = MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' });
+    const out = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(out).toContain('left open: fix pending');
+    expect(out).toContain('only on task branches, so it is not merged into main yet');
+    expect(out).toContain('relevance: not recorded until the fix is merged');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
+    const content = String(stub.calls('concept_create_write')[0]!.conceptData.content);
+    expect(content).toContain('verdict: fix pending (awaiting merge)');
+    expect(content).toContain('fix_target: main');
+    expect(stub.calls('conceptUsage_write')).toHaveLength(0);
+
+    git(dir, 'checkout', '-q', 'main');
+    git(dir, 'merge', '-q', '--ff-only', 'task/agf_avg1');
+    git(dir, 'push', '-q', 'origin', 'main');
+    const closed = await MarkComplete.handle(input, api, 's', store, dir);
+    expect(closed).toContain('endorsed (finding resolved');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+  });
+
+  test('a fix pushed to any other branch (a dev branch) closes as before; with no origin/HEAD the target is named generically', async () => {
+    const dev = withOrigin('endorse-dev-branch');
+    const store = seeded();
+    await db();
+    git(dev, 'checkout', '-qb', 'dev');
+    writeFileSync(join(dev, 'stats.ts'), 'fixed\n');
+    git(dev, 'commit', '-qam', 'fix');
+    git(dev, 'push', '-q', 'origin', 'dev');
+    const input = MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' });
+    expect(await MarkComplete.handle(input, api, 's', store, dev)).toContain('endorsed (finding resolved');
+
+    const bare = withOrigin('endorse-task-nohead', true);
+    const store2 = seeded();
+    const stub = await db();
+    git(bare, 'checkout', '-qb', 'task/agf_avg1');
+    writeFileSync(join(bare, 'stats.ts'), 'fixed\n');
+    git(bare, 'commit', '-qam', 'fix');
+    git(bare, 'push', '-q', 'origin', 'task/agf_avg1');
+    expect(await MarkComplete.handle(input, api, 's', store2, bare)).toContain('not merged into its target yet');
+    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('fix_target: its target');
+  });
+
   test('git runs in the C locale, so "not a git repository" is recognised whatever the user\'s language', () => {
     expect(GIT_ENV()).toMatchObject({ LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' });
     // With LANG set to German, git under GIT_ENV still says it in English.

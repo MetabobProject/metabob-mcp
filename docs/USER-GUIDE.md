@@ -134,8 +134,9 @@ The close records the commit. It is not taken on the agent's word:
 - a fix still uncommitted leaves the finding open for everyone else, shown `[fix pending: …]`;
 - a commit no remote branch has yet does the same in a checkout with a remote: "push it, then mark_complete
   endorse again". If you do not let the agent push, the finding stays pending and it tells you so;
-- a commit counts once any remote branch holds it, a task branch not yet merged included; `finding close`
-  (§ 8) is stricter and waits for the merge;
+- a commit only on task branches (`task/…`, which a review merges) leaves it open too, shown `[fix pending:
+  pushed …, awaiting merge into main]`, until an endorse finds it merged or `finding close` (§ 8) sees the merge;
+  a commit on any other remote branch counts;
 - a commit must postdate the finding and touch its files, or be named as the fix (`fix_commit`);
 - when none of the finding's files is in this checkout, or the finding has no recorded time, nothing here can
   be shown to be its fix, and it stays open;
@@ -258,6 +259,7 @@ the conditions that would invalidate the advice in the content; they are convent
 | The close says the commit predates the finding | That commit is not the fix; `fix_commit` refuses an older commit too |
 | The close says no commit since the finding touches its files | If the fix is in other files, name its commit with `fix_commit` |
 | The close says the commit is on no remote branch | Push it, then endorse again |
+| The close says the commit is only on task branches | It awaits review: once merged, fetch and endorse again, or run `finding close` |
 | The close says none of the finding's files is here | Endorse from the checkout that has the fix |
 | The close says git did not answer in time | Try again |
 | Two agents did the same work | Give stated, disjoint ownership; in one working copy, claims do not separate sessions |

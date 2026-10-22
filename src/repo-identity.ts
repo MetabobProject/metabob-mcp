@@ -192,7 +192,9 @@ const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did
  *   with a claimed commit, which must not paper over a fix that is not committed yet.
  * - `commit`: `claimed` — the agent named the fix commit, and it resolves here, is in HEAD's history and postdates
  *   the finding (`elsewhere` when it touches none of the finding's files) — or else the newest commit since the
- *   finding touching its files. With its branch and whether a remote branch holds it.
+ *   finding touching its files. With its branch and whether a remote branch holds it; `awaitingMerge` (the branch
+ *   it awaits, the origin's default branch when known) when every remote branch that holds it is a task branch
+ *   (`<remote>/task/…`), which a review merges, so the fix is not integrated yet.
  * - `rejected`: the claimed commit fails one of those checks (`reason`).
  * - `uncommitted` also when, with no commit since the finding touching its files, other tracked files have
  *   uncommitted changes (`outside`: the fix may be among them). Changes count when modified, staged, untracked or
@@ -202,7 +204,7 @@ const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did
  *   can claim it when it is the fix.
  */
 export type FixLocation =
-  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean }
+  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean; awaitingMerge?: string }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
   | { kind: 'none'; newest?: { sha: string; files: string[] } }
   /** `claim`: the named fix_commit failed a check; otherwise the checkout could not be read. */
@@ -229,8 +231,11 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const base = fgit(cwd, ['rev-parse', 'HEAD']) || undefined;
   const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
   const after = timed ? recordedAt!.getTime() - FIX_SKEW_MS : NaN;
-  const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation =>
-    ({ kind: 'commit', sha, branch, pushed: !!fgit(cwd, ['branch', '-r', '--contains', sha]), ...extra });
+  const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation => {
+    const remotes = (fgit(cwd, ['branch', '-r', '--contains', sha]) ?? '').split('\n').map(b => b.trim()).filter(b => b && !b.includes(' -> '));
+    const awaiting = remotes.length > 0 && remotes.every(b => /^[^/]+\/task\//.test(b));
+    return { kind: 'commit', sha, branch, pushed: remotes.length > 0, ...extra, ...(awaiting ? { awaitingMerge: defaultBranch(cwd) } : {}) };
+  };
 
   // Uncommitted changes in the finding's files come first, even over a claimed commit: a claim must not paper
   // over a fix that is not committed yet. A claim judged against another ref (close by commit, against the merge
@@ -271,6 +276,12 @@ export function commitInHead(workspacePath: string, sha: string): boolean | null
   if (fgit(cwd, ['rev-parse', '--show-toplevel']) === null) return null;
   // --is-ancestor answers through its exit code: 0 yes, 1 no, 128 when the commit is not in this clone at all.
   return fgit(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD']) !== null;
+}
+
+/** The origin's default branch (`main` from `origin/HEAD`), or `its target` when the clone does not record one. */
+function defaultBranch(cwd: string): string {
+  const ref = fgit(cwd, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']);
+  return ref ? ref.replace(/^origin\//, '') : 'its target';
 }
 
 /** Whether the checkout at `workspacePath` has any remote: without one, no other checkout can have its commits. */
