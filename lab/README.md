@@ -121,6 +121,53 @@ CI does not run the lab (no rootless container fleet, and the image pull is slow
 holds the tooling to its contract instead: the script parses and handles every documented subcommand,
 `lab-net.yml` and the env files agree, `.gitignore` covers the keys, and the script prints no key.
 
+## Agent cell
+
+`lab/cell.sh` runs one ledger task in a container on the lab network: `task pull` claims it, a headless harness
+works it with the MCP, the cell commits with a `Fixes-Finding:` trailer, and it leaves a result bundle. The
+cell mounts nothing and holds no git credential, so it never pushes; its work is judged outside it.
+
+```bash
+./cell.sh build [<rev>]                               # metabob-agent-cell from git archive <rev> (default HEAD)
+./cell.sh run --origin <url> [--fixture <dir>]        # one cell, attached; the bundle lands in results/<cell>/
+./cell.sh clean                                       # remove every container labelled pilot-cell
+./cell/smoke.sh                                       # the recipe end to end, with no lab and no model
+```
+
+**The image** (`lab/cell/Containerfile`) is built from `git archive` of a metabob-mcp commit and its submodules,
+so it holds committed source only, recorded as its `org.opencontainers.image.revision`. It has git, bun, the
+MCP built as the npm package is, and Claude Code at a pinned version, which speaks the Anthropic provider
+key natively. The plugin is installed as users have it (the skill and the edit check) without its
+`.mcp.json`; the cell's own MCP config starts the built server under the name the edit check matches. It
+runs as the non-root user `cell`.
+
+**What goes in.** The env file holds `METABOB_API_KEY` (`keys/mcp-rw.key`), `ANTHROPIC_API_KEY` (from the
+environment, else the installer's `providers.anthropic.apiKey`), `DISCOVERY_ENDPOINT` (the spoke's address
+inside the lab network) and `CELL_ORIGIN`, plus any `CELL_*` cap that is set. It is written 0600 in a
+private temp directory, read once by `create` and deleted. A fixture directory, laid out as in the
+repository, is copied into the created container (`podman cp`); nothing is mounted. The container is
+labelled `pilot-cell=<CELL_LABEL>`, capped by `CELL_CPUS` and `CELL_MEM`, and `run` refuses while another
+cell exists.
+
+**The entrypoint** (`lab/cell/entrypoint.sh`):
+1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45). An exit of 2, 3 or 4 ends the cell with that code.
+2. A `pin: <40-hex sha>` line in the task's details makes `/work` a one-commit fetch of that commit, so history
+   after it (a reference fix) is not in the clone. The fixture, when given, is committed onto it, and the base
+   is that commit, so the diff is the work alone.
+3. The harness: `claude -p` in `/work` with `CELL_MODEL` (`claude-sonnet-5`), `--max-budget-usd CELL_BUDGET_USD`
+   (5) and a wall time of `CELL_WALL_S` (1800), web tools disallowed. The MCP reads its key from a private
+   0600 file, and the harness's environment does not carry it.
+4. Changes the harness left uncommitted are committed with the trailer; commits without one get it in an empty
+   commit. `cell.json` says which. The push URL is disabled, and a push attempt is recorded as refused.
+5. `/out`: `task.json`, `context.md`, `task-pull.json`, `diff.patch`, `names.txt` (what the V1 scorer reads),
+   `commits.txt`, `transcript.jsonl`, `calls.jsonl` (`METABOB_CALL_LOG`) and `cell.json`. `cell.json` holds
+   the origin, model, harness and MCP revisions, edit check, caps, base, pin, fixture, every exit code, cost
+   and turns, how the commit was made, the push probe, the number of commits in the clone, and how often the
+   transcript fetches git. Before the cell exits, any key value in `/out` is redacted and the files counted
+   (`secret_files_redacted`).
+
+`run` copies `/out` to `results/<cell>/` (ignored by git) and removes the container.
+
 ## Time and cost
 
 The first `up` takes several minutes: the image pull, then the waits for `seeded` and `served`,

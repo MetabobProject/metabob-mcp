@@ -3,3 +3,4 @@ manifest.yml
 manifest.yml.new
 *.rendered
 lab.log
+results/

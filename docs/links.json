@@ -1103,6 +1103,9 @@
         "docs/SPEC.md"
       ],
       "lab/README.md": [
+        "lab/cell.sh",
+        "lab/cell/entrypoint.sh",
+        "lab/cell/smoke.sh",
         "lab/check-goal.ts",
         "lab/lab.sh",
         "tests/claude-sessions/run.ts",

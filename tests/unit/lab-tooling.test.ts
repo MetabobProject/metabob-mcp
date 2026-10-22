@@ -129,7 +129,7 @@ describe('lab/hub.env and lab/spoke.env', () => {
 describe('lab/.gitignore', () => {
   test('keeps keys, the generated manifest and the log out of git', () => {
     const lines = read('.gitignore').split('\n').map((l) => l.trim());
-    for (const entry of ['keys/', 'manifest.yml', 'lab.log']) expect(lines).toContain(entry);
+    for (const entry of ['keys/', 'manifest.yml', 'lab.log', 'results/']) expect(lines).toContain(entry);
   });
 });
 
@@ -320,5 +320,63 @@ describe('lab.sh capacity', () => {
     ].join('\n');
     const r = spawnSync('bash', ['-c', harness], { encoding: 'utf-8' });
     expect(r.stdout.trim().split('\n')).toEqual(['substrate-live 0 18289', 'regate-x 8192 491']);
+  });
+});
+
+describe('the agent cell (lab/cell.sh, lab/cell/)', () => {
+  const cell = read('cell.sh');
+  const entry = read('cell/entrypoint.sh');
+  const image = read('cell/Containerfile');
+  const code = (text: string) => text.split('\n').filter((l) => !l.trimStart().startsWith('#'));
+
+  test.skipIf(process.platform === 'win32')('the scripts parse (bash -n)', () => {
+    for (const f of ['cell.sh', 'cell/entrypoint.sh', 'cell/smoke.sh']) {
+      const r = spawnSync('bash', ['-n', join(LAB, f)], { encoding: 'utf-8' });
+      expect(r.stderr).toBe('');
+      expect(r.status).toBe(0);
+    }
+  });
+
+  test('documents and handles every subcommand', () => {
+    const usage = cell.split('\n').filter((l) => l.startsWith('#')).join('\n');
+    const dispatch = cell.slice(cell.lastIndexOf('case "${1:-}" in'));
+    for (const cmd of ['build', 'run', 'clean']) {
+      expect(usage).toMatch(new RegExp(`\\./cell\\.sh ${cmd}\\b`));
+      expect(dispatch).toMatch(new RegExp(`^\\s+${cmd}\\)`, 'm'));
+    }
+  });
+
+  test('a cell mounts nothing, is labelled and capped, and one runs at a time', () => {
+    const create = /"\$ENG" create ([\s\S]*?)>\/dev\/null/.exec(cell)?.[1] ?? '';
+    expect(create).toContain('--label "pilot-cell=$LABEL"');
+    expect(create).toMatch(/--cpus /);
+    expect(create).toMatch(/--memory /);
+    expect(create).not.toMatch(/(^|\s)(-v|--volume|--mount)\b/);
+    expect(cell).toMatch(/\[ -z "\$\(existing\)" \] \|\| fail/);
+  });
+
+  test('the env file is written 0600 and removed once create has read it', () => {
+    expect(cell).toMatch(/\( umask 077\n/);
+    expect(cell).toMatch(/--env-file "\$tmp\/cell\.env" "\$IMAGE:latest" >\/dev\/null\n\s+rm -f "\$tmp\/cell\.env"/);
+  });
+
+  test('no key is printed: the provider key is read only into a command substitution', () => {
+    for (const line of code(cell)) {
+      if (line.includes('anthropic_key') && !/^\s*anthropic_key\(\)/.test(line)) expect(line).toMatch(/\$\(anthropic_key\)/);
+      expect(line).not.toMatch(/(log|echo)[^|>]*\$(k|ANTHROPIC_API_KEY|METABOB_API_KEY)\b/);
+    }
+  });
+
+  test('the cell cannot push, keeps the MCP key out of the harness, and redacts keys from the bundle', () => {
+    expect(entry).toContain('remote set-url --push origin no-push://');
+    expect(entry).toContain("git config --global credential.helper ''");
+    expect(entry).toContain('export -n METABOB_API_KEY');
+    expect(entry).toMatch(/for v in "\$\{METABOB_API_KEY:-\}" "\$\{ANTHROPIC_API_KEY:-\}"/);
+  });
+
+  test('the image is built from committed source and runs as a non-root user', () => {
+    expect(cell).toContain('git -C "$REPO_ROOT" archive "$sha"');
+    expect(image).toMatch(/^USER cell$/m);
+    expect(image).not.toMatch(/^COPY \.mcp\.json/m);
   });
 });
