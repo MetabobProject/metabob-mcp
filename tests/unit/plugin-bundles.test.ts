@@ -2,11 +2,14 @@
  * The plugin bundles (README §agent-plugins): generated from one source, so they cannot drift; the Claude Code plugin
  * lives in plugin/ with no package.json (no dependency install), pins its server to this exact version, carries
  * nothing machine-specific, and leaves every setting blank by default; an unfilled setting is never used as a value.
+ * The Agent Plugins 1.0 bundle at the root validates against the published schemas (copies in tests/fixtures/, so
+ * the check needs no network) and carries the same server, version and skill; the Codex marketplace lists the root.
  */
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import Ajv2020 from 'ajv/dist/2020';
 import { dropUnsubstitutedPlaceholders } from '../../src/config';
 
 const ROOT = resolve(import.meta.dir, '..', '..');
@@ -41,7 +44,7 @@ describe('the plugin bundles', () => {
   });
 
   test('nothing machine-specific ships: no absolute path, no HEALTH_PORT, no ssh URL', () => {
-    for (const f of [...files('plugin'), '.claude-plugin/marketplace.json']) {
+    for (const f of [...files('plugin'), '.claude-plugin/marketplace.json', 'plugin.json', 'mcp.json', '.agents/plugins/marketplace.json']) {
       const text = read(f);
       expect({ f, home: /\/(home|Users)\/[\w.-]+\//.test(text) }).toEqual({ f, home: false });
       expect({ f, port: /HEALTH_PORT/.test(text) }).toEqual({ f, port: false });
@@ -71,5 +74,33 @@ describe('the plugin bundles', () => {
     expect(read('plugin/skills/metabob/SKILL.md')).toBe(read('skills/metabob/SKILL.md'));
     expect(read('plugin/scripts/edit-check.mjs')).toBe(read('scripts/claude-plugin/edit-check.mjs'));
     expect(relative(ROOT, join(ROOT, 'plugin'))).toBe('plugin');
+  });
+
+  test('the Agent Plugins bundle validates against the published 1.0 schemas', () => {
+    const ajv = new Ajv2020({ strict: false });
+    for (const [file, schema] of [['plugin.json', 'plugin'], ['mcp.json', 'mcp']] as const) {
+      const validate = ajv.compile(JSON.parse(read(`tests/fixtures/agent-plugins/1.0.0/${schema}.schema.json`)));
+      const doc = JSON.parse(read(file));
+      expect({ file, valid: validate(doc), errors: validate.errors ?? null }).toEqual({ file, valid: true, errors: null });
+      expect(doc.$schema).toBe(`https://agent-plugins.org/schemas/1.0.0/${schema}.schema.json`);
+    }
+  });
+
+  test('the two bundles carry the same name, version, description, server and skill; the root one no environment', () => {
+    const claude = JSON.parse(read('plugin/.claude-plugin/plugin.json'));
+    const portable = JSON.parse(read('plugin.json'));
+    for (const k of ['name', 'version', 'description']) expect(portable[k]).toBe(claude[k]);
+    expect(portable.version).toBe(pkg.version);
+    const claudeServer = JSON.parse(read('plugin/.mcp.json')).mcpServers.metabob;
+    const portableServer = JSON.parse(read('mcp.json')).mcpServers.metabob;
+    expect(portableServer).toEqual({ type: 'stdio', command: claudeServer.command, args: claudeServer.args });
+    expect(portableServer.args).toEqual(['-y', `@metabob/mcp@${pkg.version}`]);
+    expect(existsSync(join(ROOT, 'skills', 'metabob', 'SKILL.md'))).toBe(true);
+  });
+
+  test('the Codex marketplace lists the root bundle, by the path form Codex accepts', () => {
+    const market = JSON.parse(read('.agents/plugins/marketplace.json'));
+    expect(market.name).toBe('metabob');
+    expect(market.plugins).toEqual([{ name: 'metabob', source: { source: 'local', path: './' }, category: expect.any(String) }]);
   });
 });

@@ -205,23 +205,36 @@ clients get the same guidance from the server instructions and the skill only.
 
 ### Agent plugins
 
-The plugin is generated, with `node scripts/build-plugins.mjs`, from one source: `package.json` (name,
+The plugins are generated, with `node scripts/build-plugins.mjs`, from one source: `package.json` (name,
 version, description), `scripts/plugins/source.json` (metadata, the server entry and the settings),
 `skills/metabob/SKILL.md` and `scripts/claude-plugin/edit-check.mjs`. The generated files are committed;
 `tests/unit/plugin-bundles.test.ts` fails when one differs from what the generator writes, and CI validates
-the manifests with `claude plugin validate`. Edit the source and regenerate, never a generated file.
+the Claude manifests with `claude plugin validate` and the Agent Plugins ones against the published 1.0
+schemas (copies in `tests/fixtures/agent-plugins/`). Edit the source and regenerate, never a generated file.
 
 The Claude Code plugin is `plugin/`, which the marketplace (`.claude-plugin/marketplace.json`) lists:
 - `.claude-plugin/plugin.json`: the name, the version and the settings (`api_key`, sensitive;
   `discovery_endpoint`; `endpoint`; each blank by default);
 - `.mcp.json`: the server, pinned to this exact version (`npx -y @metabob/mcp@<version>`), with each setting
-  passed as the variable the server reads; a setting the host leaves unfilled reaches the server as its
-  placeholder text, which the server ignores;
+  passed as the variable the server reads; a setting left blank reaches the server empty, so the config file
+  applies, and a value still holding its placeholder text is ignored;
 - `hooks/hooks.json`: the edit check, in exec form (`node` with its arguments, no shell), so a plugin path
   with spaces, or Windows, needs no quoting;
 - `plugin/scripts/edit-check.mjs` and `plugin/skills/metabob/SKILL.md`, copies of the repository's own.
 
 `plugin/` holds no `package.json`, so Claude Code runs no dependency install when it installs the plugin.
+
+The [Agent Plugins 1.0](https://agent-plugins.org) bundle is the repository root, for harnesses that read the
+portable format (Codex among them, through `.agents/plugins/marketplace.json`, which lists the root):
+- `plugin.json`: the name, the version and the metadata;
+- `mcp.json`: the same pinned server, with no environment. 1.0 carries no secrets, so the key and the endpoint
+  come from the config file (`~/.substrate/config.json`, which the substrate installer writes, or
+  `~/.metabob/config.json`; § Configuration);
+- `skills/metabob/SKILL.md`, the skill.
+
+1.0 has no hooks, so the edit check is Claude Code's alone; AGENTS.md carries the same rule for other harnesses.
+The server takes its workspace from the client's MCP roots when the client offers them, else from the directory it
+is started in (docs/SPEC.md § Workspace).
 
 ### Claude Desktop
 

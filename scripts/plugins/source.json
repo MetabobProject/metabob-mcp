@@ -1,12 +1,14 @@
 {
   "$comment": "The one source of both plugin bundles (scripts/build-plugins.mjs). name, version and description come from package.json; the skill from skills/metabob/SKILL.md; the edit check from scripts/claude-plugin/edit-check.mjs.",
   "name": "metabob",
+  "displayName": "Metabob",
   "author": { "name": "Metabob", "url": "https://github.com/MetabobProject" },
   "homepage": "https://github.com/MetabobProject/metabob-mcp",
   "repository": "https://github.com/MetabobProject/metabob-mcp",
   "license": "PROPRIETARY",
   "keywords": ["code-intelligence", "cpg", "impact-analysis", "co-change", "mcp", "code-review"],
   "category": "development",
+  "codexCategory": "Coding",
   "server": { "name": "metabob", "package": "@metabob/mcp" },
   "claude": {
     "userConfig": {

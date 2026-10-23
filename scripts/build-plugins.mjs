@@ -6,10 +6,14 @@
 //
 // Inputs: package.json (name, version, description), scripts/plugins/source.json (metadata, the server, the Claude
 // userConfig), skills/metabob/SKILL.md (the skill) and scripts/claude-plugin/edit-check.mjs (the edit check).
-// Output, the Claude Code plugin in plugin/: .claude-plugin/plugin.json, .mcp.json (the server pinned to this exact
-// version, its environment from the userConfig), hooks/hooks.json (exec form: no shell, so no quoting with spaces or
-// on Windows), scripts/edit-check.mjs and skills/metabob/SKILL.md; and .claude-plugin/marketplace.json, which lists it.
-// plugin/ holds no package.json, so Claude Code runs no dependency install for it.
+// Output:
+//   - the Claude Code plugin in plugin/: .claude-plugin/plugin.json, .mcp.json (the server pinned to this exact
+//     version, its environment from the userConfig), hooks/hooks.json (exec form: no shell, so no quoting with spaces
+//     or on Windows), scripts/edit-check.mjs and skills/metabob/SKILL.md; and .claude-plugin/marketplace.json, which
+//     lists it. plugin/ holds no package.json, so Claude Code runs no dependency install for it;
+//   - the Agent Plugins 1.0 bundle at the repository root: plugin.json and mcp.json (the same pinned server, no
+//     environment: 1.0 has no secrets, so the key comes from the config file), beside the skill in skills/; and
+//     .agents/plugins/marketplace.json, the Codex marketplace, which lists the root.
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const json = (v) => JSON.stringify(v, null, 2) + '\n';
+const AGENT_PLUGINS = 'https://agent-plugins.org/schemas/1.0.0';
 
 export function generate() {
   const pkg = JSON.parse(read('package.json'));
@@ -50,6 +55,23 @@ export function generate() {
     }),
     'plugin/scripts/edit-check.mjs': read('scripts/claude-plugin/edit-check.mjs'),
     'plugin/skills/metabob/SKILL.md': read('skills/metabob/SKILL.md'),
+    'plugin.json': json({
+      $schema: `${AGENT_PLUGINS}/plugin.schema.json`,
+      name: src.name,
+      version: pkg.version,
+      description: pkg.description,
+      author: src.author,
+      homepage: src.homepage,
+      repository: src.repository,
+      license: src.license,
+      keywords: src.keywords,
+    }),
+    'mcp.json': json({ $schema: `${AGENT_PLUGINS}/mcp.schema.json`, mcpServers: { [src.server.name]: { type: 'stdio', ...launcher } } }),
+    '.agents/plugins/marketplace.json': json({
+      name: src.name,
+      interface: { displayName: src.displayName },
+      plugins: [{ name: src.name, source: { source: 'local', path: './' }, category: src.codexCategory }],
+    }),
     '.claude-plugin/marketplace.json': json({
       name: src.name,
       owner: { name: src.author.name, url: src.author.url },

@@ -1,0 +1,16 @@
+{
+  "name": "metabob",
+  "interface": {
+    "displayName": "Metabob"
+  },
+  "plugins": [
+    {
+      "name": "metabob",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "category": "Coding"
+    }
+  ]
+}

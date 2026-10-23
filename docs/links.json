@@ -126,7 +126,10 @@
         "scripts/claude-plugin/edit-check.mjs",
         "plugin/**",
         "scripts/build-plugins.mjs",
-        "scripts/plugins/source.json"
+        "scripts/plugins/source.json",
+        "plugin.json",
+        "mcp.json",
+        ".agents/plugins/marketplace.json"
       ]
     },
     "retired": {},

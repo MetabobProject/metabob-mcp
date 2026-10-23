@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "metabob",
+  "version": "0.3.4",
+  "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
+  "author": {
+    "name": "Metabob",
+    "url": "https://github.com/MetabobProject"
+  },
+  "homepage": "https://github.com/MetabobProject/metabob-mcp",
+  "repository": "https://github.com/MetabobProject/metabob-mcp",
+  "license": "PROPRIETARY",
+  "keywords": [
+    "code-intelligence",
+    "cpg",
+    "impact-analysis",
+    "co-change",
+    "mcp",
+    "code-review"
+  ]
+}
