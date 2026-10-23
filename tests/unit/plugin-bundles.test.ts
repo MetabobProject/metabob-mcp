@@ -32,7 +32,8 @@ describe('the plugin bundles', () => {
 
   test('the Claude Code plugin pins its server to this exact version, and the marketplace lists it from plugin/', () => {
     const mcp = JSON.parse(read('plugin/.mcp.json'));
-    expect(mcp.mcpServers.metabob.args).toEqual(['-y', `@metabob/mcp@${pkg.version}`]);
+    expect(mcp.mcpServers.metabob.args).toEqual(['-y', `--package=metabob-mcp-server@npm:@metabob/mcp@${pkg.version}`, 'metabob-mcp']);
+    expect(Object.keys(pkg.bin)).toContain('metabob-mcp');
     expect(JSON.parse(read('plugin/.claude-plugin/plugin.json')).version).toBe(pkg.version);
     const market = JSON.parse(read('.claude-plugin/marketplace.json'));
     expect(market.plugins).toEqual([expect.objectContaining({ name: 'metabob', source: './plugin', version: pkg.version })]);
@@ -94,7 +95,7 @@ describe('the plugin bundles', () => {
     const claudeServer = JSON.parse(read('plugin/.mcp.json')).mcpServers.metabob;
     const portableServer = JSON.parse(read('mcp.json')).mcpServers.metabob;
     expect(portableServer).toEqual({ type: 'stdio', command: claudeServer.command, args: claudeServer.args });
-    expect(portableServer.args).toEqual(['-y', `@metabob/mcp@${pkg.version}`]);
+    expect(portableServer.args).toEqual(['-y', `--package=metabob-mcp-server@npm:@metabob/mcp@${pkg.version}`, 'metabob-mcp']);
     expect(existsSync(join(ROOT, 'skills', 'metabob', 'SKILL.md'))).toBe(true);
   });
 

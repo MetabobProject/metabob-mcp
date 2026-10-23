@@ -26,7 +26,11 @@ const AGENT_PLUGINS = 'https://agent-plugins.org/schemas/1.0.0';
 export function generate() {
   const pkg = JSON.parse(read('package.json'));
   const src = JSON.parse(read('scripts/plugins/source.json'));
-  const launcher = { command: 'npx', args: ['-y', `${src.server.package}@${pkg.version}`] };
+  // npx resolves `npx <name>@<version>` to the local project when the working directory's package.json has that name
+  // and version, which a checkout of this repository has, and a plugin cache is one (Codex starts the server in it):
+  // the command then fails (`sh: mcp: not found`). An alias names a package no project is, so npx always fetches
+  // the published one, from any directory.
+  const launcher = { command: 'npx', args: ['-y', `--package=${src.server.alias}@npm:${src.server.package}@${pkg.version}`, src.server.bin] };
 
   const userConfig = Object.fromEntries(Object.entries(src.claude.userConfig).map(([key, { env: _env, ...field }]) => [key, field]));
   const claudeEnv = Object.fromEntries(Object.entries(src.claude.userConfig).map(([key, { env }]) => [env, `\${user_config.${key}}`]));

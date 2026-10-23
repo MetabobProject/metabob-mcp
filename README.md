@@ -215,7 +215,9 @@ schemas (copies in `tests/fixtures/agent-plugins/`). Edit the source and regener
 The Claude Code plugin is `plugin/`, which the marketplace (`.claude-plugin/marketplace.json`) lists:
 - `.claude-plugin/plugin.json`: the name, the version and the settings (`api_key`, sensitive;
   `discovery_endpoint`; `endpoint`; each blank by default);
-- `.mcp.json`: the server, pinned to this exact version (`npx -y @metabob/mcp@<version>`), with each setting
+- `.mcp.json`: the server, pinned to this exact version (`npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<version> metabob-mcp`:
+  the alias makes npx fetch the published package even in a checkout of this repository, whose own `package.json`
+  npx would otherwise take for it), with each setting
   passed as the variable the server reads; a setting left blank reaches the server empty, so the config file
   applies, and a value still holding its placeholder text is ignored;
 - `hooks/hooks.json`: the edit check, in exec form (`node` with its arguments, no shell), so a plugin path

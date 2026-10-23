@@ -9,7 +9,7 @@
   "keywords": ["code-intelligence", "cpg", "impact-analysis", "co-change", "mcp", "code-review"],
   "category": "development",
   "codexCategory": "Coding",
-  "server": { "name": "metabob", "package": "@metabob/mcp" },
+  "server": { "name": "metabob", "package": "@metabob/mcp", "alias": "metabob-mcp-server", "bin": "metabob-mcp" },
   "claude": {
     "userConfig": {
       "api_key": {
