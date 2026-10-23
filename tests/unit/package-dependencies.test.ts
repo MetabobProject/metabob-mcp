@@ -28,8 +28,13 @@ describe('the package dependencies', () => {
   });
 
   test('the built bundle loads no package beyond them', () => {
-    const entries = [...build.matchAll(/\bsrc\/[\w/-]+\.ts\b/g)].map((m) => join(ROOT, m[0]));
-    const r = spawnSync('bun', ['build', ...entries, '--target', 'node', '--splitting', '--outdir', out, ...externals.flatMap((e) => ['--external', e])], { cwd: ROOT, encoding: 'utf8' });
+    // The build script's own `bun build …` command, with only its output directory moved, so the test bundles what
+    // ships whatever the build's entries, target or flags.
+    const command = /\bbun build ([^&]+)/.exec(build)?.[1]?.trim().split(/\s+/) ?? [];
+    const outdir = command.indexOf('--outdir');
+    expect(outdir).toBeGreaterThan(-1);
+    command[outdir + 1] = out;
+    const r = spawnSync('bun', ['build', ...command], { cwd: ROOT, encoding: 'utf8' });
     expect(r.status).toBe(0);
     const specs = new Set<string>();
     for (const f of readdirSync(out).filter((f) => f.endsWith('.js'))) {
