@@ -151,8 +151,8 @@
         "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "15dadb9",
-        "why": "index.ts decides the workspace from the client's roots; no participation requirement (registration, ingress, key, loopback) changes"
+        "at": "447cf02",
+        "why": "src/index.ts changed only the stdout-is-transport comment's example; no requirement's evidence changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
