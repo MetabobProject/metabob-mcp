@@ -19,7 +19,6 @@
       "docs/CONFORMANCE.md",
       "docs/DEPLOYMENT.md",
       "docs/DOCLINKS.md",
-      "docs/METABOB-TOOL-QUESTIONS.md",
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
       "docs/SPEC.md",
@@ -922,15 +921,6 @@
         "tests/workflows/networks/matrix.test.ts",
         "tests/workflows/w3-attachment.test.ts"
       ],
-      "docs/COORDINATION-DEMONSTRATION.md": [
-        "src/tools/_findings.ts"
-      ],
-      "docs/DEMO-SCRIPT.md": [
-        "rc/cli.ts",
-        "scripts/demo/get-problems.ts",
-        "scripts/demo/record-then-die.ts",
-        "src/cli.ts"
-      ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs",
         "scripts/doclinks.mjs@slug",
@@ -938,10 +928,6 @@
         "src/index.ts",
         "src/tools/index.ts",
         "tests/unit/doclinks.test.ts"
-      ],
-      "docs/METABOB-TOOL-QUESTIONS.md": [
-        "src/local-store.ts",
-        "tests/unit/agent-coordination-store.test.ts"
       ],
       "docs/PUBLISHING.md": [
         "scripts/verify-vendor.ts",
