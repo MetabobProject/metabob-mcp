@@ -149,8 +149,8 @@
         "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "3a99ae2",
-        "why": "index.ts adds the runtime to the start log and EPIPE shutdown; net.ts comment wording; no participation requirement changes"
+        "at": "b37ec74",
+        "why": "trace reads skip the timeout retry; the single ingress, the 60 s cap and the named failures are unchanged"
       },
       "docs/SPEC.md": {
         "at": "5f873db",
