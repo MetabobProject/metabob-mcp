@@ -51,6 +51,13 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Set up Node
+        # A node with node:sqlite on PATH, so the workflow suite also runs the server under Node alone
+        # (tests/workflows/w9-node-runtime.test.ts).
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Workflow tests
         # The agent workflows end to end against an in-process fake substrate,
         # driving the built dist/cli.js (tests/workflows/README.md).

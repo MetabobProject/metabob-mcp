@@ -338,6 +338,11 @@
           "agent-instructions"
         ]
       },
+      "src/sqlite.ts": {
+        "SPEC": [
+          "runtime"
+        ]
+      },
       "src/task-pull.ts": {
         "SPEC": [
           "repository-identity",
@@ -777,6 +782,11 @@
           "resolve_impulse"
         ]
       },
+      "tests/unit/sqlite-adapter.test.ts": {
+        "SPEC": [
+          "runtime"
+        ]
+      },
       "tests/unit/stateless-docs.test.ts": {
         "CLAUDE": [
           "docs-code-links"
@@ -849,6 +859,11 @@
       "tests/workflows/w8-call-log.test.ts": {
         "SPEC": [
           "call-log"
+        ]
+      },
+      "tests/workflows/w9-node-runtime.test.ts": {
+        "SPEC": [
+          "runtime"
         ]
       }
     },
@@ -1027,6 +1042,7 @@
         "src/repo-identity.ts@vesselAliases",
         "src/resolver-identity.ts@getResolverVesselId",
         "src/server-instructions.ts@SERVER_INSTRUCTIONS",
+        "src/sqlite.ts",
         "src/task-pull.ts@candidateTasks",
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@runTaskPull",

@@ -3,7 +3,7 @@
  * Dedicated bin entry for metabob-mcp-doctor.
  *
  * Lives separate from cli.ts so it can be launched even if the main MCP
- * server fails to load (e.g., bun:sqlite missing on plain Node). This file
+ * server cannot start (e.g., a Node with no node:sqlite and no Bun). This file
  * imports only Node-safe modules.
  */
 

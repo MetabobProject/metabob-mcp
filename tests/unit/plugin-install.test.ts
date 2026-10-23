@@ -23,7 +23,7 @@ describe('plugin install on a fresh machine', () => {
       const text = read(doc);
       expect(text).toContain('claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git');
       expect(text).not.toMatch(/claude plugin marketplace add MetabobProject\/metabob-mcp\b/);
-      expect(text).toMatch(/needs `git`, Node 18/);
+      expect(text).toMatch(/needs `git` and Node 22\.13 or later/);
     }
   });
 });

@@ -29,18 +29,15 @@ Exit 0 means attached. Without the installer, pass the two inputs:
 npx @metabob/mcp@latest --api-key=mb_your_api_key_here --endpoint=http://127.0.0.1:18080
 ```
 
-**Runtime**: the bin starts under Node like any npm package, and the MCP server
-itself runs on [Bun](https://bun.sh) (≥1.1) — it uses `bun:sqlite` for the local
-analysis cache. A server invocation re-execs into `bun` automatically when it is on
-PATH, and prints an install instruction when it is not. `--help`, `--version`, and
-the `doctor` and `attach --check` subcommands run under Node alone, so you can always
-inspect the install and diagnose connectivity without Bun.
+**Runtime**: Node 22.13 or later (or 23.4 or later) runs everything, the server included: its local store uses
+Node's built-in `node:sqlite`. On an older Node, the server re-execs into [Bun](https://bun.sh) (≥1.1) when it is
+on PATH, and names both fixes when it is not. `--help`, `--version`, and the `doctor` and `attach --check`
+subcommands run on any Node 18 or later, so you can always inspect the install and diagnose connectivity.
 
 On a host that has Bun but *no* Node at all, use `bunx @metabob/mcp` (the
 node-shebanged bin cannot be exec'd without a `node` on PATH).
 
-Supported platforms: Linux, macOS, and Windows x64. Windows ARM64 is
-unsupported (no Bun ARM64 build, no tree-sitter win32-arm64 prebuilds).
+Supported platforms: Linux, macOS, and Windows x64. Windows ARM64 is unsupported.
 
 No workspace content leaves the machine. `init_workspace` reads files into an in-process code property graph and sends nothing; there is no server-side analysis. Problems are what agents record with `record_finding`, shared with other agents on the same codebase through concept-db.
 
@@ -167,9 +164,8 @@ claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
 
-It needs `git`, Node 18+ and [Bun](https://bun.sh) 1.1+ on PATH: Claude Code clones the marketplace with
-git, the plugin starts the server with `npx`, and the server runs under Bun (without it, the server exits at
-start and `/mcp` shows it failed). Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes
+It needs `git` and Node 22.13 or later on PATH (an older Node works with [Bun](https://bun.sh) 1.1+ on PATH):
+Claude Code clones the marketplace with git, and the plugin starts the server with `npx`. Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes
 Claude Code clone over ssh, which fails on a machine with no GitHub ssh key, although the repository is
 public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`.
 

@@ -379,6 +379,7 @@ let attachment: Attachment | null = null;
 
 async function main() {
   log('info', 'Starting metabob-mcp', {
+    runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`,
     discovery: DISCOVERY_ENDPOINT ?? null,
     endpoint: METABOB_ENDPOINT ?? null,
     sessionId: SESSION_ID,
@@ -527,6 +528,12 @@ async function main() {
     const onStdinEof = () => void shutdown('stdin EOF (client closed)');
     process.stdin.on('end', onStdinEof);
     process.stdin.on('close', onStdinEof);
+    // A client that closes its end of stdout is gone too. Under Node a write to the closed pipe raises an
+    // unhandled EPIPE on the socket; it is the same signal as stdin EOF, and shuts down the same way.
+    process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED') void shutdown('stdout closed (client gone)');
+      else log('error', 'stdout write failed', { error: err.message });
+    });
   }
 }
 

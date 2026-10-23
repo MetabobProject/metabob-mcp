@@ -54,6 +54,8 @@ export function makeWorkspace(name: string, files: Record<string, string> = {}):
 }
 
 export interface ServerOptions {
+  /** The executable that runs the entry (default: this test runner's own, Bun). */
+  runtime?: string;
   workspace: string;
   /** Extra environment; `undefined` values remove a variable. */
   env?: Record<string, string | undefined>;
@@ -110,7 +112,7 @@ export class McpServer {
       else env[k] = v;
     }
 
-    this.child = spawn(process.execPath, [entryUnderTest()], {
+    this.child = spawn(opts.runtime ?? process.execPath, [entryUnderTest()], {
       cwd: opts.workspace,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -5,14 +5,11 @@ const distDir = join(process.cwd(), 'dist');
 
 // cli.js: KEEP the `#!/usr/bin/env node` shebang. Do not rewrite it to bun.
 //
-// The server does require bun at runtime (the bundle pulls in `bun:sqlite` via
-// LocalStore), and this file used to rewrite the shebang to `#!/usr/bin/env bun` to
-// say so. That broke every documented entrypoint on a Node-only machine: `npx
-// @metabob/mcp` died with a bare `/usr/bin/env: 'bun': No such file or directory`
-// (exit 127) before any JS ran, so the actionable "install bun" message inside the
-// bundle could never print. src/cli.ts now opens with a Node-side trampoline that
-// re-execs into bun for server invocations and prints that message when bun is
-// missing — which only works if the shebang stays node. This is load-bearing.
+// Every documented entrypoint (`npx @metabob/mcp`) starts the bin under Node. A bun
+// shebang would fail on a machine without Bun before any JS runs (`/usr/bin/env:
+// 'bun': No such file or directory`, exit 127). Under Node the server runs in-process
+// on node:sqlite, or src/cli.ts's trampoline re-execs into Bun on an older Node, or
+// names both fixes; all three need the shebang to stay node. This is load-bearing.
 const cliPath = join(distDir, 'cli.js');
 const cliText = await readFile(cliPath, 'utf-8');
 if (!cliText.startsWith('#!/usr/bin/env node\n')) {

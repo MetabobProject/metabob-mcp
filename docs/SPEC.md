@@ -308,11 +308,19 @@ classification live there and nowhere else (CONFORMANCE §c8-proxy-and-tls-in-th
 The npm bin (`dist/cli.js`) starts under Node (`#!/usr/bin/env node`). Which runtime makes the network
 calls depends on the command:
 
+The server needs a SQLite for its local store (`src/sqlite.ts`): `bun:sqlite` under Bun, `node:sqlite` under
+Node 22.13 / 23.4 and later. One file and one schema serve both, so switching runtime keeps the store.
+
 | launch | the MCP server's calls | `doctor`, `attach --check`, `task pull` |
 |---|---|---|
 | `bun src/cli.ts` (development) | Bun | Bun |
-| `node dist/cli.js` / `npx @metabob/mcp`, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node: they are Node-safe and stay in-process |
-| `node dist/cli.js`, no Bun on PATH | none: the server exits 1 with the "requires the Bun runtime" message | Node |
+| `node dist/cli.js` / `npx @metabob/mcp`, Node with `node:sqlite` | Node: the server runs in-process | Node: they are Node-safe and stay in-process |
+| the same, an older Node, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node |
+| the same, an older Node, no Bun | none: the server exits 1 with `runtime_unsupported`, naming both fixes (Node 22.13 or later, or Bun) | Node |
+
+Node 22 prints an ExperimentalWarning when `node:sqlite` first loads; the server drops that one warning, since
+stderr is its log channel, and passes every other. A client that closes the server's stdout is gone, like one that
+closes stdin: the write fails with EPIPE and the server shuts down.
 
 So both runtimes make real calls, and the network matrix runs under both
 (`tests/workflows/networks/matrix.test.ts`: Bun in process, Node by spawning `attach --check --json`
@@ -322,7 +330,7 @@ it ran under.
 
 Under Node, a system resolver that drops queries delays the process's exit: `attach --check` prints its
 report within the connect budget, but Node's exit waits for the pending `getaddrinfo` to give up. The
-server, under Bun and long-lived, is unaffected.
+server is long-lived and unaffected.
 
 ### Proxy selection
 

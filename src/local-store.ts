@@ -10,14 +10,13 @@
  * is bound to (see WorkspaceScope) and file paths are normalised into that
  * workspace's path space on both write and query.
  *
- * All writes are synchronous (Bun's SQLite runs synchronously by design);
+ * All writes are synchronous (both runtimes' SQLite run synchronously, src/sqlite.ts);
  * the async wrappers exist only for API symmetry with async callers.
  */
 
-// Type-only: the runtime binding is required lazily in init() so the bundled
-// CLI can load under Node for --help/--version/doctor and print an actionable
-// "requires Bun" error, instead of dying at ESM load on the bun: scheme.
-import type { Database } from 'bun:sqlite';
+// The runtime's SQLite is loaded in init(), not at import, so the CLI loads on a
+// runtime without one and names what is missing (src/sqlite.ts).
+import { openSqlite, type Sqlite } from './sqlite.js';
 import { homedir } from 'os';
 import { mkdirSync, unlinkSync } from 'fs';
 import { dirname, join, resolve } from 'path';
@@ -150,7 +149,7 @@ function deriveScope(rawRoot: string): WorkspaceScope {
 // ── LocalStore ────────────────────────────────────────────────────────────────
 
 export class LocalStore {
-  private db: Database | null = null;
+  private db: Sqlite | null = null;
   private dbPath: string;
   private scope: WorkspaceScope | null = null;
 
@@ -181,8 +180,7 @@ export class LocalStore {
       }
     } catch { /* -wal or -shm absent — clean state */ }
 
-    const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
-    this.db = new Database(this.dbPath, { create: true });
+    this.db = openSqlite(this.dbPath);
     this.db.exec('PRAGMA journal_mode=WAL;');
     this.db.exec('PRAGMA foreign_keys=ON;');
 
@@ -254,7 +252,7 @@ export class LocalStore {
     `);
   }
 
-  private get store(): Database {
+  private get store(): Sqlite {
     if (!this.db) throw new Error('LocalStore not initialised — call init() first');
     return this.db;
   }

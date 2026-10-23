@@ -71,8 +71,8 @@ claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
 
-It needs `git`, Node 18 or later and [Bun](https://bun.sh) 1.1 or later on PATH; the server runs under Bun,
-and without it `/mcp` shows the server failed. Use the https URL as written: the `owner/repo` shorthand
+It needs `git` and Node 22.13 or later on PATH; an older Node works with [Bun](https://bun.sh) 1.1 or later on
+PATH, and with neither `/mcp` shows the server failed. Use the https URL as written: the `owner/repo` shorthand
 clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp list` shows
 `plugin:metabob:metabob … ✔ Connected` when it works.
 
@@ -258,7 +258,7 @@ the conditions that would invalidate the advice in the content; they are convent
 
 | Symptom | Next step |
 |---|---|
-| The tools do not appear | Reconnect the client; check Node 18+ and Bun 1.1+ on PATH and the server entry |
+| The tools do not appear | Reconnect the client; check Node 22.13+ (or an older Node with Bun 1.1+) on PATH and the server entry |
 | A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
 | "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
 | A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |

@@ -7,9 +7,10 @@
 // Conformal npm entrypoint. This bin ships with the `#!/usr/bin/env node` shebang it
 // is written with (scripts/finalize-cli.ts deliberately leaves it alone), so
 // `npx @metabob/mcp` starts under Node like every other npm package. The MCP server
-// itself needs Bun — bun:sqlite backs the local seed store — so a server invocation
-// that lands here under Node re-execs into Bun, and prints an actionable install
-// message when Bun is absent. --help, --version, `doctor`, `attach --check` and `task pull` are
+// needs a SQLite for the local store (src/sqlite.ts): under Node with `node:sqlite`
+// (22.13 / 23.4 and later) it runs in-process; under an older Node it re-execs into
+// Bun when Bun is on PATH; with neither it names both fixes and exits. --help,
+// --version, `doctor`, `attach --check` and `task pull` are
 // Node-safe and stay in-process — they must keep working on a machine that has never
 // seen Bun — so they run under whichever runtime launched them; their requests take
 // the same path as the server's (src/net.ts, identical under Bun and Node).
@@ -22,7 +23,8 @@ const isNodeSafeInvocation =
   process.argv[2] === 'finding' ||
   process.argv.slice(2).some((a) => NODE_SAFE_FLAGS.has(a));
 
-if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
+const { sqliteAvailable } = await import('./sqlite.js');
+if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1] && !sqliteAvailable()) {
   // Same opt-out conditions as the Bun-side re-exec below; passing the flag here
   // means the child starts correctly configured and does not spawn a third process.
   const skipSystemCa =
@@ -32,7 +34,7 @@ if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
   const { resolveBunLauncher, winQuote } = await import('./bun-launcher.js');
   const bun = resolveBunLauncher();
   if (!bun) {
-    printBunRequired();
+    printRuntimeRequired();
     process.exit(1);
   }
   const { spawn } = await import('node:child_process');
@@ -54,7 +56,7 @@ if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
     child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
     child.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'ENOENT') {
-        printBunRequired();
+        printRuntimeRequired();
         process.exit(1);
       }
       console.error(`[metabob-mcp] could not start Bun (${err.message})`);
@@ -64,8 +66,7 @@ if (!process.versions.bun && !isNodeSafeInvocation && process.argv[1]) {
 }
 
 // Re-exec under Bun with the OS trust store enabled, before any network I/O.
-// The shipped bin runs under Bun (see scripts/finalize-cli.ts), and Bun 1.3.x
-// ignores NODE_EXTRA_CA_CERTS (oven-sh/bun#23735). Behind a TLS-inspecting
+// Under Bun (an older Node's re-exec, or `bunx`), Bun 1.3.x ignores NODE_EXTRA_CA_CERTS (oven-sh/bun#23735). Behind a TLS-inspecting
 // corporate proxy (Zscaler, Netskope, …) every fetch then fails with
 // "unable to get local issuer certificate" until Bun is launched with
 // `--use-system-ca`. `npx @metabob/mcp` and the Windows npm shim invoke bare
@@ -100,9 +101,8 @@ if (
   });
 }
 
-// (The Node heap-expansion re-exec that used to live here is gone: ONNX / Tree-sitter
-// load only inside the server, the server only runs under Bun, and Bun manages its own
-// memory. Under Node this file now reaches nothing heavier than --help or the doctor.)
+// ONNX and Tree-sitter load only inside the server, under whichever runtime runs it;
+// neither needs a larger heap than the runtime's default.
 
 import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
@@ -266,13 +266,13 @@ function showVersion() {
 }
 
 // Hoisted so the trampoline at the top of the module can call it before any import.
-function printBunRequired() {
+function printRuntimeRequired() {
   console.error(
-    '[metabob-mcp] The MCP server requires the Bun runtime (https://bun.sh) — ' +
-      'it uses bun:sqlite for the local analysis cache.\n' +
-      '  Install: curl -fsSL https://bun.sh/install | bash   (Windows: powershell -c "irm bun.sh/install.ps1 | iex")\n' +
-      '  Then re-run — this command re-execs into bun automatically once it is on PATH.\n' +
-      '  Note: Bun has no Windows ARM64 build — Windows on ARM is unsupported.',
+    `[metabob-mcp] runtime_unsupported: the MCP server needs SQLite for its local store, and this Node (${process.version}) has no node:sqlite and no Bun is on PATH.\n` +
+      '  Fix either way:\n' +
+      '  - use Node 22.13 or later (or 23.4 or later), which has node:sqlite; or\n' +
+      '  - install Bun (https://bun.sh): curl -fsSL https://bun.sh/install | bash   (Windows: powershell -c "irm bun.sh/install.ps1 | iex"),\n' +
+      '    and this command re-execs into it.',
   );
 }
 
@@ -477,10 +477,10 @@ async function main() {
   }
 
   // Belt-and-braces: the trampoline at the top of this file already re-execs into Bun
-  // (or exits with the same message) for every server invocation, so reaching here
-  // under Node means someone imported this module directly.
-  if (!process.versions.bun) {
-    printBunRequired();
+  // (or exits with the same message) when this runtime has no SQLite, so reaching here
+  // without one means someone imported this module directly.
+  if (!sqliteAvailable()) {
+    printRuntimeRequired();
     process.exit(1);
   }
 

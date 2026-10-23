@@ -8,8 +8,8 @@
  *
  * It is a small HTTP/1.1 client on node:net and node:tls rather than `fetch`,
  * for three reasons:
- *   - it behaves identically under Bun and Node — the server runs under Bun,
- *     doctor and `attach --check` under whichever runtime launched them;
+ *   - it behaves identically under Bun and Node, the server, doctor and
+ *     `attach --check` running under whichever runtime launched them;
  *   - a proxy's own answer to CONNECT (407 with its Proxy-Authenticate
  *     schemes, 403 for a port, an HTML page instead of a tunnel) is only
  *     visible on the raw tunnel response, which fetch hides;
