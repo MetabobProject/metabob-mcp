@@ -68,6 +68,8 @@ describe('the workspace comes from the client when it is not configured', () => 
     try {
       const ctx = await viaRoot.call('get_analysis_context', {});
       expect(where(ctx.text)).toEqual({ path: realpathSync.native(real), rest: '(from client roots)' });
+      // The server reports the resolved path, never the symlink as given.
+      expect(line(ctx.text, 'workspace:')).not.toContain(link);
       expect(line(ctx.text, 'as:').replace(/\(session [^)]*\)/, '')).toBe(identity.replace(/\(session [^)]*\)/, ''));
       expect((await viaRoot.call('get_problems', {})).text).toContain('recorded in the real directory');
     } finally {
