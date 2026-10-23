@@ -146,16 +146,16 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "e978c22",
-        "why": "attach-check.ts gained the server-runtime line; the Key files row (hop by hop, named cause, exit 0 when attached) is still accurate"
+        "at": "b3080d1",
+        "why": "index.ts and local-index.ts changed init_workspace's binding (existing directory only, never the plugin folder); the WORKSPACE_PATH row's workspace_undetermined text and the local-index row still hold"
       },
       "README.md": {
-        "at": "5f873db",
-        "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
+        "at": "b3080d1",
+        "why": "the skill's workspace_undetermined line now asks for an absolute path; README's Agent plugins text (init_workspace with the project's root) still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "f120b1a",
-        "why": "index.ts and vessel-server.ts gained the workspace gate (a refusal before any tool runs while the server sits in its plugin folder); no participation requirement or its evidence changes"
+        "at": "b3080d1",
+        "why": "index.ts changed only the order of the first workspace decision; no participation requirement or its evidence changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
