@@ -4,7 +4,10 @@
  * client's root; a change of roots moves the store's scope but never the identity.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
-import { McpServer, cleanupTempDirs, makeWorkspace } from './harness/mcp-client';
+import { mkdtempSync, realpathSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { McpServer, cleanupTempDirs, makeWorkspace, tempDir } from './harness/mcp-client';
 
 afterAll(() => cleanupTempDirs());
 
@@ -35,6 +38,30 @@ describe('the workspace comes from the client when it is not configured', () => 
       expect((await server.call('get_problems', {})).text).not.toContain('in project b');
     } finally {
       await server.stop();
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')('a root given through a symlink is the same checkout as a launch in it: same identity, same store', async () => {
+    const real = realpathSync(makeWorkspace('linked-target'));
+    const link = join(mkdtempSync(join(tmpdir(), 'mcp-wf-link-')), 'via-link');
+    symlinkSync(real, link);
+    const home = tempDir('shared-home');
+    const direct = await McpServer.start({ workspace: real, home, env: { WORKSPACE_PATH: undefined } });
+    let identity = '';
+    try {
+      identity = line((await direct.call('get_analysis_context', {})).text, 'as:');
+      await direct.call('record_finding', { files: ['src/index.ts'], summary: 'recorded in the real directory', severity: 'LOW', category: 'test' });
+    } finally {
+      await direct.stop();
+    }
+    const viaRoot = await McpServer.start({ workspace: makeWorkspace('elsewhere-2'), home, roots: [link], env: { WORKSPACE_PATH: undefined } });
+    try {
+      const ctx = await viaRoot.call('get_analysis_context', {});
+      expect(line(ctx.text, 'workspace:')).toBe(`workspace:  ${real} (from client roots)`);
+      expect(line(ctx.text, 'as:').replace(/\(session [^)]*\)/, '')).toBe(identity.replace(/\(session [^)]*\)/, ''));
+      expect((await viaRoot.call('get_problems', {})).text).toContain('recorded in the real directory');
+    } finally {
+      await viaRoot.stop();
     }
   });
 

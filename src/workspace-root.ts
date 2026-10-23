@@ -13,6 +13,7 @@
  * The client's roots are asked for once the client has initialized, and again when it says they changed. A tool
  * call that needs the workspace waits for the first answer, up to ROOTS_WAIT_MS, then goes on with the fallback.
  */
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** How long a tool call waits for the client's first roots answer. */
@@ -24,12 +25,22 @@ let clientRoots: string[] = [];
 let decided!: () => void;
 let rootsDecided = new Promise<void>((resolve) => { decided = resolve; });
 
-/** The `file:` roots a client listed, as paths, in its order; any other scheme is not a workspace. */
+/**
+ * The `file:` roots a client listed, as real paths, in its order; any other scheme is not a workspace. A root takes
+ * the place of the launch directory, which `process.cwd()` always gives as a real path, and the workspace id and the
+ * identity are hashed from the path string, so a root sent through a symlink (macOS's /var → /private/var, a repo
+ * under a linked folder) is resolved: the same checkout keeps the same identity and store scope however the client
+ * names it. A root that does not resolve is kept as given. WORKSPACE_PATH and an init_workspace path are used as
+ * given, as they always were, so their ids do not change.
+ */
 export function fileRoots(roots: ReadonlyArray<{ uri?: string }>): string[] {
   const out: string[] = [];
   for (const r of roots) {
     if (typeof r.uri !== 'string' || !r.uri.startsWith('file:')) continue;
-    try { out.push(fileURLToPath(r.uri)); } catch { /* not a local file URI */ }
+    let path: string;
+    try { path = fileURLToPath(r.uri); } catch { continue; /* not a local file URI */ }
+    try { path = realpathSync.native(path); } catch { /* does not resolve: as given */ }
+    out.push(path);
   }
   return out;
 }

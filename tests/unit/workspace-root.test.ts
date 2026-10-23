@@ -3,6 +3,9 @@
  * then the launch directory; roots of other schemes are not workspaces; the identity's workspace is kept once set.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { configuredWorkspace, fileRoots, identityWorkspacePath, resetClientRootsForTests, rootsSettled, setClientRoots, setIdentityWorkspace, workspaceSource } from '../../src/workspace-root';
 
@@ -11,6 +14,15 @@ afterEach(() => resetClientRootsForTests());
 describe('the workspace', () => {
   test('only file: roots count, in the client\'s order', () => {
     expect(fileRoots([{ uri: 'https://example.invalid/x' }, { uri: pathToFileURL('/tmp/a').href }, {}, { uri: pathToFileURL('/tmp/b').href }])).toEqual(['/tmp/a', '/tmp/b']);
+  });
+
+  test.skipIf(process.platform === 'win32')('a root given through a symlink is the checkout\'s real path, as a launch there gives', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'roots-link-')));
+    const real = join(base, 'repo');
+    mkdirSync(real);
+    symlinkSync(real, join(base, 'linked'));
+    expect(fileRoots([{ uri: pathToFileURL(join(base, 'linked')).href }])).toEqual([real]);
+    expect(fileRoots([{ uri: pathToFileURL(join(base, 'missing')).href }])).toEqual([join(base, 'missing')]);
   });
 
   test('WORKSPACE_PATH, then the first root, then the launch directory', () => {
