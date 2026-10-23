@@ -30,6 +30,7 @@ npm link                            # register metabob-mcp bin globally for loca
 bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
 lab/lab.sh up|check|cycle|down|destroy   # two-node lab (hub :24100, spoke :25100): bring up, prove it serves the MCP, tear down (lab/README.md)
 node scripts/doclinks.mjs check     # docs ↔ code links: must report 0 errors
+node scripts/build-plugins.mjs      # regenerate both plugin bundles from their source (--check: fail on drift)
 ```
 
 ## Branching
@@ -55,6 +56,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
 | `src/attached-marker.ts` | While the attachment is authenticated, a marker for the workspace in the temp directory (`{pid, orgId, at}`, refreshed each minute, removed on detach or exit), so the plugin's edit check holds edits only where there is a ledger behind it |
 | `scripts/claude-plugin/edit-check.mjs` | The Claude Code plugin's edit check (shipped in the generated `plugin/`, README § Agent plugins): before an agent's first edit of an existing file in a session, hold it once and ask for `get_problems` / `path_activity` on it; a file already checked through either tool is not held; once `path_activity` reports the repository unmounted, holds there ask for `get_problems` only; `METABOB_EDIT_CHECK=off` disables it (README § Claude Code plugin) |
+| `scripts/build-plugins.mjs` | Generates both plugin bundles from one source (`scripts/plugins/source.json`, `package.json`, the skill, the edit check): the Claude Code plugin in `plugin/` with `.claude-plugin/marketplace.json`, and the Agent Plugins 1.0 bundle at the root (`plugin.json`, `mcp.json`, `skills/`) with the Codex marketplace `.agents/plugins/marketplace.json`. Both launch the server pinned to this version under an npm alias, so npx fetches it inside a checkout of this repository too. The generated files are committed; edit the source and regenerate (README § Agent plugins) |
 | `docs/SPEC.md` | Full tool specification with input/output schemas |
 | `docs/links.json` | Docs ↔ code link database, maintained by `scripts/doclinks.mjs` (see `docs/DOCLINKS.md`) |
 

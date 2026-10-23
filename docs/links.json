@@ -960,6 +960,7 @@
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
         "lab/lab.sh",
+        "scripts/build-plugins.mjs",
         "scripts/claude-plugin/edit-check.mjs",
         "scripts/doclinks.mjs",
         "scripts/git-hooks/install.sh",
