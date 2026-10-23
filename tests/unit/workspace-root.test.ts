@@ -13,7 +13,10 @@ afterEach(() => resetClientRootsForTests());
 
 describe('the workspace', () => {
   test('only file: roots count, in the client\'s order', () => {
-    expect(fileRoots([{ uri: 'https://example.invalid/x' }, { uri: pathToFileURL('/tmp/a').href }, {}, { uri: pathToFileURL('/tmp/b').href }])).toEqual(['/tmp/a', '/tmp/b']);
+    // Real directories, so the expectation is each platform's own path form (a drive path on Windows).
+    const a = realpathSync.native(mkdtempSync(join(tmpdir(), 'roots-a-')));
+    const b = realpathSync.native(mkdtempSync(join(tmpdir(), 'roots-b-')));
+    expect(fileRoots([{ uri: 'https://example.invalid/x' }, { uri: pathToFileURL(a).href }, {}, { uri: pathToFileURL(b).href }])).toEqual([a, b]);
   });
 
   test.skipIf(process.platform === 'win32')('a root given through a symlink is the checkout\'s real path, as a launch there gives', () => {
