@@ -329,6 +329,14 @@ Node 22.13 / 23.4 and later. One file and one schema serve both, so switching ru
 | the same, an older Node, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node |
 | the same, an older Node, no Bun | none: the server exits 1 with `runtime_unsupported`, naming both fixes (Node 22.13 or later, or Bun) | Node |
 
+Each row of the table is checked on every push by `.github/workflows/package-smoke.yml`, from the packed tarball
+installed with npm: on ubuntu, macOS and Windows with Node 22 and no Bun, the server is driven over stdio
+(`scripts/ci/smoke-mcp.mjs`: initialize, `tools/list`, `init_workspace`, `search_codebase`, `predict_cochanges`,
+and stdout carrying only JSON-RPC), and the plugins' own launch command runs from a checkout of this repository
+through a one-package registry (`scripts/ci/smoke-registry.mjs`), waiting for `init_workspace` as a server started
+in its plugin folder does (§ Workspace); on Node 20, the server exits with `runtime_unsupported` without Bun and
+re-execs into it with Bun.
+
 Node 22 prints an ExperimentalWarning when `node:sqlite` first loads; the server drops that one warning, since
 stderr is its log channel, and passes every other. A client that closes the server's stdout is gone, like one that
 closes stdin: the write fails with EPIPE and the server shuts down.

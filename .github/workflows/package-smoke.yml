@@ -1,220 +1,152 @@
 name: Package smoke (all OSs)
 
-# Full-OS packaging validation: build → npm pack → global install from the
-# tarball → CLI + server smoke test, on every supported platform. Expensive,
-# so it runs only on manual dispatch or when package.json's version changes.
+# The package as users get it, on every platform: the packed tarball installed with npm under Node alone (no Bun),
+# the server driven over stdio as a client would (scripts/ci/smoke-mcp.mjs), and the plugins' own launch command
+# (the alias form in mcp.json) run from a checkout of this repository, through a one-package registry
+# (scripts/ci/smoke-registry.mjs). A Node without node:sqlite fails with the named cause, and with Bun on PATH it
+# re-execs into Bun. SPEC §runtime, README §agent-plugins.
 
 on:
-  workflow_dispatch:
   push:
     branches: [main, dev]
-    paths:
-      - package.json
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  version-check:
-    if: github.event_name == 'push'
+  pack:
     runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.diff.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # Compare against the branch tip BEFORE this push, not HEAD^: a push of several
-      # commits whose version bump is not the last one changed the version all the same.
-      - name: Did package.json version change?
-        id: diff
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          current=$(node -p "require('./package.json').version")
-          base="$BEFORE"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base=HEAD^; fi
-          previous=$(git show "$base:package.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "none")
-          echo "base=$base previous=$previous current=$current"
-          if [ "$current" != "$previous" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  smoke:
-    needs: [version-check]
-    # needs.version-check is skipped (not failed) on workflow_dispatch;
-    # `!failure() && !cancelled()` lets this job still run in that case.
-    if: >-
-      !failure() && !cancelled() &&
-      (github.event_name == 'workflow_dispatch' || needs.version-check.outputs.changed == 'true')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           # The submodule is public over https (.gitmodules), so the default token fetches it.
           submodules: recursive
 
-      - name: Set up Bun
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build
+        run: bun install --frozen-lockfile && bun run build
+
+      - name: Pack
+        run: npm pack --pack-destination pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: pack/*.tgz
+
+  smoke:
+    needs: pack
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+          path: pack
+
+      - name: No Bun on this runner
+        run: |
+          if command -v bun; then echo "bun is on PATH; this job checks Node alone"; exit 1; fi
+          node -e "require('node:sqlite')" && node --version
+
+      - name: Install from the tarball, as users do
+        run: npm install -g pack/*.tgz
+
+      - name: The bins start under Node
+        run: |
+          metabob-mcp --version
+          mcp --version
+          head -1 "$(npm root -g)/@metabob/mcp/dist/cli.js" | grep -qx '#!/usr/bin/env node'
+
+      - name: Windows shim dispatches to node
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $shim = Join-Path (npm root -g | Split-Path -Parent) "metabob-mcp.cmd"
+          if (-not (Test-Path $shim)) { throw "no metabob-mcp.cmd shim at $shim" }
+          if ((Get-Content $shim -Raw) -notmatch 'node') { throw "the shim does not dispatch to node" }
+          & cmd /c "metabob-mcp --version"
+          if ($LASTEXITCODE -ne 0) { throw "cmd.exe invocation exited $LASTEXITCODE" }
+
+      - name: The server under Node, driven over stdio
+        run: >-
+          node scripts/ci/smoke-mcp.mjs --cwd "$RUNNER_TEMP" --expect runtime=node --expect local-tools
+          -- metabob-mcp
+
+      - name: The plugins' launch command, from a checkout of this repository
+        run: |
+          # The checkout's package.json has the package's name and version, as a plugin cache does: the launcher must
+          # still fetch the package, and the server, started in the plugin's folder, must wait for init_workspace.
+          node -e "const a=require('./mcp.json').mcpServers.metabob.args, b=require('./plugin/.mcp.json').mcpServers.metabob.args; if (JSON.stringify(a)!==JSON.stringify(b)) { console.error('the two bundles launch differently'); process.exit(1) }"
+          node scripts/ci/smoke-registry.mjs pack/*.tgz 4874 &
+          sleep 2
+          printf '@metabob:registry=http://127.0.0.1:4874/\n' > "$RUNNER_TEMP/npmrc"
+          args=$(node -p "require('./mcp.json').mcpServers.metabob.args.join(' ')")
+          echo "npx $args"
+          npm_config_userconfig="$RUNNER_TEMP/npmrc" node scripts/ci/smoke-mcp.mjs \
+            --env PLUGIN_ROOT="$GITHUB_WORKSPACE" --expect undetermined --expect runtime=node -- npx $args
+
+  older-node:
+    needs: pack
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bun: [false, true]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - if: matrix.bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
+          name: tarball
+          path: pack
 
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build
-        run: bun run build
-
-      - name: Pack tarball
-        id: pack
-        shell: bash
-        run: echo "tarball=$(npm pack --silent | tail -1)" >> "$GITHUB_OUTPUT"
-
-      - name: Global install from tarball (npm, like end users)
-        shell: bash
-        run: npm install -g "./${{ steps.pack.outputs.tarball }}"
-
-      - name: CLI smoke — version + help
-        shell: bash
+      - name: Bun is on PATH only where the job asks for it
         run: |
-          metabob-mcp --version
-          metabob-mcp --help > /dev/null
+          if [ "${{ matrix.bun }}" = "true" ]; then bun --version; elif command -v bun; then echo "bun is on PATH"; exit 1; fi
+          if node -e "require('node:sqlite')" 2>/dev/null; then echo "this Node has node:sqlite; the job needs one without"; exit 1; fi
 
-      - name: Bin-alias smoke — bare `npx @metabob/mcp` resolves
-        shell: bash
-        run: |
-          # The docs, plugin manifest, and .mcp.json all invoke the package as
-          # `npx @metabob/mcp`, which only resolves when a bin named 'mcp' exists
-          # (npm picks the bin matching the package's last path segment). Dropping
-          # that alias silently breaks every documented invocation with "could not
-          # determine executable to run" — guard against it here.
-          command -v mcp
-          mcp --version
+      - name: Install from the tarball
+        run: npm install -g pack/*.tgz
 
-      - name: Node smoke — the bundle runs under Node and trampolines into Bun
-        shell: bash
+      - name: Without Bun, the server names both fixes and exits 1
+        if: ${{ !matrix.bun }}
         run: |
-          # This step used to assert that `node dist/cli.js` prints "requires the Bun
-          # runtime". It no longer does when bun IS installed — which is the whole
-          # point of the trampoline: under Node it re-execs into bun and starts the
-          # server. Bun is on PATH here (setup-bun), so assert the Node-safe path
-          # instead; the missing-bun message is covered by the next step, which
-          # strips bun from PATH.
-          node "$(npm root -g)/@metabob/mcp/dist/cli.js" --version
-          node "$(npm root -g)/@metabob/mcp/dist/cli.js" --help > /dev/null
-
-      - name: Conformal-entrypoint smoke — the shipped bin must start under Node
-        shell: bash
-        run: |
-          # `npx @metabob/mcp` is the primary documented entrypoint and npx only
-          # guarantees Node. dist/cli.js therefore MUST keep its node shebang and
-          # trampoline into bun itself; a bun shebang makes every documented command
-          # die with `/usr/bin/env: 'bun': No such file or directory` (exit 127)
-          # before any JS runs, so the in-bundle "install bun" guidance never prints.
-          head -1 "$(npm root -g)/@metabob/mcp/dist/cli.js" | grep -qx '#!/usr/bin/env node'
-
-      - name: Node-only smoke — bin works, and fails helpfully, with Bun off PATH
-        shell: bash
-        run: |
-          # Runs on every OS including Windows, where the bin is reached through
-          # npm's generated shim rather than a shebang — the shim path has its own
-          # failure modes and is exactly what `npx @metabob/mcp` hits there.
-          # Reconstruct a PATH with no bun on it, then prove both halves of the
-          # contract: Node-safe commands still work, and a server invocation exits 1
-          # with the actionable message rather than a raw exec failure.
-          bun_dir=$(dirname "$(command -v bun)")
-          clean_path=$(echo "$PATH" | tr ':' '\n' | grep -vFx "$bun_dir" | paste -sd: -)
-          if env PATH="$clean_path" command -v bun; then
-            echo "could not strip bun from PATH; adjust this step"; exit 1
-          fi
-          env PATH="$clean_path" metabob-mcp --version
-          env PATH="$clean_path" metabob-mcp --help > /dev/null
           set +e
-          out=$(env PATH="$clean_path" metabob-mcp --api-key=smoke-key 2>&1); code=$?
+          out=$(metabob-mcp < /dev/null 2>&1); code=$?
           set -e
           echo "$out"
           [ "$code" = "1" ] || { echo "expected exit 1, got $code"; exit 1; }
-          echo "$out" | grep -q "requires the Bun runtime"
+          echo "$out" | grep -q "runtime_unsupported"
+          metabob-mcp --version
 
-      - name: Windows shim smoke — the generated .cmd shim must dispatch to node
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # On Windows npm does not use the shebang directly: it generates
-          # metabob-mcp.cmd / .ps1 from it. A bun shebang made those shims invoke a
-          # `bun` that need not exist; the node shebang makes them invoke node, which
-          # npm itself guarantees. Assert the shim exists, names node, and works.
-          $shim = Join-Path (npm root -g | Split-Path -Parent) "metabob-mcp.cmd"
-          if (-not (Test-Path $shim)) { throw "no metabob-mcp.cmd shim generated at $shim" }
-          $body = Get-Content $shim -Raw
-          Write-Host $body
-          if ($body -notmatch 'node') { throw "shim does not dispatch to node" }
-          & $shim --version
-          if ($LASTEXITCODE -ne 0) { throw "shim --version exited $LASTEXITCODE" }
-          & cmd /c "metabob-mcp --version"
-          if ($LASTEXITCODE -ne 0) { throw "cmd.exe invocation exited $LASTEXITCODE" }
-
-      - name: MCP protocol smoke (anonymous) — the packaged bin speaks JSON-RPC
-        shell: bash
-        env:
-          LOG_LEVEL: debug
-        run: |
-          # The authenticated smoke below is secret-gated and skips on forks and on
-          # any repo without METABOB_TEST_API_KEY — which meant NO step ever started
-          # the packaged server. This one needs no key: anonymous startup is a
-          # supported path, and it exercises the whole installed chain end to end —
-          # bin shim -> node -> trampoline -> bun -> MCP server -> JSON-RPC reply.
-          # On Windows that chain is the only place the trampoline's success branch
-          # (spawning bun.exe from Node) actually runs.
-          #
-          # stdin is held open past the request because the server exits on EOF by
-          # design; closing it is also how the step terminates without a kill.
-          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-smoke","version":"1"}}}'
-          { printf '%s\n' "$init"; sleep 15; } | metabob-mcp --health-port=8199 > mcp-out.json 2> mcp-err.log || true
-
-          echo "--- stdout ---"; cat mcp-out.json
-          echo "--- stderr (tail) ---"; tail -20 mcp-err.log
-
-          # 1. The server came up.
-          grep -q "MCP server ready" mcp-err.log
-          # 2. It answered the handshake, and reported its real version.
-          grep -q '"serverInfo"' mcp-out.json
-          # Read the version from the checkout, not from `npm root -g`: that path is
-          # a backslash Windows path and would be mangled inside a JS string literal.
-          grep -q "$(node -p "require('./package.json').version")" mcp-out.json
-          # 3. stdout carried ONLY JSON-RPC. For MCP stdio, stdout is the framing
-          #    channel: one stray log line corrupts the stream for a strict client.
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            printf '%s' "$line" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{JSON.parse(s)}catch(e){console.error("NON-JSON ON STDOUT >>> "+s.slice(0,200));process.exit(3)}})'
-          done < mcp-out.json
-
-      - name: Authenticated server smoke — reaches MCP-ready
-        shell: bash
-        env:
-          METABOB_API_KEY: ${{ secrets.METABOB_TEST_API_KEY }}
-          LOG_LEVEL: debug
-        run: |
-          if [ -z "$METABOB_API_KEY" ]; then
-            echo "METABOB_TEST_API_KEY secret not set — skipping authenticated server smoke"
-            exit 0
-          fi
-          metabob-mcp > server.log 2>&1 &
-          pid=$!
-          for i in $(seq 1 30); do
-            if grep -q "MCP server ready" server.log; then break; fi
-            if ! kill -0 "$pid" 2>/dev/null; then break; fi
-            sleep 1
-          done
-          kill "$pid" 2>/dev/null || true
-          cat server.log
-          grep -q "MCP server ready" server.log
+      - name: With Bun, the server re-execs into it
+        if: matrix.bun
+        run: node scripts/ci/smoke-mcp.mjs --cwd "$RUNNER_TEMP" --expect runtime=bun --expect local-tools -- metabob-mcp
