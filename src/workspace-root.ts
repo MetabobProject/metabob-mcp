@@ -8,12 +8,15 @@
  *   2. `WORKSPACE_PATH`, when set: a person who sets it means it;
  *   3. the client's first `file:` root (MCP `roots/list`), since a client may start the server in another directory
  *      (Agent Plugins starts it in the plugin's own folder);
- *   4. the directory the server was launched in.
+ *   4. the directory the server was launched in, unless that is the plugin's own folder: an Agent Plugins client
+ *      sets PLUGIN_ROOT and may start the server there, and a plugin folder is no project. Then the workspace is
+ *      undetermined until `init_workspace` names one, and no other tool runs (src/local-index.ts@workspace-gate).
  *
  * The client's roots are asked for once the client has initialized, and again when it says they changed. A tool
  * call that needs the workspace waits for the first answer, up to ROOTS_WAIT_MS, then goes on with the fallback.
  */
 import { realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** How long a tool call waits for the client's first roots answer. */
@@ -70,6 +73,41 @@ export function configuredWorkspace(env: NodeJS.ProcessEnv = process.env): strin
   return env['WORKSPACE_PATH'] || clientRoots[0] || process.cwd();
 }
 
+const realPath = (p: string): string => { try { return realpathSync.native(p); } catch { return resolve(p); } };
+
+/** The server was started in the plugin's own folder: PLUGIN_ROOT is set, and the launch directory is it or inside it. */
+export function launchedInPluginRoot(env: NodeJS.ProcessEnv = process.env): boolean {
+  const root = env['PLUGIN_ROOT'];
+  if (!root) return false;
+  const rel = relative(realPath(root), realPath(process.cwd()));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** Steps 2–4 name a workspace: false only when the launch directory is the plugin's folder and nothing else names one. */
+export function workspaceDetermined(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env['WORKSPACE_PATH'] || clientRoots[0]) || !launchedInPluginRoot(env);
+}
+
+let chosenWorkspace: string | null = null;
+
+/** The path an `init_workspace` call named, or null: it wins over steps 2–4 for the rest of the session. */
+export function chosenWorkspacePath(): string | null {
+  return chosenWorkspace;
+}
+
+let chosenListener: ((path: string) => void | Promise<void>) | null = null;
+
+/** Called with the path `init_workspace` binds; the server derives the identity from it when none is derived yet. */
+export function onWorkspaceChosen(fn: ((path: string) => void | Promise<void>) | null): void {
+  chosenListener = fn;
+}
+
+/** `init_workspace` named `path`: record it, then tell the server (which derives the identity from it if none is yet). */
+export async function workspaceChosen(path: string): Promise<void> {
+  chosenWorkspace = path;
+  await chosenListener?.(path);
+}
+
 /** Where `configuredWorkspace()` came from. */
 export function workspaceSource(env: NodeJS.ProcessEnv = process.env): WorkspaceSource {
   if (env['WORKSPACE_PATH']) return 'WORKSPACE_PATH';
@@ -91,5 +129,6 @@ export function identityWorkspacePath(): string | null {
 /** Tests only: forget the client's roots. */
 export function resetClientRootsForTests(): void {
   clientRoots = [];
+  chosenWorkspace = null;
   rootsDecided = new Promise<void>((resolve) => { decided = resolve; });
 }

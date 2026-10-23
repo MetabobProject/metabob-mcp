@@ -156,7 +156,7 @@ export async function handle(
 
   text += `Completed in ${duration}ms`;
   if (sidecarSeedText) text += sidecarSeedText;
-  const inFlight = await gapSummaryLines(input.changed_files, localIndex.workspacePath() ?? activeWorkspacePath());
+  const inFlight = await gapSummaryLines(input.changed_files, activeWorkspacePath());
   if (inFlight.length) text += `\n${inFlight.join('\n')}`;
   if (cacheTag) text += `\n\n${cacheTag}`;
   return text;

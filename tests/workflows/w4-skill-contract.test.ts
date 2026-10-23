@@ -20,7 +20,7 @@ const BOOT_TIMEOUT_MS = 30_000;
 const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob', 'SKILL.md'), 'utf8');
 
 /** Identifiers the skill writes in backticks that are values, not tools or parameters. */
-const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input', 'not_reached']);
+const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input', 'not_reached', 'workspace_undetermined']);
 
 let fake: FakeSubstrate;
 let server: McpServer;

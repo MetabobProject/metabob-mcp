@@ -4,7 +4,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, extname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex, LocalIndexUnavailable } from '../local-index.js';
-import { configuredWorkspace } from '../workspace-root.js';
+import { configuredWorkspace, workspaceChosen } from '../workspace-root.js';
 import type { LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 
@@ -126,6 +126,12 @@ export async function handle(
 ): Promise<string> {
   const startTime = Date.now();
   const workspacePath = resolve(input.workspace_path ?? configuredWorkspace());
+  // A path named here is the session's workspace from now on, whether or not it has files to index: the ledger and
+  // the store follow it (SPEC §workspace).
+  if (input.workspace_path) {
+    localStore?.setWorkspaceScope(workspacePath);
+    await workspaceChosen(workspacePath);
+  }
   const extensions = input.include
     ? new Set(input.include.map(e => (e.startsWith('.') ? e : `.${e}`)))
     : DEFAULT_EXTENSIONS;

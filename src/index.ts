@@ -56,9 +56,9 @@ import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
 import { logCall, withResult } from './call-log.js';
 import { sessionId, setWorkspaceOperator } from './operator-id.js';
 import { keepAttachedMarker } from './attached-marker.js';
-import { clientRootPaths, configuredWorkspace, fileRoots, noClientRoots, rootsSettled, setClientRoots, setIdentityWorkspace } from './workspace-root.js';
+import { clientRootPaths, configuredWorkspace, fileRoots, identityWorkspacePath, launchedInPluginRoot, noClientRoots, onWorkspaceChosen, rootsSettled, setClientRoots, setIdentityWorkspace, workspaceDetermined } from './workspace-root.js';
 import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
-import { getLocalIndex } from './local-index.js';
+import { sessionWorkspacePath, workspaceGateRefusal } from './local-index.js';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
@@ -273,6 +273,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw error;
     }
 
+    // The workspace gate: started in the plugin's own folder with no project named, only init_workspace with a path
+    // runs (SPEC §workspace).
+    const undetermined = workspaceGateRefusal(name, validatedInput);
+    if (undetermined) {
+      logCall({ session: SESSION_ID, tool: name, args, outcome: 'refused', ms: Date.now() - startTime });
+      return { content: [{ type: 'text', text: undetermined }], isError: true };
+    }
+
     // The outgoing-text guard: agent-authored text with a secret, a home path in a
     // field the substrate acts on, or an oversized field never leaves. SPEC §outgoing-text-guard
     const guarded = guardToolInput(name, validatedInput as Record<string, unknown>);
@@ -455,7 +463,8 @@ async function main() {
     if (!attachment || workspace === markerFor) return;
     for (const stop of markerStops) stop();
     markerFor = workspace;
-    const dirs = [...new Set([workspace, process.cwd()])];
+    // The plugin's own folder is no workspace, so it gets no marker.
+    const dirs = [...new Set([workspace, ...(launchedInPluginRoot() ? [] : [process.cwd()])])];
     markerStops = dirs.map((dir) => keepAttachedMarker(attachment!, dir));
   };
   const stopAttachedMarker = () => { for (const stop of markerStops) stop(); };
@@ -482,13 +491,13 @@ async function main() {
   // kept for the life of the process: a later change of the client's roots moves
   // the repository and the store's scope, never the author, so a session's own
   // claims stay its own.
-  const bindIdentity = async () => { try {
+  const bindIdentity = async (workspace: string = configuredWorkspace()) => { try {
     const vesselId = await resolveVesselId({
       explicit: process.env.VESSEL_ID,
       apiKey: METABOB_API_KEY,
-      workspaceRoot: configuredWorkspace(),
+      workspaceRoot: workspace,
     });
-    setIdentityWorkspace(configuredWorkspace());
+    setIdentityWorkspace(workspace);
     setResolverIdentity({ vesselId });
     // The operator a write declares: this workspace's stable id unless MB_OPERATOR_ID names one.
     setWorkspaceOperator(vesselId);
@@ -514,8 +523,14 @@ async function main() {
   // The workspace is decided by the client's first roots answer, or, with no answer within ROOTS_WAIT_MS (a client
   // without roots, or headless use with no MCP client), by WORKSPACE_PATH or the launch directory. Then the store is
   // scoped to it, the marker written for it, and the identity derived from it, once.
+  // Started in the plugin's own folder with nothing naming a project, it waits for init_workspace's path instead
+  // (onWorkspaceChosen, below), and every other tool answers workspace_undetermined until then.
   workspaceBound = rootsSettled().then(async () => {
-    if (!getLocalIndex().workspacePath()) localStore?.setWorkspaceScope(configuredWorkspace());
+    if (!workspaceDetermined() && !sessionWorkspacePath()) {
+      log('info', 'Workspace not determined: started in the plugin\'s own folder (PLUGIN_ROOT) with no roots and no WORKSPACE_PATH; waiting for init_workspace');
+      return;
+    }
+    if (!sessionWorkspacePath()) localStore?.setWorkspaceScope(configuredWorkspace());
     keepMarkers(configuredWorkspace());
     await bindIdentity();
     log('info', 'Workspace', { workspace: configuredWorkspace(), roots: clientRootPaths() });
@@ -529,10 +544,12 @@ async function main() {
       const before = configuredWorkspace();
       setClientRoots(fileRoots(roots));
       const after = configuredWorkspace();
-      if (after !== before && !getLocalIndex().workspacePath()) {
-        // A new first root moves the repository, the store's scope and the marker; the author stays (bindIdentity).
+      if (after !== before && !sessionWorkspacePath()) {
+        // A new first root moves the repository, the store's scope and the marker; the author stays (bindIdentity),
+        // or is derived now when none was (a server started in the plugin's own folder).
         localStore?.setWorkspaceScope(after);
         keepMarkers(after);
+        if (identityWorkspacePath() === null) await bindIdentity(after);
         log('info', 'Workspace moved with the client\'s roots', { workspace: after });
       }
     } catch (error) {
@@ -540,6 +557,15 @@ async function main() {
       noClientRoots();
     }
   };
+  // A path init_workspace names derives the identity, and gets the marker, when nothing has yet: the case of a server
+  // started in the plugin's own folder. Otherwise the identity stays as first derived.
+  onWorkspaceChosen(async (path) => {
+    if (identityWorkspacePath() !== null) return;
+    keepMarkers(path);
+    await bindIdentity(path);
+    log('info', 'Workspace', { workspace: path, source: 'init_workspace' });
+  });
+
   server.oninitialized = () => { void askRoots(); };
   server.setNotificationHandler(RootsListChangedNotificationSchema, async () => { await askRoots(); });
 

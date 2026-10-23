@@ -320,7 +320,8 @@
       },
       "src/local-index.ts": {
         "SPEC": [
-          "init_workspace"
+          "init_workspace",
+          "workspace"
         ]
       },
       "src/net.ts": {
@@ -554,7 +555,8 @@
       },
       "src/tools/init-workspace.ts": {
         "SPEC": [
-          "init_workspace"
+          "init_workspace",
+          "workspace"
         ]
       },
       "src/tools/mark-complete.ts": {
@@ -655,7 +657,8 @@
         ],
         "SPEC": [
           "call-log",
-          "impulse-shapes"
+          "impulse-shapes",
+          "workspace"
         ]
       },
       "src/workspace-root.ts": {
@@ -891,6 +894,12 @@
           "predict_cochanges"
         ]
       },
+      "tests/workflows/w12-plugin-root.test.ts": {
+        "README": [],
+        "SPEC": [
+          "workspace"
+        ]
+      },
       "tests/workflows/w2-ledger.test.ts": {
         "SPEC": [
           "outgoing-text-guard"
@@ -1089,6 +1098,7 @@
         "src/local-index.ts@activeWorkspacePath",
         "src/local-index.ts@index-not-persisted",
         "src/local-index.ts@lazy-native",
+        "src/local-index.ts@workspace-gate",
         "src/net.ts",
         "src/net.ts@classify-error",
         "src/net.ts@connect-budget",
@@ -1300,6 +1310,7 @@
       "src/local-index.ts@activeWorkspacePath": "44df7a157728",
       "src/local-index.ts@index-not-persisted": "8d64a30d9de1",
       "src/local-index.ts@lazy-native": "8d64a30d9de1",
+      "src/local-index.ts@workspace-gate": "8d64a30d9de1",
       "src/net.ts@classify-error": "8d64a30d9de1",
       "src/net.ts@connect-budget": "8d64a30d9de1",
       "src/net.ts@net-causes": "2ff03885e936",

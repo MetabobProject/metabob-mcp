@@ -54,6 +54,10 @@ reader are faster.
 4. For the org's design memory, `concept_search` with a **`shape` filter and no
    `query`** lists that shape's concepts, up to `limit` (at most 50).
 
+If a call answers `workspace_undetermined`, your client started the server in the
+plugin's own folder: call `init_workspace { workspace_path: "<the project's root>" }`
+first, then start again from step 1.
+
 ## Role: coordinator — the shared ledger
 
 Use it whenever more than one agent or session touches the repository.

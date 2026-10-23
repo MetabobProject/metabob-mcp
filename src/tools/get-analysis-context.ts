@@ -1,7 +1,7 @@
 // Contract (input schema, behaviour): SPEC §get_analysis_context
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { activeWorkspacePath, getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath, getLocalIndex, sessionWorkspacePath } from '../local-index.js';
 import { clientRootPaths, identityWorkspacePath, workspaceSource } from '../workspace-root.js';
 import { getAttachment } from '../attachment.js';
 import { redactUrl } from '../net.js';
@@ -78,7 +78,7 @@ export async function attachmentLines(sessionId: string): Promise<string[]> {
 /** The workspace the ledger is keyed by and where it came from (SPEC §workspace), and the identity's own. */
 function workspaceLine(): { line: string; identity: string } {
   const workspace = activeWorkspacePath();
-  const source = getLocalIndex().workspacePath() ? 'init_workspace' : workspaceSource();
+  const source = sessionWorkspacePath() ? 'init_workspace' : workspaceSource();
   const others = clientRootPaths().filter((r) => r !== workspace);
   const fromIdentity = identityWorkspacePath();
   return {
@@ -106,7 +106,7 @@ export async function handle(
   const cochangePredictions: string[] = [];
   if (input.recently_changed_files?.length) {
     try {
-      const root = localIndex.workspacePath() ?? activeWorkspacePath();
+      const root = activeWorkspacePath();
       const preds = await mineGitCochanges(root, input.recently_changed_files, 10);
       for (const p of preds.filter(p => p.confidence >= 0.3).slice(0, 8)) {
         cochangePredictions.push(

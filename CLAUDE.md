@@ -141,7 +141,7 @@ wins over its derived value only when set explicitly.
 | `RUN_GOAL_POLL_MS` | `2000` | Pause before `run_goal`'s first three `goalWalkState` polls; later pauses double up to `RUN_GOAL_POLL_MAX_MS` |
 | `RUN_GOAL_POLL_MAX_MS` | `15000` | Longest pause between `run_goal`'s `goalWalkState` polls (each read makes goal-host re-read the execution's labels) |
 | `RESOLVE_IMPULSE_TIMEOUT_MS` | `30000` | `resolve_impulse`'s request cap (never above 60 s) |
-| `WORKSPACE_PATH` | _(the client's first root, else `$PWD`)_ | The workspace: which repository the ledger is keyed by and where the store scopes findings. An `init_workspace` path wins over it, and it wins over the client's MCP roots (docs/SPEC.md § Workspace) |
+| `WORKSPACE_PATH` | _(the client's first root, else `$PWD`)_ | The workspace: which repository the ledger is keyed by and where the store scopes findings. An `init_workspace` path wins over it, and it wins over the client's MCP roots. A `$PWD` inside `PLUGIN_ROOT` (an Agent Plugins client's own plugin folder) is no workspace: tools answer `workspace_undetermined` until `init_workspace` names one (docs/SPEC.md § Workspace) |
 | `SESSION_ID` | _(fresh UUID per launch)_ | Session identifier, declared on every write and dispatch (`client_claim.session`, the `session:` tag) |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver. No fixed default: concurrent instances would collide, and 8000–8999 are substrate container ports (8080 is activity-api). Warns if set in that range |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |

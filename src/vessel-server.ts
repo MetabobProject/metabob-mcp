@@ -15,6 +15,7 @@ import { getAttachment } from './attachment.js';
 import { proxySummary } from './net.js';
 import { ZodError } from 'zod';
 import { guardToolInput } from './outgoing-guard.js';
+import { workspaceGateRefusal } from './local-index.js';
 import { logCall, withResult, type CallOutcome } from './call-log.js';
 
 /**
@@ -398,6 +399,12 @@ export async function resolveImpulseContent(
     throw new Error(guarded.refusal);
   }
   const validatedInput = guarded.input;
+  // The workspace gate, as on stdio: no ledger is read or written for the plugin's own folder (SPEC §workspace).
+  const undetermined = workspaceGateRefusal(toolName, validatedInput);
+  if (undetermined) {
+    logged('refused');
+    throw new Error(undetermined);
+  }
   // The attachment gate, as on stdio: a substrate tool refuses with the named cause.
   const refusal = await substrateToolRefusal(toolName);
   if (refusal) {

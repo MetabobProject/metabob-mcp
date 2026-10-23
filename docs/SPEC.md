@@ -349,10 +349,10 @@ The workspace decides which repository the ledger is keyed by (§ Repository ide
 its findings, and the path the coordination identity is derived from (`src/workspace-root.ts`). It is decided in this
 order (`src/local-index.ts@activeWorkspacePath`):
 
-1. a path `init_workspace` was given;
+1. a path `init_workspace` was given, whether or not it holds files to index;
 2. `WORKSPACE_PATH`, when set;
 3. the client's first `file:` root (MCP `roots/list`);
-4. the directory the server was launched in.
+4. the directory the server was launched in, unless that is the plugin's own folder.
 
 A client may start the server outside the project (an Agent Plugins host starts it in the plugin's own folder), so
 the server asks a client that declares the roots capability for its roots once it has initialized, and again on
@@ -367,6 +367,15 @@ the repository, the store's scope and the marker, never the author, so a session
 stay its own; `init_workspace` with a path wins over the roots for the rest of the session. `get_analysis_context`
 names the workspace, where it came from, any other roots, and the workspace the identity came from when that
 differs.
+
+**The plugin's own folder is no workspace** (`src/local-index.ts@workspace-gate`). An Agent Plugins client sets
+`PLUGIN_ROOT` and may start the server in it, with no roots and no `WORKSPACE_PATH` (Codex starts it in its plugin
+cache). When the launch directory's real path is `PLUGIN_ROOT` or inside it, and neither step 2 nor step 3 names a
+workspace, the workspace is undetermined: every tool but `init_workspace` with a `workspace_path`, on stdio and on
+the loopback resolver, answers `workspace_undetermined: …`, naming that call; the store is not scoped, no marker is
+written and no identity is derived. `init_workspace { workspace_path }` then decides the workspace, and the identity
+and the marker are derived from it, as a launch in that directory gives; so are they when roots arrive later. A
+plugin folder never gets a marker.
 
 ### Proxy selection
 

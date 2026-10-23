@@ -234,7 +234,9 @@ portable format (Codex among them, through `.agents/plugins/marketplace.json`, w
 
 1.0 has no hooks, so the edit check is Claude Code's alone; AGENTS.md carries the same rule for other harnesses.
 The server takes its workspace from the client's MCP roots when the client offers them, else from the directory it
-is started in (docs/SPEC.md § Workspace).
+is started in. A client that starts it in the plugin's own folder with no roots (Codex does) leaves the workspace
+undetermined: every tool answers `workspace_undetermined` until the agent calls `init_workspace { workspace_path }`
+with the project's root, which the skill does at the start of a session (docs/SPEC.md § Workspace).
 
 ### Claude Desktop
 

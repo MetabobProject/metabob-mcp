@@ -1,7 +1,7 @@
 // Contract (input schema, behaviour): SPEC §predict_cochanges
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { activeWorkspacePath, getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 
@@ -50,7 +50,7 @@ export async function handle(
 
   // Git history is the signal (src/git-cochange.ts); it needs no index. The workspace is init_workspace's, else the
   // configured one (SPEC §workspace).
-  const workspaceRoot = getLocalIndex().workspacePath() ?? activeWorkspacePath();
+  const workspaceRoot = activeWorkspacePath();
   const gitPredictions = (await mineGitCochanges(workspaceRoot, input.changed_files, input.limit)).filter(
     p => p.confidence >= input.confidence_threshold,
   );

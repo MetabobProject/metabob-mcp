@@ -25,7 +25,7 @@
  * assign_git_changes answers, which is worse than a slower cold start.
  */
 import { resolve } from 'node:path';
-import { configuredWorkspace } from './workspace-root.js';
+import { chosenWorkspacePath, configuredWorkspace, workspaceDetermined } from './workspace-root.js';
 import type { CoChangePredictor } from './cpg-inference.js';
 import type { CodePropertyGraph } from './cpg-inference.js';
 
@@ -303,5 +303,28 @@ export function getLocalIndex(): LocalIndex {
  */
 // @anchor activeWorkspacePath
 export function activeWorkspacePath(): string {
-  return getLocalIndex().workspacePath() ?? configuredWorkspace();
+  return sessionWorkspacePath() ?? configuredWorkspace();
+}
+
+/** The workspace this session chose through `init_workspace` (the index's root, else a path it named), or null. */
+export function sessionWorkspacePath(): string | null {
+  return getLocalIndex().workspacePath() ?? chosenWorkspacePath();
+}
+
+// @anchor workspace-gate
+/**
+ * The one line every tool but `init_workspace` with a path answers while the workspace is undetermined: the server
+ * runs in the plugin's own folder and nothing named a project (SPEC §workspace). Nothing reads or writes a ledger,
+ * and no identity is derived, until the agent names the project.
+ */
+export const WORKSPACE_UNDETERMINED =
+  'workspace_undetermined: this client started the server in the plugin\'s own folder (PLUGIN_ROOT) and named no '
+  + 'project (no MCP roots, no WORKSPACE_PATH). Call init_workspace { workspace_path: "<the project\'s root>" } first; '
+  + 'until then no tool reads or writes a ledger, so nothing is recorded against the plugin\'s folder.';
+
+/** The refusal for `tool` while the workspace is undetermined, or null when it may run. */
+export function workspaceGateRefusal(tool: string, input: Record<string, unknown> | undefined): string | null {
+  if (sessionWorkspacePath() || workspaceDetermined()) return null;
+  if (tool === 'init_workspace' && typeof input?.['workspace_path'] === 'string' && input['workspace_path'] !== '') return null;
+  return WORKSPACE_UNDETERMINED;
 }
