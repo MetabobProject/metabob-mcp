@@ -36,7 +36,8 @@ export async function readExecutionTrace(executionId: string): Promise<TraceRead
   try {
     res = await resolveShape(
       { type: 'activityExecutionTrace', executionId, format: 'json' },
-      { timeoutMs: RESOLVE_TIMEOUT_MS.trace, read: true },
+      // activity-api does not cancel a query discovery cut, so a retry would stack another copy of it.
+      { timeoutMs: RESOLVE_TIMEOUT_MS.trace, read: true, noTimeoutRetry: true },
     );
   } catch (err) {
     return {
@@ -88,7 +89,7 @@ export type TraceList =
 export async function listExecutionTraces(limit: number): Promise<TraceList> {
   let res;
   try {
-    res = await resolveShape({ type: 'executionTraceList', limit }, { timeoutMs: RESOLVE_TIMEOUT_MS.trace, read: true });
+    res = await resolveShape({ type: 'executionTraceList', limit }, { timeoutMs: RESOLVE_TIMEOUT_MS.trace, read: true, noTimeoutRetry: true });
   } catch (err) {
     return { kind: 'error', message: describeResolveFailure(err) };
   }

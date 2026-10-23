@@ -64,14 +64,17 @@ describe('activityExecutionTrace', () => {
     expect(out).toContain('satisfier-only reach');
   });
 
-  test('a trace read cut at the producer timeout retries, then reports one named line', async () => {
+  test('a trace read cut at the producer timeout is reported once, never retried: the cut query keeps running', async () => {
     const stub = await installShapeStub({
       activityExecutionTrace: () => ({ status: 502, body: { error: 'forward_failed', shape: 'activityExecutionTrace', detail: 'The operation timed out.' } }),
+      executionTraceList: () => ({ status: 502, body: { error: 'forward_failed', shape: 'executionTraceList', detail: 'The operation timed out.' } }),
     });
     const out = await executionTrace({ execution_id: 'e1' }, apiClient);
     expect(out).toMatch(/^execution_trace: producer_timeout\(activityExecutionTrace, \d+ms\)/);
     expect(out.split('\n')).toHaveLength(1);
-    expect(stub.calls('activityExecutionTrace')).toHaveLength(3);
+    expect(stub.calls('activityExecutionTrace')).toHaveLength(1);
+    expect(await executionTrace({}, apiClient)).toMatch(/producer_timeout\(executionTraceList/);
+    expect(stub.calls('executionTraceList')).toHaveLength(1);
   });
 
   test('no producer for the shape is one named line', async () => {

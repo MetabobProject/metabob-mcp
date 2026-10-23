@@ -178,6 +178,11 @@ export interface ResolveOptions {
    * timeout. A write is never retried — it may have landed.
    */
   read?: boolean;
+  /**
+   * A read whose producer keeps working after discovery cuts the forward (no cancellation), so a retry only stacks
+   * another copy of the same slow query: a timeout is reported, not retried.
+   */
+  noTimeoutRetry?: boolean;
 }
 
 /** One resolve as discovery answered it: the producer's HTTP status and JSON body. */
@@ -846,7 +851,7 @@ export function attach(options: AttachOptions): Attachment {
         return { status: res.status, body, elapsedMs };
       };
 
-      const delays = opts?.read ? READ_RETRY_DELAYS_MS : [];
+      const delays = opts?.read && !opts.noTimeoutRetry ? READ_RETRY_DELAYS_MS : [];
       const family = shapeFamily(shape);
       for (let attempt = 0; ; attempt++) {
         try {
