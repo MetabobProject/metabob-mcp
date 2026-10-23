@@ -188,8 +188,7 @@ test('concept_search still sends an empty query in list mode and passes the shap
 });
 
 test('concept_search strips the ⟨⟩ id decoration so the escape hatch is pasteable', async () => {
-  // Measured live on dashboard-film: one search response carried both a bare id
-  // and a ⟨…⟩-wrapped one. The wrapped form must not be what the tool tells the
+  // One search response can carry both a bare id and a ⟨…⟩-wrapped one. The wrapped form must not be what the tool tells the
   // agent to paste back as concept_id.
   const long = 'a'.repeat(1500);
   await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:⟨cd_wrapped1⟩', shape: 'gotcha', content: long }]) });

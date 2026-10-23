@@ -20,7 +20,7 @@ const STATEFUL: Array<[string, RegExp]> = [
   ['a decision id', /\b[DL]\d\b/],
   ['a request id', /\bS-\d+\b/],
   ['a lab observation', /\bseen on the lab\b/i],
-  ['a measurement record', /\bmeasured (on|in) \S/i],
+  ['a measurement record', /\bmeasured\b(?:\s+\w+)?\s+(on|in)\s+\S/i],
   ['an experiment tally', /\b\d+ of \d+ runs\b/i],
   ['a session name', /\bqa\b|\bdev-mcp\b|\bnetwork fork\b/i],
 ];
