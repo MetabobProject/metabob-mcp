@@ -51,7 +51,7 @@ describe('secrets', () => {
     expect(findSecret(text, [])).toBe(kind);
   });
 
-  // From qa's probe: prose about credentials, placeholders and documented examples pass.
+  // Prose about credentials, placeholders and documented examples pass.
   test.each([
     'README example sends Authorization: Bearer xxxxxxxxxxxxxxxxxxxx',
     'curl -H "Authorization: Bearer YOUR_TOKEN_GOES_HERE"',

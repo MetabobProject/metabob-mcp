@@ -289,7 +289,7 @@ describe('resolve_impulse', () => {
     for (const s of refused) expect(escapeHatchRefusal(s)).not.toBeNull();
   });
 
-  // qa probe: state-changing shapes whose names do not end in _write.
+  // State-changing shapes whose names do not end in _write.
   test.each(['shell', 'bash', 'bounded_shell', 'fs_edit', 'git_push', 'gh_pr_merge', 'systemd_restart', 'vessel_mitosis_cutover',
     'activityExecutionTrace_delete', 'credit_vessel_shapes', 'posteriorCompensation', 'feature_compose', 'dispatch_goal',
     'goal_execution', 'code_replace_lines', 'surrealdb_import', 'llm_completion', 'http_fetch', 'variant_promote', 'goalDispatchAsync'])(

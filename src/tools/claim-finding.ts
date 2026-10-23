@@ -116,8 +116,8 @@ export async function state(ids: string[], ownId?: string, conceptId?: string): 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + 'Z';
 
 /**
- * Pauses before each read-back. A read can miss a concept written moments before (seen on the lab: concept-db's
- * own lookup missed a concept it had just created), so the read-back counts only once it shows this claim.
+ * Pauses before each read-back. A read can miss a concept written moments before (concept-db's own lookup can
+ * miss a concept it has just created), so the read-back counts only once it shows this claim.
  */
 export const READ_BACK_PAUSES_MS = [150, 500, 1_500];
 const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -218,8 +218,7 @@ export async function claim(
 
   const until = new Date(Date.now() + input.minutes * 60_000);
   let posted = await write(input.minutes, 'claimed');
-  // Under concurrent writes concept-db can give up on a write (seen on the lab: 8 of 80 at 8 claimers, answered as
-  // no_producer). A claim write is safe to repeat, since under the holder rule a second claim of one's own renews
+  // Under concurrent writes concept-db can give up on a write (answered as no_producer). A claim write is safe to repeat, since under the holder rule a second claim of one's own renews
   // it, so it is retried once after a short random pause.
   if (!posted.ok && /^(no_producer|producer_timeout)/.test(posted.error ?? '')) {
     await pause(pauses.length && pauses[0] === 0 ? 0 : 200 + Math.floor(Math.random() * 400));

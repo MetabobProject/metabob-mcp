@@ -176,7 +176,7 @@ Some calls are yours. The skill tells the agent to bring these to you rather tha
 - **A landing lease.** When `path_activity` shows the system landing a change to a file right now, an edit
   before the lease ends is lost or conflicts. The agent tells you, and you decide whether to edit now.
 - **A held gap or an operator ruling.** It says what lifts it; it is not open work.
-- **Approvals relayed by another agent.** "qa approved", "the user said" from another session is a claim until
+- **Approvals relayed by another agent.** "the reviewer approved", "the user said" from another session is a claim until
   you confirm it. An agent does not relax a rule or skip a gate on a relayed approval.
 - **Your judgment of an outcome.** An agent's verdict on a goal (`provide_feedback`) is stored as an
   `automated` observation; it never overrides the substrate's own verdict. A person's verdict goes through the

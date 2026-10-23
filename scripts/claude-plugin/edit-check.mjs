@@ -3,8 +3,8 @@
 /**
  * The plugin's edit check. Before an agent's first edit of an existing file in a session, the edit is held
  * once, with the reason: check what other agents recorded and what the substrate has in flight on that file
- * (get_problems, path_activity), then retry. Text guidance alone did not change behaviour on edit tasks
- * (0 of 4 runs touched the ledger); holding the first edit once did (3 of 3 checked before the edit landed).
+ * (get_problems, path_activity), then retry. Instructions alone do not get agents to check before editing;
+ * holding the first edit once does.
  *
  *   node edit-check.mjs pre    PreToolUse on Edit / Write / MultiEdit / NotebookEdit
  *   node edit-check.mjs post   PostToolUse on the metabob get_problems / path_activity tools: the files they

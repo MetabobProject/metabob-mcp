@@ -71,8 +71,8 @@ describe('W6 working alongside the system', () => {
     expect(out).not.toContain('gap-elsewhere');
     const reads = gapReads();
     expect(reads).toHaveLength(1);
-    // Today's full read: the store has no path filter. When S-18 (edit_site_prefix + fields) lands, this pointer
-    // changes on purpose; edit the test then, don't restore the full read.
+    // The full read: the store has no path filter. A filtered read is a deliberate change to this pointer and
+    // to this test, never a return to the full read.
     expect(reads[0]!.body).toMatchObject({ type: 'substrateGap', status: 'open', limit: 1_000_000, include_held: true });
     expect(reads[0]!.forwarded).toBe(true);
   });

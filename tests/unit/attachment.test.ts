@@ -497,7 +497,7 @@ describe('re-attaching after a transient failure', () => {
   });
 
   test('concurrent calls during a retry all wait for it, and none sees a half-reset state', async () => {
-    // qa's repro: two resolves at once after a transient failure; the second read the reset state as not_configured.
+    // Two resolves at once after a transient failure: the second read the reset state as not_configured.
     const { a } = run({ discovery: 'http://127.0.0.1:1', heartbeatMs: 60_000, reattachDelaysMs: [600_000], reattachOnDemandMs: 0, script: { hosts: {} } });
     await a.settled();
     const results = await Promise.all([0, 1, 2].map(() => a.resolve({ type: 'vesselRegistry' }, { read: true }).then(() => 'ok', (e: Error) => e.message)));

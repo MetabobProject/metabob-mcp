@@ -1,19 +1,16 @@
 # Substrate participation conformance
 
 This vessel joins a substrate it does not own. Where the vessel's own design and the substrate's
-expectations disagree, **the substrate's expectations take priority** (user ruling 2026-10-13:
-substrate expectations over vessel design), and that settles every conflict below. The requirements
-originate in the substrate's deployment: the super-repo `CLAUDE.md` laws (cited as `CLAUDE.md law N`),
-user rulings held in the substrate's memory store (cited as `user ruling YYYY-MM-DD: <topic>`; only
-the user makes rulings), `docs/FEDERATION.md`, and the discovery-vessel contract it describes.
+expectations disagree, **the substrate's expectations take priority**, and that settles every conflict below.
+The requirements originate in the substrate's deployment: the super-repo `CLAUDE.md` laws (cited as
+`CLAUDE.md law N`), `docs/FEDERATION.md`, and the discovery-vessel contract it describes.
 
 Each section states one requirement, then the status of this code against it: **met** (with the code
 that meets it), **partially met**, or **not yet met** (with the gap stated plainly). Code that
 implements a requirement cites it as `CONFORMANCE §<section>`; the rules for those citations are in
 [DOCLINKS.md](DOCLINKS.md).
 
-The vessel has one configuration: an API key and an endpoint, from which the substrate URLs derive
-(user ruling 2026-10-13: one configuration, not two), and it proves the key against the substrate's
+The vessel has one configuration: an API key and an endpoint, from which the substrate URLs derive, and it proves the key against the substrate's
 identity before any other keyed call (C3). It is a client of the substrate: it makes no
 discovery registration, runs no libp2p node, and serves its HTTP resolver on loopback for local
 callers only.
@@ -86,7 +83,7 @@ the vessel's own network namespace.
 
 **Accepted risk, not conformance: cleartext key on plain-http anchors.** The vessel sends its key to
 whatever anchor it is configured with, including non-loopback plain-http anchors such as a hub's
-published `http://<host>:18100` (user ruling 2026-10-13: send the key wherever the anchor is).
+published `http://<host>:18100`: the key goes wherever the anchor is.
 Through discovery `POST /resolve` the key is forwarded as a plain `Authorization` header to the local
 owner or a peer discovery, readable by any proxy or network on the path. The remedy is on the
 substrate side (the overlay, or a TLS anchor on 443); until it lands, this exposure is known and

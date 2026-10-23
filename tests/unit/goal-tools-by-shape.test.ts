@@ -105,10 +105,10 @@ describe('run_goal_async', () => {
   });
 
   test('MB_OPERATOR_ID overrides the operator stamp', async () => {
-    process.env.MB_OPERATOR_ID = 'dev-mcp';
+    process.env.MB_OPERATOR_ID = 'operator-a';
     const stub = await installShapeStub({ goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-2', status: 'running' } }) });
     await runGoalAsync({ goal: 'g' }, apiClient);
-    expect(stub.calls('goalDispatchAsync')[0]!.operator).toBe('dev-mcp');
+    expect(stub.calls('goalDispatchAsync')[0]!.operator).toBe('operator-a');
   });
 
   test('a spend-rate refusal (429) prints its status and reason', async () => {
@@ -183,7 +183,7 @@ describe('goal_status and goal_reasoning', () => {
 
   test('goal_status reads the goalWalkState record goal-host wraps', async () => {
     const stub = await installShapeStub({
-      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'running', reached: null, operator: 'dev-mcp', walkLog: ['[goal-host-vessel] selecting template'] }),
+      goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'running', reached: null, operator: 'operator-a', walkLog: ['[goal-host-vessel] selecting template'] }),
     });
     const out = await goalStatus({ dispatch_id: 'd-s' }, apiClient);
     expect(stub.calls('goalWalkState')).toEqual([{ type: 'goalWalkState', dispatchId: 'd-s' }]);
@@ -193,7 +193,7 @@ describe('goal_status and goal_reasoning', () => {
       '  (reached = the goal verdict; status below is only the template exit status)',
       '  status:             running',
     ]);
-    expect(out).toContain('  operator:           dev-mcp');
+    expect(out).toContain('  operator:           operator-a');
     expect(out).toContain('selecting template');
   });
 
@@ -265,8 +265,8 @@ describe('provide_feedback', () => {
     expect(await provideFeedback({ dispatch_id: 'd-r', verdict: 'partial', rationale: 'r' }, apiClient)).toContain('is still running');
     expect(stub.calls('goal_verification_label_write')).toEqual([]);
   });
-  // QA through a spoke: the hub's producer answered 400 "goal, execution_id, … are
-  // required", and discovery's peer forward relayed it as its own no-producer 404.
+  // Through a spoke, a hub producer's 400 ("goal, execution_id, … are required") is relayed by discovery's peer
+  // forward as its own no-producer 404.
   test("a label write the peer forward flattens to discovery's 404 says it may have been refused", async () => {
     await installShapeStub({
       goalWalkState: (p) => walk({ dispatchId: p.dispatchId, status: 'completed', reached: true, goal: 'g', executionId: 'e', selectedTemplateId: 't' }),

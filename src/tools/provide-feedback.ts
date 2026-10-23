@@ -4,11 +4,9 @@
  * WITH the substrate. After inspecting a goal's reasoning (goal_reasoning), the
  * operator can record a verdict on whether the goal was actually achieved. Unlike
  * out-of-band commentary, this verdict is written into the substrate's learning
- * loop as an `automated` label in the oracle corpus (goal_verification_labels,
- * migration 101) — currently for offline audit (an obsidian-vessel reach-rate
- * note), not yet consumed by an automated reach-gate recalibration path. The
- * operator becomes an interposable verifier the substrate learns from (the S1→S2→S3
- * arc); measured feedback, not advice.
+ * loop as an `automated` label in the oracle corpus (goal_verification_labels),
+ * where offline audit compares it with goal-host's own verdict. The operator is a
+ * verifier the substrate can learn from: measured feedback, not advice.
  *
  * Flow, each a shape resolved through discovery `POST /resolve`
  * (CONFORMANCE §c11-attachment-model):

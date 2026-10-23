@@ -144,13 +144,17 @@
         "at": "8f9b726",
         "why": "local-index.ts change is a comment pointing at SPEC § init_workspace; CLAUDE.md's 'not persisted across restarts' row still holds"
       },
+      "README.md": {
+        "at": "72e6c62",
+        "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
+      },
       "docs/CONFORMANCE.md": {
         "at": "9435242",
         "why": "the write backstop in resolve adds a local refusal and redaction before sending; the single egress, the key and the named failures are unchanged"
       },
       "docs/SPEC.md": {
-        "at": "1d3b52a",
-        "why": "record_finding's store-less fallback now writes the workspace hash the store already wrote; SPEC describes the workspace: line only as a legacy fallback in recall"
+        "at": "72e6c62",
+        "why": "comment-only rewording (rules stated without rulings, tallies or ids); no behaviour change"
       },
       "lab/README.md": {
         "at": "f522929",
@@ -771,6 +775,11 @@
           "client-claim",
           "read-only-key",
           "resolve_impulse"
+        ]
+      },
+      "tests/unit/stateless-docs.test.ts": {
+        "CLAUDE": [
+          "docs-code-links"
         ]
       },
       "tests/unit/substrate-tools-name-cause.test.ts": {

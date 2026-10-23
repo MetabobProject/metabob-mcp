@@ -227,7 +227,7 @@ describe('W3 attachment conformance', () => {
     expect(reached).toBe(false);
   });
 
-  // No workspace content leaves the machine (user ruling 2026-10-13: no uploads).
+  // No workspace content leaves the machine.
   test('no workspace content is sent to the substrate', async () => {
     const out = await plain.text('init_workspace', {});
     expect(out).toMatch(/Local index:\s*[1-9]\d*\/\d+ files parsed/);

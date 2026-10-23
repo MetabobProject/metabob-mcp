@@ -221,8 +221,7 @@ async function closeOrPend(
     // already carries all three. Refusing here made the normal fleet case
     // impossible: a manager assigns work one agent found, another agent fixes
     // it, and the endorse step cannot land because the seed lives on a third
-    // machine. Measured in artifacts/fleet: mark_complete called twice, zero
-    // verdicts written.
+    // machine, so no verdict would ever be written.
     //
     // The LOCAL half (retire/delete the seed) is genuinely local and is simply
     // skipped — stated in the output rather than pretended.
@@ -248,9 +247,8 @@ async function closeOrPend(
         : repoLines(here);
       const repoShown = remote.repoName || remote.repo || here?.name || 'unknown';
       // Join on the agf_* id the finding carries, exactly as the local path
-      // does. Keying on the concept id writes a verdict no reader can match —
-      // measured: the row landed in concept-db and /findings still showed "no
-      // verdict". The `||` fallback could never fire, though: record_finding
+      // does. Keying on the concept id writes a verdict no reader can match:
+      // the row lands in concept-db and recall still shows no verdict. The `||` fallback could never fire, though: record_finding
       // writes the literal "(not cached locally)" into `finding_ids:` when it
       // had no LocalStore, and a truthy placeholder collides EVERY stateless
       // finding's verdict onto one shared key. Require the real shape.

@@ -163,9 +163,8 @@ export async function handle(
   // it goes into the in-process CPG and is not sent off the machine.
   //
   // Bounded by wall clock, not by faith. Parsing is NOT flatly cheap: addFile
-  // scans the accumulated node set, so per-file cost grows with the graph.
-  // Measured on real sources: 100 files 2.3s, 250 files 5.3s, 500 files 14.6s —
-  // 2x the files for 2.75x the time. Unbounded, a large monorepo would hang the
+  // scans the accumulated node set, so per-file cost grows with the graph and
+  // the total grows faster than the file count. Unbounded, a large monorepo would hang the
   // first call of every session, and the index is not persisted across them.
   // So parse until the budget is spent, then stop and SAY so; the next call
   // resumes where this one stopped (isParsed skips what is already done).

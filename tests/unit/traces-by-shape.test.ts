@@ -22,7 +22,7 @@ const ROW = {
   activity_id: 'development-vessel:cost-expectation-audit-tick',
   execution_id: 'exec_978a4b53-8a0',
   status: 'success',
-  tags: ['dispatcher_used:light-dispatch', 'reach_graded:true', 'reached:true', 'operator:dev-mcp'],
+  tags: ['dispatcher_used:light-dispatch', 'reach_graded:true', 'reached:true', 'operator:operator-a'],
   output_impulse_shapes: ['costExpectationReport'],
   execution_trace: {
     tasks: [{ resolver_id: 'cost_expectation_scan', resolver_tier: 'deterministic', success: true, output_shapes: ['costExpectationReport'] }],
@@ -50,7 +50,7 @@ describe('activityExecutionTrace', () => {
     expect(out).toContain('  status:               success');
     expect(out).toContain('  activity_template_id: development-vessel:cost-expectation-audit-tick');
     expect(out).toContain('  reached:true');
-    expect(out).toContain('  operator:dev-mcp');
+    expect(out).toContain('  operator:operator-a');
     expect(out).toContain('Tasks (1):');
     expect(out).toContain('  #1 ✓ cost_expectation_scan/deterministic  ∅ → costExpectationReport');
   });

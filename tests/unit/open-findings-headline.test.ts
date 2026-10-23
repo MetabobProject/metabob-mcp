@@ -1,8 +1,8 @@
 /**
  * get_problems and get_analysis_context lead with one count of open findings
- * across the local store and the cross-agent recall (SPEC §get_problems). QA saw
- * agents read "No problems found in the local store" as "nothing to do" while
- * two shared findings sat below it.
+ * across the local store and the cross-agent recall (SPEC §get_problems), so an
+ * agent never reads "No problems found in the local store" as "nothing to do"
+ * while shared findings sit below it.
  */
 import { describe, expect, test } from 'bun:test';
 import type { SeedRecord } from '../../src/local-store';

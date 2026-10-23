@@ -50,8 +50,7 @@ does not load skills.
   code as `SPEC §<heading-slug>`.
 - **Docs are present and timeless:** they state intent and current behaviour, with no change narration ("now",
   "previously", "no longer").
-- **Pushes are the user's call.** Agents prepare commits, verify them, and report the range; a push to `dev`
-  or `main` is made only when the person you work for asks for it.
+- **Push only when the person you work for asks.** Prepare and verify commits, and report the range.
 - **Branches:** branch off `dev` and open pull requests into `dev`; `main` advances only by a version-bumped
   release whose commits are already on `dev`. Install the hooks once per clone: `bash scripts/git-hooks/install.sh`.
 - **Tests never mutate `process.env`;** pass an environment object instead.

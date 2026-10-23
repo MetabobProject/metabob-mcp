@@ -167,7 +167,7 @@ describe('closeFromCommits', () => {
     writeFileSync(join(b, 'util.ts'), 'export const sum = 1;\n');
     git(b, 'commit', '-qam', 'fix sum\n\nFixes-Finding: agf_theirs');
     git(b, 'push', '-q', 'origin', 'main');
-    // Cell A fixes its own, then fetches and rebases onto B's work, as L6 says, and lists its own commits before pushing.
+    // Cell A fixes its own, then fetches and rebases onto B's work, as the task's integration policy says, and lists its own commits before pushing.
     writeFileSync(join(r.work, 'stats.ts'), 'fixed\n');
     git(r.work, 'commit', '-qam', 'fix average\n\nFixes-Finding: agf_mine');
     git(r.work, 'fetch', '-q', 'origin');

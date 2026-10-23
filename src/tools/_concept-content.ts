@@ -27,7 +27,7 @@ export type ContentMode = 'preview' | 'full' | 'none';
 /**
  * Strip concept-db's id decorations down to the bare canonical form.
  *
- * Measured on dashboard-film: the same store returns some ids bare
+ * One concept-db store returns some ids bare
  * (`concept_BwUOtHpndHtA`) and others wrapped (`⟨concept_AmOKMgWJ-UJM⟩`) in the
  * SAME search response. The wrapped form must not be what a tool tells an agent
  * to paste back as `concept_id` — this is the form every concept-db route
