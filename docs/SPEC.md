@@ -334,7 +334,7 @@ So both runtimes make real calls, and the network matrix runs under both
 (`tests/workflows/networks/matrix.test.ts`: Bun in process, Node by spawning `attach --check --json`
 from `dist/cli.js`, or from a Node bundle of the source). Because `src/net.ts` uses only `node:net` and `node:tls`, a row behaves the same in
 either; neither runtime's own `HTTP(S)_PROXY` handling is involved. `attach --check` prints the runtime
-it ran under.
+it ran under, and whether the MCP server runs under it too or re-execs into Bun.
 
 Under Node, a system resolver that drops queries delays the process's exit: `attach --check` prints its
 report within the connect budget, but Node's exit waits for the pending `getaddrinfo` to give up. The

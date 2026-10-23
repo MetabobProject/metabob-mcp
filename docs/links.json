@@ -682,6 +682,11 @@
           "get_analysis_context"
         ]
       },
+      "tests/unit/attach-check-runtime.test.ts": {
+        "SPEC": [
+          "runtime"
+        ]
+      },
       "tests/unit/attached-marker.test.ts": {
         "README": [
           "claude-code-plugin"

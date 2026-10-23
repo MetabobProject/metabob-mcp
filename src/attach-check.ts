@@ -15,10 +15,13 @@ import { existsSync } from 'node:fs';
 import { attach, RESOLVE_TIMEOUT_MS, describeResolveFailure, type AttachmentState } from './attachment.js';
 import { applyConfiguration, derivedDiscoveryWarning, discoveryEndpointSource, unattachedMessage } from './config.js';
 import { redactText } from './net.js';
+import { sqliteAvailable } from './sqlite.js';
 
 export interface AttachCheckReport {
   attached: boolean;
   runtime: string;
+  /** Where the MCP server itself runs when launched the same way. */
+  serverRuntime: string;
   config: { path: string; found: boolean };
   /** One line per hop, in order. */
   hops: Array<{ hop: string; ok: boolean | null; detail: string }>;
@@ -41,6 +44,12 @@ function runtimeName(): string {
   return bun ? `bun ${bun}` : `node ${process.versions.node}`;
 }
 
+/** Where the MCP server runs when launched the same way (SPEC §runtime): in this runtime when it has SQLite. */
+function serverRuntime(): string {
+  if (sqliteAvailable()) return 'the MCP server runs under it too';
+  return 'the MCP server re-execs into Bun when it is on PATH; otherwise it needs Node 22.13 or later';
+}
+
 function redactKey(key: string): string {
   return key.length <= 8 ? '****' : `…${key.slice(-4)}`;
 }
@@ -54,6 +63,7 @@ export async function attachCheck(baseEnv: NodeJS.ProcessEnv = process.env): Pro
   const report: AttachCheckReport = {
     attached: false,
     runtime: runtimeName(),
+    serverRuntime: serverRuntime(),
     config: { path: configPath, found: existsSync(configPath) },
     hops: [],
     cause: null,
@@ -186,7 +196,7 @@ export async function attachCheck(baseEnv: NodeJS.ProcessEnv = process.env): Pro
 export function renderAttachCheck(r: AttachCheckReport): string {
   const mark = (ok: boolean | null) => (ok === null ? '  ' : ok ? 'ok' : '!!');
   const width = Math.max(...r.hops.map((h) => h.hop.length));
-  const lines = [`metabob-mcp attach --check  (runtime: ${r.runtime}; the MCP server itself runs under bun)`];
+  const lines = [`metabob-mcp attach --check  (runtime: ${r.runtime}; ${r.serverRuntime})`];
   for (const h of r.hops) lines.push(`  ${mark(h.ok)} ${h.hop.padEnd(width)}  ${h.detail}`);
   for (const w of r.warnings) lines.push(`  warn: ${w}`);
   return redactText(lines.join('\n'));
