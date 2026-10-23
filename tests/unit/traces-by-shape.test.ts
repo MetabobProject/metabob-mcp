@@ -148,7 +148,10 @@ describe('satisfier reaches', () => {
   test('reading one answers with goal_reasoning, and makes no request', async () => {
     const stub = await installShapeStub({ activityExecutionTrace: () => ({ status: 404, body: { error: 'Not found', shape: 'activityExecutionTrace' } }) });
     const out = await executionTrace({ execution_id: 'walk-satisfier-1' }, apiClient);
-    expect(out).toStartWith('execution_trace: walk-satisfier-1 is a satisfier reach');
+    expect(out).toStartWith('execution_trace: walk-satisfier-1 is a satisfier reach, by its id');
+    // The answer is inferred from the id; it never claims activity-api answered.
+    expect(out).toContain('activity-api was not asked');
+    expect(out).not.toContain('answers 404');
     expect(out).toContain('goal_reasoning { dispatch_id } shows it');
     expect(stub.calls('activityExecutionTrace')).toHaveLength(0);
   });

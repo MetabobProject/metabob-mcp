@@ -76,8 +76,8 @@ export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPI
   if (!input.execution_id) return listRecent(input.limit ?? 10);
   if (isSatisfierExecution(input.execution_id)) {
     return [
-      `execution_trace: ${input.execution_id} is a satisfier reach: goal-host closed the walk itself, so no task trace`,
-      '  is persisted for it (activity-api answers 404, a successful one included). Its walk is in the dispatch record:',
+      `execution_trace: ${input.execution_id} is a satisfier reach, by its id: goal-host closes such a walk itself and`,
+      '  persists no task trace for it, so activity-api was not asked. Its walk is in the dispatch record:',
       '  goal_reasoning { dispatch_id } shows it, and goal_status gives the reach verdict.',
     ].join('\n');
   }
