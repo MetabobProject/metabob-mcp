@@ -717,6 +717,11 @@
           "get_problems"
         ]
       },
+      "tests/unit/local-index-lazy.test.ts": {
+        "SPEC": [
+          "init_workspace"
+        ]
+      },
       "tests/unit/mark-complete-fix-location.test.ts": {
         "SPEC": [
           "mark_complete"
@@ -1020,6 +1025,7 @@
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
         "src/local-index.ts@index-not-persisted",
+        "src/local-index.ts@lazy-native",
         "src/net.ts",
         "src/net.ts@classify-error",
         "src/net.ts@connect-budget",
@@ -1230,6 +1236,7 @@
       "src/index.ts@stdout-is-transport": "11f9a2ac527f",
       "src/index.ts@tls-intercepted-report": "a0bd592ac9b4",
       "src/local-index.ts@index-not-persisted": "8d64a30d9de1",
+      "src/local-index.ts@lazy-native": "8d64a30d9de1",
       "src/net.ts@classify-error": "8d64a30d9de1",
       "src/net.ts@connect-budget": "8d64a30d9de1",
       "src/net.ts@net-causes": "2ff03885e936",

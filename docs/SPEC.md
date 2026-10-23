@@ -626,6 +626,13 @@ Index the workspace into the local CPG. Indexing is local: no file content leave
 3. For `recently_changed_files`, counts their GCN name-similarity neighbours.
 4. Makes no request: `batch_size` and `sync_api` stay in the schema so existing callers validate, and change nothing. The output states that no file content was sent off the machine.
 
+**The native modules load on first use** (`src/local-index.ts@lazy-native`). The parser (`tree-sitter` and its
+grammars) and the embedder (`onnxruntime-node`) are native, and the build keeps them in a chunk of their own that
+loads on the first `init_workspace`, not at startup. A module that cannot load (no prebuilt binary for this
+platform, a missing shared library) makes `init_workspace`, and every local tool after it, answer
+`local_index_unavailable(<module>: <reason>)`; the ledger, memory and substrate tools never touch it and work as
+usual, and the server always starts.
+
 **The index is not persisted** (`src/local-index.ts@index-not-persisted`). The CPG and its vector index live in the process and are rebuilt by `init_workspace` after every launch, so `analyze_impact` and `predict_cochanges` start cold after a restart. A disk cache with per-file invalidation would be wrong, not just stale: a file's incoming `CALLS` edges are created while *other* files are parsed (each call resolves by a whole-graph name lookup), and co-change component ids embed a start line, so invalidating one changed file leaves dependents pointing at absent ids, and the two tools answer wrongly without saying so. Persistence, if it is ever built, must therefore:
 - be whole-index and all-or-nothing: on load, stat every stored file, and any missing, modified or resized file discards the entire cache for a full rebuild; it never invalidates part of it;
 - carry a cache version, bumped whenever the node or id shape, the embedding pipeline or the format changes, with a mismatch discarding the cache;

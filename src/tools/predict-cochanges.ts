@@ -51,7 +51,7 @@ export async function handle(
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {
-    return 'Workspace not indexed. Run init_workspace first.';
+    return localIndex.notReadyMessage();
   }
 
   const stats = localIndex.stats();

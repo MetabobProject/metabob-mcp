@@ -25,9 +25,48 @@
  * predict_cochanges answers, which is worse than a slower cold start.
  */
 import { resolve } from 'node:path';
-import { CoChangePredictor } from './cpg-inference.js';
+import type { CoChangePredictor } from './cpg-inference.js';
 import type { CoChangePrediction } from './cpg-inference.js';
 import type { CodePropertyGraph } from './cpg-inference.js';
+
+// @anchor lazy-native
+/**
+ * The CPG, its parser (tree-sitter and its grammars) and its embedder (onnxruntime-node) are native modules, loaded
+ * on the first local-tool call that needs them, not at startup. A module that cannot load (no prebuilt binary for
+ * this platform, a missing shared library) makes that call answer `local_index_unavailable(<module>: <reason>)`,
+ * and the ledger, memory and substrate tools, which never touch it, work as usual. SPEC §init_workspace
+ */
+export class LocalIndexUnavailable extends Error {
+  constructor(readonly module: string, readonly reason: string) {
+    super(`local_index_unavailable(${module}: ${reason}): the local code tools cannot run here; the ledger, memory and substrate tools are unaffected`);
+    this.name = 'LocalIndexUnavailable';
+  }
+}
+
+type CpgModule = typeof import('./cpg-inference.js');
+let cpgModule: Promise<CpgModule> | null = null;
+/** The load failure, once one happened: later calls report it instead of asking for init_workspace again. */
+let cpgFailure: LocalIndexUnavailable | null = null;
+let importCpg: () => Promise<CpgModule> = () => import('./cpg-inference.js');
+
+/** Tests only: replace how the CPG module is imported (null restores the real import), and forget a past load. */
+export function setCpgImportForTests(fn: (() => Promise<CpgModule>) | null): void {
+  importCpg = fn ?? (() => import('./cpg-inference.js'));
+  cpgModule = null;
+  cpgFailure = null;
+  _instance = null;
+}
+
+/** The CPG module, loaded once; a failure is kept, so every later call names the same cause without retrying. */
+function loadCpg(): Promise<CpgModule> {
+  cpgModule ??= importCpg().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    const module = /(tree-sitter[\w-]*|onnxruntime-node)/.exec(message)?.[1] ?? 'cpg-inference';
+    cpgFailure = new LocalIndexUnavailable(module, message.split('\n')[0]!.slice(0, 200));
+    throw cpgFailure;
+  });
+  return cpgModule;
+}
 
 export type { CoChangePrediction };
 
@@ -39,7 +78,7 @@ export interface LocalIndexStats {
 }
 
 export class LocalIndex {
-  predictor: CoChangePredictor;
+  private _predictor: CoChangePredictor | null = null;
   private _ready = false;
   private _workspacePath: string | null = null;
   private _filesIndexed = 0;
@@ -49,18 +88,30 @@ export class LocalIndex {
    *  wrapper does not expose), so the bridge keeps its own map. */
   private _imports = new Map<string, string[]>();
 
-  constructor() {
-    this.predictor = new CoChangePredictor({ minSimilarity: 0.0 });
+  /** The predictor, once `init()` has loaded it; every caller checks `isReady()` or calls `init()` first. */
+  get predictor(): CoChangePredictor {
+    if (!this._predictor) throw new Error('LocalIndex not initialised: call init() first');
+    return this._predictor;
   }
 
+  /** Load the CPG (on first use) and initialise the predictor. Throws LocalIndexUnavailable when it cannot load. */
   async init(): Promise<void> {
     if (this._ready) return;
-    await this.predictor.initialize();
+    if (!this._predictor) {
+      const { CoChangePredictor } = await loadCpg();
+      this._predictor = new CoChangePredictor({ minSimilarity: 0.0 });
+    }
+    await this._predictor.initialize();
     this._ready = true;
   }
 
   isReady(): boolean {
     return this._ready;
+  }
+
+  /** What a local tool answers before the index is ready: the load failure when there was one, else run init_workspace. */
+  notReadyMessage(): string {
+    return cpgFailure?.message ?? 'Workspace not indexed. Run init_workspace first.';
   }
 
   /**
@@ -73,7 +124,7 @@ export class LocalIndex {
     if (this._workspacePath !== null && this._workspacePath !== path) {
       this._parsedFiles.clear();
       this._imports.clear();
-      this.predictor = new CoChangePredictor({ minSimilarity: 0.0 });
+      this._predictor = null;
       this._ready = false;
       await this.init();
     }
@@ -141,10 +192,9 @@ export class LocalIndex {
   }
 
   stats(): LocalIndexStats {
-    const predictorStats = this.predictor.getStats();
     return {
       filesIndexed: this._filesIndexed,
-      componentsIndexed: predictorStats.componentsIndexed,
+      componentsIndexed: this._predictor ? this._predictor.getStats().componentsIndexed : 0,
       workspacePath: this._workspacePath,
       ready: this._ready,
     };

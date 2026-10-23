@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
 import { join, extname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { getLocalIndex } from '../local-index.js';
+import { getLocalIndex, LocalIndexUnavailable } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
 
 export const InitWorkspaceTool = {
@@ -130,7 +130,13 @@ export async function handle(
   const excludeDirs = input.exclude ? new Set(input.exclude) : DEFAULT_EXCLUDE;
 
   const localIndex = getLocalIndex();
-  await localIndex.init();
+  try {
+    await localIndex.init();
+  } catch (err) {
+    // A native module that cannot load stops the local code tools only, and says which one.
+    if (err instanceof LocalIndexUnavailable) return err.message;
+    throw err;
+  }
 
   // ── Scan paths only — O(total_files) of cheap FS readdir calls ───────────────
   const allPaths = new Set<string>();

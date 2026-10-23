@@ -147,7 +147,7 @@ async function impactReport(input: AnalyzeImpactInput): Promise<string> {
   const localIndex = getLocalIndex();
 
   if (!localIndex.isReady()) {
-    return 'Workspace not indexed. Run init_workspace first.';
+    return localIndex.notReadyMessage();
   }
 
   const cpg = localIndex.getCPG();

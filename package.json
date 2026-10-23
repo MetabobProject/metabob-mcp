@@ -22,7 +22,7 @@
     "test": "bun run preflight && bun test --timeout 30000 tests",
     "typecheck": "bun run preflight && tsc --noEmit",
     "build:model": "bun run preflight && bun run scripts/copy-model-assets.ts",
-    "build": "bun run build:model && bun build src/cli.ts src/doctor-cli.ts --target node --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
+    "build": "bun run build:model && bun build src/cli.ts src/doctor-cli.ts --target node --splitting --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "keywords": [
