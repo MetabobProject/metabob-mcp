@@ -4,6 +4,7 @@
  * tests/workflows/w9-node-runtime.test.ts and the no-Bun package smoke.
  */
 import { afterAll, describe, expect, test } from 'bun:test';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,29 @@ describe('the SQLite adapter', () => {
     expect(db.query('SELECT id FROM t WHERE flag = ?').get(true)).toEqual({ id: 'a' });
     expect(db.query('SELECT id FROM t WHERE id = ?').get('missing')).toBeUndefined();
     db.close();
+  });
+
+  test('a write waits for another process\'s lock instead of failing with "database is locked"', async () => {
+    const path = join(dir, 'busy.db');
+    const setup = openSqlite(path);
+    setup.exec('PRAGMA journal_mode=WAL; CREATE TABLE t (v INTEGER)');
+    setup.close();
+    // Another process (another session's server) holds a write transaction for about 300 ms.
+    const holder = spawn(process.execPath, ['-e', `
+      const { Database } = require('bun:sqlite');
+      const db = new Database(${JSON.stringify(path)});
+      db.exec('BEGIN IMMEDIATE'); db.run('INSERT INTO t VALUES (1)');
+      process.stdout.write('held\\n');
+      Bun.sleepSync(300); db.exec('COMMIT'); db.close();
+    `], { stdio: ['ignore', 'pipe', 'inherit'] });
+    await new Promise<void>((resolveHeld) => holder.stdout!.on('data', (d) => { if (String(d).includes('held')) resolveHeld(); }));
+    const db = openSqlite(path);
+    const started = Date.now();
+    db.run('INSERT INTO t VALUES (?)', [2]);
+    expect(Date.now() - started).toBeGreaterThan(100);
+    expect(db.query('SELECT v FROM t ORDER BY v').all()).toEqual([{ v: 1 }, { v: 2 }]);
+    db.close();
+    await new Promise((r) => holder.on('exit', r));
   });
 
   test('the file reopens with its rows, as a store does across launches', () => {

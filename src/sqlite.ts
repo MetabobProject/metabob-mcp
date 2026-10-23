@@ -7,6 +7,10 @@
  * Only what the store uses is exposed: `exec`, `run(sql, params)`, and `query(sql)` with `all` and `get`. The two
  * backends differ in what they bind and return, and the adapter makes them agree: a boolean binds as 1 or 0 and
  * `undefined` as NULL (node:sqlite refuses both), and `get` returns `undefined` for no row (Bun returns `null`).
+ *
+ * Every server on a machine shares one store file, so a write can meet another session's open transaction. Each
+ * connection waits up to BUSY_TIMEOUT_MS for the lock instead of failing at once with "database is locked"
+ * (SQLite's own default wait is 0).
  */
 import { createRequire } from 'node:module';
 
@@ -25,6 +29,9 @@ export interface Sqlite {
 }
 
 const require = createRequire(import.meta.url);
+
+/** How long a connection waits for another connection's lock before a write fails. */
+export const BUSY_TIMEOUT_MS = 5_000;
 
 function bind(params: SqlValue[]): Array<string | number | bigint | null | Uint8Array> {
   return params.map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p === undefined ? null : p));
@@ -68,6 +75,7 @@ export function openSqlite(path: string): Sqlite {
   if (process.versions.bun) {
     const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     const db = new Database(path, { create: true });
+    db.exec(`PRAGMA busy_timeout=${BUSY_TIMEOUT_MS};`);
     return {
       exec: (sql) => { db.exec(sql); },
       run: (sql, params = []) => { db.run(sql, bind(params) as never); },
@@ -83,6 +91,7 @@ export function openSqlite(path: string): Sqlite {
   }
   const { DatabaseSync } = quietly(() => require('node:sqlite')) as { DatabaseSync: new (path: string) => NodeSqlite };
   const db = new DatabaseSync(path);
+  db.exec(`PRAGMA busy_timeout=${BUSY_TIMEOUT_MS};`);
   return {
     exec: (sql) => { db.exec(sql); },
     run: (sql, params = []) => { db.prepare(sql).run(...bind(params)); },
