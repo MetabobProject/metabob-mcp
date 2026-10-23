@@ -36,7 +36,7 @@ jobs:
         run: bun install --frozen-lockfile && bun run build
 
       - name: Pack
-        run: npm pack --pack-destination pack
+        run: mkdir -p pack && npm pack --pack-destination pack
 
       - uses: actions/upload-artifact@v4
         with:
@@ -100,7 +100,7 @@ jobs:
           # still fetch the package, and the server, started in the plugin's folder, must wait for init_workspace.
           node -e "const a=require('./mcp.json').mcpServers.metabob.args, b=require('./plugin/.mcp.json').mcpServers.metabob.args; if (JSON.stringify(a)!==JSON.stringify(b)) { console.error('the two bundles launch differently'); process.exit(1) }"
           node scripts/ci/smoke-registry.mjs pack/*.tgz 4874 &
-          for i in $(seq 1 30); do node -e "fetch('http://127.0.0.1:4874/@metabob%2fmcp').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break; sleep 1; done
+          for i in $(seq 1 30); do node -e "fetch('http://127.0.0.1:4874/@metabob%2fmcp').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break; [ "$i" = 30 ] && { echo "the smoke registry did not answer"; exit 1; }; sleep 1; done
           printf '@metabob:registry=http://127.0.0.1:4874/\n' > "$RUNNER_TEMP/npmrc"
           args=$(node -p "require('./mcp.json').mcpServers.metabob.args.join(' ')")
           echo "npx $args"
