@@ -143,8 +143,8 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "8e8a277",
-        "why": "doclinks hook-post resolves the edited path's symlinks; CLAUDE.md's description of the hooks still holds"
+        "at": "e978c22",
+        "why": "attach-check.ts gained the server-runtime line; the Key files row (hop by hop, named cause, exit 0 when attached) is still accurate"
       },
       "README.md": {
         "at": "5f873db",
@@ -163,8 +163,8 @@
         "why": "comment-only rewording (rules stated without rulings, tallies or ids); no behaviour change"
       },
       "lab/README.md": {
-        "at": "8e8a277",
-        "why": "mem_mb lowercases with tr for bash 3.2; LAB_MEM's documented forms are unchanged"
+        "at": "e978c22",
+        "why": "the Containerfile copies the generated plugin/ without its .mcp.json; the README's 'installed as users have it (the skill and the edit check) without its .mcp.json' is still accurate"
       }
     }
   },
