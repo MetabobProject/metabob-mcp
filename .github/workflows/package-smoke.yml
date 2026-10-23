@@ -104,8 +104,9 @@ jobs:
           printf '@metabob:registry=http://127.0.0.1:4874/\n' > "$RUNNER_TEMP/npmrc"
           args=$(node -p "require('./mcp.json').mcpServers.metabob.args.join(' ')")
           echo "npx $args"
+          # The first launch installs the package: it too must answer within a client's 30 s connect timeout.
           npm_config_userconfig="$RUNNER_TEMP/npmrc" node scripts/ci/smoke-mcp.mjs \
-            --env PLUGIN_ROOT="$GITHUB_WORKSPACE" --expect undetermined --expect runtime=node -- npx $args
+            --env PLUGIN_ROOT="$GITHUB_WORKSPACE" --expect undetermined --expect runtime=node --init-under 30000 -- npx $args
           # A reconnect: the same launch with the package cached must answer within a client's 30 s connect timeout.
           npm_config_userconfig="$RUNNER_TEMP/npmrc" node scripts/ci/smoke-mcp.mjs \
             --env PLUGIN_ROOT="$GITHUB_WORKSPACE" --expect undetermined --init-under 30000 -- npx $args
