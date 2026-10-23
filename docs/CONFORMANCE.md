@@ -181,7 +181,8 @@ names the `code:*` family, which would have to become concrete shape names befor
 - Report an intercepted TLS connection as `TLS_INTERCEPTED`, with the diagnostics to act on it.
 
 **Status: met.** Every request the vessel makes takes one path, `src/net.ts@net-request` (SPEC
-§ Network), the same under Bun (the server) and Node (`doctor`, `attach --check`):
+§ Network), the same under Bun and Node: the server runs under either (SPEC § Runtime), and `doctor` and
+`attach --check` under whichever launched them:
 - Met — trust: a certificate is checked against the bundled roots, the OS trust store
   (`src/tls-trust.ts@systemCaAdditions`) and `NODE_EXTRA_CA_CERTS`, which the vessel reads itself so it
   applies under Bun too (`src/net.ts@trusted-cas`). The chain and the host name are verified before any
