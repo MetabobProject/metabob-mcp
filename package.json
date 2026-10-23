@@ -68,7 +68,6 @@
     "typescript": "^5.3.0"
   },
   "trustedDependencies": [
-    "onnxruntime-node",
     "tree-sitter",
     "tree-sitter-javascript",
     "tree-sitter-python",
