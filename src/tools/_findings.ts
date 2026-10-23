@@ -72,7 +72,7 @@ export async function resolveAuthorVesselId(): Promise<string | undefined> {
     return await resolveVesselId({
       explicit: process.env.VESSEL_ID,
       apiKey: process.env.METABOB_API_KEY,
-      workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
+      workspaceRoot: activeWorkspacePath(),
     });
   } catch {
     // Identity resolution must never fail a finding write.

@@ -334,6 +334,31 @@ Under Node, a system resolver that drops queries delays the process's exit: `att
 report within the connect budget, but Node's exit waits for the pending `getaddrinfo` to give up. The
 server is long-lived and unaffected.
 
+### Workspace
+
+The workspace decides which repository the ledger is keyed by (§ Repository identity), where the local store scopes
+its findings, and the path the coordination identity is derived from (`src/workspace-root.ts`). It is decided in this
+order (`src/local-index.ts@activeWorkspacePath`):
+
+1. a path `init_workspace` was given;
+2. `WORKSPACE_PATH`, when set;
+3. the client's first `file:` root (MCP `roots/list`);
+4. the directory the server was launched in.
+
+A client may start the server outside the project (an Agent Plugins host starts it in the plugin's own folder), so
+the server asks a client that declares the roots capability for its roots once it has initialized, and again on
+`notifications/roots/list_changed`; roots of other schemes are not workspaces. A tool call waits for the first
+answer, at most 2 s, then goes on with steps 2 and 4; a client that declares no roots capability, or headless use
+with no MCP client, is not waited for. Once the workspace is decided the store is scoped to it, the attached marker is
+written for it and, when it differs, for the launch directory too (the edit check finds the marker by its own working
+directory), and the coordination identity is derived from it.
+
+The identity is derived once and kept for the life of the process. A later change of the client's first root moves
+the repository, the store's scope and the marker, never the author, so a session's own claims and `recorded_by`
+stay its own; `init_workspace` with a path wins over the roots for the rest of the session. `get_analysis_context`
+names the workspace, where it came from, any other roots, and the workspace the identity came from when that
+differs.
+
 ### Proxy selection
 
 Chosen per request from the environment (`src/net.ts@select-proxy`); never from a config file:

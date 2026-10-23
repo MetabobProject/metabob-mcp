@@ -1,7 +1,8 @@
 // Contract (input schema, behaviour): SPEC §get_analysis_context
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath, getLocalIndex } from '../local-index.js';
+import { clientRootPaths, identityWorkspacePath, workspaceSource } from '../workspace-root.js';
 import { getAttachment } from '../attachment.js';
 import { redactUrl } from '../net.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
@@ -62,14 +63,27 @@ export type GetAnalysisContextInput = z.infer<typeof InputSchema>;
 export async function attachmentLines(sessionId: string): Promise<string[]> {
   const a = getAttachment();
   const vesselId = await resolveAuthorVesselId();
-  const who = `  as:         ${vesselId ?? 'no vessel identity'} (session ${sessionId || 'unknown'})`;
-  if (!a) return ['Attachment: not attached (no API key or endpoint configured); substrate tools are unavailable', who];
+  const where = workspaceLine();
+  const who = `  as:         ${vesselId ?? 'no vessel identity'} (session ${sessionId || 'unknown'})${where.identity}`;
+  if (!a) return ['Attachment: not attached (no API key or endpoint configured); substrate tools are unavailable', who, where.line];
   const st = a.state();
   if (st.auth.status === 'authenticated' && !st.cause) {
-    return [`Attachment: attached to org ${st.auth.orgId ?? '?'} via discovery ${st.anchor.discovery ? redactUrl(st.anchor.discovery) : '?'}`, who];
+    return [`Attachment: attached to org ${st.auth.orgId ?? '?'} via discovery ${st.anchor.discovery ? redactUrl(st.anchor.discovery) : '?'}`, who, where.line];
   }
-  if (!st.cause && st.auth.status === 'pending') return ['Attachment: attaching (first attempt in progress)', who];
-  return [`Attachment: not attached: ${st.message ?? st.cause ?? st.auth.status}`, who];
+  if (!st.cause && st.auth.status === 'pending') return ['Attachment: attaching (first attempt in progress)', who, where.line];
+  return [`Attachment: not attached: ${st.message ?? st.cause ?? st.auth.status}`, who, where.line];
+}
+
+/** The workspace the ledger is keyed by and where it came from (SPEC §workspace), and the identity's own. */
+function workspaceLine(): { line: string; identity: string } {
+  const workspace = activeWorkspacePath();
+  const source = getLocalIndex().workspacePath() ? 'init_workspace' : workspaceSource();
+  const others = clientRootPaths().filter((r) => r !== workspace);
+  const fromIdentity = identityWorkspacePath();
+  return {
+    line: `  workspace:  ${workspace} (from ${source})${others.length ? `; other roots: ${others.join(', ')}` : ''}`,
+    identity: fromIdentity && fromIdentity !== workspace ? `; identity derived from ${fromIdentity}, kept for this session` : '',
+  };
 }
 
 export async function handle(

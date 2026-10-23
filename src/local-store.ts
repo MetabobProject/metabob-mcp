@@ -17,6 +17,7 @@
 // The runtime's SQLite is loaded in init(), not at import, so the CLI loads on a
 // runtime without one and names what is missing (src/sqlite.ts).
 import { openSqlite, type Sqlite } from './sqlite.js';
+import { configuredWorkspace } from './workspace-root.js';
 import { homedir } from 'os';
 import { mkdirSync, renameSync } from 'fs';
 import { dirname, join, resolve } from 'path';
@@ -302,7 +303,7 @@ export class LocalStore {
 
   /** The workspace this store partitions on. */
   workspaceScope(): WorkspaceScope {
-    if (!this.scope) this.scope = deriveScope(process.env['WORKSPACE_PATH'] ?? process.cwd());
+    if (!this.scope) this.scope = deriveScope(configuredWorkspace());
     return this.scope;
   }
 

@@ -25,6 +25,7 @@
  * predict_cochanges answers, which is worse than a slower cold start.
  */
 import { resolve } from 'node:path';
+import { configuredWorkspace } from './workspace-root.js';
 import type { CoChangePredictor } from './cpg-inference.js';
 import type { CoChangePrediction } from './cpg-inference.js';
 import type { CodePropertyGraph } from './cpg-inference.js';
@@ -304,6 +305,7 @@ export function getLocalIndex(): LocalIndex {
  * bound to the indexed workspace, or a fallback root would silently match
  * components across repos.
  */
+// @anchor activeWorkspacePath
 export function activeWorkspacePath(): string {
-  return getLocalIndex().workspacePath() ?? process.env['WORKSPACE_PATH'] ?? process.cwd();
+  return getLocalIndex().workspacePath() ?? configuredWorkspace();
 }

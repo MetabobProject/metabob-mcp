@@ -56,6 +56,9 @@ import { describeArgsForLog, guardToolInput } from './outgoing-guard.js';
 import { logCall, withResult } from './call-log.js';
 import { sessionId, setWorkspaceOperator } from './operator-id.js';
 import { keepAttachedMarker } from './attached-marker.js';
+import { clientRootPaths, configuredWorkspace, fileRoots, noClientRoots, rootsSettled, setClientRoots, setIdentityWorkspace } from './workspace-root.js';
+import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { getLocalIndex } from './local-index.js';
 
 // ── Configuration ── variables and defaults: CLAUDE §environment-variables ──
 // Nothing defaults to a public host: an unset endpoint stays unset, and
@@ -195,6 +198,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   // Field names and sizes only: argument values may carry what the outgoing guard refuses.
   log('info', `Tool call: ${name}`, { args: describeArgsForLog(args) });
+
+  // Every tool works in the workspace: wait for it to be decided (at most the roots wait, once per session). A
+  // client that declared no roots capability, or never initialized, has none to wait for.
+  if (!server.getClientCapabilities()?.roots) noClientRoots();
+  await workspaceBound;
 
   const startTime = Date.now();
   let success = false;
@@ -376,6 +384,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  * Start server
  */
 let attachment: Attachment | null = null;
+/** Settles once the workspace is decided and the identity derived from it (SPEC §workspace). */
+let workspaceBound: Promise<void> = Promise.resolve();
+
 
 async function main() {
   log('info', 'Starting metabob-mcp', {
@@ -436,7 +447,18 @@ async function main() {
   });
   setAttachment(attachment);
   // While attached, a marker tells the Claude Code plugin's edit check there is a shared ledger behind this workspace.
-  const stopAttachedMarker = keepAttachedMarker(attachment, process.env.WORKSPACE_PATH ?? process.cwd());
+  // It is written once the workspace is decided (bindWorkspace, below), for that workspace and, when it differs, for
+  // the launch directory too, since the edit check finds the marker by its own working directory.
+  let markerStops: Array<() => void> = [];
+  let markerFor = '';
+  const keepMarkers = (workspace: string) => {
+    if (!attachment || workspace === markerFor) return;
+    for (const stop of markerStops) stop();
+    markerFor = workspace;
+    const dirs = [...new Set([workspace, process.cwd()])];
+    markerStops = dirs.map((dir) => keepAttachedMarker(attachment!, dir));
+  };
+  const stopAttachedMarker = () => { for (const stop of markerStops) stop(); };
 
   // The vessel HTTP server (health + capabilities + impulse resolver) serves
   // local callers only: it binds 127.0.0.1, and nothing advertises it. The
@@ -455,13 +477,18 @@ async function main() {
   }
 
   // The stable coordination identity: keys the local agent-task queue and the
-  // authorship of recorded findings. It is never registered anywhere.
-  try {
+  // authorship of recorded findings. It is never registered anywhere. It is
+  // derived once, from the workspace as first decided (SPEC §workspace), and
+  // kept for the life of the process: a later change of the client's roots moves
+  // the repository and the store's scope, never the author, so a session's own
+  // claims stay its own.
+  const bindIdentity = async () => { try {
     const vesselId = await resolveVesselId({
       explicit: process.env.VESSEL_ID,
       apiKey: METABOB_API_KEY,
-      workspaceRoot: process.env.WORKSPACE_PATH ?? process.cwd(),
+      workspaceRoot: configuredWorkspace(),
     });
+    setIdentityWorkspace(configuredWorkspace());
     setResolverIdentity({ vesselId });
     // The operator a write declares: this workspace's stable id unless MB_OPERATOR_ID names one.
     setWorkspaceOperator(vesselId);
@@ -482,7 +509,39 @@ async function main() {
     }
   } catch (error) {
     log('warn', 'Could not derive the coordination identity', { error });
-  }
+  } };
+
+  // The workspace is decided by the client's first roots answer, or, with no answer within ROOTS_WAIT_MS (a client
+  // without roots, or headless use with no MCP client), by WORKSPACE_PATH or the launch directory. Then the store is
+  // scoped to it, the marker written for it, and the identity derived from it, once.
+  workspaceBound = rootsSettled().then(async () => {
+    if (!getLocalIndex().workspacePath()) localStore?.setWorkspaceScope(configuredWorkspace());
+    keepMarkers(configuredWorkspace());
+    await bindIdentity();
+    log('info', 'Workspace', { workspace: configuredWorkspace(), roots: clientRootPaths() });
+  });
+
+  // The client's roots: asked for once it has initialized, and again when it says they changed.
+  const askRoots = async () => {
+    if (!server.getClientCapabilities()?.roots) return noClientRoots();
+    try {
+      const { roots } = await server.listRoots(undefined, { timeout: 10_000 });
+      const before = configuredWorkspace();
+      setClientRoots(fileRoots(roots));
+      const after = configuredWorkspace();
+      if (after !== before && !getLocalIndex().workspacePath()) {
+        // A new first root moves the repository, the store's scope and the marker; the author stays (bindIdentity).
+        localStore?.setWorkspaceScope(after);
+        keepMarkers(after);
+        log('info', 'Workspace moved with the client\'s roots', { workspace: after });
+      }
+    } catch (error) {
+      log('warn', 'The client did not answer roots/list; using WORKSPACE_PATH or the launch directory', { error: error instanceof Error ? error.message : String(error) });
+      noClientRoots();
+    }
+  };
+  server.oninitialized = () => { void askRoots(); };
+  server.setNotificationHandler(RootsListChangedNotificationSchema, async () => { await askRoots(); });
 
   // Create transport and connect
   const transport = new StdioServerTransport();

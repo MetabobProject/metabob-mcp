@@ -4,6 +4,7 @@ import { readdir, readFile, stat } from 'fs/promises';
 import { join, extname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex, LocalIndexUnavailable } from '../local-index.js';
+import { configuredWorkspace } from '../workspace-root.js';
 import type { LocalStore } from '../local-store.js';
 
 export const InitWorkspaceTool = {
@@ -123,7 +124,7 @@ export async function handle(
   localStore?: LocalStore | null,
 ): Promise<string> {
   const startTime = Date.now();
-  const workspacePath = resolve(input.workspace_path ?? process.env.WORKSPACE_PATH ?? process.cwd());
+  const workspacePath = resolve(input.workspace_path ?? configuredWorkspace());
   const extensions = input.include
     ? new Set(input.include.map(e => (e.startsWith('.') ? e : `.${e}`)))
     : DEFAULT_EXTENSIONS;

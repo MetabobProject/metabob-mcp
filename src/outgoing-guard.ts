@@ -26,6 +26,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { configuredWorkspace } from './workspace-root.js';
 
 /** How a field's text is used by the substrate. */
 export type FieldKind = 'prose' | 'acted';
@@ -227,7 +228,7 @@ function secretsInFile(path: string): string[] {
 }
 
 /** Known secrets: the environment's and the config files'. Read locally; never sent. */
-export function knownSecrets(env: NodeJS.ProcessEnv = process.env, workspace = env.WORKSPACE_PATH || process.cwd()): string[] {
+export function knownSecrets(env: NodeJS.ProcessEnv = process.env, workspace = env === process.env ? configuredWorkspace() : env.WORKSPACE_PATH || process.cwd()): string[] {
   const out = new Set(secretValues(env));
   for (const f of secretFiles(workspace, secretsHome(env))) for (const v of secretsInFile(f)) out.add(v);
   return [...out];

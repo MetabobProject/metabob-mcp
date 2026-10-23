@@ -8,6 +8,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -62,6 +63,8 @@ export interface ServerOptions {
   home?: string;
   /** How long `initialize` may take; a live substrate can be slower than the fake. */
   initTimeoutMs?: number;
+  /** Declare the roots capability and answer `roots/list` with these directories (SPEC §workspace). */
+  roots?: string[];
 }
 
 export interface ToolResult {
@@ -125,9 +128,10 @@ export class McpServer {
   /** Spawn the server and complete the MCP handshake. */
   static async start(opts: ServerOptions): Promise<McpServer> {
     const server = new McpServer(opts);
+    server.roots = opts.roots;
     const init = await server.request('initialize', {
       protocolVersion: '2024-11-05',
-      capabilities: {},
+      capabilities: opts.roots ? { roots: { listChanged: true } } : {},
       clientInfo: { name: 'workflow-tests', version: '1' },
     }, opts.initTimeoutMs);
     if (!init.result?.serverInfo) {
@@ -152,12 +156,35 @@ export class McpServer {
         this.strayStdout.push(line);
         continue;
       }
+      // A request from the server (it has a method): answer it, never take it for a reply to ours.
+      if (typeof msg?.method === 'string') {
+        if (msg.id !== undefined) this.answerServerRequest(msg);
+        continue;
+      }
       const resolveMsg = msg?.id !== undefined ? this.pending.get(msg.id) : undefined;
       if (resolveMsg) {
         this.pending.delete(msg.id);
         resolveMsg(msg);
       }
     }
+  }
+
+  private roots: string[] | undefined;
+  /** How many times the server asked for the roots. */
+  rootsRequests = 0;
+
+  private answerServerRequest(msg: { id: unknown; method: string }): void {
+    const reply = msg.method === 'roots/list' && this.roots
+      ? { jsonrpc: '2.0', id: msg.id, result: { roots: this.roots.map((dir) => ({ uri: pathToFileURL(dir).href, name: dir })) } }
+      : { jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } };
+    if (msg.method === 'roots/list') this.rootsRequests++;
+    this.child.stdin!.write(JSON.stringify(reply) + '\n');
+  }
+
+  /** Change the roots this client reports, and tell the server they changed. */
+  setRoots(dirs: string[]): void {
+    this.roots = dirs;
+    this.notify('notifications/roots/list_changed', {});
   }
 
   request(method: string, params: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<any> {

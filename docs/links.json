@@ -297,7 +297,8 @@
         ],
         "SPEC": [
           "attachment",
-          "outgoing-text-guard"
+          "outgoing-text-guard",
+          "workspace"
         ]
       },
       "src/local-index.ts": {
@@ -495,7 +496,8 @@
       "src/tools/get-analysis-context.ts": {
         "SPEC": [
           "get_analysis_context",
-          "get_problems"
+          "get_problems",
+          "workspace"
         ]
       },
       "src/tools/get-metrics.ts": {
@@ -636,6 +638,11 @@
         "SPEC": [
           "call-log",
           "impulse-shapes"
+        ]
+      },
+      "src/workspace-root.ts": {
+        "SPEC": [
+          "workspace"
         ]
       },
       "tests/claude-sessions/scenarios.ts": {
@@ -822,6 +829,16 @@
           "execution_trace"
         ]
       },
+      "tests/unit/workspace-root.test.ts": {
+        "SPEC": [
+          "workspace"
+        ]
+      },
+      "tests/workflows/harness/mcp-client.ts": {
+        "SPEC": [
+          "workspace"
+        ]
+      },
       "tests/workflows/networks/matrix.test.ts": {
         "CONFORMANCE": [
           "c8-proxy-and-tls-in-the-vessel-role"
@@ -834,6 +851,11 @@
       "tests/workflows/w1-operator-loop.test.ts": {
         "SPEC": [
           "substrate-goal-tools"
+        ]
+      },
+      "tests/workflows/w10-workspace-roots.test.ts": {
+        "SPEC": [
+          "workspace"
         ]
       },
       "tests/workflows/w2-ledger.test.ts": {
@@ -1028,6 +1050,7 @@
         "src/finding-close.ts@trailerIds",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
+        "src/local-index.ts@activeWorkspacePath",
         "src/local-index.ts@index-not-persisted",
         "src/local-index.ts@lazy-native",
         "src/net.ts",
@@ -1148,6 +1171,7 @@
         "src/vessel-server.ts@loopback-bind",
         "src/vessel-server.ts@resolveImpulseContent",
         "src/vessel-server.ts@resolvePointerToTool",
+        "src/workspace-root.ts",
         "tests/workflows/networks/matrix.test.ts"
       ],
       "docs/USER-GUIDE.md": [
@@ -1239,6 +1263,7 @@
       "src/index.ts@main": "7d5d3f63a3bd",
       "src/index.ts@stdout-is-transport": "11f9a2ac527f",
       "src/index.ts@tls-intercepted-report": "a0bd592ac9b4",
+      "src/local-index.ts@activeWorkspacePath": "44df7a157728",
       "src/local-index.ts@index-not-persisted": "8d64a30d9de1",
       "src/local-index.ts@lazy-native": "8d64a30d9de1",
       "src/net.ts@classify-error": "8d64a30d9de1",

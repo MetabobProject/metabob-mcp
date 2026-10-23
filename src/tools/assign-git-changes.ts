@@ -1,7 +1,7 @@
 // Contract (input schema, behaviour): SPEC §assign_git_changes
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { getLocalIndex } from '../local-index.js';
+import { activeWorkspacePath, getLocalIndex } from '../local-index.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 import { gapSummaryLines } from './_gap-activity.js';
@@ -191,7 +191,7 @@ export async function handle(
 
   text += `Completed in ${duration}ms`;
   if (sidecarSeedText) text += sidecarSeedText;
-  const inFlight = await gapSummaryLines(input.changed_files, localIndex.workspacePath() ?? process.cwd());
+  const inFlight = await gapSummaryLines(input.changed_files, localIndex.workspacePath() ?? activeWorkspacePath());
   if (inFlight.length) text += `\n${inFlight.join('\n')}`;
   if (cacheTag) text += `\n\n${cacheTag}`;
   return text;
