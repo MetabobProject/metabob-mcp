@@ -18,7 +18,7 @@
 // runtime without one and names what is missing (src/sqlite.ts).
 import { openSqlite, type Sqlite } from './sqlite.js';
 import { homedir } from 'os';
-import { mkdirSync, unlinkSync } from 'fs';
+import { mkdirSync, renameSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
@@ -158,30 +158,41 @@ export class LocalStore {
     this.dbPath = dbPath ?? join(metabobDir, 'sidecar.db');
   }
 
+  /** Open the database and prove SQLite can read it (the journal mode and the schema table). */
+  private openReadable(): Sqlite {
+    const db = openSqlite(this.dbPath);
+    try {
+      db.exec('PRAGMA journal_mode=WAL;');
+      db.query('SELECT count(*) AS n FROM sqlite_master').get();
+      return db;
+    } catch (err) {
+      try { db.close(); } catch { /* already unusable */ }
+      throw err;
+    }
+  }
+
   /** Open (or create) the database and apply the schema. Idempotent. */
   init(): void {
     // Ensure ~/.metabob/ exists
     mkdirSync(dirname(this.dbPath), { recursive: true });
 
-    // Abrupt process kills leave a corrupted WAL state that Bun's SQLite cannot
-    // open: sidecar.db-wal is zero bytes AND sidecar.db-shm is non-empty. Both
-    // halves are load-bearing. A zero-byte -wal on its own is an ordinary
-    // post-checkpoint state, so treating it alone as corruption deletes healthy
-    // databases — every recorded finding and queued task the store exists to
-    // keep. On a real match, all three files go so the store reopens fresh.
+    // The store is judged by whether SQLite can read it, never by its side files' sizes: a zero-byte -wal beside a
+    // non-empty -shm is how macOS's SQLite leaves a healthy store after a clean close, and SQLite rebuilds a stale
+    // -shm itself. Only a store SQLite cannot read (not a database, corrupt) is set aside, renamed rather than
+    // deleted so nothing is lost, and the store starts fresh. A lock is not unreadable, and is raised as it is.
+    // @anchor store-open
     try {
-      const { statSync } = require('fs') as typeof import('fs');
-      const walSize = statSync(this.dbPath + '-wal').size;
-      const shmSize = statSync(this.dbPath + '-shm').size;
-      if (walSize === 0 && shmSize > 0) {
-        for (const p of [this.dbPath, this.dbPath + '-wal', this.dbPath + '-shm']) {
-          try { unlinkSync(p); } catch { /* already gone */ }
-        }
+      this.db = this.openReadable();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/locked|busy/i.test(message)) throw err;
+      const aside = `${this.dbPath}.unreadable-${Date.now()}`;
+      for (const suffix of ['', '-wal', '-shm']) {
+        try { renameSync(this.dbPath + suffix, aside + suffix); } catch { /* absent */ }
       }
-    } catch { /* -wal or -shm absent — clean state */ }
-
-    this.db = openSqlite(this.dbPath);
-    this.db.exec('PRAGMA journal_mode=WAL;');
+      console.error(`[warn] the local store at ${this.dbPath} could not be read (${message}); it was moved to ${aside} and a new store was started`);
+      this.db = this.openReadable();
+    }
     this.db.exec('PRAGMA foreign_keys=ON;');
 
     this.db.exec(`

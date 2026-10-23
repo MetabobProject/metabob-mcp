@@ -1,38 +1,16 @@
 /**
- * Regression test for the LocalStore WAL-recovery guard (src/local-store.ts:130-139).
+ * The local store survives every state SQLite can read (src/local-store.ts@store-open): it is judged by whether
+ * SQLite can read it, never by the sizes of its -wal and -shm side files. A zero-byte -wal beside a non-empty -shm
+ * is how macOS's SQLite leaves a healthy store after a clean close, so a size rule would delete the store, with
+ * every recorded finding and queued task, on each launch there. Only a store SQLite cannot read is set aside,
+ * renamed rather than deleted, and the store starts fresh.
  *
- * THE BUG: init() deleted sidecar.db (+ -wal + -shm) whenever the -wal file was
- * zero bytes. A 0-byte -wal is an ordinary post-checkpoint state, so a perfectly
- * healthy store was destroyed on process launch — taking every agent-recorded
- * `agf_*` finding, the schedule queue, and the agent_tasks / agent_resolutions
- * rows whose entire reason to exist is surviving across sessions.
- *
- * The guard now requires BOTH halves of the documented corruption pattern:
- * `walSize === 0 && shmSize > 0`.
- *
- * THE DISCRIMINATORS are the two "benign 0-byte -wal ... survives" cases below
- * (-shm absent, and -shm present but empty). Under the old guard the -wal stat
- * alone decided, so both states unlinked all three files and the reopened store
- * came back empty. Do not weaken them: they are the only assertions here that
- * distinguish fixed code from broken code.
- *
- * Verified empirically, not assumed: the pre-fix LocalStore was extracted from
- * git HEAD into a scratch dir and driven through these exact fixture states —
- * both survive-cases returned null for the planted seed (i.e. this file goes red
- * on the old code), while the corrupt case cleared on both old and new.
- *
- * The remaining two cases (-wal absent, hot -wal) pass on the old code too. They
- * are coverage rounding, not discriminators, and are labelled as such.
- *
- * Assertions are on DATA (getSeedById), never on existsSync of -wal/-shm —
- * init() runs `PRAGMA journal_mode=WAL` and immediately recreates both files,
- * so file-presence assertions would be flaky by construction.
- *
- * Every sqlite handle is closed before any file is written or unlinked
- * (Windows/EBUSY — see tests/helpers/temp-store.ts).
+ * Assertions are on data (getSeedById), never on the side files' presence: opening in WAL mode recreates them.
+ * Every handle is closed before a file is written or moved (Windows/EBUSY, tests/helpers/temp-store.ts).
  */
 import { describe, expect, test, afterEach } from 'bun:test';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 import { LocalStore } from '../../src/local-store';
 import { makeTempStore, trackStore, cleanupTempStores } from '../helpers/temp-store';
@@ -68,7 +46,7 @@ function removeIfPresent(path: string): void {
 }
 
 describe('LocalStore.init() WAL recovery guard', () => {
-  test('DISCRIMINATOR — benign 0-byte -wal with -shm absent: the store survives with its data', () => {
+  test('benign 0-byte -wal with -shm absent: the store survives with its data', () => {
     const { store, dbPath } = makeTempStore('mcp-wal-guard-');
     plantSeed(store, SURVIVOR_ID);
     expect(store.getSeedById(SURVIVOR_ID)).not.toBeNull();
@@ -86,7 +64,7 @@ describe('LocalStore.init() WAL recovery guard', () => {
     expect(seed?.brief).toBe('planted by the WAL-guard regression test');
   });
 
-  test('DISCRIMINATOR — benign 0-byte -wal AND 0-byte -shm: the store survives with its data', () => {
+  test('benign 0-byte -wal AND 0-byte -shm: the store survives with its data', () => {
     const { store, dbPath } = makeTempStore('mcp-wal-guard-');
     plantSeed(store, SURVIVOR_ID);
     store.close();
@@ -103,26 +81,37 @@ describe('LocalStore.init() WAL recovery guard', () => {
     expect(reopened.getSeedById(SURVIVOR_ID)).not.toBeNull();
   });
 
-  test('genuinely corrupt 0-byte -wal + non-empty -shm: the store is cleared and remains usable', () => {
+  test('0-byte -wal beside a non-empty -shm (macOS after a clean close): the store survives with its data', () => {
     const { store, dbPath } = makeTempStore('mcp-wal-guard-');
     plantSeed(store, SURVIVOR_ID);
     store.close();
 
-    // The documented unopenable pattern left by an abrupt process kill.
     writeFileSync(dbPath + '-wal', '');
     writeFileSync(dbPath + '-shm', Buffer.alloc(32768));
 
     const reopened = trackStore(new LocalStore(dbPath));
     reopened.init();
-
-    // Recovery still recovers: the old rows are gone...
-    expect(reopened.getSeedById(SURVIVOR_ID)).toBeNull();
-    // ...and the fresh database is fully usable.
-    plantSeed(reopened, 'agf_after_recovery');
-    expect(reopened.getSeedById('agf_after_recovery')).not.toBeNull();
+    expect(reopened.getSeedById(SURVIVOR_ID)).not.toBeNull();
+    reopened.close();
   });
 
-  // Coverage rounding: passes on the old code too (statSync throws → catch).
+  test('a store SQLite cannot read is moved aside, not deleted, and a new store starts', () => {
+    const { store, dbPath } = makeTempStore('mcp-wal-guard-');
+    store.close();
+    writeFileSync(dbPath, 'this is not a sqlite database, it is a text file of the wrong kind\n'.repeat(200));
+    removeIfPresent(dbPath + '-wal');
+    removeIfPresent(dbPath + '-shm');
+
+    const reopened = trackStore(new LocalStore(dbPath));
+    reopened.init();
+    plantSeed(reopened, 'agf_after_recovery');
+    expect(reopened.getSeedById('agf_after_recovery')).not.toBeNull();
+    reopened.close();
+    const aside = readdirSync(dirname(dbPath)).filter(f => f.startsWith(`${basename(dbPath)}.unreadable-`));
+    expect(aside.length).toBe(1);
+    expect(readFileSync(join(dirname(dbPath), aside[0]!), 'utf8')).toContain('not a sqlite database');
+  });
+
   test('no -wal file at all: the store survives with its data', () => {
     const { store, dbPath } = makeTempStore('mcp-wal-guard-');
     plantSeed(store, SURVIVOR_ID);
