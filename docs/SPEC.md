@@ -347,7 +347,7 @@ order (`src/local-index.ts@activeWorkspacePath`):
 
 A client may start the server outside the project (an Agent Plugins host starts it in the plugin's own folder), so
 the server asks a client that declares the roots capability for its roots once it has initialized, and again on
-`notifications/roots/list_changed`; roots of other schemes are not workspaces. A tool call waits for the first
+`notifications/roots/list_changed`; roots of other schemes are not workspaces. A root is taken by its real path, as the launch directory always is, since the workspace id and the identity are hashed from the path: a root sent through a symlink is the same checkout as a launch in it. `WORKSPACE_PATH` and an `init_workspace` path are used as given. A tool call waits for the first
 answer, at most 2 s, then goes on with steps 2 and 4; a client that declares no roots capability, or headless use
 with no MCP client, is not waited for. Once the workspace is decided the store is scoped to it, the attached marker is
 written for it and, when it differs, for the launch directory too (the edit check finds the marker by its own working
