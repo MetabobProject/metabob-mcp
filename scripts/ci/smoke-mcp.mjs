@@ -2,7 +2,9 @@
 // Drives one MCP server over stdio for the package smoke (.github/workflows/package-smoke.yml, SPEC §runtime), as a client would:
 // initialize, tools/list, then the checks named below. Exit 0 when every check holds; each failure is one line.
 //
-//   node scripts/ci/smoke-mcp.mjs [--cwd <dir>] [--env K=V ...] [--expect <check> ...] -- <command> [args...]
+//   node scripts/ci/smoke-mcp.mjs [--cwd <dir>] [--env K=V ...] [--expect <check> ...] [--init-under <ms>] -- <command> [args...]
+//
+// --init-under: initialize must answer within that many milliseconds of the launch (a client's connect timeout).
 //
 // Checks (--expect):
 //   local-tools    init_workspace on a small temporary project, then search_codebase finds its symbol (the native
@@ -25,10 +27,12 @@ const [command, ...args] = argv.slice(sep + 1);
 let cwd = process.cwd();
 const env = { ...process.env };
 const expects = [];
+let initUnderMs = Infinity;
 for (let i = 0; i < opts.length; i++) {
   if (opts[i] === '--cwd') cwd = opts[++i];
   else if (opts[i] === '--env') { const [k, ...v] = opts[++i].split('='); env[k] = v.join('='); }
   else if (opts[i] === '--expect') expects.push(opts[++i]);
+  else if (opts[i] === '--init-under') initUnderMs = Number(opts[++i]);
 }
 const version = JSON.parse(readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'package.json'), 'utf8')).version;
 
@@ -69,7 +73,9 @@ const call = async (name, a, timeoutMs) => text(await rpc('tools/call', { name, 
 
 const started = Date.now();
 const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'package-smoke', version: '1' } });
-check('initialize', init.result?.serverInfo?.version === version, `${init.result?.serverInfo?.name ?? init.error?.message} ${init.result?.serverInfo?.version ?? ''} after ${((Date.now() - started) / 1000).toFixed(1)} s`);
+const initMs = Date.now() - started;
+check('initialize', init.result?.serverInfo?.version === version, `${init.result?.serverInfo?.name ?? init.error?.message} ${init.result?.serverInfo?.version ?? ''} after ${(initMs / 1000).toFixed(1)} s`);
+if (Number.isFinite(initUnderMs)) check(`initialize within ${initUnderMs / 1000} s`, initMs < initUnderMs, `${(initMs / 1000).toFixed(1)} s`);
 if (init.result) {
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   const tools = (await rpc('tools/list', {})).result?.tools?.map((t) => t.name) ?? [];
