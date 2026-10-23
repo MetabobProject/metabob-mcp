@@ -158,6 +158,15 @@ export class LocalStore {
     this.dbPath = dbPath ?? join(metabobDir, 'sidecar.db');
   }
 
+  /** SQLite's own verdict that a file is no database (SQLITE_NOTADB, 26) or corrupt (SQLITE_CORRUPT, 11). */
+  private static isUnreadable(err: unknown): boolean {
+    const e = err as { code?: unknown; errno?: unknown; errcode?: unknown; message?: unknown };
+    const primary = [e.errno, e.errcode].find((n): n is number => typeof n === 'number');
+    if (primary !== undefined) return [11, 26].includes(primary & 0xff);
+    if (typeof e.code === 'string' && /^SQLITE_(NOTADB|CORRUPT)/.test(e.code)) return true;
+    return /file is not a database|database disk image is malformed/i.test(String(e.message ?? ''));
+  }
+
   /** Open the database and prove SQLite can read it (the journal mode and the schema table). */
   private openReadable(): Sqlite {
     const db = openSqlite(this.dbPath);
@@ -178,21 +187,33 @@ export class LocalStore {
 
     // The store is judged by whether SQLite can read it, never by its side files' sizes: a zero-byte -wal beside a
     // non-empty -shm is how macOS's SQLite leaves a healthy store after a clean close, and SQLite rebuilds a stale
-    // -shm itself. Only a store SQLite cannot read (not a database, corrupt) is set aside, renamed rather than
-    // deleted so nothing is lost, and the store starts fresh. A lock is not unreadable, and is raised as it is.
+    // -shm itself. Only a store SQLite reports as no database or corrupt is set aside, renamed rather than deleted
+    // so nothing is lost, and the store starts fresh. Every other error (a lock, I/O, permissions, a full disk, a
+    // read-only directory) is raised as it is, with the files left in place: moving a healthy store away because
+    // the disk is full would lose it the same way. Before moving it, the open is tried once more, since a server
+    // launched beside this one may already have replaced the file with a fresh store.
     // @anchor store-open
+    let db: Sqlite | null = null;
     try {
-      this.db = this.openReadable();
+      db = this.openReadable();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (/locked|busy/i.test(message)) throw err;
+      if (!LocalStore.isUnreadable(err)) throw err;
+      try {
+        db = this.openReadable();
+      } catch (again) {
+        if (!LocalStore.isUnreadable(again)) throw again;
+      }
+    }
+    if (!db) {
+      const message = 'the file is not a database, or it is corrupt';
       const aside = `${this.dbPath}.unreadable-${Date.now()}`;
       for (const suffix of ['', '-wal', '-shm']) {
         try { renameSync(this.dbPath + suffix, aside + suffix); } catch { /* absent */ }
       }
       console.error(`[warn] the local store at ${this.dbPath} could not be read (${message}); it was moved to ${aside} and a new store was started`);
-      this.db = this.openReadable();
+      db = this.openReadable();
     }
+    this.db = db;
     this.db.exec('PRAGMA foreign_keys=ON;');
 
     this.db.exec(`

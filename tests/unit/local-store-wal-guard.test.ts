@@ -9,7 +9,8 @@
  * Every handle is closed before a file is written or moved (Windows/EBUSY, tests/helpers/temp-store.ts).
  */
 import { describe, expect, test, afterEach } from 'bun:test';
-import { readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import { LocalStore } from '../../src/local-store';
@@ -110,6 +111,63 @@ describe('LocalStore.init() WAL recovery guard', () => {
     const aside = readdirSync(dirname(dbPath)).filter(f => f.startsWith(`${basename(dbPath)}.unreadable-`));
     expect(aside.length).toBe(1);
     expect(readFileSync(join(dirname(dbPath), aside[0]!), 'utf8')).toContain('not a sqlite database');
+  });
+
+  test('an error that is not corruption is raised with the store left where it is', () => {
+    // A path SQLite cannot open (a directory): "unable to open database file", never "not a database".
+    const dir = mkdtempSync(join(tmpdir(), 'mcp-store-cantopen-'));
+    const dbPath = join(dir, 'sidecar.db');
+    mkdirSync(dbPath);
+    expect(() => new LocalStore(dbPath).init()).toThrow(/unable to open database file/);
+    expect(readdirSync(dir)).toEqual(['sidecar.db']);
+  });
+
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('a healthy store in a directory that went read-only is raised, never moved aside', () => {
+    const { store, dbPath } = makeTempStore('mcp-wal-guard-');
+    plantSeed(store, SURVIVOR_ID);
+    store.close();
+    removeIfPresent(dbPath + '-wal');
+    removeIfPresent(dbPath + '-shm');
+    chmodSync(dirname(dbPath), 0o500);
+    try {
+      expect(() => new LocalStore(dbPath).init()).toThrow();
+      expect(readdirSync(dirname(dbPath)).some(f => f.includes('.unreadable-'))).toBe(false);
+    } finally {
+      chmodSync(dirname(dbPath), 0o700);
+    }
+    const reopened = trackStore(new LocalStore(dbPath));
+    reopened.init();
+    expect(reopened.getSeedById(SURVIVOR_ID)).not.toBeNull();
+    reopened.close();
+  });
+
+  test('a store another server replaced before the retry is used, not moved aside', () => {
+    const { store, dbPath } = makeTempStore('mcp-wal-guard-');
+    store.close();
+    writeFileSync(dbPath, 'not a database\n'.repeat(400));
+    removeIfPresent(dbPath + '-wal');
+    removeIfPresent(dbPath + '-shm');
+    const racing = trackStore(new LocalStore(dbPath)) as LocalStore & { openReadable(): unknown };
+    const real = racing.openReadable.bind(racing);
+    let calls = 0;
+    racing.openReadable = () => {
+      calls++;
+      if (calls > 1) return real();
+      try {
+        return real();
+      } finally {
+        // Between this server's failed open and its retry, the server beside it set the file aside and started a store.
+        unlinkSync(dbPath);
+        const other = new LocalStore(dbPath);
+        other.init();
+        plantSeed(other, 'agf_from_the_other_server');
+        other.close();
+      }
+    };
+    racing.init();
+    expect(racing.getSeedById('agf_from_the_other_server')).not.toBeNull();
+    expect(readdirSync(dirname(dbPath)).some(f => f.includes('.unreadable-'))).toBe(false);
+    racing.close();
   });
 
   test('no -wal file at all: the store survives with its data', () => {
