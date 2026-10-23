@@ -12,6 +12,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   pack:
     runs-on: ubuntu-latest
@@ -97,7 +100,7 @@ jobs:
           # still fetch the package, and the server, started in the plugin's folder, must wait for init_workspace.
           node -e "const a=require('./mcp.json').mcpServers.metabob.args, b=require('./plugin/.mcp.json').mcpServers.metabob.args; if (JSON.stringify(a)!==JSON.stringify(b)) { console.error('the two bundles launch differently'); process.exit(1) }"
           node scripts/ci/smoke-registry.mjs pack/*.tgz 4874 &
-          sleep 2
+          for i in $(seq 1 30); do node -e "fetch('http://127.0.0.1:4874/@metabob%2fmcp').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" && break; sleep 1; done
           printf '@metabob:registry=http://127.0.0.1:4874/\n' > "$RUNNER_TEMP/npmrc"
           args=$(node -p "require('./mcp.json').mcpServers.metabob.args.join(' ')")
           echo "npx $args"

@@ -105,5 +105,5 @@ check('stdout carries only JSON-RPC', strays.length === 0, strays[0]?.slice(0, 1
 if (failures.length) console.log(`--- server stderr (tail) ---\n${stderr.slice(-3000)}`);
 child.stdin.end();
 setTimeout(() => { if (exited === null) child.kill(); process.exit(failures.length ? 1 : 0); }, 3000).unref();
-await new Promise((r) => child.on('exit', r));
+if (exited === null) await new Promise((r) => child.on('exit', r));
 process.exit(failures.length ? 1 : 0);
