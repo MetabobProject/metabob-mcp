@@ -149,8 +149,8 @@
         "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "b37ec74",
-        "why": "trace reads skip the timeout retry; the single ingress, the 60 s cap and the named failures are unchanged"
+        "at": "15dadb9",
+        "why": "index.ts decides the workspace from the client's roots; no participation requirement (registration, ingress, key, loopback) changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
