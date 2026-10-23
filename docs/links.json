@@ -162,8 +162,8 @@
         "why": "hook-post compares by real path; the documented commands and their outputs are unchanged"
       },
       "docs/SPEC.md": {
-        "at": "5f873db",
-        "why": "comment-only rewording (rules stated without rulings, tallies or ids); no behaviour change"
+        "at": "3ef8795",
+        "why": "repo-identity.ts routes the fix-location reads through one runner a test may replace; the reads, their timeout and how a timeout is reported are unchanged"
       },
       "lab/README.md": {
         "at": "e978c22",
