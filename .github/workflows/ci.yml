@@ -39,6 +39,14 @@ jobs:
         # tests/unit/doclinks.test.ts runs the same check, plus its own guards, below.
         run: bun scripts/doclinks.mjs check
 
+      - name: Plugin manifests
+        # The generated bundles as Claude Code reads them (README §agent-plugins); tests/unit/plugin-bundles.test.ts
+        # holds them to their source.
+        if: runner.os == 'Linux'
+        run: |
+          npx -y @anthropic-ai/claude-code@2.1.280 plugin validate plugin
+          npx -y @anthropic-ai/claude-code@2.1.280 plugin validate .
+
       - name: Unit tests
         run: bun test --timeout 30000 tests/unit/
 

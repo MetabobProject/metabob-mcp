@@ -71,7 +71,7 @@ A commit is rejected when it adds (or renames into) a file that violates any of 
 4. **No new test files** outside `tests/` or co-located `src/<module>/__tests__/`.
 5. **No new YAML / JSON / SQL / SurrealQL / TOML / HTML / TXT / JSONL at root**. Config goes alongside what it configures.
 6. **No new image / video / archive files** anywhere outside `docs/assets/`.
-7. **New files must sit under an allowed top-level directory**: `src/`, `test/`, `tests/`, `scripts/`, `docs/`, `lab/` (the two-node substrate lab), `packages/`, `.github/`, `.continue/` (the Continue rule that points at `AGENTS.md`), `.minibob/`, `.claude/` (the shared Claude Code `settings.json`; machine-local files under it are gitignored). This is a path check, not a directory-creation check — adding a file under an existing-but-unlisted directory (`vendor/`, `skills/`, `include/`) is rejected too. Extend `ALLOWED_TOPLEVEL_DIRS` rather than bypassing.
+7. **New files must sit under an allowed top-level directory**: `src/`, `plugin/` (the generated Claude Code plugin), `test/`, `tests/`, `scripts/`, `docs/`, `lab/` (the two-node substrate lab), `packages/`, `.github/`, `.continue/` (the Continue rule that points at `AGENTS.md`), `.minibob/`, `.claude/` (the shared Claude Code `settings.json`; machine-local files under it are gitignored). This is a path check, not a directory-creation check — adding a file under an existing-but-unlisted directory (`vendor/`, `skills/`, `include/`) is rejected too. Extend `ALLOWED_TOPLEVEL_DIRS` rather than bypassing.
 
 ## Gitleaks
 

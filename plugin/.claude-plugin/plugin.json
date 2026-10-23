@@ -1,0 +1,42 @@
+{
+  "name": "metabob",
+  "version": "0.3.4",
+  "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
+  "author": {
+    "name": "Metabob",
+    "url": "https://github.com/MetabobProject"
+  },
+  "homepage": "https://github.com/MetabobProject/metabob-mcp",
+  "repository": "https://github.com/MetabobProject/metabob-mcp",
+  "license": "PROPRIETARY",
+  "keywords": [
+    "code-intelligence",
+    "cpg",
+    "impact-analysis",
+    "co-change",
+    "mcp",
+    "code-review"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Metabob API key",
+      "description": "Your substrate API key. Leave blank to use the one the substrate installer wrote (~/.substrate/config.json).",
+      "sensitive": true,
+      "default": ""
+    },
+    "discovery_endpoint": {
+      "type": "string",
+      "title": "Discovery endpoint",
+      "description": "The substrate's discovery address, for a remote substrate (e.g. https://discovery.example.com). Leave blank to use the installer's config.",
+      "default": ""
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "Substrate endpoint",
+      "description": "A local substrate's endpoint (e.g. http://127.0.0.1:18080), from which discovery is derived. Leave blank otherwise.",
+      "default": ""
+    }
+  }
+}

@@ -25,10 +25,8 @@ RUN bun install --frozen-lockfile && bun run build && node dist/cli.js --version
 
 # The plugin as users install it, without its .mcp.json (which runs the published package): its skill and its edit
 # check. The cell's own MCP config starts the server built above under the name the edit check matches, `metabob`.
-RUN mkdir -p /opt/metabob-plugin/.claude-plugin /opt/metabob-plugin/scripts /opt/metabob-plugin/skills \
- && cp .claude-plugin/plugin.json /opt/metabob-plugin/.claude-plugin/ \
- && cp -r scripts/claude-plugin /opt/metabob-plugin/scripts/ \
- && cp -r skills/metabob /opt/metabob-plugin/skills/
+RUN mkdir -p /opt/metabob-plugin \
+ && cp -r plugin/.claude-plugin plugin/hooks plugin/scripts plugin/skills /opt/metabob-plugin/
 
 COPY entrypoint.sh /usr/local/bin/cell-entrypoint
 RUN chmod 755 /usr/local/bin/cell-entrypoint \

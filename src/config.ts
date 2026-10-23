@@ -205,6 +205,25 @@ export function loadMetabobEnvConfig(env: NodeJS.ProcessEnv = process.env): Meta
   };
 }
 
+// @anchor unsubstituted-placeholders
+/**
+ * The variables a plugin host fills from its user's settings (the Claude Code plugin's `${user_config.*}`). A host that
+ * leaves one unfilled passes the placeholder text itself; sent as a key it would be refused, and as an endpoint it
+ * would point nowhere. Such a value is removed from `env`, so the installer's config file is used, as for an empty
+ * one. Returns the names removed. SPEC §configuration
+ */
+export const PLUGIN_FILLED_VARS = ['METABOB_API_KEY', 'METABOB_ENDPOINT', 'DISCOVERY_ENDPOINT', 'SUBSTRATE_API_KEY', 'SUBSTRATE_ENDPOINT'] as const;
+export function dropUnsubstitutedPlaceholders(env: NodeJS.ProcessEnv): string[] {
+  const dropped: string[] = [];
+  for (const name of PLUGIN_FILLED_VARS) {
+    if (/^\$\{[^}]*\}$/.test(env[name]?.trim() ?? '')) {
+      delete env[name];
+      dropped.push(name);
+    }
+  }
+  return dropped;
+}
+
 export function loadMetabobCLIConfig(configPath = resolveConfigPath()): MetabobCLIConfig | null {
   if (!existsSync(configPath)) {
     return null;

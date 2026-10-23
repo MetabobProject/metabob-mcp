@@ -77,6 +77,7 @@ ROOT_ALLOWLIST=(
 
 ALLOWED_TOPLEVEL_DIRS=(
   src
+  plugin
   lab
   test
   tests

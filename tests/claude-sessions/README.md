@@ -41,7 +41,7 @@ $1.20 and five minutes; S6 is about $0.40 and two minutes per proxy mode. Each s
 
 ## How a session is set up
 
-`harness.ts` copies the plugin (`.claude-plugin/`, `skills/`) into a temporary directory and writes its
+`harness.ts` copies the plugin (`plugin/`) into a temporary directory and writes its
 own `.mcp.json` there, starting this build (`node dist/cli.js`); the repository's `.mcp.json`, which
 starts the published package, is never used. The plugin loads with `--plugin-dir`, which takes the
 place of an installed `metabob` plugin for that session (the init event names its source

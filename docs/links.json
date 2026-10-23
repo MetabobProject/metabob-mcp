@@ -124,7 +124,9 @@
       ],
       "README.md": [
         "scripts/claude-plugin/edit-check.mjs",
-        "scripts/claude-plugin/hooks.json"
+        "plugin/**",
+        "scripts/build-plugins.mjs",
+        "scripts/plugins/source.json"
       ]
     },
     "retired": {},
@@ -171,6 +173,16 @@
     "codeCitesDocs": {
       "lab/lab.sh": {
         "README": []
+      },
+      "plugin/scripts/edit-check.mjs": {
+        "README": [
+          "claude-code-plugin"
+        ]
+      },
+      "scripts/build-plugins.mjs": {
+        "README": [
+          "agent-plugins"
+        ]
       },
       "scripts/claude-plugin/edit-check.mjs": {
         "README": [
@@ -243,6 +255,7 @@
         ],
         "SPEC": [
           "attach-check",
+          "configuration",
           "configuration-lookup",
           "finding-close",
           "precedence",
@@ -255,6 +268,7 @@
           "c4-anchoring"
         ],
         "SPEC": [
+          "configuration",
           "configuration-lookup",
           "endpoint-derivation",
           "precedence"
@@ -767,6 +781,11 @@
           "path_activity"
         ]
       },
+      "tests/unit/plugin-bundles.test.ts": {
+        "README": [
+          "agent-plugins"
+        ]
+      },
       "tests/unit/plugin-install.test.ts": {
         "README": [
           "claude-code-plugin"
@@ -938,9 +957,12 @@
         "CLAUDE.md",
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
+        "plugin/scripts/edit-check.mjs",
+        "scripts/build-plugins.mjs",
         "scripts/claude-plugin/edit-check.mjs",
         "scripts/git-hooks/install.sh",
-        "src/attached-marker.ts"
+        "src/attached-marker.ts",
+        "tests/unit/plugin-bundles.test.ts"
       ],
       "docs/CONFORMANCE.md": [
         "docs/DOCLINKS.md",
@@ -1044,6 +1066,7 @@
         "src/config.ts@resolveConfigPath",
         "src/config.ts@substrate-env-aliases",
         "src/config.ts@unattachedMessage",
+        "src/config.ts@unsubstituted-placeholders",
         "src/config.ts@withoutEndpoints",
         "src/cpg-inference.ts",
         "src/finding-close.ts@runFindingClose",
@@ -1254,6 +1277,7 @@
       "src/config.ts@resolveConfigPath": "9a34f654ef33",
       "src/config.ts@substrate-env-aliases": "8d64a30d9de1",
       "src/config.ts@unattachedMessage": "c37187992372",
+      "src/config.ts@unsubstituted-placeholders": "8d64a30d9de1",
       "src/config.ts@withoutEndpoints": "6e745d8a7242",
       "src/doctor.ts@probeAttachment": "d514e5f837ea",
       "src/finding-close.ts@runFindingClose": "0d058d26d794",

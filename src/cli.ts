@@ -108,7 +108,7 @@ import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyConfiguration } from './config.js';
+import { applyConfiguration, dropUnsubstitutedPlaceholders } from './config.js';
 import { installSystemTrustStoreSync } from './tls-trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -344,6 +344,10 @@ function validateOptions(options: CLIOptions): void {
 }
 
 async function main() {
+  // A plugin host that left a setting unfilled passes its placeholder text: treat it as unset (SPEC §configuration).
+  for (const name of dropUnsubstitutedPlaceholders(process.env)) {
+    console.error(`[metabob-mcp] ${name} holds an unfilled placeholder, not a value; it is ignored, and the config file is used`);
+  }
   // Doctor subcommand: handle BEFORE parseArgs (strict mode rejects positionals).
   // Form: `npx @metabob/mcp doctor [...]`
   // `finding close`: close by commit, after a push (SPEC §finding-close).

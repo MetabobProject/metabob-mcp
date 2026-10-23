@@ -1,7 +1,7 @@
 /**
  * Real Claude Code sessions against this build of the plugin.
  *
- * Each session is `claude -p` with a temporary copy of the plugin (`.claude-plugin/`, `skills/`) whose
+ * Each session is `claude -p` with a temporary copy of the plugin (`plugin/`) whose
  * `.mcp.json` starts THIS build (`node dist/cli.js`), never the published package. The MCP server gets
  * its own HOME (the sidecar store lives in `~/.metabob`), its own config file, and — for the proxy leg
  * — the proxy and trust variables. `claude` itself keeps the user's HOME: the login lives there.
@@ -245,8 +245,8 @@ export function buildPluginDir(target: Target, setup: McpSetup): string {
   const cli = join(REPO_ROOT, 'dist', 'cli.js');
   if (!existsSync(cli)) throw new Error(`${cli} not found: run \`bun run build\` first`);
   const dir = tempDir('plugin');
-  cpSync(join(REPO_ROOT, '.claude-plugin'), join(dir, '.claude-plugin'), { recursive: true });
-  cpSync(join(REPO_ROOT, 'skills'), join(dir, 'skills'), { recursive: true });
+  // The plugin as it ships (plugin/), without its .mcp.json: this copy starts the local build instead.
+  cpSync(join(REPO_ROOT, 'plugin'), dir, { recursive: true, filter: (src) => !src.endsWith(join('plugin', '.mcp.json')) });
 
   mkdirSync(setup.home, { recursive: true });
   const configPath = join(setup.home, 'metabob-config.json');

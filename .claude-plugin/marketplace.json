@@ -4,11 +4,15 @@
     "name": "Metabob",
     "url": "https://github.com/MetabobProject"
   },
+  "metadata": {
+    "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents"
+  },
   "plugins": [
     {
       "name": "metabob",
-      "source": "./",
-      "description": "Metabob for AI agents: take part in the substrate \u2014 dispatch goals and judge their outcome, coordinate through a shared findings ledger, read and write org-wide memory \u2014 plus local impact and co-change analysis before edits. Bundles the MCP server and the participation skill. Setup: the substrate installer writes your API key and endpoint to ~/.substrate/config.json; otherwise set METABOB_API_KEY and METABOB_ENDPOINT. Check the connection with `npx @metabob/mcp attach --check`.",
+      "source": "./plugin",
+      "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
+      "version": "0.3.4",
       "category": "development",
       "keywords": [
         "code-intelligence",

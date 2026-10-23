@@ -1,0 +1,37 @@
+{
+  "$comment": "The one source of both plugin bundles (scripts/build-plugins.mjs). name, version and description come from package.json; the skill from skills/metabob/SKILL.md; the edit check from scripts/claude-plugin/edit-check.mjs.",
+  "name": "metabob",
+  "author": { "name": "Metabob", "url": "https://github.com/MetabobProject" },
+  "homepage": "https://github.com/MetabobProject/metabob-mcp",
+  "repository": "https://github.com/MetabobProject/metabob-mcp",
+  "license": "PROPRIETARY",
+  "keywords": ["code-intelligence", "cpg", "impact-analysis", "co-change", "mcp", "code-review"],
+  "category": "development",
+  "server": { "name": "metabob", "package": "@metabob/mcp" },
+  "claude": {
+    "userConfig": {
+      "api_key": {
+        "type": "string",
+        "title": "Metabob API key",
+        "description": "Your substrate API key. Leave blank to use the one the substrate installer wrote (~/.substrate/config.json).",
+        "sensitive": true,
+        "default": "",
+        "env": "METABOB_API_KEY"
+      },
+      "discovery_endpoint": {
+        "type": "string",
+        "title": "Discovery endpoint",
+        "description": "The substrate's discovery address, for a remote substrate (e.g. https://discovery.example.com). Leave blank to use the installer's config.",
+        "default": "",
+        "env": "DISCOVERY_ENDPOINT"
+      },
+      "endpoint": {
+        "type": "string",
+        "title": "Substrate endpoint",
+        "description": "A local substrate's endpoint (e.g. http://127.0.0.1:18080), from which discovery is derived. Leave blank otherwise.",
+        "default": "",
+        "env": "METABOB_ENDPOINT"
+      }
+    }
+  }
+}

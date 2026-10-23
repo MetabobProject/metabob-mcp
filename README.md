@@ -169,8 +169,11 @@ Claude Code clones the marketplace with git, and the plugin starts the server wi
 Claude Code clone over ssh, which fails on a machine with no GitHub ssh key, although the repository is
 public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`.
 
-The plugin ships no credentials. The substrate installer writes them; otherwise put your API key
-and the substrate endpoint in `~/.metabob/config.json`:
+The plugin ships no credentials. The substrate installer writes them, and the plugin uses them as they
+are. Otherwise give them as the plugin's settings, with `/plugin configure` in Claude Code or at install
+(`claude plugin install metabob@metabob --config api_key=… --config discovery_endpoint=https://…`): the API key,
+kept as a secret, and either the discovery endpoint of a remote substrate or a local substrate's endpoint. A blank
+setting falls back to the installer's config file. Or put the key and endpoint in `~/.metabob/config.json`:
 
 ```json
 {
@@ -185,7 +188,7 @@ Alternatively, export `METABOB_API_KEY` and `METABOB_ENDPOINT` in your shell pro
 MCP server inherits your environment. With either missing the server still starts with its local
 tools, and says once which input is missing.
 
-**The edit check** (`scripts/claude-plugin/hooks.json`, `scripts/claude-plugin/edit-check.mjs`, wired by the plugin manifest's `hooks` field). Before an agent's first edit of an
+**The edit check** (`scripts/claude-plugin/edit-check.mjs`, shipped as `plugin/scripts/edit-check.mjs` and wired by `plugin/hooks/hooks.json`). Before an agent's first edit of an
 existing file in a session, the plugin holds that edit once and asks the agent to run `get_problems`
 for the file and `path_activity` on it, then retry: other agents may have recorded problems on the
 file, and the substrate may have work in flight there. Instructions alone did not change what agents
@@ -199,6 +202,26 @@ of the same file, nor a file outside the attached workspace (a cache, a temp fil
 directory ask for `get_problems` only. `METABOB_EDIT_CHECK=off` turns it
 off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other
 clients get the same guidance from the server instructions and the skill only.
+
+### Agent plugins
+
+The plugin is generated, with `node scripts/build-plugins.mjs`, from one source: `package.json` (name,
+version, description), `scripts/plugins/source.json` (metadata, the server entry and the settings),
+`skills/metabob/SKILL.md` and `scripts/claude-plugin/edit-check.mjs`. The generated files are committed;
+`tests/unit/plugin-bundles.test.ts` fails when one differs from what the generator writes, and CI validates
+the manifests with `claude plugin validate`. Edit the source and regenerate, never a generated file.
+
+The Claude Code plugin is `plugin/`, which the marketplace (`.claude-plugin/marketplace.json`) lists:
+- `.claude-plugin/plugin.json`: the name, the version and the settings (`api_key`, sensitive;
+  `discovery_endpoint`; `endpoint`; each blank by default);
+- `.mcp.json`: the server, pinned to this exact version (`npx -y @metabob/mcp@<version>`), with each setting
+  passed as the variable the server reads; a setting the host leaves unfilled reaches the server as its
+  placeholder text, which the server ignores;
+- `hooks/hooks.json`: the edit check, in exec form (`node` with its arguments, no shell), so a plugin path
+  with spaces, or Windows, needs no quoting;
+- `plugin/scripts/edit-check.mjs` and `plugin/skills/metabob/SKILL.md`, copies of the repository's own.
+
+`plugin/` holds no `package.json`, so Claude Code runs no dependency install when it installs the plugin.
 
 ### Claude Desktop
 

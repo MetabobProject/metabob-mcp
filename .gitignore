@@ -39,8 +39,8 @@ metabob-mcp-doctor-*.json
 
 .metabob-test/
 
-# machine-local MCP config (gitignored)
-.mcp.json
+# machine-local MCP config at the root (gitignored); the plugin's plugin/.mcp.json is generated and tracked
+/.mcp.json
 .metabob/config.json
 
 # machine-local Claude Code state (the shared .claude/settings.json is tracked)

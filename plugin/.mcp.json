@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "metabob": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@metabob/mcp@0.3.4"
+      ],
+      "env": {
+        "METABOB_API_KEY": "${user_config.api_key}",
+        "DISCOVERY_ENDPOINT": "${user_config.discovery_endpoint}",
+        "METABOB_ENDPOINT": "${user_config.endpoint}"
+      }
+    }
+  }
+}

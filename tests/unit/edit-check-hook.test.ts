@@ -92,11 +92,14 @@ describe('edit check', () => {
   });
 
   test('the plugin manifest points at the hooks, and they wire the edit tools and the two checking tools', () => {
-    const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, '..', '..', '.claude-plugin', 'plugin.json'), 'utf-8'));
-    expect(manifest.hooks).toBe('./scripts/claude-plugin/hooks.json');
-    const hooks = JSON.parse(readFileSync(resolve(import.meta.dir, '..', '..', 'scripts', 'claude-plugin', 'hooks.json'), 'utf-8')).hooks;
+    const plugin = resolve(import.meta.dir, '..', '..', 'plugin');
+    const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin', 'plugin.json'), 'utf-8'));
+    expect(manifest.hooks).toBe('./hooks/hooks.json');
+    const hooks = JSON.parse(readFileSync(join(plugin, 'hooks', 'hooks.json'), 'utf-8')).hooks;
     expect(hooks.PreToolUse[0].matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-    expect(hooks.PreToolUse[0].hooks[0].command).toContain('${CLAUDE_PLUGIN_ROOT}/scripts/claude-plugin/edit-check.mjs" pre');
+    // Exec form: no shell, so a plugin root with spaces, or Windows, needs no quoting.
+    expect(hooks.PreToolUse[0].hooks[0]).toMatchObject({ command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/edit-check.mjs', 'pre'] });
+    expect(hooks.PostToolUse[0].hooks[0]).toMatchObject({ command: 'node', args: ['${CLAUDE_PLUGIN_ROOT}/scripts/edit-check.mjs', 'post'] });
     expect(new RegExp(`^(?:${hooks.PostToolUse[0].matcher})$`).test('mcp__plugin_metabob_metabob__path_activity')).toBe(true);
     expect(new RegExp(`^(?:${hooks.PostToolUse[0].matcher})$`).test('mcp__metabob__get_problems')).toBe(true);
   });

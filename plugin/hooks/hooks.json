@@ -1,0 +1,37 @@
+{
+  "description": "Before an agent's first edit of a file in a session, ask it to check what is known-wrong and in flight on that file (get_problems, path_activity). See scripts/edit-check.mjs.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/edit-check.mjs",
+              "pre"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*metabob.*__(get_problems|path_activity)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/edit-check.mjs",
+              "post"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
