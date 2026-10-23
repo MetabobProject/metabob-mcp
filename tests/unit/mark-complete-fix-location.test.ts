@@ -333,7 +333,11 @@ describe('mark_complete endorse', () => {
     git(dir, 'commit', '-qam', 'fix');
     const store = seeded();
     const stub = await db();
-    setFixGitTimeoutForTests(1);
+    // git through a wrapper that answers only after 2 s, against a 300 ms timeout: late on any machine, however
+    // fast its git (a bare 1 ms timeout is not, on a fast runner).
+    const lateGit = join(mkdtempSync(join(root, 'late-git-')), 'late-git.mjs');
+    writeFileSync(lateGit, "import { spawnSync } from 'node:child_process';\nawait new Promise((r) => setTimeout(r, 2000));\nprocess.exit(spawnSync('git', process.argv.slice(2), { stdio: 'inherit' }).status ?? 1);\n");
+    setFixGitTimeoutForTests(300, { file: process.execPath, prefix: [lateGit] });
     try {
       expect(fixLocation(dir, ['stats.ts'], new Date())).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('git did not answer in time') });
       const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1' }), api, 's', store, dir);

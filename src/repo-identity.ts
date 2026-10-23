@@ -144,12 +144,22 @@ export function clearRepoIdentityCache(): void {
 }
 
 /** git, with the fix-location timeout. */
-const fgit = (cwd: string, args: string[]) => git(cwd, args, fixGitTimeoutMs);
-
 let fixGitTimeoutMs = FIX_GIT_TIMEOUT_MS;
-/** Tests only: a timeout short enough that every fix-location git call times out. */
-export function setFixGitTimeoutForTests(ms: number | null): void {
+/** How the fix-location reads run git: `git` itself, or (tests only) a wrapper with arguments before git's own. */
+let fixGit: { file: string; prefix: string[] } = { file: 'git', prefix: [] };
+
+const fgit = (cwd: string, args: string[]): string | null => {
+  const r = fgitTry(cwd, args);
+  return 'out' in r ? r.out : null;
+};
+
+/**
+ * Tests only: the fix-location reads' timeout, and optionally the command that stands in for git (a wrapper that
+ * answers late, so a timeout is certain on any machine). null restores git and its timeout.
+ */
+export function setFixGitTimeoutForTests(ms: number | null, command?: { file: string; prefix: string[] }): void {
   fixGitTimeoutMs = ms ?? FIX_GIT_TIMEOUT_MS;
+  fixGit = ms === null || !command ? { file: 'git', prefix: [] } : command;
 }
 
 /**
@@ -162,7 +172,7 @@ type GitFailure = 'not_repo' | 'missing' | 'timeout' | 'error';
 function fgitTry(cwd: string, args: string[]): { out: string } | { failure: GitFailure } {
   try {
     return {
-      out: execFileSync('git', ['-C', cwd, ...args], {
+      out: execFileSync(fixGit.file, [...fixGit.prefix, '-C', cwd, ...args], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: fixGitTimeoutMs,
