@@ -153,7 +153,7 @@ ensure_manifest() {
 }
 
 mem_mb() { # $1 a size like 6g, 3072m or 512: megabytes
-  local v="${1,,}"
+  local v; v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')   # not ${1,,}: macOS's bash 3.2 has no case expansion
   case "$v" in *g) echo $(( ${v%g} * 1024 )) ;; *m) echo "${v%m}" ;; *) echo $(( v / 1048576 )) ;; esac
 }
 

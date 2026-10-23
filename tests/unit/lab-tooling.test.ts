@@ -260,7 +260,9 @@ describe('lab.sh capacity', () => {
     writeFileSync(join(dir, 'loadavg'), `${loads} 1.00 1/100 1\n`);
     const harness = [
       'info(){ echo "INFO $*"; }; log(){ echo "LOG $*"; }; fail(){ echo "FAIL $*"; exit 1; }; running(){ return 1; }',
-      `source <(sed -n '/^mem_mb() {/,/^}/p;/^capacity_check() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      // eval of awk's range output, not `source <(sed …)`: macOS's bash 3.2 sources nothing from a process substitution,
+      // and BSD sed rejects ranges joined by `;`.
+      `eval "$(awk '/^mem_mb\\(\\) \\{/,/^}/; /^capacity_check\\(\\) \\{/,/^}/' ${JSON.stringify(join(LAB, 'lab.sh'))})"`,
       `cotenants(){ printf '%s\\n' ${cotenants.map((l) => JSON.stringify(l)).join(' ')}; }`,
       'capacity_check',
     ].join('\n');
@@ -293,7 +295,9 @@ describe('lab.sh capacity', () => {
     writeFileSync(join(dir, 'loadavg'), '4.8 6.1 1.00 1/100 1\n');
     const harness = [
       'info(){ echo "INFO $*"; }; log(){ echo "LOG $*"; }; fail(){ echo "FAIL $*"; exit 1; }; running(){ return 1; }; cotenants(){ :; }',
-      `source <(sed -n '/^mem_mb() {/,/^}/p;/^capacity_check() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      // eval of awk's range output, not `source <(sed …)`: macOS's bash 3.2 sources nothing from a process substitution,
+      // and BSD sed rejects ranges joined by `;`.
+      `eval "$(awk '/^mem_mb\\(\\) \\{/,/^}/; /^capacity_check\\(\\) \\{/,/^}/' ${JSON.stringify(join(LAB, 'lab.sh'))})"`,
       'capacity_check',
     ].join('\n');
     const r = spawnSync('bash', ['-c', harness], { encoding: 'utf-8', env: { PATH: process.env.PATH ?? '', LAB_MEMINFO: join(dir, 'meminfo'), LAB_LOADAVG: join(dir, 'loadavg') } });
@@ -315,7 +319,7 @@ describe('lab.sh capacity', () => {
     const harness = [
       `ENG=${JSON.stringify(eng)}`,
       'c(){ echo "lab-$1-live"; }',
-      `source <(sed -n '/^to_mb() {/,/^}/p;/^cotenants() {/,/^}/p' ${JSON.stringify(join(LAB, 'lab.sh'))})`,
+      `eval "$(awk '/^to_mb\\(\\) \\{/,/^}/; /^cotenants\\(\\) \\{/,/^}/' ${JSON.stringify(join(LAB, 'lab.sh'))})"`,
       'cotenants',
     ].join('\n');
     const r = spawnSync('bash', ['-c', harness], { encoding: 'utf-8' });
