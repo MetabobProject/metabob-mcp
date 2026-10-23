@@ -167,7 +167,9 @@ claude plugin install metabob@metabob
 It needs `git` and Node 22.13 or later on PATH (an older Node works with [Bun](https://bun.sh) 1.1+ on PATH):
 Claude Code clones the marketplace with git, and the plugin starts the server with `npx`. Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes
 Claude Code clone over ssh, which fails on a machine with no GitHub ssh key, although the repository is
-public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`.
+public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`. The first start
+downloads the package with `npx`; where that takes longer than Claude Code's 30 s connect timeout (a slow link,
+or Windows), `/mcp` shows the server failed, and reconnecting there starts it from the cache.
 
 The plugin ships no credentials. The substrate installer writes them, and the plugin uses them as they
 are. Otherwise give them as the plugin's settings, with `/plugin configure` in Claude Code or at install
@@ -202,6 +204,23 @@ of the same file, nor a file outside the attached workspace (a cache, a temp fil
 directory ask for `get_problems` only. `METABOB_EDIT_CHECK=off` turns it
 off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other
 clients get the same guidance from the server instructions and the skill only.
+
+### Codex plugin (MCP server + skill)
+
+```bash
+codex plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
+codex plugin add metabob@metabob
+```
+
+Codex reads `.agents/plugins/marketplace.json`, which lists the Agent Plugins bundle at the repository root
+(§ Agent plugins): the server and the skill. Agent Plugins has no hooks and no settings, so there is no edit
+check, and the key and endpoint come from the substrate installer's `~/.substrate/config.json` or from
+`~/.metabob/config.json`. `codex mcp list` shows `metabob … enabled`.
+
+Codex starts the server in the plugin's own folder and does not say which project the session is in, so every
+tool answers `workspace_undetermined` until the agent calls `init_workspace { workspace_path: "<the project's
+absolute path>" }`. The skill tells it to; a relative path such as `.` would name the plugin's folder and is
+refused.
 
 ### Agent plugins
 

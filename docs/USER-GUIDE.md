@@ -74,7 +74,8 @@ claude plugin install metabob@metabob
 It needs `git` and Node 22.13 or later on PATH; an older Node works with [Bun](https://bun.sh) 1.1 or later on
 PATH, and with neither `/mcp` shows the server failed. Use the https URL as written: the `owner/repo` shorthand
 clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp list` shows
-`plugin:metabob:metabob … ✔ Connected` when it works.
+`plugin:metabob:metabob … ✔ Connected` when it works. The first start downloads the package; if that outlasts
+Claude Code's 30 s connect timeout (a slow link, or Windows), reconnect from `/mcp`.
 
 The plugin brings three parts: the MCP server, the `metabob` skill (the rules and order of a session, loaded
 by the agent at the start), and the **edit check** (§ 3). Without the installer's config, put the key and
@@ -85,6 +86,19 @@ endpoint in `~/.metabob/config.json`:
 ```
 
 or export `METABOB_API_KEY` and `METABOB_ENDPOINT`. Use your substrate's endpoint; there is no default.
+
+### Codex: the plugin
+
+```bash
+codex plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
+codex plugin add metabob@metabob
+```
+
+It brings the MCP server and the skill; there is no edit check outside Claude Code, and no plugin settings, so
+the key and endpoint come from the installer's config or `~/.metabob/config.json`. Codex starts the server in the
+plugin's own folder without saying which project you are in, so the agent's first call is
+`init_workspace { workspace_path: "<your project's absolute path>" }`; until then every tool answers
+`workspace_undetermined`, and the skill tells the agent what to do.
 
 ### Other clients
 
