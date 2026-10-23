@@ -141,8 +141,8 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "8f9b726",
-        "why": "local-index.ts change is a comment pointing at SPEC § init_workspace; CLAUDE.md's 'not persisted across restarts' row still holds"
+        "at": "8e8a277",
+        "why": "doclinks hook-post resolves the edited path's symlinks; CLAUDE.md's description of the hooks still holds"
       },
       "README.md": {
         "at": "5f873db",
@@ -152,13 +152,17 @@
         "at": "b37ec74",
         "why": "trace reads skip the timeout retry; the single ingress, the 60 s cap and the named failures are unchanged"
       },
+      "docs/DOCLINKS.md": {
+        "at": "8e8a277",
+        "why": "hook-post compares by real path; the documented commands and their outputs are unchanged"
+      },
       "docs/SPEC.md": {
         "at": "5f873db",
         "why": "comment-only rewording (rules stated without rulings, tallies or ids); no behaviour change"
       },
       "lab/README.md": {
-        "at": "f522929",
-        "why": "lab.sh's image_revision now also reads docker's .Config.Labels; the README already says up logs the image's revision"
+        "at": "8e8a277",
+        "why": "mem_mb lowercases with tr for bash 3.2; LAB_MEM's documented forms are unchanged"
       }
     }
   },
