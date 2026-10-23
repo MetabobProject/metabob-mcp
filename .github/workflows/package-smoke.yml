@@ -71,7 +71,7 @@ jobs:
           node -e "require('node:sqlite')" && node --version
 
       - name: Install from the tarball, as users do
-        run: npm install -g pack/*.tgz
+        run: npm install -g ./pack/*.tgz
 
       - name: The bins start under Node
         run: |
@@ -137,7 +137,7 @@ jobs:
           if node -e "require('node:sqlite')" 2>/dev/null; then echo "this Node has node:sqlite; the job needs one without"; exit 1; fi
 
       - name: Install from the tarball
-        run: npm install -g pack/*.tgz
+        run: npm install -g ./pack/*.tgz
 
       - name: Without Bun, the server names both fixes and exits 1
         if: ${{ !matrix.bun }}
