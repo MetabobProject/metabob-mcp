@@ -283,8 +283,17 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.
 
 `npm link` makes the local build available as `metabob-mcp` on your PATH without publishing to npm. Re-run `bun run build` after source changes.
 
-## Copilot instructions
+## Agent instructions
 
-This repository includes repo-local Copilot instruction files under `.github/` that teach agents to use the attached Metabob MCP workflow for initialization, problem triage, co-change prediction, and impact analysis.
+One file holds the instructions for every AI coding agent working in this repository: [`AGENTS.md`](AGENTS.md)
+(how to take part in the Metabob ledger while working here, and the development flow). Codex, GitHub Copilot
+(coding agent, VS Code chat and code review on GitHub.com), Kiro, Cursor, Junie, Windsurf, Cline, Augment, Amp,
+opencode and Zed read it as it is. Two harnesses get a pointer:
 
-See [CLAUDE.md](CLAUDE.md) for development guidance and [docs/](docs/) for detailed references.
+- `GEMINI.md` imports `@AGENTS.md`, since Gemini CLI reads `GEMINI.md` by default;
+- `.continue/rules/metabob.md` (always applied) points Continue at `AGENTS.md`.
+
+Claude Code reads [CLAUDE.md](CLAUDE.md), with the full architecture and the same development rules, and the
+`metabob` skill. No `.github/copilot-instructions.md`, `.cursorrules` or `.windsurfrules` is kept: every harness
+that reads one also reads `AGENTS.md`, and Zed takes the first of those files it finds, so a stale one would
+hide `AGENTS.md`. See [docs/](docs/) for detailed references.

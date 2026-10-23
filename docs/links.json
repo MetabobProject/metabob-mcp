@@ -141,8 +141,8 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "34a24bc",
-        "why": "attachment.ts change only ages the refusal text; CLAUDE.md describes named causes, not their wording"
+        "at": "8f9b726",
+        "why": "local-index.ts change is a comment pointing at SPEC § init_workspace; CLAUDE.md's 'not persisted across restarts' row still holds"
       },
       "docs/CONFORMANCE.md": {
         "at": "9435242",
@@ -638,6 +638,11 @@
           "c11-attachment-model"
         ]
       },
+      "tests/unit/agent-instructions.test.ts": {
+        "README": [
+          "agent-instructions"
+        ]
+      },
       "tests/unit/analysis-context-attachment.test.ts": {
         "SPEC": [
           "get_analysis_context"
@@ -839,6 +844,10 @@
       }
     },
     "docCitesCode": {
+      "AGENTS.md": [
+        "scripts/doclinks.mjs",
+        "scripts/git-hooks/install.sh"
+      ],
       "CLAUDE.md": [
         "docs/CONFORMANCE.md",
         "docs/DOCLINKS.md",
@@ -869,6 +878,7 @@
         "tests/unit/doclinks.test.ts"
       ],
       "README.md": [
+        "AGENTS.md",
         "CLAUDE.md",
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",

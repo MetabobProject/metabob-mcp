@@ -38,6 +38,8 @@ NC=$'\033[0m'
 
 ROOT_ALLOWLIST=(
   CLAUDE.md
+  AGENTS.md
+  GEMINI.md
   README.md
   CHANGELOG.md
   LICENSE
@@ -82,6 +84,7 @@ ALLOWED_TOPLEVEL_DIRS=(
   docs
   packages
   .github
+  .continue
   .minibob
   # Shared Claude Code project settings — .claude/settings.json wires the
   # doclinks hooks. Machine-local files under it (settings.local.json,
