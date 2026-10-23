@@ -12,9 +12,9 @@
 // to be clean AND to have been scanned; two mutants (a citation injected into a real live doc, and a
 // scanner that has lost TypeScript) must each turn the result red.
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import * as doclinks from '../../scripts/doclinks.mjs';
@@ -246,6 +246,22 @@ describe.skipIf(process.platform === 'win32')('doclinks: CLI and hooks in a real
     writeFileSync(join(root, CODE), code.replace('return run(input)', 'return run(input, 2)'));
     return { root, git };
   };
+
+  test.skipIf(process.platform === 'win32')('hook-post finds the edited file when its path goes through a symlink to the repository', () => {
+    // macOS's temp dir /var is a link to /private/var: the hook is handed the linked path, while the script knows
+    // its own real one.
+    const { root } = setup();
+    const link = join(mkdtempSync(join(tmpdir(), 'doclinks-link-')), 'repo');
+    symlinkSync(root, link);
+    try {
+      const post = run(root, ['hook-post'], { tool_input: { file_path: join(link, CODE), old_string: '  return run(input);', new_string: '  return run(input, 2);' } });
+      expect(post.status).toBe(0);
+      expect(JSON.parse(post.stdout).hookSpecificOutput.additionalContext).toContain('§get_x cites @handle');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(dirname(link), { recursive: true, force: true });
+    }
+  });
 
   test('an untracked doc or code file never enters derived; staging it does', () => {
     const { root, git } = setup();

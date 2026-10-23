@@ -32,14 +32,20 @@
 //   node scripts/doclinks.mjs hook-stop          Claude Code Stop hook (JSON on stdin)
 //   node scripts/doclinks.mjs precommit          git pre-commit hook (warns, never blocks)
 // =================================================================================================
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { dirname, join, relative, resolve, sep, posix } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** A path by its real location: the file's, else its directory's (a file not written yet), else as given. */
+function realOrSelf(p) {
+  try { return realpathSync(p); } catch { /* not there yet */ }
+  try { return join(realpathSync(dirname(p)), basename(p)); } catch { return p; }
+}
 export const DB_PATH = 'docs/links.json';
 const CMD = 'node scripts/doclinks.mjs';
 // @anchor code-extensions
@@ -706,7 +712,9 @@ async function main() {
   if (cmd === 'hook-post') {
     const inp = await stdinJson();
     const abs = inp?.tool_input?.file_path; if (!abs) return;
-    const f = toPosix(relative(ROOT, resolve(ROOT, abs))); if (f.startsWith('..') || f === DB_PATH) return;
+    // ROOT is the script's real path (Node resolves symlinks in it), so the edited file is compared by its real path
+    // too: a repository behind a symlink (macOS's /var → /private/var) would otherwise read as outside the tree.
+    const f = toPosix(relative(ROOT, realOrSelf(resolve(ROOT, abs)))); if (f.startsWith('..') || f === DB_PATH) return;
     const editSnippets = [inp.tool_input.new_string, inp.tool_input.content, ...(inp.tool_input.edits || []).map(e => e.new_string)].filter(Boolean);
     const editText = [inp.tool_input.old_string, inp.tool_input.new_string, inp.tool_input.content, ...(inp.tool_input.edits || []).flatMap(e => [e.old_string, e.new_string])].filter(Boolean).join('\n') || null;
     const list = impacted(repo, db, [f], { editText, editSnippets });
