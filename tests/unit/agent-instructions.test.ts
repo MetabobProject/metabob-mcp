@@ -13,6 +13,9 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 describe('agent instruction files', () => {
   test('AGENTS.md carries the ledger rules and the development flow', () => {
     const text = read('AGENTS.md');
+    // A push is the person's call, never an unconditional step of closing a finding.
+    expect(text).toContain('push where the person you work for allows it');
+    expect(text).not.toMatch(/commit, push, then/);
     for (const term of ['get_problems', 'path_activity', 'record_finding', 'mark_complete', 'claim_finding', 'concept_create', 'repo_anchor', 'attach --check', 'bun run test', 'doclinks', '`dev`']) {
       expect(text).toContain(term);
     }

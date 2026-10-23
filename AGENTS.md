@@ -21,8 +21,9 @@ does not load skills.
    `path_activity` on it. An open finding may already describe the change; the substrate may be landing it.
 3. **Record what you notice.** A problem you notice and don't fix goes into `record_finding` (files, summary,
    severity, category, details), not only into your reply. If it is already recorded you get its id back.
-4. **Close with evidence.** After the fix: commit, push, then `mark_complete` endorse. An uncommitted fix, a
-   commit on no remote branch, or one only on task branches leaves the finding open as "fix pending" until the
+4. **Close with evidence.** After the fix: commit; push where the person you work for allows it, or leave it
+   unpushed and say so; then `mark_complete` endorse. An uncommitted fix, a commit on no remote branch
+   (`fix pending (unpushed)`), or one only on task branches leaves the finding open as "fix pending" until the
    fix is committed, pushed or merged; a commit must postdate the finding and touch its files, or be named with
    `fix_commit`. Use discard for a false positive.
 5. **Claim shared work.** Before starting a finding another agent could also take, `claim_finding` it; one
@@ -49,6 +50,8 @@ does not load skills.
   code as `SPEC §<heading-slug>`.
 - **Docs are present and timeless:** they state intent and current behaviour, with no change narration ("now",
   "previously", "no longer").
+- **Pushes are the user's call.** Agents prepare commits, verify them, and report the range; a push to `dev`
+  or `main` is made only when the person you work for asks for it.
 - **Branches:** branch off `dev` and open pull requests into `dev`; `main` advances only by a version-bumped
   release whose commits are already on `dev`. Install the hooks once per clone: `bash scripts/git-hooks/install.sh`.
 - **Tests never mutate `process.env`;** pass an environment object instead.
