@@ -154,8 +154,8 @@
         "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "447cf02",
-        "why": "src/index.ts changed only the stdout-is-transport comment's example; no requirement's evidence changes"
+        "at": "f120b1a",
+        "why": "index.ts and vessel-server.ts gained the workspace gate (a refusal before any tool runs while the server sits in its plugin folder); no participation requirement or its evidence changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
