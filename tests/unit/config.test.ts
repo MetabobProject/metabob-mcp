@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -259,11 +259,13 @@ test('explicit METABOB_ENDPOINT still beats the file endpoint', () => {
 
 // ===== project-local config resolution (directory-aware, like git) =====
 
+/** A project dir by its real path: the lookup names files from process.cwd(), which resolves symlinks (macOS's
+ *  temp dir /var is a link to /private/var), so the expectation must name the same real path. */
 function makeTempDir(): string {
   const dir = join(tmpdir(), `metabob-mcp-proj-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   tempPaths.push(dir);
-  return dir;
+  return realpathSync(dir);
 }
 
 test('getDefaultConfigPath prefers project-local .metabob/config.json over the user config', () => {
