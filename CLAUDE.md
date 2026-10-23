@@ -50,6 +50,7 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 | `src/attach-check.ts` | `metabob-mcp attach --check`: the attachment once, hop by hop, with the named cause; exit 0 when attached |
 | `src/auth-service.ts` | Identity-vessel org check (`POST /v1/auth/resolve`, classified) and the key-issuance heartbeat, against the attachment's identity |
 | `src/vessel-server.ts` | Hono HTTP server on `127.0.0.1` — `/health` (with the attachment state), `/v2/capabilities`, `POST /v2/impulses/resolve`, for local callers |
+| `src/sqlite.ts` | The local store's SQLite under either runtime: `bun:sqlite` under Bun, `node:sqlite` under Node 22.13+, one file and schema; the launcher (`src/cli.ts`) runs the server in-process on such a Node, re-execs into Bun on an older one, and names both fixes with neither (docs/SPEC.md § Runtime) |
 | `src/local-index.ts` | Singleton `LocalIndex` wrapping `CoChangePredictor`, backed by the vendored CPG fork under `vendor/cpg-inference` (re-exported by `src/cpg-inference.ts`; not an npm dependency). Rebuilt in-memory per process launch — the CPG/index is not persisted across restarts (re-run `init_workspace`) |
 | `src/tools/index.ts` | Tool registry — maps tool names to handlers |
 | `src/attached-marker.ts` | While the attachment is authenticated, a marker for the workspace in the temp directory (`{pid, orgId, at}`, refreshed each minute, removed on detach or exit), so the plugin's edit check holds edits only where there is a ledger behind it |

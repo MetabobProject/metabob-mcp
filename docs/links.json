@@ -149,8 +149,8 @@
         "why": "edit-check.mjs header comment reworded; the plugin section's description still holds"
       },
       "docs/CONFORMANCE.md": {
-        "at": "9435242",
-        "why": "the write backstop in resolve adds a local refusal and redaction before sending; the single egress, the key and the named failures are unchanged"
+        "at": "3a99ae2",
+        "why": "index.ts adds the runtime to the start log and EPIPE shutdown; net.ts comment wording; no participation requirement changes"
       },
       "docs/SPEC.md": {
         "at": "5f873db",
@@ -897,6 +897,7 @@
         "src/net.ts",
         "src/os-proxy.ts",
         "src/outgoing-guard.ts",
+        "src/sqlite.ts",
         "src/tools/index.ts",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
