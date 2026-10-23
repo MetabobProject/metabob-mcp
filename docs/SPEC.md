@@ -618,6 +618,14 @@ Index the workspace into the local CPG. Indexing is local: no file content leave
 3. For `recently_changed_files`, counts their GCN name-similarity neighbours.
 4. Makes no request: `batch_size` and `sync_api` stay in the schema so existing callers validate, and change nothing. The output states that no file content was sent off the machine.
 
+**The index is not persisted** (`src/local-index.ts@index-not-persisted`). The CPG and its vector index live in the process and are rebuilt by `init_workspace` after every launch, so `analyze_impact` and `predict_cochanges` start cold after a restart. A disk cache with per-file invalidation would be wrong, not just stale: a file's incoming `CALLS` edges are created while *other* files are parsed (each call resolves by a whole-graph name lookup), and co-change component ids embed a start line, so invalidating one changed file leaves dependents pointing at absent ids, and the two tools answer wrongly without saying so. Persistence, if it is ever built, must therefore:
+- be whole-index and all-or-nothing: on load, stat every stored file, and any missing, modified or resized file discards the entire cache for a full rebuild; it never invalidates part of it;
+- carry a cache version, bumped whenever the node or id shape, the embedding pipeline or the format changes, with a mismatch discarding the cache;
+- be keyed by the workspace id, written atomically (a temp file, then a rename), and on any load error discard the cache and rebuild, never failing start;
+- come with tests for the round trip, for one file's change discarding the whole cache, for a version mismatch, and for a corrupt file.
+
+The first edit voids a whole-index cache, and editing is the main workflow, so the realistic hit is a restart without edits: the cold-start cost is measured before any of this is built.
+
 ---
 
 ### get_problems

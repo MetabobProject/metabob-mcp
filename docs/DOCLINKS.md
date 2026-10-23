@@ -14,7 +14,7 @@ enter `derived`, so a `build` in a working checkout matches a clean clone. Ignor
 | key | who edits it | what it holds |
 |---|---|---|
 | `curated.docs` | you | the registry of doc names → paths. Code cites docs by name (`SPEC §get_problems`); this is where a name resolves. A renamed or moved doc changes here, once. |
-| `curated.live` | you | which docs describe the tree *now* and are held to the checks. Records (evaluations, scopes, `openspec/` proposals) are not live. |
+| `curated.live` | you | which docs describe the tree *now* and are held to the checks. Records (evaluations, scopes, proposals) are not live. |
 | `curated.covers` | you | doc → the code it describes (globs). Changing covered code names the doc for review. Keep these narrow: a doc that covers everything is a reminder nobody reads. |
 | `curated.retired` | you | files deleted on purpose (globs allowed) that live docs may still name, each with why. |
 | `curated.outsideTree` | you | path globs a doc may name that are not in this tree on purpose — build output, the `vendor/cpg-inference` submodule's contents, sibling substrate repositories — each with why. |

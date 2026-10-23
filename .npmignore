@@ -16,7 +16,6 @@ node_modules/
 bun.lock
 
 # Documentation that's not needed in the package
-openspec/
 *.md
 !README.md
 

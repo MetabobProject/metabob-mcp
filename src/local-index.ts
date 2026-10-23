@@ -1,3 +1,4 @@
+// @anchor index-not-persisted
 /**
  * Local CPG + vector index bridge.
  *
@@ -19,9 +20,8 @@
  *      so they are stable under a whitespace-only shift; it is the component/
  *      co-change layer, not the node layer, that the line-number coupling breaks.)
  * Only all-or-nothing whole-index invalidation is safe, and that is voided by the
- * first edit, i.e. the primary agent-editing workflow. See
- * openspec/changes/2026-07-19-local-index-persistence/proposal.md before
- * implementing persistence; a stale index would serve wrong analyze_impact /
+ * first edit, i.e. the primary agent-editing workflow. SPEC §init_workspace states
+ * the constraints any persistence must meet; a stale index would serve wrong analyze_impact /
  * predict_cochanges answers, which is worse than a slower cold start.
  */
 import { resolve } from 'node:path';

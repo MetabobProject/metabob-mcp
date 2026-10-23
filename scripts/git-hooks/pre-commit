@@ -21,7 +21,6 @@
 #   tests/       — test suites
 #   docs/        — stateless reference (DEPLOYMENT.md, PUBLISHING.md, QUICK_START.md, ...)
 #   scripts/     — operational scripts (incl. scripts/git-hooks/)
-#   openspec/    — change proposals
 #   packages/    — internal sub-packages (if any)
 #   lab/         — the two-node substrate lab (lab/lab.sh) for live testing
 #   .claude/     — shared Claude Code project settings (settings.json and its hooks)
@@ -81,7 +80,6 @@ ALLOWED_TOPLEVEL_DIRS=(
   tests
   scripts
   docs
-  openspec
   packages
   .github
   .minibob
@@ -140,7 +138,7 @@ for file in "${STAGED[@]}"; do
     if ! is_under_allowed_toplevel "$file"; then
       flag "$file" \
         "new file in unrecognised top-level directory" \
-        "move under src/, tests/, scripts/, docs/, openspec/, or packages/"
+        "move under src/, tests/, scripts/, docs/, or packages/"
       continue
     fi
   else
@@ -220,8 +218,7 @@ ${DIM}Why this exists${NC}
   metabob-mcp is an MCP server distributed via npm. The repo is organised
   around src/ (server source — cli.ts, index.ts, tool handlers), tests/
   (test suites), docs/ (stateless reference: DEPLOYMENT, PUBLISHING,
-  QUICK_START), scripts/ (operational tooling), openspec/ (change
-  proposals), and a small set of project-metadata files at root. Ad-hoc
+  QUICK_START), scripts/ (operational tooling), and a small set of project-metadata files at root. Ad-hoc
   test-*.{ts,sh} / demo-*.sh / show-*.sh dumps at root accumulate as cruft
   — put them in the commit message that introduced the change instead.
 

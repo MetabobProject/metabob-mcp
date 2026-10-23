@@ -292,6 +292,11 @@
           "outgoing-text-guard"
         ]
       },
+      "src/local-index.ts": {
+        "SPEC": [
+          "init_workspace"
+        ]
+      },
       "src/net.ts": {
         "CONFORMANCE": [
           "c8-proxy-and-tls-in-the-vessel-role"
@@ -979,6 +984,7 @@
         "src/finding-close.ts@trailerIds",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
+        "src/local-index.ts@index-not-persisted",
         "src/net.ts",
         "src/net.ts@classify-error",
         "src/net.ts@connect-budget",
@@ -1113,13 +1119,6 @@
         "tests/claude-sessions/run.ts",
         "tests/unit/lab-tooling.test.ts"
       ],
-      "openspec/changes/2026-07-19-local-index-persistence/proposal.md": [
-        "graph-builder.ts",
-        "src/cochange-predictor.ts",
-        "src/local-index.ts",
-        "src/vector-index.ts",
-        "src/workspace.ts"
-      ],
       "scripts/git-hooks/README.md": [
         "index.ts",
         "lab/lab.sh",
@@ -1194,6 +1193,7 @@
       "src/index.ts@main": "7d5d3f63a3bd",
       "src/index.ts@stdout-is-transport": "11f9a2ac527f",
       "src/index.ts@tls-intercepted-report": "a0bd592ac9b4",
+      "src/local-index.ts@index-not-persisted": "8d64a30d9de1",
       "src/net.ts@classify-error": "8d64a30d9de1",
       "src/net.ts@connect-budget": "8d64a30d9de1",
       "src/net.ts@net-causes": "2ff03885e936",
