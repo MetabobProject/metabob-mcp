@@ -530,10 +530,13 @@ async function main() {
       log('info', 'Workspace not determined: started in the plugin\'s own folder (PLUGIN_ROOT) with no roots and no WORKSPACE_PATH; waiting for init_workspace');
       return;
     }
-    if (!sessionWorkspacePath()) localStore?.setWorkspaceScope(configuredWorkspace());
-    keepMarkers(configuredWorkspace());
-    await bindIdentity();
-    log('info', 'Workspace', { workspace: configuredWorkspace(), roots: clientRootPaths() });
+    // An init_workspace path that came first (on the loopback resolver, which does not wait for this) has bound its
+    // scope, and its marker and identity when none were; it wins here too.
+    const workspace = sessionWorkspacePath() ?? configuredWorkspace();
+    if (!sessionWorkspacePath()) localStore?.setWorkspaceScope(workspace);
+    keepMarkers(workspace);
+    if (identityWorkspacePath() === null) await bindIdentity(workspace);
+    log('info', 'Workspace', { workspace, roots: clientRootPaths() });
   });
 
   // The client's roots: asked for once it has initialized, and again when it says they changed.

@@ -319,8 +319,15 @@ export function sessionWorkspacePath(): string | null {
  */
 export const WORKSPACE_UNDETERMINED =
   'workspace_undetermined: this client started the server in the plugin\'s own folder (PLUGIN_ROOT) and named no '
-  + 'project (no MCP roots, no WORKSPACE_PATH). Call init_workspace { workspace_path: "<the project\'s root>" } first; '
+  + 'project (no MCP roots, no WORKSPACE_PATH). Call init_workspace { workspace_path: "<the project\'s absolute path>" } first; '
   + 'until then no tool reads or writes a ledger, so nothing is recorded against the plugin\'s folder.';
+
+/** init_workspace's refusal of a path inside the plugin's folder: a relative path resolves there, since the server runs there. */
+export function workspaceInPluginFolder(path: string): string {
+  return `workspace_undetermined: ${path} is the plugin's own folder (PLUGIN_ROOT), where this client started the server, `
+    + 'so a relative path such as "." resolves there; nothing was bound. Pass the project\'s absolute path: '
+    + 'init_workspace { workspace_path: "<the project\'s absolute path>" }.';
+}
 
 /** The refusal for `tool` while the workspace is undetermined, or null when it may run. */
 export function workspaceGateRefusal(tool: string, input: Record<string, unknown> | undefined): string | null {

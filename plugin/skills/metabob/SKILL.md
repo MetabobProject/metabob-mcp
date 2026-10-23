@@ -55,8 +55,9 @@ reader are faster.
    `query`** lists that shape's concepts, up to `limit` (at most 50).
 
 If a call answers `workspace_undetermined`, your client started the server in the
-plugin's own folder: call `init_workspace { workspace_path: "<the project's root>" }`
-first, then start again from step 1.
+plugin's own folder: call `init_workspace { workspace_path: "<the project's absolute
+path>" }` first (a relative path resolves against the plugin's folder), then start
+again from step 1.
 
 ## Role: coordinator — the shared ledger
 

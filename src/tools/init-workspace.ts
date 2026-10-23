@@ -1,10 +1,11 @@
 // Contract (input schema, behaviour): SPEC §init_workspace
 import { z } from 'zod';
 import { readdir, readFile, stat } from 'fs/promises';
+import { statSync } from 'fs';
 import { join, extname, resolve } from 'path';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { getLocalIndex, LocalIndexUnavailable } from '../local-index.js';
-import { configuredWorkspace, workspaceChosen } from '../workspace-root.js';
+import { getLocalIndex, LocalIndexUnavailable, workspaceInPluginFolder } from '../local-index.js';
+import { configuredWorkspace, insidePluginRoot, launchedInPluginRoot, workspaceChosen } from '../workspace-root.js';
 import type { LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 
@@ -127,8 +128,13 @@ export async function handle(
   const startTime = Date.now();
   const workspacePath = resolve(input.workspace_path ?? configuredWorkspace());
   // A path named here is the session's workspace from now on, whether or not it has files to index: the ledger and
-  // the store follow it (SPEC §workspace).
+  // the store follow it (SPEC §workspace). It must be an existing directory, and, for a server started in the
+  // plugin's own folder, not that folder: neither binds anything.
   if (input.workspace_path) {
+    let isDirectory = false;
+    try { isDirectory = statSync(workspacePath).isDirectory(); } catch { /* missing */ }
+    if (!isDirectory) return `init_workspace: ${workspacePath} is not a directory; nothing was bound. Pass the project's root.`;
+    if (launchedInPluginRoot() && insidePluginRoot(workspacePath)) return workspaceInPluginFolder(workspacePath);
     localStore?.setWorkspaceScope(workspacePath);
     await workspaceChosen(workspacePath);
   }

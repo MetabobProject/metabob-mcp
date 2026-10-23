@@ -75,12 +75,17 @@ export function configuredWorkspace(env: NodeJS.ProcessEnv = process.env): strin
 
 const realPath = (p: string): string => { try { return realpathSync.native(p); } catch { return resolve(p); } };
 
-/** The server was started in the plugin's own folder: PLUGIN_ROOT is set, and the launch directory is it or inside it. */
-export function launchedInPluginRoot(env: NodeJS.ProcessEnv = process.env): boolean {
+/** `path` is PLUGIN_ROOT or inside it, by real path; false when PLUGIN_ROOT is unset. */
+export function insidePluginRoot(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const root = env['PLUGIN_ROOT'];
   if (!root) return false;
-  const rel = relative(realPath(root), realPath(process.cwd()));
+  const rel = relative(realPath(root), realPath(path));
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** The server was started in the plugin's own folder: PLUGIN_ROOT is set, and the launch directory is it or inside it. */
+export function launchedInPluginRoot(env: NodeJS.ProcessEnv = process.env): boolean {
+  return insidePluginRoot(process.cwd(), env);
 }
 
 /** Steps 2–4 name a workspace: false only when the launch directory is the plugin's folder and nothing else names one. */

@@ -349,7 +349,8 @@ The workspace decides which repository the ledger is keyed by (§ Repository ide
 its findings, and the path the coordination identity is derived from (`src/workspace-root.ts`). It is decided in this
 order (`src/local-index.ts@activeWorkspacePath`):
 
-1. a path `init_workspace` was given, whether or not it holds files to index;
+1. a directory `init_workspace` was given, whether or not it holds files to index (a path that is no existing
+   directory is refused, and binds nothing);
 2. `WORKSPACE_PATH`, when set;
 3. the client's first `file:` root (MCP `roots/list`);
 4. the directory the server was launched in, unless that is the plugin's own folder.
@@ -375,7 +376,10 @@ workspace, the workspace is undetermined: every tool but `init_workspace` with a
 the loopback resolver, answers `workspace_undetermined: …`, naming that call; the store is not scoped, no marker is
 written and no identity is derived. `init_workspace { workspace_path }` then decides the workspace, and the identity
 and the marker are derived from it, as a launch in that directory gives; so are they when roots arrive later. A
-plugin folder never gets a marker.
+path that is the plugin's folder or inside it (a relative path such as `.` resolves there) is refused with
+`workspace_undetermined`, asking for the project's absolute path, and binds nothing. A plugin folder never gets a
+marker. An `init_workspace` path that arrives on the loopback resolver before the workspace is first decided wins
+over steps 2–4 there too.
 
 ### Proxy selection
 
@@ -658,7 +662,7 @@ Index the workspace into the local CPG. Indexing is local: no file content leave
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `workspace_path` | string | `$WORKSPACE_PATH` or cwd | Absolute path to workspace root |
+| `workspace_path` | string | the configured workspace (§ Workspace) | Absolute path to the workspace root; it must be an existing directory |
 | `recently_changed_files` | string[] | `[]` | Changed files — the output reports how many co-change neighbours they have |
 | `batch_size` | number | `20` | Accepted (1–20) and ignored |
 | `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index (with or without the leading dot) |

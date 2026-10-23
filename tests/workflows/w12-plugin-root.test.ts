@@ -30,6 +30,8 @@ describe('a server started in the plugin\'s own folder', () => {
     const asProject = await McpServer.start({ workspace: project, home, env: { WORKSPACE_PATH: undefined } });
     try {
       direct = line((await asProject.call('get_analysis_context', {})).text, 'as:').replace(/\(session [^)]*\)/, '');
+      expect(direct).toMatch(/^as: +metabob-mcp-/);
+      expect(direct).toMatch(/^as: +metabob-mcp-/);
     } finally {
       await asProject.stop();
     }
@@ -55,6 +57,39 @@ describe('a server started in the plugin\'s own folder', () => {
       expect(line(ctx.text, 'as:').replace(/\(session [^)]*\)/, '')).toBe(direct);
       await server.call('record_finding', { files: ['src/index.ts'], summary: 'recorded in the project', severity: 'LOW', category: 'test' });
       expect((await server.call('get_problems', {})).text).toContain('recorded in the project');
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test('a path inside the plugin folder, or one that does not exist, binds nothing; the project then binds as itself', async () => {
+    const plugin = pluginFolder();
+    const project = real(makeWorkspace('after-mistakes'));
+    const home = tempDir('mistakes-home');
+    let direct = '';
+    const asProject = await McpServer.start({ workspace: project, home, env: { WORKSPACE_PATH: undefined } });
+    try {
+      direct = line((await asProject.call('get_analysis_context', {})).text, 'as:').replace(/\(session [^)]*\)/, '');
+      expect(direct).toMatch(/^as: +metabob-mcp-/);
+      expect(direct).toMatch(/^as: +metabob-mcp-/);
+    } finally {
+      await asProject.stop();
+    }
+    const server = await McpServer.start({ workspace: plugin, home, env: { PLUGIN_ROOT: plugin, WORKSPACE_PATH: undefined } });
+    try {
+      for (const path of ['.', 'skills', plugin]) {
+        const r = await server.call('init_workspace', { workspace_path: path }, 120_000);
+        expect({ path, text: r.text }).toEqual({ path, text: expect.stringMatching(/^workspace_undetermined: .* is the plugin's own folder .*nothing was bound\. Pass the project's absolute path/) });
+      }
+      const missing = await server.call('init_workspace', { workspace_path: join(tempDir('gone'), 'mistyped') }, 120_000);
+      expect(missing.text).toMatch(/is not a directory; nothing was bound/);
+      // Nothing was bound: every other tool still waits for the project.
+      expect((await server.call('record_finding', { files: ['a.ts'], summary: 'nowhere', severity: 'LOW', category: 'test' })).text).toStartWith('workspace_undetermined:');
+
+      await server.call('init_workspace', { workspace_path: project }, 120_000);
+      const ctx = await server.call('get_analysis_context', {});
+      expect(line(ctx.text, 'workspace:')).toStartWith(`workspace:  ${project} (from init_workspace)`);
+      expect(line(ctx.text, 'as:').replace(/\(session [^)]*\)/, '')).toBe(direct);
     } finally {
       await server.stop();
     }
