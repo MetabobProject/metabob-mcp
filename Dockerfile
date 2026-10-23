@@ -9,8 +9,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json bun.lock ./
 
-# Install dependencies (production only, no optional deps)
-RUN bun install --frozen-lockfile --production --no-optional
+# Install every dependency: the build bundles the dev ones into dist/
+RUN bun install --frozen-lockfile
 
 # Copy source code and vendor dependencies
 COPY src ./src
@@ -19,7 +19,10 @@ COPY scripts ./scripts
 COPY tsconfig.json ./
 
 # Build the application (uses bun run build which produces dist/cli.js)
-RUN bun run build 2>/dev/null || bun build src/index.ts --target=bun --outdir=dist --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript
+RUN bun run build
+
+# The runtime needs only the packages the build keeps external (package.json dependencies)
+RUN rm -rf node_modules && bun install --frozen-lockfile --production --no-optional
 
 # Stage 2: Production image
 FROM oven/bun:1-slim AS production

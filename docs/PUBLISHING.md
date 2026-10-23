@@ -7,7 +7,7 @@
 
 ## About the build
 
-`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`.
+`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. They are the only `dependencies`: every other package the server uses (the MCP SDK, zod, hono, undici, ajv, system-ca) is bundled into `dist/` and listed in `devDependencies`, so a user's `npx` installs the four native packages and nothing else. `tests/unit/package-dependencies.test.ts` holds `dependencies` equal to the build's `--external` list and checks that the bundle loads no other package.
 
 The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `skills/` carries the bundled agent skill, which is required at runtime, not incidental.
 

@@ -798,6 +798,11 @@
           "outgoing-text-guard"
         ]
       },
+      "tests/unit/package-dependencies.test.ts": {
+        "SPEC": [
+          "runtime"
+        ]
+      },
       "tests/unit/path-activity.test.ts": {
         "SPEC": [
           "path_activity"
@@ -1061,7 +1066,8 @@
         "scripts/verify-vendor.ts",
         "src/cli.ts",
         "src/cpg-inference.ts",
-        "src/tools/index.ts"
+        "src/tools/index.ts",
+        "tests/unit/package-dependencies.test.ts"
       ],
       "docs/QUICK_START.md": [
         "README.md",
