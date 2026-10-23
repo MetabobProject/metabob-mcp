@@ -13,7 +13,7 @@ installSystemTrustStoreSync({ disabled: process.env.METABOB_NO_SYSTEM_CA === '1'
 // @anchor stdout-is-transport
 // stdout is the MCP transport: a client parses every line on it as JSON-RPC,
 // and the stdio transport forbids anything else there. Library code logs with
-// console.log (the vendored CPG prints its ONNX model load), so the console's
+// console.log (a dependency may print a progress line), so the console's
 // stdout methods write to stderr for the life of the server.
 console.log = console.error;
 console.info = console.error;

@@ -162,7 +162,7 @@ closed, and anything that needs your decision (§ 5).
 | To keep a problem for later | "Record that as a finding, don't fix it now" | `record_finding` with files, severity, details |
 | To know what is in flight before you edit | "Is anything in flight on the file I am about to change?" | `path_activity`: gaps the system is landing, queued or held |
 | To keep a decision | "Write down why we chose the queue over polling, and that polling was rejected" | `concept_create`, linked to the repository's anchor concept (a `repo_anchor` named after the repository, created when there is none) |
-| The blast radius of a change | "What does changing this file affect, and which tests?" | `analyze_impact`, `predict_cochanges` (local) |
+| The blast radius of a change | "What does changing this file affect, and which tests?" | `analyze_impact` (the local code index), `predict_cochanges` (git history) |
 | To close something | "That finding was a false positive" | `mark_complete` discard |
 | Several agents on one repository | "Record one task per area, then give each agent its id" | `record_finding` per task, each agent recalls its own brief |
 | The substrate to do the work (substrate repos) | "Dispatch a goal to …" | `run_goal_async`, then `goal_status`, `goal_reasoning` |

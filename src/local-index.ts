@@ -1,9 +1,9 @@
 // @anchor index-not-persisted
 /**
- * Local CPG + vector index bridge.
+ * Local CPG bridge.
  *
  * KNOWN LIMITATION — intentionally NOT persisted across launches.
- * The index (parsed CPG nodes/edges + FAISS embeddings) is rebuilt from source
+ * The index (parsed CPG nodes/edges and their components) is rebuilt from source
  * each process start via repeated `init_workspace` batches. A disk cache keyed by
  * file path + mtime/size was assessed and deliberately NOT adopted, because it
  * cannot be invalidated correctly at file granularity:
@@ -12,27 +12,26 @@
  *      (cpg.findByName(calleeName)), so the edges INTO a file are created while
  *      OTHER files are being parsed. Invalidating one changed file therefore
  *      requires re-resolving edges across the whole graph.
- *   2. Secondary hazard at the co-change layer: component ids embed the start
+ *   2. Secondary hazard at the component layer: component ids embed the start
  *      line. generateComponentId (src/cochange-predictor.ts) is
  *      `filePath::type::name::startLine`, so a line shift changes a file's
  *      component ids. (Note: graph-node ids from generateNodeId are a per-file
  *      monotonic counter — `currentFile::type-<counter>[::name]`, NOT startLine —
- *      so they are stable under a whitespace-only shift; it is the component/
- *      co-change layer, not the node layer, that the line-number coupling breaks.)
+ *      so they are stable under a whitespace-only shift; it is the component
+ *      layer, not the node layer, that the line-number coupling breaks.)
  * Only all-or-nothing whole-index invalidation is safe, and that is voided by the
  * first edit, i.e. the primary agent-editing workflow. SPEC §init_workspace states
  * the constraints any persistence must meet; a stale index would serve wrong analyze_impact /
- * predict_cochanges answers, which is worse than a slower cold start.
+ * assign_git_changes answers, which is worse than a slower cold start.
  */
 import { resolve } from 'node:path';
 import { configuredWorkspace } from './workspace-root.js';
 import type { CoChangePredictor } from './cpg-inference.js';
-import type { CoChangePrediction } from './cpg-inference.js';
 import type { CodePropertyGraph } from './cpg-inference.js';
 
 // @anchor lazy-native
 /**
- * The CPG, its parser (tree-sitter and its grammars) and its embedder (onnxruntime-node) are native modules, loaded
+ * The CPG and its parser (tree-sitter and its grammars) are native modules, loaded
  * on the first local-tool call that needs them, not at startup. A module that cannot load (no prebuilt binary for
  * this platform, a missing shared library) makes that call answer `local_index_unavailable(<module>: <reason>)`,
  * and the ledger, memory and substrate tools, which never touch it, work as usual. SPEC §init_workspace
@@ -62,14 +61,12 @@ export function setCpgImportForTests(fn: (() => Promise<CpgModule>) | null): voi
 function loadCpg(): Promise<CpgModule> {
   cpgModule ??= importCpg().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    const module = /(tree-sitter[\w-]*|onnxruntime-node)/.exec(message)?.[1] ?? 'cpg-inference';
+    const module = /(tree-sitter[\w-]*)/.exec(message)?.[1] ?? 'cpg-inference';
     cpgFailure = new LocalIndexUnavailable(module, message.split('\n')[0]!.slice(0, 200));
     throw cpgFailure;
   });
   return cpgModule;
 }
-
-export type { CoChangePrediction };
 
 export interface LocalIndexStats {
   filesIndexed: number;
@@ -100,9 +97,8 @@ export class LocalIndex {
     if (this._ready) return;
     if (!this._predictor) {
       const { CoChangePredictor } = await loadCpg();
-      this._predictor = new CoChangePredictor({ minSimilarity: 0.0 });
+      this._predictor = new CoChangePredictor();
     }
-    await this._predictor.initialize();
     this._ready = true;
   }
 

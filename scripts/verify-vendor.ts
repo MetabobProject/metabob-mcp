@@ -3,7 +3,6 @@ import { join } from 'node:path';
 
 const requiredPaths = [
   join(process.cwd(), 'vendor', 'cpg-inference', 'src', 'index.ts'),
-  join(process.cwd(), 'vendor', 'cpg-inference', 'include'),
 ];
 
 const missing = requiredPaths.filter((path) => !existsSync(path));

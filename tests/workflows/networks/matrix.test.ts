@@ -447,7 +447,7 @@ beforeAll(async () => {
       mkdirSync(outdir, { recursive: true });
       const build = spawnSync('bun', [
         'build', join(REPO_ROOT, 'src', 'cli.ts'), '--target', 'node', '--outdir', outdir,
-        '--external', 'onnxruntime-node', '--external', 'tree-sitter', '--external', 'tree-sitter-javascript',
+        '--external', 'tree-sitter', '--external', 'tree-sitter-javascript',
         '--external', 'tree-sitter-python', '--external', 'tree-sitter-typescript',
       ], { cwd: REPO_ROOT, windowsHide: true, encoding: 'utf-8' });
       if (build.status !== 0) throw new Error(`node bundle failed: ${build.stderr}`);

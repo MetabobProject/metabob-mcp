@@ -5,14 +5,14 @@
  *   in a separate "Dependencies (this file imports — NOT impacted by this
  *   change)" section and never as "Direct dependents"; risk is computed from
  *   dependents only.
- * - predict_cochanges labels the GCN section as a name-similarity ranking (not
- *   structural evidence) without percentage "confidence" figures, and caveats
- *   git-history mining.
- * - Both tools report unindexed files honestly, with index coverage.
+ * - predict_cochanges ranks co-changes from git history only, with each file's
+ *   confidence and commit count, caveats history mining, and needs no index.
+ * - analyze_impact reports unindexed files honestly, with index coverage.
  */
 
 import { test, expect, mock, beforeAll } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AnalysisAPIClient } from '../../src/api-client';
@@ -41,6 +41,16 @@ beforeAll(async () => {
     mkdirSync(join(ws, rel, '..'), { recursive: true });
     writeFileSync(join(ws, rel), content, 'utf-8');
   }
+  // A history: core.ts and user.ts change together twice; notes.md (not indexed) changes with core.ts once.
+  const git = (...args: string[]) => execFileSync('git', ['-C', ws, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { stdio: 'ignore' });
+  git('init', '-q');
+  git('add', 'src'); git('commit', '-qm', 'one');
+  writeFileSync(join(ws, 'src/core.ts'), 'export function coreThing() { return 2; }\n');
+  writeFileSync(join(ws, 'src/user.ts'), files['src/user.ts']! + '// two\n');
+  git('add', 'src'); git('commit', '-qm', 'two');
+  writeFileSync(join(ws, 'src/core.ts'), files['src/core.ts']!);
+  writeFileSync(join(ws, 'notes.md'), 'notes\n');
+  git('add', '.'); git('commit', '-qm', 'three');
 
   const index = getLocalIndex();
   await index.init();
@@ -111,28 +121,40 @@ test('analyze_impact: unindexed file returns honest not-indexed error with cover
 
 // ===== predict_cochanges =====
 
-test('predict_cochanges: GCN section is labeled name-similarity without percentage confidences', async () => {
+test('predict_cochanges: git history is the only signal, with confidence and commit count', async () => {
   const input = PredictCochanges.InputSchema.parse({
     changed_files: [join(ws, 'src/core.ts')],
     confidence_threshold: 0,
   });
   const result = await PredictCochanges.handle(input, mockApiClient, SESSION);
-  expect(result).toContain('Name-similarity ranking (experimental; NOT structural evidence');
-  expect(result).not.toContain('From name similarity (embedded GCN)');
-  // The name-similarity section must not print scores as percentages. The
-  // git-history section is empty here (tmp dir is not a git repo), so any
-  // "Confidence: NN%" line would come from the GCN section.
-  expect(result).not.toMatch(/Confidence:\s*\d/);
-  expect(result).toContain('name-similarity');
+  expect(result).toContain('From git history');
+  // core.ts changed in three commits: user.ts in two of them, notes.md in one.
+  expect(result).toMatch(/1\. src\/user\.ts\n   Confidence: 67% \(co-changed in 2 commits\)/);
+  expect(result).toMatch(/2\. notes\.md\n   Confidence: 33% \(co-changed in 1 commit\)/);
+  expect(result).toContain('history mining can miss files');
+  expect(result).toContain('Signal: git history (2)');
+  expect(result.toLowerCase()).not.toContain('similarity');
+  expect(result).not.toContain('GCN');
 });
 
-test('predict_cochanges: unindexed file returns honest not-indexed error with coverage', async () => {
-  const input = PredictCochanges.InputSchema.parse({
-    changed_files: [join(ws, 'src/ghost.ts')],
-  });
+test('predict_cochanges: confidence_threshold applies to git co-change confidence', async () => {
+  const input = PredictCochanges.InputSchema.parse({ changed_files: [join(ws, 'src/core.ts')], confidence_threshold: 0.5 });
   const result = await PredictCochanges.handle(input, mockApiClient, SESSION);
-  expect(result).toContain('not in the local index');
-  expect(result).toContain('Index coverage:');
-  expect(result).toContain('not yet indexed — run init_workspace');
-  expect(result).not.toContain('can likely be changed independently');
+  expect(result).toContain('src/user.ts');
+  expect(result).not.toContain('notes.md');
+});
+
+test('predict_cochanges: a file the index does not hold still gets its git co-changes', async () => {
+  const input = PredictCochanges.InputSchema.parse({ changed_files: ['notes.md'], confidence_threshold: 0 });
+  const result = await PredictCochanges.handle(input, mockApiClient, SESSION);
+  expect(result).toContain('1. src/core.ts');
+  expect(result).not.toContain('init_workspace');
+});
+
+test('predict_cochanges: no history above the threshold says so, with the caveat', async () => {
+  const input = PredictCochanges.InputSchema.parse({ changed_files: [join(ws, 'src/ghost.ts')] });
+  const result = await PredictCochanges.handle(input, mockApiClient, SESSION);
+  expect(result).toContain('No co-change predictions above 30% confidence in git history');
+  expect(result).toContain('can likely be changed independently');
+  expect(result).toContain('git-history mining can miss files');
 });

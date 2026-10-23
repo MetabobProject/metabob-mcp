@@ -6,6 +6,7 @@ import { clientRootPaths, identityWorkspacePath, workspaceSource } from '../work
 import { getAttachment } from '../attachment.js';
 import { redactUrl } from '../net.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
+import { mineGitCochanges } from '../git-cochange.js';
 import {
   NO_SERVER_ANALYSIS,
   fetchAgentFindings,
@@ -100,24 +101,20 @@ export async function handle(
     ? localIndex.stats()
     : null;
 
-  // ── Co-change predictions for recently changed files (local, best-effort) ─
+  // ── Co-change for recently changed files, from git history (local, best-effort) ─
+  // The threshold is predict_cochanges' default (SPEC §get_analysis_context).
   const cochangePredictions: string[] = [];
-  if (cpgStats && input.recently_changed_files?.length) {
-    const allIds: string[] = [];
-    for (const f of input.recently_changed_files) {
-      allIds.push(...localIndex.componentIdsForFile(f));
-    }
-    if (allIds.length > 0) {
-      try {
-        const preds = await localIndex.predictor.predictCochanges(allIds, 10);
-        for (const p of preds.filter(p => p.similarityScore >= 0.3).slice(0, 8)) {
-          cochangePredictions.push(
-            `  • ${p.componentName} (${p.componentType})  ${p.filePath}:${p.startLine}  ${(p.similarityScore * 100).toFixed(0)}%`,
-          );
-        }
-      } catch {
-        // non-fatal
+  if (input.recently_changed_files?.length) {
+    try {
+      const root = localIndex.workspacePath() ?? activeWorkspacePath();
+      const preds = await mineGitCochanges(root, input.recently_changed_files, 10);
+      for (const p of preds.filter(p => p.confidence >= 0.3).slice(0, 8)) {
+        cochangePredictions.push(
+          `  • ${p.filePath}  ${(p.confidence * 100).toFixed(0)}% (${p.cooccurrences} commit${p.cooccurrences === 1 ? '' : 's'})`,
+        );
       }
+    } catch {
+      // non-fatal
     }
   }
 
@@ -190,11 +187,11 @@ export async function handle(
 
   // Co-change predictions
   if (input.recently_changed_files?.length) {
-    text += `Co-change predictions for recently changed files:\n`;
+    text += `Co-changes from git history for recently changed files:\n`;
     if (cochangePredictions.length > 0) {
       text += cochangePredictions.join('\n') + '\n';
     } else {
-      text += '  (none above threshold or workspace not indexed)\n';
+      text += '  (none above 30% confidence in git history)\n';
     }
     text += '\n';
   }

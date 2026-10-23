@@ -567,7 +567,8 @@
       },
       "src/tools/predict-cochanges.ts": {
         "SPEC": [
-          "predict_cochanges"
+          "predict_cochanges",
+          "workspace"
         ]
       },
       "src/tools/provide-feedback.ts": {
@@ -882,6 +883,11 @@
           "workspace"
         ]
       },
+      "tests/workflows/w11-cochange-git.test.ts": {
+        "SPEC": [
+          "predict_cochanges"
+        ]
+      },
       "tests/workflows/w2-ledger.test.ts": {
         "SPEC": [
           "outgoing-text-guard"
@@ -943,10 +949,11 @@
         "src/attachment.ts@attachment-resolve",
         "src/auth-service.ts",
         "src/cli.ts",
-        "src/cochange-predictor.ts@addFile",
         "src/config.ts",
         "src/config.ts@unattachedMessage",
         "src/cpg-inference.ts",
+        "src/git-cochange.ts",
+        "src/git-cochange.ts@mineGitCochanges",
         "src/index.ts",
         "src/local-index.ts",
         "src/net.ts",
@@ -1059,9 +1066,6 @@
         "src/call-log.ts@reportResult",
         "src/cli.ts",
         "src/cli.ts@main",
-        "src/cochange-predictor.ts@addFile",
-        "src/cochange-predictor.ts@generateSimpleFeatures",
-        "src/cochange-predictor.ts@predictCochanges",
         "src/config.ts@apply-configuration",
         "src/config.ts@applyConfigDefaults",
         "src/config.ts@config-lookup",
@@ -1076,6 +1080,7 @@
         "src/cpg-inference.ts",
         "src/finding-close.ts@runFindingClose",
         "src/finding-close.ts@trailerIds",
+        "src/git-cochange.ts@mineGitCochanges",
         "src/index.ts",
         "src/index.ts@stdout-is-transport",
         "src/local-index.ts@activeWorkspacePath",
@@ -1192,7 +1197,6 @@
         "src/tools/run-goal.ts@runGoalPollDelayMs",
         "src/tools/search-codebase.ts@handle",
         "src/tools/submit-resolution.ts@handle",
-        "src/vector-index.ts@FAISSIndex",
         "src/vessel-identity.ts@resolveVesselId",
         "src/vessel-server.ts@QUEUED_SHAPES",
         "src/vessel-server.ts@health-attachment",
@@ -1270,9 +1274,6 @@
       "src/call-log.ts@logCall": "45d6e42824e6",
       "src/call-log.ts@reportResult": "836e5ddf991e",
       "src/cli.ts@main": "7d5d3f63a3bd",
-      "src/cochange-predictor.ts@addFile": "d9d057e2d25f",
-      "src/cochange-predictor.ts@generateSimpleFeatures": "e2f847a851b1",
-      "src/cochange-predictor.ts@predictCochanges": "9c7b4dc703d1",
       "src/config.ts@apply-configuration": "8d64a30d9de1",
       "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
       "src/config.ts@config-lookup": "8d64a30d9de1",
@@ -1287,6 +1288,7 @@
       "src/doctor.ts@probeAttachment": "d514e5f837ea",
       "src/finding-close.ts@runFindingClose": "0d058d26d794",
       "src/finding-close.ts@trailerIds": "32f2c325ccd3",
+      "src/git-cochange.ts@mineGitCochanges": "4b8c1471298d",
       "src/index.ts@HEALTH_PORT": "3b0f11787db8",
       "src/index.ts@health-port-range-warning": "fa8dd2a85884",
       "src/index.ts@main": "7d5d3f63a3bd",
@@ -1403,7 +1405,6 @@
       "src/tools/run-goal.ts@runGoalPollDelayMs": "ab14d9401a7a",
       "src/tools/search-codebase.ts@handle": "4bdf740420c9",
       "src/tools/submit-resolution.ts@handle": "4bdf740420c9",
-      "src/vector-index.ts@FAISSIndex": "bdf68716d2e4",
       "src/vessel-identity.ts@SERVED_SHAPES": "0d7dddfff5e9",
       "src/vessel-identity.ts@resolveVesselId": "e0980371a921",
       "src/vessel-server.ts@QUEUED_SHAPES": "6db48f2ed6c0",

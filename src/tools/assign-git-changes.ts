@@ -9,7 +9,7 @@ import { gapSummaryLines } from './_gap-activity.js';
 export const AssignGitChangesTool = {
   name: 'assign_git_changes',
   description:
-    'Assign git changes (changed files or diff) to the CPG components they affect. Returns a map of file → components, component IDs for downstream tools, and co-change predictions for each changed component. Requires init_workspace to have been run first.',
+    'Assign git changes (changed files or diff) to the CPG components they affect. Returns a map of file → components, component IDs for downstream tools, and the files that change together with these in git history. Requires init_workspace to have been run first.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -24,7 +24,7 @@ export const AssignGitChangesTool = {
       },
       include_cochange_predictions: {
         type: 'boolean',
-        description: 'Also return co-change predictions for the affected components (default: true)',
+        description: 'Also return the files that change together with these in git history (default: true)',
         default: true,
       },
       prediction_limit: {
@@ -55,15 +55,6 @@ interface FileAssignment {
     start_line: number;
     end_line: number;
   }>;
-}
-
-interface CochangePrediction {
-  component_id: string;
-  component_name: string;
-  component_type: string;
-  file_path: string;
-  start_line: number;
-  similarity_score: number;
 }
 
 export async function handle(
@@ -128,23 +119,6 @@ export async function handle(
   const uniqueComponentIds = [...new Set(allComponentIds)];
   const totalComponents = uniqueComponentIds.length;
 
-  // Co-change predictions across all changed components
-  let predictions: CochangePrediction[] = [];
-  if (input.include_cochange_predictions && uniqueComponentIds.length > 0) {
-    const raw = await localIndex.predictor.predictCochanges(
-      uniqueComponentIds,
-      input.prediction_limit * input.changed_files.length,
-    );
-    predictions = raw.map(p => ({
-      component_id: p.componentId,
-      component_name: p.componentName,
-      component_type: p.componentType,
-      file_path: p.filePath,
-      start_line: p.startLine,
-      similarity_score: p.similarityScore,
-    }));
-  }
-
   const duration = Date.now() - startTime;
 
   // Format output
@@ -178,15 +152,6 @@ export async function handle(
       }
       text += '\n';
     }
-  }
-
-  if (predictions.length > 0) {
-    text += `Co-change predictions (${predictions.length}):\n`;
-    for (const p of predictions.slice(0, input.prediction_limit * 3)) {
-      text += `  • ${p.component_name} (${p.component_type})  ${p.file_path}:${p.start_line}`;
-      text += `  ${(p.similarity_score * 100).toFixed(0)}%\n`;
-    }
-    text += '\n';
   }
 
   text += `Completed in ${duration}ms`;

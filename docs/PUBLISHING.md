@@ -7,9 +7,9 @@
 
 ## About the build
 
-`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`onnxruntime-node`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`.
+`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`.
 
-The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `include/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `include/` carries the ONNX model assets and `skills/` the bundled agent skill — both are required at runtime, not incidental.
+The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `skills/` carries the bundled agent skill, which is required at runtime, not incidental.
 
 ## The CPG library
 
@@ -65,7 +65,7 @@ For pre-release: `npm publish --tag beta`
 
 **Authentication** — `npm logout && npm login`
 
-**Build too large** — the `files` allowlist in `package.json` is authoritative and wins over `.npmignore`; nothing outside `dist/`, `include/`, `skills/`, `README.md`, and `LICENSE` ships. Confirm with `npm pack --dry-run`.
+**Build too large** — the `files` allowlist in `package.json` is authoritative and wins over `.npmignore`; nothing outside `dist/`, `skills/`, `README.md`, and `LICENSE` ships. Confirm with `npm pack --dry-run`.
 
 **Version conflict** — bump with `npm version patch` and republish; published versions cannot be overwritten.
 

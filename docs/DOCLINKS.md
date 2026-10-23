@@ -6,8 +6,7 @@ which code a doc change affects. It runs under `node` and `bun`, with Node built
 
 The tree it sees is the git index: tracked files plus files staged for the next commit. A new doc,
 citation or coverage rule joins it on `git add`; untracked files (local scratch notes, audits) never
-enter `derived`, so a `build` in a working checkout matches a clean clone. Ignored files (`dist/`,
-`include/`) are outside it.
+enter `derived`, so a `build` in a working checkout matches a clean clone. Ignored files (`dist/`) are outside it.
 
 ## The database
 

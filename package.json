@@ -10,7 +10,6 @@
   },
   "files": [
     "dist/**/*",
-    "include/**/*",
     "skills/**/*",
     "README.md",
     "LICENSE"
@@ -21,8 +20,7 @@
     "dev": "bun run preflight && bun --watch src/cli.ts",
     "test": "bun run preflight && bun test --timeout 30000 tests",
     "typecheck": "bun run preflight && tsc --noEmit",
-    "build:model": "bun run preflight && bun run scripts/copy-model-assets.ts",
-    "build": "bun run build:model && bun build src/cli.ts src/doctor-cli.ts --target node --splitting --outdir dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
+    "build": "bun run preflight && bun build src/cli.ts src/doctor-cli.ts --target node --splitting --outdir dist --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript && bun run scripts/finalize-cli.ts",
     "prepublishOnly": "bun run typecheck && bun run build"
   },
   "keywords": [
@@ -57,7 +55,6 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "hono": "^4.0.0",
-    "onnxruntime-node": "^1.20.1",
     "system-ca": "3.0.0",
     "tree-sitter": "^0.21.1",
     "tree-sitter-javascript": "^0.23.0",

@@ -48,16 +48,16 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 | `init_workspace` | **Local** | Build the local CPG index; sends nothing off the machine |
 | `get_problems` | Local + Substrate | Problems ranked by severity: the local store's findings (incl. agent-recorded `agf_*` findings) plus findings other agents recorded on this codebase, recalled from concept-db |
 | `search_codebase` | **Local** | Search components (CPG) and the local store's findings by keyword |
-| `predict_cochanges` | **Local** | Git-history co-change mining (primary) plus a GCN ranker that sees only node-name char-codes, so it ranks by name similarity, not learned structure — no API call |
+| `predict_cochanges` | **Local** | The files that change together with yours, from git history, each with its confidence — no API call, no index needed |
 | `analyze_impact` | **Local** | CPG traversal showing what a change affects |
 | `annotate_component` | **Local** | Add structured why/how notes for a finding in the local store |
 | `mark_complete` | Local + Substrate | Endorse a fix or discard a false positive. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by (any other id is refused): endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
 | `get_metrics` | **Local** | Open findings by severity and source, plus the local CPG size |
-| `assign_git_changes` | **Local** | Map changed files to CPG components + co-change predictions |
+| `assign_git_changes` | **Local** | Map changed files to CPG components + their git-history co-changes |
 | `get_analysis_context` | Local + Substrate | Current analysis state snapshot for agent decision-making |
 | `record_finding` | Local + Substrate | Attribute an issue you noticed to code — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
 
-**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → embeddings → vector search) and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first.
+**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
 
 **Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `concept_*` (incl. `concept_record_usage`), `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
 

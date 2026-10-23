@@ -5,10 +5,9 @@ import { relative, resolve } from 'node:path';
  * Git-history co-change mining: which files actually changed together with
  * the given files, measured over the repository's commit history.
  *
- * This is the primary co-change signal — the GCN embedding similarity in
- * cpg-inference is structural, not historical, and files with no
- * function/class components (schemas, configs, constants) never receive
- * embeddings at all. Git history covers both gaps.
+ * This is the co-change signal of predict_cochanges, assign_git_changes,
+ * get_analysis_context and init_workspace. It needs no index, and it covers
+ * files with no function/class components (schemas, configs, constants).
  */
 
 export interface GitCochangePrediction {

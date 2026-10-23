@@ -19,7 +19,7 @@ COPY scripts ./scripts
 COPY tsconfig.json ./
 
 # Build the application (uses bun run build which produces dist/cli.js)
-RUN bun run build 2>/dev/null || bun build src/index.ts --target=bun --outdir=dist --external onnxruntime-node --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript
+RUN bun run build 2>/dev/null || bun build src/index.ts --target=bun --outdir=dist --external tree-sitter --external tree-sitter-javascript --external tree-sitter-python --external tree-sitter-typescript
 
 # Stage 2: Production image
 FROM oven/bun:1-slim AS production

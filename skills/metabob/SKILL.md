@@ -150,8 +150,8 @@ breaking what other agents depend on:
 
 - **Before editing anything shared:** `analyze_impact { changed_files }` — transitive
   reach with depth, and the tests your change touches.
-- `predict_cochanges { changed_files }` — files that historically move with yours;
-  read its **git-history** section for the sibling file you would otherwise forget.
+- `predict_cochanges { changed_files }` — files that historically move with yours,
+  from git history (no index needed): the sibling file you would otherwise forget.
 - **After adding files:** `init_workspace { recently_changed_files }`.
 - **Before committing:** `assign_git_changes { changed_files }` — if it names a file
   you did not touch, check it.

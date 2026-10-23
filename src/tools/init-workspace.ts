@@ -6,6 +6,7 @@ import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex, LocalIndexUnavailable } from '../local-index.js';
 import { configuredWorkspace } from '../workspace-root.js';
 import type { LocalStore } from '../local-store.js';
+import { mineGitCochanges } from '../git-cochange.js';
 
 export const InitWorkspaceTool = {
   name: 'init_workspace',
@@ -198,17 +199,12 @@ export async function handle(
     localIndex.markParsed(path);
   }
 
-  // ── Co-change neighbours of the recently changed files (local) ──────────────
+  // ── Co-change neighbours of the recently changed files, from git history (local) ──
   const cochangePaths = new Set<string>();
   if (recentlyChanged.length > 0) {
-    const allIds: string[] = [];
-    for (const f of recentlyChanged) allIds.push(...localIndex.componentIdsForFile(f));
-    if (allIds.length > 0) {
-      try {
-        const preds = await localIndex.predictor.predictCochanges(allIds, 20);
-        for (const p of preds) { if (p.filePath) cochangePaths.add(p.filePath); }
-      } catch { /* non-fatal */ }
-    }
+    try {
+      for (const p of await mineGitCochanges(workspacePath, recentlyChanged, 20)) cochangePaths.add(p.filePath);
+    } catch { /* non-fatal */ }
   }
 
   const duration = Date.now() - startTime;

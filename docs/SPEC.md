@@ -30,8 +30,11 @@ module's zod `InputSchema` and served by its module's `handle`.
 
 **Local tier** — runs in-process via the vendored CPG library (`vendor/cpg-inference`, a git submodule re-exported by `src/cpg-inference.ts`; a fork, absent from `package.json` dependencies):
 - Tree-sitter parsing → `CodePropertyGraph`
-- GCN embeddings (a ~109 KB bundled ONNX model, fed node-name char-codes — a name-similarity ranker, not learned structure) → an in-process brute-force vector index (`src/vector-index.ts@FAISSIndex`)
 - BFS graph traversal
+
+Co-change comes from git history (`src/git-cochange.ts@mineGitCochanges`): which files changed in the same commits
+as the given ones, over the last 500 commits, skipping commits that touch more than 30 files. It needs a git
+checkout and no index.
 
 **No workspace content leaves the machine.** File content is read only by `init_workspace`, into the
 in-process CPG. Nothing submits files, excerpts or file lists for analysis, and nothing watches the
@@ -656,19 +659,19 @@ Index the workspace into the local CPG. Indexing is local: no file content leave
 **Behaviour**
 1. Scans the workspace (at most 2000 files, each at most 200 KB) and parses it into the local CPG within a 20 s budget; a parse that runs out of budget resumes on the next call and says so.
 2. Binds the local store to the indexed root, so findings recorded afterwards land in this workspace.
-3. For `recently_changed_files`, counts their GCN name-similarity neighbours.
+3. For `recently_changed_files`, counts the files that change with them in git history.
 4. Makes no request: `batch_size` and `sync_api` stay in the schema so existing callers validate, and change nothing. The output states that no file content was sent off the machine.
 
 **The native modules load on first use** (`src/local-index.ts@lazy-native`). The parser (`tree-sitter` and its
-grammars) and the embedder (`onnxruntime-node`) are native, and the build keeps them in a chunk of their own that
+grammars) are native, and the build keeps them in a chunk of their own that
 loads on the first `init_workspace`, not at startup. A module that cannot load (no prebuilt binary for this
 platform, a missing shared library) makes `init_workspace`, and every local tool after it, answer
 `local_index_unavailable(<module>: <reason>)`; the ledger, memory and substrate tools never touch it and work as
 usual, and the server always starts.
 
-**The index is not persisted** (`src/local-index.ts@index-not-persisted`). The CPG and its vector index live in the process and are rebuilt by `init_workspace` after every launch, so `analyze_impact` and `predict_cochanges` start cold after a restart. A disk cache with per-file invalidation would be wrong, not just stale: a file's incoming `CALLS` edges are created while *other* files are parsed (each call resolves by a whole-graph name lookup), and co-change component ids embed a start line, so invalidating one changed file leaves dependents pointing at absent ids, and the two tools answer wrongly without saying so. Persistence, if it is ever built, must therefore:
+**The index is not persisted** (`src/local-index.ts@index-not-persisted`). The CPG and its components live in the process and are rebuilt by `init_workspace` after every launch, so `analyze_impact` and `assign_git_changes` start cold after a restart. A disk cache with per-file invalidation would be wrong, not just stale: a file's incoming `CALLS` edges are created while *other* files are parsed (each call resolves by a whole-graph name lookup), and component ids embed a start line, so invalidating one changed file leaves dependents pointing at absent ids, and the two tools answer wrongly without saying so. Persistence, if it is ever built, must therefore:
 - be whole-index and all-or-nothing: on load, stat every stored file, and any missing, modified or resized file discards the entire cache for a full rebuild; it never invalidates part of it;
-- carry a cache version, bumped whenever the node or id shape, the embedding pipeline or the format changes, with a mismatch discarding the cache;
+- carry a cache version, bumped whenever the node or id shape or the format changes, with a mismatch discarding the cache;
 - be keyed by the workspace id, written atomically (a temp file, then a rename), and on any load error discard the cache and rebuild, never failing start;
 - come with tests for the round trip, for one file's change discarding the whole cache, for a version mismatch, and for a corrupt file.
 
@@ -777,7 +780,7 @@ Components match on name, file path and node type; problems match on the local s
 
 Handler: `src/tools/predict-cochanges.ts@handle`
 
-Predict which files and components change together with the given files. Runs locally — no API call. **Git-history co-change mining carries all of the signal.** The bundled GCN contributes a second list that should be treated as noise: its only input feature is the node name's char-codes (`src/cochange-predictor.ts@generateSimpleFeatures`), and the model is called one node at a time (`src/cochange-predictor.ts@addFile`, `src/cochange-predictor.ts@predictCochanges`), so the vendored model's edge index for a single node is empty and no graph structure reaches it. Rank on the git-history section; do not act on a GCN-only suggestion.
+Predict which files change together with the given files, from git history (`src/git-cochange.ts@mineGitCochanges`). Runs locally — no API call — and needs a git checkout, not `init_workspace`: the workspace is `init_workspace`'s, else the configured one (§ Workspace). Each predicted file carries its confidence, the share of the given files' commits that also touched it, and its commit count; the output caveats that history mining can miss files. Outside a git repository, or with no co-change above the threshold, it says so.
 
 **Input**
 
@@ -785,9 +788,9 @@ Predict which files and components change together with the given files. Runs lo
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Files being changed |
 | `limit` | number | `10` | Max suggestions (max 50) |
-| `confidence_threshold` | number | `0.3` | Min score (0.0–1.0), applied to both the git-history confidence and the GCN similarity |
+| `confidence_threshold` | number | `0.3` | Min git co-change confidence (0.0–1.0) |
 
-Findings in the local store for the changed files are appended. Requires `init_workspace`.
+Findings in the local store for the changed files are appended.
 
 ---
 
@@ -924,7 +927,7 @@ Computed locally; makes no request. **Output** — open findings in the local st
 
 Handler: `src/tools/assign-git-changes.ts@handle`
 
-Assign changed files to the CPG components they affect, with co-change predictions.
+Assign changed files to the CPG components they affect, with the files that change together with them in git history.
 
 **Input**
 
@@ -932,10 +935,10 @@ Assign changed files to the CPG components they affect, with co-change predictio
 |-----------|------|---------|-------------|
 | `changed_files` | string[] | **required** | Changed file paths |
 | `diff` | string | — | Accepted for compatibility; the handler does not read it |
-| `include_cochange_predictions` | boolean | `true` | Include co-change predictions |
+| `include_cochange_predictions` | boolean | `true` | Include the git-history co-changes |
 | `prediction_limit` | number | `5` | Prediction budget per changed file (max 20) |
 
-Returns a file → component map. Predictions are pooled across the changed files: a GCN list (`prediction_limit` × files requested, up to `prediction_limit` × 3 shown) and a git-history list (`prediction_limit` × 2). Files with findings in the local store show them, and, when attached and the workspace maps to the gap store, each changed file's open gaps and landing leases (as in `analyze_impact`). Requires `init_workspace`.
+Returns a file → component map, and the git-history co-changes pooled across the changed files (`prediction_limit` × 2). Files with findings in the local store show them, and, when attached and the workspace maps to the gap store, each changed file's open gaps and landing leases (as in `analyze_impact`). Requires `init_workspace`.
 
 ---
 
@@ -945,13 +948,13 @@ Handler: `src/tools/get-analysis-context.ts@handle`
 
 It opens with **where this session writes and as whom** (`src/tools/get-analysis-context.ts@attachment-line`): `Attachment: attached to org <orgId> via discovery <url>` (credentials redacted, never the key), `attaching (first attempt in progress)`, or `not attached: <named cause>`, then `as: <vesselId> (session <id>)`. Agents writing to the shared ledger have no other read that shows it.
 
-The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), GCN co-change predictions for recently changed files (threshold 0.3, top 8), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable). The recall runs first and retires the local seeds of findings it shows closed, as `get_problems` does. The problems block leads with the same combined count as `get_problems` (`Open findings: …`), then the local store's line (`local store: N open (c critical, h high)`); the suggested next actions name open shared findings alongside local critical and high ones.
+The current analysis state in one snapshot, designed to feed an LLM deciding what to do next: CPG index stats, open problems from the local store (with the statement that there is no server-side analysis), the files that change with the recently changed files in git history (confidence at least 0.3, `predict_cochanges`' default; top 8; no index needed), and a compact top-5 recall of findings recorded by agents on this repo (concept-db `code_finding` concepts, non-fatal when unreachable). The recall runs first and retires the local seeds of findings it shows closed, as `get_problems` does. The problems block leads with the same combined count as `get_problems` (`Open findings: …`), then the local store's line (`local store: N open (c critical, h high)`); the suggested next actions name open shared findings alongside local critical and high ones.
 
 **Input**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `recently_changed_files` | string[] | `[]` | Used to generate co-change predictions |
+| `recently_changed_files` | string[] | `[]` | Files whose git-history co-changes are listed |
 | `problem_limit` | number | `10` | Max open problems to include (max 50) |
 | `scope` | `session\|project\|org` | `session` | Accepted for compatibility; the handler does not read it |
 

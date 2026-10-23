@@ -101,8 +101,8 @@ if (
   });
 }
 
-// ONNX and Tree-sitter load only inside the server, under whichever runtime runs it;
-// neither needs a larger heap than the runtime's default.
+// Tree-sitter loads only inside the server, under whichever runtime runs it;
+// it needs no larger heap than the runtime's default.
 
 import { parseArgs } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
