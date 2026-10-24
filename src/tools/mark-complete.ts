@@ -122,7 +122,7 @@ function fixShown(loc: FixLocation): string {
       + (loc.claimed ? (loc.predates ? ' (named as the fix; it predates the finding, which was recorded after it)' : ' (named as the fix)') : '')
       + (loc.elsewhere ? ' — it touches none of the finding\'s files' : '');
   }
-  if (loc.kind === 'untracked') return 'local to this checkout: the finding\'s files are untracked or ignored, so no commit can hold the fix, and no other checkout can check it';
+  if (loc.kind === 'untracked') return 'local to this checkout: the finding\'s files are ignored, so no commit can hold the fix, and no other checkout can check it';
   if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
   return 'unknown (not a git checkout), so the finding is closed without a commit';
 }

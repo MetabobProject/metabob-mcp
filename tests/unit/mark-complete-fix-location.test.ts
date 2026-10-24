@@ -410,7 +410,7 @@ describe('mark_complete endorse', () => {
     const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_ign1' }), api, 's', store, dir);
     expect(out).toContain('local to this checkout');
     expect(store.getSeedById('agf_ign1')?.stale).toBe(true);
-    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('fix: local (untracked files; no commit holds it)');
+    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('fix: local (ignored files; no commit holds it)');
   });
 
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {
