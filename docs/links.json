@@ -150,8 +150,8 @@
         "why": "index.ts and local-index.ts changed init_workspace's binding (existing directory only, never the plugin folder); the WORKSPACE_PATH row's workspace_undetermined text and the local-index row still hold"
       },
       "README.md": {
-        "at": "661c82f",
-        "why": "the skill dropped its probe/observe advice; README gives none, and its plugin text is unchanged"
+        "at": "4ae8bf1",
+        "why": "the 0.3.5 bump changed only the pinned version in the generated bundles; README names the pin as <version>, so its text holds"
       },
       "docs/CONFORMANCE.md": {
         "at": "661c82f",
