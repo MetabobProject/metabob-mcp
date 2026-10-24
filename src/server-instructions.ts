@@ -9,7 +9,7 @@ export const SERVER_INSTRUCTIONS = `metabob: a shared work ledger and code-struc
 
 Before you edit files in a repository other agents or the substrate also work on: \`get_problems\` for those files, then \`path_activity\` on them, so you don't redo, race or undo work in flight. When you notice a problem you are not fixing, \`record_finding\` it: a bug mentioned only in your reply is lost to the next agent. After the edit, \`mark_complete\` for what you fixed.
 
-Start of session: load the \`metabob\` skill before your first metabob call. It sequences the session and holds its rules: run probes as observers, never grade your own work, close every finding you resolved.
+Start of session: load the \`metabob\` skill before your first metabob call. It sequences the session and holds its rules: never grade your own work, close every finding you resolved.
 
 First calls, only when the skill is not available: \`get_analysis_context\`, \`get_problems\`, \`record_finding\` and \`mark_complete\`; when your client defers tool schemas, load these four in one tool search.
 

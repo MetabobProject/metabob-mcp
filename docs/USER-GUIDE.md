@@ -40,7 +40,7 @@ rows only, straight to concept-db's advertised address). Beyond the key:
 | closes a finding (`mark_complete`, `finding close`) | the verdict, the finding's summary again, its files and repository, the fix commit, its branch, the base and target branch names, the author (`reviewed_by`) and session, and whether the verdict came from a local copy |
 | claims one (`claim_finding`) | the finding's id, the claim's length and end, the author and session |
 | writes memory (`concept_create`, `concept_link`, `concept_record_usage`, `resolve_impulse`'s memory note) | the text it writes, its shape and source type, any pointer it gives (which can name a document path), the author and session |
-| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, any `probe:`) |
+| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, and any the agent adds) |
 | gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
 | answers a queued task (`submit_resolution`) | the answer text |
 | searches or reads (`concept_search`, `goal_status`, `goal_reasoning`, `execution_trace`, …) | the search text, or the ids it reads |
@@ -230,9 +230,7 @@ For repositories the substrate itself mounts, an agent can hand it a goal instea
 `run_goal_async` with a goal in plain language ("edit `repos/<vessel>/src/<file>`: <the change>"), then
 `goal_status` until it ends, then `goal_reasoning` for why it reached or fell short. Read **`reached`**, not
 `status`: `completed` with `reached: no` is common. Even a reach is checked against the actual diff or answer.
-A run whose purpose is to test the substrate rather than to get work done (a probe or a check) is dispatched with
-`learning_mode: "observe"` so it does not teach the substrate; the `learning:` line says what a walk actually
-recorded. After inspecting the result the agent may record its verdict (`provide_feedback`). After a miss it
+Every dispatch teaches the substrate: the `learning:` line says what a walk recorded. After inspecting the result the agent may record its verdict (`provide_feedback`). After a miss it
 tells you why and asks whether to retry, rephrase, or do the work itself.
 
 On any other repository the substrate has no copy of your code, so the agent does the work and the ledger and

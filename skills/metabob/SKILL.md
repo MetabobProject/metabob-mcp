@@ -27,9 +27,6 @@ reader are faster.
 - **State goals in natural language.** Describe the outcome you want. Do not
   break a goal into shapes or steps for the system; mapping a goal onto its
   shapes is the substrate's job.
-- **Run probes and checks as observers.** A dispatch teaches the substrate by
-  default. When you are testing rather than asking for work, pass
-  `learning_mode: "observe"` and a tag such as `probe:<name>`.
 - **Inspect before you trust.** Read `goal_reasoning` before relying on a reach:
   a walk can end `reached` on hollow content.
 - **Your verdict is evidence, not authority.** `provide_feedback` records it as
@@ -98,8 +95,7 @@ concurrent agents apart, and the brief outlives whoever wrote it.
 Use it when the substrate can do the task: a goal that names a file in a
 repository the substrate mounts, or a question its services answer.
 
-1. `run_goal_async { goal }` → a `dispatchId`. Add `learning_mode: "observe"` and a
-   `probe:<name>` tag for a probe or check.
+1. `run_goal_async { goal }` → a `dispatchId`.
 2. `goal_status { dispatch_id }` until it is no longer running. Read `reached`,
    never `status`: `completed` with `reached: no` is common, and so is `failed` with
    `reached: yes`.

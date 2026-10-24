@@ -70,7 +70,7 @@ describe('run_goal_async', () => {
     ].join('\n'));
   });
 
-  test('forwards learning_mode and tags so a probe can run in observe mode', async () => {
+  test('forwards learning_mode and tags as given', async () => {
     const stub = await installShapeStub({
       goalDispatchAsync: () => ({ status: 202, body: { dispatchId: 'd-o', status: 'running' } }),
     });

@@ -109,7 +109,8 @@ describe('W4 skill contract', () => {
       expect(SKILL.toLowerCase()).toContain(`role: ${role}`);
     }
     expect(SKILL).toContain('Never grade your own work');
-    expect(SKILL).toContain('learning_mode: "observe"');
+    // Dispatches teach the substrate: the skill does not steer agents to observe mode.
+    expect(SKILL).not.toContain('learning_mode');
     expect(SKILL).toContain('`automated`');
     // Paths the substrate does not yet stamp with a principal are never taught as capabilities.
     expect(SKILL).not.toMatch(/poolImpulse_write|execution-traces/);

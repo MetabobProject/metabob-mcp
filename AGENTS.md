@@ -38,7 +38,7 @@ does not load skills.
 8. **No secrets.** Never put a key, token or password in a finding, concept or goal; the outgoing guard refuses
    the call, and the fix is to remove or mask the value, never to disguise it.
 9. **Goals on the substrate** (`run_goal_async`, `goal_status`, `goal_reasoning`): read `reached`, not `status`;
-   dispatch a probe with `learning_mode: "observe"`; never grade your own work.
+   never grade your own work.
 
 ## Developing this repository
 

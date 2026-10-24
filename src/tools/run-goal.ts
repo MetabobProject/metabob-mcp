@@ -86,12 +86,12 @@ export const RunGoalTool = {
         type: 'string',
         enum: ['observe', 'learn'],
         description:
-          "goal-host's learning mode. `observe` runs the walk traced for audit (the trace is tagged `learning_mode:observe`), but it changes no posterior, goal path or credit — use it for probes and checks that should not teach the substrate. `learn` (goal-host's default) is a real learning run. Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
+          "goal-host's learning mode. `learn` is goal-host's default: the substrate learns from the walk. `observe` traces the walk tagged `learning_mode:observe` and asks goal-host not to learn from it; goal_status's `learning:` line says what goal-host recorded all the same (a goal path can be). Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
       },
       tags: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Tags carried onto the dispatch and its trace (for example `probe:<name>`).',
+        description: 'Tags carried onto the dispatch and its trace, beside the operator: and session: tags the server adds.',
       },
     },
   },
