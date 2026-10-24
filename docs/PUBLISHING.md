@@ -52,7 +52,9 @@ git push origin HEAD:dev             # CI and Package smoke run at this head: bo
 npm publish --dry-run
 npm publish
 npm info @metabob/mcp version
-npx -y @metabob/mcp@<x.y.z> --version
+# The alias form, as the plugins launch it: in this checkout, whose package.json has the package's name and
+# version, `npx -y @metabob/mcp@<x.y.z>` would take the checkout for the package and fail (`mcp: not found`).
+npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z> metabob-mcp --version
 
 # 4. Tag, and fast-forward main to the release commit
 git tag v<x.y.z> && git push origin v<x.y.z>
