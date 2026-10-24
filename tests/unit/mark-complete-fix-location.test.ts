@@ -84,11 +84,18 @@ describe('fixLocation', () => {
       .toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, claimed: true, elsewhere: true });
   });
 
-  test('a claimed fix commit must exist here, be in HEAD and postdate the finding', () => {
+  test('a claimed fix commit must exist here, be in HEAD, and postdate the finding or touch its files', () => {
     const dir = checkout('claim');
     const old = git(dir, 'rev-parse', 'HEAD');
+    // An old commit touching only util.ts: older than the finding and not on its files.
+    writeFileSync(join(dir, 'util.ts'), 'old elsewhere\n');
+    execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qam', 'old util'],
+      { env: { ...process.env, GIT_AUTHOR_DATE: HOUR_AGO, GIT_COMMITTER_DATE: HOUR_AGO } });
+    const oldElsewhere = git(dir, 'rev-parse', 'HEAD');
     const recorded = new Date();
-    expect(fixLocation(dir, ['stats.ts'], recorded, old)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('predates the finding') });
+    // A finding recorded after its fix was committed: the named commit touches its files, so it is the fix.
+    expect(fixLocation(dir, ['stats.ts'], recorded, old)).toEqual({ kind: 'commit', sha: old, branch: 'main', pushed: false, claimed: true, predates: true });
+    expect(fixLocation(dir, ['stats.ts'], recorded, oldElsewhere)).toMatchObject({ kind: 'rejected', reason: expect.stringContaining('predates the finding and touches none of its files') });
     expect(fixLocation(dir, ['stats.ts'], recorded, 'deadbeef')).toMatchObject({ kind: 'rejected', reason: 'deadbeef is not a commit in this checkout' });
     git(dir, 'checkout', '-qb', 'side');
     writeFileSync(join(dir, 'util.ts'), 'side\n');
@@ -110,6 +117,32 @@ describe('fixLocation', () => {
     git(dir, 'commit', '-qam', 'fix');
     const fix = git(dir, 'rev-parse', 'HEAD');
     expect(fixLocation(dir, ['stats.ts'], recorded, fix)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, claimed: true });
+  });
+
+  test('a file the fix deleted is known: the deleting commit is found, and can be named', () => {
+    const dir = checkout('deleted');
+    const recorded = new Date();
+    git(dir, 'rm', '-q', 'stats.ts');
+    git(dir, 'commit', '-qm', 'remove stats');
+    const removal = git(dir, 'rev-parse', 'HEAD');
+    expect(fixLocation(dir, ['stats.ts'], recorded)).toEqual({ kind: 'commit', sha: removal, branch: 'main', pushed: false });
+    expect(fixLocation(dir, ['stats.ts'], recorded, removal)).toEqual({ kind: 'commit', sha: removal, branch: 'main', pushed: false, claimed: true });
+    // A path git never knew is still absent.
+    expect(fixLocation(dir, ['never.ts'], recorded)).toEqual({ kind: 'absent' });
+  });
+
+  test('a finding on ignored files only is local to the checkout; an untracked file not ignored is still to be committed', () => {
+    const dir = checkout('ignored');
+    writeFileSync(join(dir, '.gitignore'), 'local.json\n');
+    git(dir, 'add', '.gitignore');
+    git(dir, 'commit', '-qm', 'ignore');
+    writeFileSync(join(dir, 'local.json'), '{}\n');
+    writeFileSync(join(dir, 'new.ts'), 'export {};\n');
+    const recorded = new Date();
+    expect(fixLocation(dir, ['local.json'], recorded)).toEqual({ kind: 'untracked' });
+    expect(fixLocation(dir, ['new.ts'], recorded)).toMatchObject({ kind: 'uncommitted' });
+    // One tracked file among them: the commit rules apply.
+    expect(fixLocation(dir, ['local.json', 'stats.ts'], recorded).kind).not.toBe('untracked');
   });
 
   test('commitInHead: HEAD\'s history yes, another branch\'s commit or an unknown one no, no git null', () => {
@@ -350,6 +383,34 @@ describe('mark_complete endorse', () => {
     expect(store.getSeedById('agf_avg1')?.stale).toBe(false);
     // Outside git, after the same calls, still "not a git checkout".
     expect(fixLocation(mkdtempSync(join(root, 'plain-')), ['stats.ts'])).toEqual({ kind: 'unknown' });
+  });
+
+  test('a fix committed before the finding was recorded closes it when named, and the verdict says so', async () => {
+    const dir = checkout('endorse-predates');
+    const before = git(dir, 'rev-parse', 'HEAD');
+    const store = seeded();
+    const stub = await db();
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_avg1', fix_commit: before.slice(0, 10) }), api, 's', store, dir);
+    expect(out).toContain('(named as the fix; it predates the finding, which was recorded after it)');
+    expect(store.getSeedById('agf_avg1')?.stale).toBe(true);
+    const content = String(stub.calls('concept_create_write')[0]!.conceptData.content);
+    expect(content).toContain(`fix: commit ${before}`);
+    expect(content).toContain('fix_predates_finding: yes');
+  });
+
+  test('a finding on an ignored file closes as local to this checkout', async () => {
+    const dir = checkout('endorse-ignored');
+    writeFileSync(join(dir, '.gitignore'), 'stats.local.json\n');
+    git(dir, 'add', '.gitignore');
+    git(dir, 'commit', '-qm', 'ignore');
+    writeFileSync(join(dir, 'stats.local.json'), '{}\n');
+    const { store } = makeTempStore('fixloc-ign-');
+    store.upsertSeed({ id: 'agf_ign1', workspace_id: 'default', file_path: 'stats.local.json', line_start: 1, line_end: 1, category: 'config', severity: 'LOW', brief: 'a stale local setting', confidence: 1, refs_json: '[]', produced_at: Date.now(), read_at: null, stale: false });
+    const stub = await db();
+    const out = await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_ign1' }), api, 's', store, dir);
+    expect(out).toContain('local to this checkout');
+    expect(store.getSeedById('agf_ign1')?.stale).toBe(true);
+    expect(String(stub.calls('concept_create_write')[0]!.conceptData.content)).toContain('fix: local (untracked files; no commit holds it)');
   });
 
   test('outside a git checkout an endorse closes the finding and says no commit is known', async () => {

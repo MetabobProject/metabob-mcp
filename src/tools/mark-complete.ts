@@ -119,9 +119,10 @@ const NO_FIX = new Set<FixLocation['kind']>(['none', 'absent', 'rejected']);
 function fixShown(loc: FixLocation): string {
   if (loc.kind === 'commit') {
     return `commit ${loc.sha.slice(0, 10)}${loc.branch ? ` on ${loc.branch}` : ''}${loc.pushed ? '' : ' (not on any remote branch yet)'}`
-      + (loc.claimed ? ' (named as the fix)' : '')
+      + (loc.claimed ? (loc.predates ? ' (named as the fix; it predates the finding, which was recorded after it)' : ' (named as the fix)') : '')
       + (loc.elsewhere ? ' — it touches none of the finding\'s files' : '');
   }
+  if (loc.kind === 'untracked') return 'local to this checkout: the finding\'s files are untracked or ignored, so no commit can hold the fix, and no other checkout can check it';
   if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
   return 'unknown (not a git checkout), so the finding is closed without a commit';
 }

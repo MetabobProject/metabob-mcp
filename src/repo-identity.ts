@@ -197,11 +197,16 @@ const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did
  * commit older than the finding cannot be its fix; with no recorded time no commit can be shown to.
  *
  * - `unknown`: not a git checkout.
- * - `absent`: a git checkout where none of `files` is known (not tracked and not on disk): not where the fix is.
+ * - `absent`: a git checkout where none of `files` is known (not on disk, not tracked, and not in its history): not
+ *   where the fix is. A file the fix deleted is in the history, so it is known.
+ * - `untracked`: none of `files` is tracked or in the history, and every one on disk is ignored (.gitignore): no
+ *   commit will hold the fix, so it is local to this checkout. Only when no fix commit is named. An untracked file
+ *   that is not ignored is a file still to be committed: `uncommitted`, as any other change.
  * - `uncommitted`, before anything else, when one of the finding's files has changes git has not committed — even
  *   with a claimed commit, which must not paper over a fix that is not committed yet.
  * - `commit`: `claimed` — the agent named the fix commit, and it resolves here, is in HEAD's history and postdates
- *   the finding (`elsewhere` when it touches none of the finding's files) — or else the newest commit since the
+ *   the finding (`elsewhere` when it touches none of the finding's files), or predates it but touches its files
+ *   (`predates`: a finding recorded after its fix was committed) — or else the newest commit since the
  *   finding touching its files. With its branch and whether a remote branch holds it; `awaitingMerge` (the branch
  *   it awaits, the origin's default branch when known) when every remote branch that holds it is a task branch
  *   (`<remote>/task/…`), which a review merges, so the fix is not integrated yet.
@@ -214,12 +219,13 @@ const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did
  *   can claim it when it is the fix.
  */
 export type FixLocation =
-  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean; awaitingMerge?: string }
+  | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean; predates?: boolean; awaitingMerge?: string }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
   | { kind: 'none'; newest?: { sha: string; files: string[] } }
   /** `claim`: the named fix_commit failed a check; otherwise the checkout could not be read. */
   | { kind: 'rejected'; reason: string; claim?: boolean }
   | { kind: 'absent' }
+  | { kind: 'untracked' }
   | { kind: 'unknown' };
 
 /** Allowance for the recording machine's clock running ahead of the committing machine's. */
@@ -233,15 +239,20 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const cwd = resolve(workspacePath);
   const top = fgitTry(cwd, ['rev-parse', '--show-toplevel']);
   if ('failure' in top) return top.failure === 'not_repo' || top.failure === 'missing' ? { kind: 'unknown' } : gitDidNotAnswer();
-  const paths = files.map(f => f.trim()).filter(Boolean)
-    .filter(f => existsSync(resolve(cwd, f)) || !!fgit(cwd, ['ls-files', '--', f]));
+  const named = files.map(f => f.trim()).filter(Boolean);
+  // Known to git: tracked now, or in the history (a file the fix deleted).
+  const known = named.filter(f => !!fgit(cwd, ['ls-files', '--', f]) || !!fgit(cwd, ['log', '-1', '--format=%H', '--', f]));
+  const paths = named.filter(f => known.includes(f) || existsSync(resolve(cwd, f)));
   if (!paths.length) return { kind: 'absent' };
+  // git check-ignore answers by its exit status alone: 0 (an answer) when the path is ignored.
+  const ignored = (f: string) => 'out' in fgitTry(cwd, ['check-ignore', '-q', '--', f]);
+  if (!known.length && !fixCommit && paths.every(ignored)) return { kind: 'untracked' };
   const ref = fgit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = ref && ref !== 'HEAD' ? ref : undefined;
   const base = fgit(cwd, ['rev-parse', 'HEAD']) || undefined;
   const timed = !!recordedAt && Number.isFinite(recordedAt.getTime());
   const after = timed ? recordedAt!.getTime() - FIX_SKEW_MS : NaN;
-  const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean } = {}): FixLocation => {
+  const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean; predates?: boolean } = {}): FixLocation => {
     const remotes = (fgit(cwd, ['branch', '-r', '--contains', sha]) ?? '').split('\n').map(b => b.trim()).filter(b => b && !b.includes(' -> '));
     const awaiting = remotes.length > 0 && remotes.every(b => /^[^/]+\/task\//.test(b));
     return { kind: 'commit', sha, branch, pushed: remotes.length > 0, ...extra, ...(awaiting ? { awaitingMerge: defaultBranch(cwd) } : {}) };
@@ -265,8 +276,12 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
     if (!timed) return { kind: 'rejected', reason: 'the finding has no recorded time, so no commit can be shown to postdate it', claim: true };
     const at = Date.parse(fgit(cwd, ['show', '-s', '--format=%cI', sha]) ?? '');
     if (!Number.isFinite(at)) return { kind: 'rejected', reason: `the commit time of ${sha.slice(0, 10)} could not be read, so it cannot be shown to postdate the finding; try again`, claim: true };
-    if (at < after) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding, so it cannot be its fix`, claim: true };
     const touches = !!fgit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', sha, '--', ...paths]);
+    // A finding recorded after its fix was committed: the named commit is taken when it touches the finding's files.
+    if (at < after) {
+      if (!touches) return { kind: 'rejected', reason: `${sha.slice(0, 10)} predates the finding and touches none of its files, so it cannot be its fix`, claim: true };
+      return commit(sha, { claimed: true, predates: true });
+    }
     return commit(sha, { claimed: true, ...(touches ? {} : { elsewhere: true }) });
   }
 
