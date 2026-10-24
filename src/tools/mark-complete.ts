@@ -146,7 +146,7 @@ export const MarkCompleteTool = {
       },
       fix_commit: {
         type: 'string',
-        description: 'Endorse only: the commit that fixes it, when that commit does not touch the finding\'s files (the symptom is in one file, the fix in another). It must be in this checkout\'s HEAD and postdate the finding.',
+        description: 'Endorse only: the commit that fixes it, when no commit since the finding touches its files: a fix in another file (the symptom is in one file, the fix in another), or a fix committed before the finding was recorded. It must be in this checkout\'s HEAD, and postdate the finding or touch its files.',
       },
     },
     required: ['problem_id'],
