@@ -19,8 +19,8 @@ There is no `@metabob/cpg-inference` entry in `package.json` and no npm
 resolution involved — it is source that gets bundled into `dist/cli.js`.
 
 `bun run preflight` (`scripts/verify-vendor.ts`) fails the build when
-`vendor/cpg-inference/src/index.ts` or `vendor/cpg-inference/include` is
-absent; the fix is `git submodule update --init --recursive`.
+`vendor/cpg-inference/src/index.ts` is absent; the fix is
+`git submodule update --init --recursive`.
 
 ## Preconditions
 
@@ -32,34 +32,34 @@ absent; the fix is `git submodule update --init --recursive`.
 
 ## Workflow
 
+The plugins pin the server to the package's exact version (README § Agent plugins), so a version bump regenerates
+them in the same commit, and the package is published before `main` moves: plugin marketplaces clone `main`, and a
+pinned version that is not on npm yet cannot start.
+
 ```bash
-# 1. Type check + build
-bun run typecheck
-bun run build
+# 1. Bump the version and regenerate the plugin bundles, which pin it
+npm version --no-git-tag-version <x.y.z>
+node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
+bun install --frozen-lockfile        # the lockfile is unchanged by a version bump
 
-# 2. Verify package contents (dist/cli.js, README.md, LICENSE)
-npm pack --dry-run
+# 2. Check, then commit the release on dev
+bun run typecheck && bun run build && bun run test
+npm pack --dry-run                   # dist/, skills/, README.md, LICENSE; no other files
+git commit -am "chore(release): <x.y.z>"
+git push origin HEAD:dev             # CI and Package smoke run at this head: both green on every job
 
-# 3. Bump version (patch / minor / major)
-npm version minor   # patch | minor | major
-
-# 4. Dry run publish
+# 3. Publish, then verify the published package
 npm publish --dry-run
-
-# 5. Publish
 npm publish
+npm info @metabob/mcp version
+npx -y @metabob/mcp@<x.y.z> --version
 
-# 6. Verify
-npm info @metabob/mcp
-npx @metabob/mcp@latest --version
-
-# 7. Land the version commit on dev, then fast-forward main
-git push origin HEAD:dev
-git push origin main          # allowed: version bumped + commit already on dev
-git push origin --tags
+# 4. Tag, and fast-forward main to the release commit
+git tag v<x.y.z> && git push origin v<x.y.z>
+git push origin HEAD:main            # allowed: version bumped, and the commit is already on dev
 ```
 
-For pre-release: `npm publish --tag beta`
+For a pre-release, publish with `npm publish --tag beta` and leave `main` where it is.
 
 ## Troubleshooting
 

@@ -1063,6 +1063,7 @@
         "tests/unit/doclinks.test.ts"
       ],
       "docs/PUBLISHING.md": [
+        "scripts/build-plugins.mjs",
         "scripts/verify-vendor.ts",
         "src/cli.ts",
         "src/cpg-inference.ts",
