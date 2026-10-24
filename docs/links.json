@@ -150,12 +150,12 @@
         "why": "index.ts and local-index.ts changed init_workspace's binding (existing directory only, never the plugin folder); the WORKSPACE_PATH row's workspace_undetermined text and the local-index row still hold"
       },
       "README.md": {
-        "at": "b3080d1",
-        "why": "the skill's workspace_undetermined line now asks for an absolute path; README's Agent plugins text (init_workspace with the project's root) still holds"
+        "at": "661c82f",
+        "why": "the skill dropped its probe/observe advice; README gives none, and its plugin text is unchanged"
       },
       "docs/CONFORMANCE.md": {
-        "at": "b3080d1",
-        "why": "index.ts changed only the order of the first workspace decision; no participation requirement or its evidence changes"
+        "at": "661c82f",
+        "why": "_findings.ts gained the fix lines for a predating claim and ignored files, and run-goal.ts only its learning_mode and tags descriptions; no participation requirement or its evidence changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
