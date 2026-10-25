@@ -1,8 +1,7 @@
 # Metabob MCP user guide
 
 This guide is for a person who works with an AI coding agent (Claude Code, Cursor, Codex, Continue or any MCP
-client) and wants that agent to take part in Metabob. It describes the development tree of `@metabob/mcp`;
-items marked **(0.3.5)** are not in the published 0.3.4. Exact tool parameters are in the
+client) and wants that agent to take part in Metabob. Exact tool parameters are in the
 [specification](SPEC.md); installation details per client are in the [README](../README.md).
 
 ## 1. What it is for
@@ -210,9 +209,9 @@ same file.
 **Give each agent a brief with stated ownership.** Record one finding per unit of work, with the files it owns,
 the test bar and what is out of bounds in its details, then give each agent only its id. It recalls its own
 brief, and the brief outlives whoever wrote it. Findings in category `task` are listed apart from problems,
-grouped as yours, unclaimed, someone else's and pending **(0.3.5)**.
+grouped as yours, unclaimed, someone else's and pending.
 
-**Claims (0.3.5).** Before starting on a finding another agent could also take (a task or any other finding), an agent claims it
+**Claims.** Before starting on a finding another agent could also take (a task or any other finding), an agent claims it
 (`claim_finding`): recall then shows `[claimed by … until …: someone is working on it]`. A claim lasts 60
 minutes by default (at most 240) and is renewed for longer work. The store has no lock, so two agents can claim
 at once; one rule every reader applies decides the holder (the earliest live claim, the lower concept id on a
@@ -237,7 +236,7 @@ On any other repository the substrate has no copy of your code, so the agent doe
 memory remain its coordination. The server receives no work from the substrate: `pull_assigned_work` says no
 task can arrive in a session.
 
-## 8. Agent cells (0.3.5)
+## 8. Agent cells
 
 An agent can also run unattended in a container, one task at a time:
 
@@ -253,7 +252,7 @@ only once its fix is merged into the target branch on the origin, never over a r
 `lab/cell.sh` builds such a cell with a pinned harness and caps (lab/README.md, "Agent cell").
 
 For scoring how agents use the tools in any harness, `METABOB_CALL_LOG=<file>` appends one line per tool call
-(tool, argument names and sizes, outcome, duration; never a value) **(0.3.5)**.
+(tool, argument names and sizes, outcome, duration; never a value).
 
 ## 9. Memory that improves with use
 
@@ -274,7 +273,7 @@ the conditions that would invalidate the advice in the content; they are convent
 | A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
 | "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
 | A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |
-| The close says the commit predates the finding | That commit is not the fix; `fix_commit` refuses an older commit too |
+| The close says the commit predates the finding and touches none of its files | That commit is not the fix; name the commit that changed the finding's files |
 | The close says no commit since the finding touches its files | If the fix is in other files, name its commit with `fix_commit` |
 | The close says the commit is on no remote branch | Push it, then endorse again |
 | The close says the commit is only on task branches | It awaits review: once merged, fetch and endorse again, or run `finding close` |
