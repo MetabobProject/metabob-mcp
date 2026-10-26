@@ -160,7 +160,12 @@
         "src/attached-marker.ts",
         "src/config.ts",
         "src/attach-check.ts",
-        "src/cli.ts"
+        "src/cli.ts",
+        "src/tools/_findings.ts",
+        "src/tools/record-finding.ts",
+        "src/tools/concept-create.ts",
+        "src/call-log.ts",
+        "src/tool-allowlist.ts"
       ],
       "docs/SUBSTRATE-GUIDE.md": [
         "src/tool-allowlist.ts",
@@ -1170,6 +1175,7 @@
         "docs/USER-GUIDE.md",
         "lab/cell/entrypoint.sh",
         "scripts/claude-plugin/edit-check.mjs",
+        "scripts/doclinks.mjs",
         "src/attachment.ts@DEFAULT_HEARTBEAT_MS",
         "src/call-log.ts@logCall",
         "src/finding-close.ts@runFindingClose",
@@ -1186,6 +1192,7 @@
         "src/task-pull.ts@validRef",
         "src/tool-allowlist.ts@parseToolAllowlist",
         "src/tools/_claims.ts@claim-holder",
+        "src/tools/_findings.ts@fetchAgentFindings",
         "src/vessel-identity.ts@resolveVesselId"
       ],
       "docs/DOCLINKS.md": [
