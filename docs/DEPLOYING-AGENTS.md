@@ -1138,11 +1138,11 @@ passes the tests the observations became.
   objective is to use, investigate, test, review or operate the repository, rather than change it, names a
   `subject` (an issue, a document, a service, a topic) in place of `files`, and still belongs to the repository's
   ledger:
-  - `record_finding` takes `files`, a `subject`, or both; it refuses neither;
+  - `record_finding` takes `files`, a `subject`, or both, and refuses a call with neither;
   - `mark_complete endorse` closes a task that names no file at once, writing its `outcome` (the answer, the cause
     found, the test results, the review, the deploy's result) and `evidence` (a PR, an issue comment, a report, a
     run log) on the verdict, and recall lists it `[DONE]` with the outcome;
-  - a task that names files closes as before: in a git checkout with a remote, once a commit since the task that
+  - a task that names files closes by its commit: in a git checkout with a remote, once a commit since the task that
     touches its files (or one named with `fix_commit`, in HEAD's history) is on a remote branch other than
     `task/…`; while the fix is uncommitted, unpushed or only on a task branch, the task stays `fix pending`; and a
     checkout that knows none of the files writes no verdict;
