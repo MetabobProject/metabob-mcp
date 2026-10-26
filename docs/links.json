@@ -177,8 +177,8 @@
         "why": "the rc.1 bump changes only the pinned version in the bundles; README names it as <version>"
       },
       "docs/CONFORMANCE.md": {
-        "at": "ccf6507",
-        "why": "the instructions base and the unknown-name warning change no participation requirement"
+        "at": "15e91cf",
+        "why": "vessel-server.ts re-exports the allowlist rule from src/tool-allowlist.ts; no participation requirement or its evidence changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
