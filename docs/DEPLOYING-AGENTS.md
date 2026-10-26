@@ -17,11 +17,11 @@ policy even while it is only proposed.
 |---|---|
 | Task | An open finding in category `task`: work recorded on the ledger for an agent to take |
 | Cell | One task, one container, one fresh clone (§ 2 Agent cells) |
-| R1, R2 | The two rules that decide which guidance is in effect. R1: when two ledger items conflict, a person rules, and until then both stay flagged. R2: a policy an agent proposes stays pending until a different key endorses it. The dashboard is where people apply them; the server applies neither (§ 4 Ledger content) |
+| R1, R2 | The two rules meant to decide which guidance is in effect. R1: when two ledger items conflict, a person rules, and until then both stay flagged. R2: a policy an agent proposes stays pending until a different key endorses it. The dashboard is where people apply them; the server applies neither (§ 4 Ledger content) |
 | `repo_anchor` | The concept that stands for one repository in the shared memory. Decisions, conventions and review criteria are linked to it, so an agent reads a repository's memory by following the links into it (`concept_neighbors`). The `metabob` skill finds it with `concept_search { shape: "repo_anchor" }` and creates it when there is none |
 | Cockpit tool | One of the operator tools beyond the default set (goals, traces, the registry, `path_activity`), listed only under `METABOB_TOOLS=all` or a list that names it. Listing `path_activity`, `run_goal_async` or `run_goal` (`src/server-instructions.ts@COCKPIT_TOOLS`) switches the instructions and the skill to `metabob-substrate` (§ 4) |
 | Unmounted | A repository `path_activity` reports as one the shared service may not mount: none of the system's own open gaps names it, so the tool checks none of its paths, and the edit check asks for `get_problems` only |
-| The substrate installer | The setup for a local substrate, which writes the API key and endpoint into `~/.substrate/config.json`; on a machine it set up, the server needs no other configuration (README § Quick Start). A worker of the hosted service does without it: its key and discovery address go in a config file (§ 1) |
+| The local installer | The setup for a substrate on your own machine, which writes the API key and endpoint into `~/.substrate/config.json`; on a machine it set up, the server needs no other configuration (README § Quick Start). A worker of the hosted service does without it: its key and discovery address go in a config file (§ 1) |
 
 ## 1. The pieces
 
@@ -175,7 +175,8 @@ Its first line is the summary, the whole text is the brief, severity defaults to
 - **Start:** one session per task, each in **its own working copy** (a separate clone or a `git worktree`), each
   told only its task id ("work task agf_…").
 - **Key:** one per worker.
-- **Reads and writes:** each reads its brief with `get_problems`, claims it with `claim_finding`, stays inside the
+- **Reads and writes:** each finds its task with `get_problems` (summary, files, holder and concept id) and reads
+  the brief with `concept_search { concept_id }`, claims it with `claim_finding`, stays inside the
   task's `Owns:` files, and closes it with `mark_complete` after committing and pushing.
 - **Stops:** when its task is closed or handed off.
 
@@ -193,7 +194,8 @@ told everything and allowed exactly what it needs.
 
 ```bash
 cd /path/to/checkout
-timeout 1800 claude -p "Work task agf_…: read it with get_problems, claim it, do it, commit with the
+timeout 1800 claude -p "Work task agf_…: find it with get_problems, read its brief with concept_search
+{ concept_id: <its concept id> }, claim it, do it, commit with the
 trailer 'Fixes-Finding: agf_…', push, then mark_complete it." \
   --mcp-config ./metabob-mcp.json --strict-mcp-config \
   --permission-mode acceptEdits --allowedTools "mcp__metabob" "Bash(git:*)" \
@@ -292,6 +294,7 @@ for i in $(seq 1 20); do
     timeout 1800 claude -p "Work task $id. Read $task and $round/task/context.md first. Commit with a \
 message whose last line is: Fixes-Finding: $id. Do not push." \
       --mcp-config /path/to/loop-mcp.json --strict-mcp-config --permission-mode acceptEdits \
+      --add-dir "$round/task" \
       --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" --max-budget-usd 5 &&
     git fetch origin main && git rebase origin/main &&
     git rev-list origin/main..HEAD > "$round/commits" &&
@@ -387,6 +390,9 @@ from `--task`, else `/task/task.json`):
 | Merged, then reverted on the target | Reported as reverted; nothing written |
 | Pushed to some branch, not merged (as under `review`) | `fix pending (awaiting merge)`; run `finding close` again after the merge |
 | On no remote branch | Reported as unpushed; nothing written |
+| Not an open finding of this repository | Reported as unknown; nothing written |
+| Already closed | Reported as already closed; nothing written |
+| The close or the pending verdict could not be written | Reported as refused, with the reason |
 
 Its exit codes are 0 (done, each finding's outcome reported), 2 (not attached) and 1 (any other failure, including a
 failed fetch). List the commits with `git rev-list origin/main..HEAD` after the rebase, never `<base>..HEAD`,
@@ -401,7 +407,7 @@ took as someone else's and takes another task. The lab cell's entrypoint sets it
 **Resuming a cell's task.** `task pull` takes a task its identity already holds before any other, but only into
 task and work directories that are empty or missing; anything else exits 1 (`src/task-pull.ts@runTaskPull`). So:
 
-- **Restarting the same container exits 1.** The lab entrypoint never clears `/task` or `/work`, and both survive
+- **Restarting a container whose pull succeeded exits 1.** The lab entrypoint never clears `/task` or `/work`, and both survive
   a restart in the container's filesystem.
 - **A new container without `CELL_VESSEL_ID` cannot resume.** It has a new hostname, so a new
   `metabob-cell-<hostname>` identity, which reads the old claim as someone else's.
@@ -490,7 +496,7 @@ A claim is how a worker says it has a task (`claim_finding`; SPEC § claim_findi
 | End | The claim's start plus its minutes, by the shared clock; readers treat it as live until two minutes past that |
 | Contest | Two workers can both write a claim; every reader picks the same holder, the earliest live claim, the lower id on a tie (`src/tools/_claims.ts@claim-holder`), and the later claimer withdraws |
 | Close | A verdict that closes the finding, by anyone, ends every claim on it (a pending endorse does not); an endorse of a finding someone else holds goes ahead, and the reply names their claim |
-| Stop | A server shutting down normally releases the claims its session took through `claim_finding`; a kill or crash leaves them to lapse; `task pull`'s claim outlives its own process |
+| Stop | A server shutting down normally releases the claims its session took through `claim_finding`; a kill or crash leaves them to lapse; `task pull`'s claim outlives its own process and the harness, even when the agent claims or renews it again under the same identity |
 
 A claim is advisory: it keeps honest workers off one task, it does not lock files. The Ledger screen marks two live
 claims on one file as an overlap.
@@ -530,8 +536,9 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 
 - **Ask for a handoff.** A worker told to stop writes a `task_handoff` linked to its task and releases its claim,
   so the next worker can start at once.
-- **Kill it.** A worker stopped without a release leaves its claim live until its end (plus the two-minute skew),
-  then the task is free again. Nobody else can take it before then, short of closing the finding. A new cell
+- **Kill it.** A worker whose server shuts down normally (the client exits, or `timeout` sends SIGTERM) releases
+  the claims it took through `claim_finding`. A worker killed outright (SIGKILL) or crashed, and a cell's claim from
+  `task pull`, stay live until their end (plus the two-minute skew), then the task is free again. Nobody else can take it before then, short of closing the finding. A new cell
   container under the same identity resumes a task that identity still holds (§ 2 Agent cells).
 - **Cut it off.** Revoke its key in Access.
 - **Take the task off the queue.** Triage it in the dashboard's Ledger (resolved or retracted), or close it with

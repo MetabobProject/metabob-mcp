@@ -151,8 +151,9 @@ export interface ClaimOptions {
 /**
  * The claims this server process holds through claim_finding, by finding key, so they are released when it shuts
  * down (SPEC §claim_finding): a session that stops while holding a task otherwise blocks it until the claim lapses.
- * Only the tool records here; `task pull` calls claim() directly, so its claim outlives its own process for the
- * cell's harness to work. A kill or a crash releases nothing, and the claim lapses at its end.
+ * Only a claim the tool takes is recorded here; `task pull` calls claim() directly, so its claim outlives its own
+ * process for the cell's harness to work, and the harness's server renewing it under the same identity does not
+ * record it either. A kill or a crash releases nothing, and the claim lapses at its end.
  */
 const sessionClaims = new Map<string, { problemId: string; repo: RepoIdentity | null | undefined; localStore: LocalStore | null | undefined }>();
 
@@ -166,7 +167,8 @@ export async function handle(
   const result = await claim(input, sessionId, localStore, opts);
   reportResult(result.outcome);
   if (result.key) {
-    if (result.outcome === 'claimed' || result.outcome === 'renewed') sessionClaims.set(result.key, { problemId: input.problem_id, repo: opts.repo, localStore });
+    // A renewal adds nothing: a claim this process did not take (task pull's, under the same identity) outlives it.
+    if (result.outcome === 'claimed') sessionClaims.set(result.key, { problemId: input.problem_id, repo: opts.repo, localStore });
     else if (['released', 'lost', 'closed', 'held'].includes(result.outcome)) sessionClaims.delete(result.key);
   }
   return result.message;

@@ -153,6 +153,16 @@ describe('claim_finding', () => {
     expect(rows).toHaveLength(1);
   });
 
+  test("a claim task pull took, claimed again through the tool under the same identity, outlives the server", async () => {
+    await db();
+    const store = seeded();
+    expect((await ClaimFinding.claim(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1' }), 's1', store, { pauses: [0, 0, 0] })).outcome).toBe('claimed');
+    expect(await run(store)).toContain('Renewed your claim');
+    expect(await run(store, { action: 'renew', minutes: 90 })).toContain('Renewed your claim');
+    expect(ClaimFinding.heldSessionClaims()).toEqual([]);
+    expect((await ClaimFinding.releaseSessionClaims('s1', 5_000)).released).toEqual([]);
+  });
+
   test('a finding another agent holds is reported with its holder and not claimed', async () => {
     const { rows } = await db({ rows: [other('claimed', Date.now() - MIN, `claim_until: ${new Date(Date.now() + 30 * MIN).toISOString()}\n`)] });
     const out = await run(seeded());

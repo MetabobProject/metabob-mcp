@@ -964,7 +964,8 @@ took through `claim_finding` and still holds. On a normal shutdown (stdin EOF, a
 SIGHUP) it releases each one, best effort, within 5 s altogether, while the attachment is still up, and logs which
 it released. A finding closed since is left alone, as is one another agent holds now. A kill or a crash releases
 nothing: the claim lapses at its end, as it always does. `task pull` claims outside the tool, so its claim
-outlives its own process for the cell's harness to work.
+outlives its own process for the cell's harness to work; the harness's server claiming or renewing it again under
+the same identity answers `renewed`, which the server does not keep, so that claim outlives the harness too.
 
 **The read window.** Claims are found as verdicts are (§ get_problems, verdicts past the window): the `finding_verdict` list read the recall uses, and, when that read is truncated, the verdicts and claims linked to each recalled finding, read through `conceptGraph`.
 
