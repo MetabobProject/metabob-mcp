@@ -214,8 +214,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "b815f8d",
-        "why": "the skill's limit wording matches what README's tool rows already say about subject and outcome closes"
+        "at": "036b943",
+        "why": "the rc.3 bump changes only the pinned version in the bundles; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
