@@ -59,8 +59,8 @@ investigate, test, review or operate it:
 
 Producers are as varied: a new GitHub issue, an email to a support address, a CI alert for a vulnerable
 dependency, a schedule, or a person asking. Each iteration is short and forgets everything; the loop remembers
-because each iteration writes down its state and its outcome. Today every task is anchored to a file and closed by
-a commit, so a task whose objective is not a change records its outcome in a file it commits (§ 6 says how).
+because each iteration writes down its state and its outcome. A task whose objective is not a change records its
+outcome in a file it commits (§ 6).
 
 What Metabob gives a loop:
 
@@ -107,7 +107,8 @@ each):
 - **The queue**: `get_problems` counts the open tasks (yours, unclaimed, claimed by others, with a fix pending) and
   the closed ones. Tasks generated against tasks closed says whether the loop converges.
 - **Pending fixes and handoffs**: work done but not yet integrated, and work stopped short with its next steps.
-- **Credits**: how often the memory a loop builds is loaded and whether it helped, which is memory reuse.
+- **Credits**: how often agents recorded using the memory a loop builds (`concept_record_usage`), and whether it
+  helped; reads are not counted.
 - **The dashboard's Ledger and Activity**: the tree of tasks, claims and guidance, and one line per act.
 - **`METABOB_CALL_LOG`**: on each worker's machine, the order of its calls and what each claim and close did.
 
@@ -239,9 +240,16 @@ dashboard is what the next consumer reads.
 
 **Which policies count is part of the base prompt.** The server applies neither R1 nor R2 when an agent reads
 memory: a policy an agent proposed (`status: proposed` in its header) reads just like one a person endorsed, and a
-rejected one like one in effect. The base prompt says which count, for example: "Follow a policy only when a person
-authored it (no `status:` line) or endorsed it; treat a `status: proposed` item as a suggestion, and do not act on
-one that conflicts with an endorsed policy."
+rejected one like one in effect. Recall that applies R1 and R2 is how the system is meant to work; the server
+applies neither, so the base prompt does. An endorsement or a rejection is not a change to the policy's own text:
+the proposal keeps its `status: proposed` line, and the dashboard writes a separate `finding_verdict` (`concept:
+<the policy's id>`, `verdict: endorsed` or `verdict: rejected`, `origin: dashboard`) linked to it with
+`derived_from`. Anyone can also leave the `status:` line out. So the base prompt says, for example:
+
+> Before following a `project_convention`, `constraint` or `review_criterion`, read
+> `concept_neighbors { concept_id: "<its id>", direction: "incoming" }`. It counts when a linked verdict says
+> `verdict: endorsed` with `origin: dashboard` and none says `verdict: rejected`, or when it has no `status:` line
+> and its author is one of: <the keys or authors you trust>. Otherwise treat it as a suggestion.
 
 ### Producers and consumers
 
@@ -263,7 +271,8 @@ allowed by name, the metabob tool set (Tool sets, below), a key of its own, and 
 **When something is missing**, a permission, a tool, an input it cannot read, the agent surfaces it in place as a
 finding for a person rather than working around it: `record_finding` on the run's own definition (its CI workflow
 or container file), saying what it needed and what it could not do. *Needs you* lists a finding of high or critical
-severity, and any finding unclaimed for more than 48 hours.
+severity, and any finding unclaimed for more than 48 hours; a task never escalates there. So record a missing
+capability as a finding (a category other than `task`) at high severity when a person should see it at once.
 
 **Input is not authority.** Issue text, email, advisories and memory itself can be wrong or hostile: anyone can
 open an issue or send a mail, and any key with `write` can record a policy. A consumer checks what it reads against
@@ -333,6 +342,11 @@ Two rules decide what is in effect, and the dashboard is where people apply them
 An agent reads these items through `concept_search` by shape and through the anchor's links, and keeps the ones
 its base prompt says count (Base and specific behaviour, above). The one place the server itself reads conventions
 is `task pull`'s integration policy, which takes a trusted author's convention whatever its proposal state (§ 7).
+It reads the 50 most relevant `project_convention` concepts across the whole organization and then keeps the
+repository's (`src/task-pull.ts@readConventions`), and it takes `push_to:`, `integrate:` and `conflicts:` from any
+line of a convention, not only its header. So many policies recorded from docs can push a repository's integration
+convention out of those 50, and a doc rule that quotes `push_to: main` on a line of its own steers cells. Put the
+integration lines in each task's `details`, and keep them out of policies recorded from docs.
 
 ### Tool sets
 
@@ -395,14 +409,14 @@ record the numbers you care about in each iteration's handoff, where the next it
 | Tasks generated against tasks closed | Activity's `created task` lines against `endorsed` and `discarded`, per worker key; or the Tasks header's counts from one iteration's handoff to the next | Dashboard, or the default set |
 | Is work stuck before integration? | The `with a fix pending` count and the `fix pending` tags in `get_problems`; Activity's `fix pending` lines | Default set |
 | Are iterations finishing or handing off? | `task_handoff` concepts linked to tasks (`concept_neighbors { direction: "incoming" }` on a task); Activity's `released` lines | Default set |
-| Is the memory reused? | Each `concept_search` result's relevance and its loaded, succeeded and failed counts | Default set |
+| Is the memory reused? | Each `concept_search` result's relevance and its loaded, succeeded and failed counts. Only `concept_record_usage` (and `mark_complete` on a finding) grows them; `concept_search` and `concept_neighbors` record nothing | Default set |
 | Which memory helped, and when? | `concept_usage_stats`: a concept's uses, success and failure rates, and its recent usage rows | `METABOB_TOOLS=all` |
 | What did each iteration do? | `METABOB_CALL_LOG`: per call, the outcome, and the result of `claim_finding` (`claimed`, `held`, `lost`, …) and `mark_complete` (`ok`, `pending`, `not_applied`, `not_shared`) | The worker's machine |
 | What landed? | Git history: `git log --grep '^Fixes-Finding:' --format='%h %ad %s' --date=short` lists the commits that name a finding | Git |
-| Are people keeping up? | *Needs you*; for a repository's proposals, conflicts and rulings, the dashboard repository's own ledger metrics script (`npm run ledger-metrics` in a checkout of that repository): time to a decision, uptake of endorsed policies, re-proposals after a rejection | Dashboard |
+| Are people keeping up? | *Needs you*; for a repository's proposals, conflicts and rulings, the dashboard repository's own ledger metrics script (`npm run ledger-metrics` in a checkout of that repository, with `DISCOVERY_BASE` and `LEDGER_KEY` set or a `.metabob/config.json`; `--record` writes the results as a concept): time to a decision, uptake of endorsed policies, re-proposals after a rejection | Dashboard |
 
 Signs a loop is working: the open count falls or holds while the closed count grows; the pending count stays
-small; lost claims are rare; and the concepts the loop wrote gain loads and successes. Signs it is not: open tasks
+small; lost claims are rare; and the concepts the loop wrote gain recorded uses and successes. Signs it is not: open tasks
 grow faster than closes, findings recorded by iterations are never closed, the same summary comes back as `Already
 recorded (open)` run after run, and a concept collects `failure` credits with no correction linked by
 `contradicts`. Those are the places to change a policy, the skill or the brief.
@@ -425,8 +439,11 @@ and triage it; the triage policies it follows are on the ledger. The harness's o
 records the result, and the tasks it records are what consumers take.
 
 - **Capabilities.** `gh` with a token that can read issues and set labels and comments on this repository and
-  nothing else, allowed by name (`--allowedTools "Bash(gh issue view:*)" "Bash(gh issue edit:*)" "Bash(gh issue
-  comment:*)" "mcp__metabob"`); the default tool set; its own key (`issue-triage`).
+  nothing else, allowed by name; the default tool set; its own key (`issue-triage`):
+
+  ```bash
+  --allowedTools "Bash(gh issue view:*)" "Bash(gh issue edit:*)" "Bash(gh issue comment:*)" "mcp__metabob"
+  ```
 - **Each run consumes** the issue (`gh issue view <n> --json title,body,labels`), the open tasks and findings on the
   files it concerns (`get_problems { file_path }`), and the triage policies (`concept_search { shape:
   "project_convention", query: "issue triage" }`).
@@ -482,6 +499,7 @@ which clears the drift warning until the code moves again:
 
 ```bash
 node scripts/doclinks.mjs reviewed docs/SPEC.md --why "the change renames a local; no documented behaviour moves"
+git add docs/links.json && git commit -m "docs(links): record the SPEC review"   # reviewed writes docs/links.json
 ```
 
 Without such a database, the signal is any mapping from code paths to the docs that describe them; the loop is
@@ -1055,8 +1073,7 @@ findings record the runs and their results, and follow-ups generate more runs.
 - **Record files.** Each task is anchored to a tracked file the run commits its result into (§ 6): a results file
   per run (`runs/<run>/RESULTS.md`), a notes file per question (`questions/<topic>.md`). The file must not be
   ignored by `.gitignore` (a finding on ignored files closes as local, with no commit), and the harness needs an
-  `origin` remote, since without one its ledger is keyed by the directory's name and shared with every repository
-  of that name.
+  `origin` remote, since `task pull` clones the origin and `finding close` fetches it.
 - **Seed.** One task per run, input shard or question; `decision_record` concepts for the method (the grader, the
   metric, and the ones rejected, with why).
 - **Each iteration consumes** one run task: it runs the scripts, writes the results file and commits; the cell's
@@ -1117,18 +1134,19 @@ passes the tests the observations became.
   scheduler on a timer or on each merge (§ 5 Scheduled runs).
 - **Every task is anchored to a file and closed by a commit.** That is how the product works today, and so how a
   task whose objective is to use, investigate, test, review or operate the repository runs, rather than change it.
-  A change that allows tasks without files, closed by their outcome, is under way; until it ships:
+  A change that allows tasks without files, closed by their outcome, is under way. Today the ledger works this way:
   - `record_finding` requires at least one file (`files`); memory concepts (`concept_create`) need none;
-  - `mark_complete endorse` closes a task when a commit since the task touches its files, or when the agent names
-    the commit with `fix_commit`; otherwise the task stays open, or `fix pending` while the commit is uncommitted,
-    unpushed or awaiting merge, and a git checkout that knows none of the files writes no verdict;
+  - in a git checkout with a remote, `mark_complete endorse` closes a task once a commit since the task that
+    touches its files (or one named with `fix_commit`, in HEAD's history) is on a remote branch other than
+    `task/…`; while the fix is uncommitted, unpushed or only on a task branch, the task stays `fix pending`; and a
+    checkout that knows none of the files writes no verdict;
   - `task pull` clones a git repository, and `finding close` reads the commits there.
 
   So give each such task a record file in the repository it works out of (`records/<task>.md`, tracked and not
   ignored; the repository needs an `origin` remote). Record the task on that file; the consumer writes its outcome
   there (the answer, the cause found, the test results, the review, the deploy's result, the reply sent to an
-  email) and commits it, and the close records that commit. A task that operates or tests the repository thus
-  closes when the record of what happened is committed. The § 5
+  email) and commits and pushes it, and the close records that commit. A task that operates or tests the
+  repository thus closes when the record of what happened is committed and pushed. The § 5
   worked example (using a repository as a harness) runs this way.
 - **Recall reads a bounded window.** `get_problems` and `task pull` read findings and verdicts across the whole
   organization in pages of 300 of each kind, relevance first, then newest: up to four pages when the service pages,
