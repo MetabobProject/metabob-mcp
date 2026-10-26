@@ -643,6 +643,9 @@ every consumer from its next round.
 - Give parallel workers separate working copies and disjoint `Owns:` lists; claims keep them off one task only.
 - Name the policies that count in the base prompt (endorsed from the dashboard, or recorded by people or by
   VESSEL_IDs you trust); the server reads a proposed or rejected policy like an endorsed one.
+- Give write-scope keys only to agents you trust: any write key can put `recorded_by: dashboard:` or `reviewed_by:
+  dashboard:` lines in what it writes, and the server shows agents no other sign of who wrote a concept, so those
+  lines can be imitated.
 - Keep integration lines (`push_to:`, `integrate:`) in task details, not in policies.
 - For review, declare `push_to: task` with `integrate: review`, protect `main`, and push review work only to
   `task/<task id>` branches: an endorse closes a finding on any other remote branch.
