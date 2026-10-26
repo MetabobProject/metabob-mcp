@@ -4,8 +4,8 @@ This guide is for whoever sets up, runs and steers AI agents that share a reposi
 organised around three uses:
 
 1. **Setting up agents and refining their policies, skills and instructions** based on what happens as they go
-   about their tasks (§ 3): agents placed as stations in the development pipeline, checking against policies a
-   person edits in the dashboard.
+   about their tasks (§ 3): producers that turn events into tasks, consumers that do them, and the policies a person
+   edits in the dashboard that both read at run time.
 2. **Setting up agents to share information about a project and organize work amongst themselves** (§ 4).
 3. **Creating workflows that run in many sandboxed cells** (§ 5).
 
@@ -41,16 +41,29 @@ policy even while it is only proposed.
 ## 1. Loops, and what metabob instruments in one
 
 A loop is the cycle by which an observation becomes a record, the record becomes another agent's input, and an
-outcome changes what the next iteration does. A planner splits a port into module tasks; a worker ports one module
-and records the mismatch it found as a new task; the next worker reads that task and the binding decision the first
-one left, and does not try the approach the first one rejected. Each iteration is short and forgets everything; the
-loop remembers because each iteration writes down its state and its outcome.
+outcome changes what the next iteration does. In practice it is a workflow: **producers scatter tasks**, **consumers
+take the instructions and carry them out**, and what happened is **fed back** as results, findings, decisions,
+handoffs and credit, which the next producer and consumer read. The work need not be software:
+
+| A producer, on… | records tasks to… | and a consumer feeds back |
+|---|---|---|
+| a new GitHub issue | triage it and act on it | the triage, a fix, or a finding that it is a duplicate |
+| an email to a support address | answer it, or route it to whoever owns the area | what it did, and a decision when the answer sets a precedent |
+| a CI alert for a vulnerable dependency | assess each affected use, and patch it or record why not | the assessment, the patch, and a finding for each use left |
+| a report someone submits | check it against the recorded policy | each breach as a finding, and credit on the policy it applied |
+| a problem a person describes | investigate it | what was found, the approaches ruled out, and follow-up tasks |
+| a planned port of a library | port one module | the port, each mismatch as a new task, the binding decisions |
+
+Each iteration is short and forgets everything; the loop remembers because each iteration writes down its state and
+its outcome. Today every task is anchored to a file and closed by a commit, so a loop whose work is not code keeps
+a small record file per task in a repository (§ 6 says how).
 
 What Metabob gives a loop:
 
-- **Tasks and findings attached to files**, so the next iteration finds the work where the code is.
+- **Tasks and findings attached to files**, so the next iteration finds the work where it applies.
 - **Claims**, so two iterations running at once do not take the same task.
-- **Closes that record evidence**: the commit that holds the fix, and `fix pending` until it is pushed or merged.
+- **Closes that record evidence**: the commit that holds the outcome, and `fix pending` until it is pushed or
+  merged.
 - **Decisions with rejected approaches, handoffs, and steps linked in order**, so what an iteration learned outlives
   it.
 - **Credit**, which ranks what helped above what misled.
@@ -185,60 +198,82 @@ The server also stamps its own declared identity on what it writes (`recorded_by
 `client_claim` on every write: `src/operator-id.ts@clientClaim`; SPEC § Client claim). These are claims the client
 makes, not attribution; the key's name is what identifies the writer.
 
-## 3. Refining agents' policies, skills and instructions as they work
+## 3. Setting up agents and refining their policies, skills and instructions
 
-**What you set up.** Stations: agents placed at points in the development pipeline, each with one instruction
-and the capabilities it needs (below). Beside them, the guidance they check against, on the ledger: policies,
-constraints and review criteria at the repository and paths they apply to, and decisions linked to the
-repository's anchor.
+**What you set up.** Agents in two roles. **Producers** set the process in motion: an agent that a CI runner, a
+scheduler or a person starts on an event (a new vulnerability report, a new GitHub issue, an email, a time of day)
+investigates and records the work as ledger tasks, or as GitHub issues. **Consumers** take those tasks and do them:
+on a timer, or started by the producer once it has recorded them (§ 5 has the runs and cells both are built from).
+Beside them sits what both read: policies, constraints and review criteria on the ledger, located by repository
+and path, and decisions linked to the repository's anchor.
 
-**The loop it runs.** Each run of a station searches its scope for issues and for violations of the policies and
-rules in force, records what it finds, and credits the guidance that helped (`success`) or misled it (`failure`).
-You read what the runs recorded, then change the guidance or the configuration, and the next runs work under the
-change: a misleading decision gets a correction linked by `contradicts`, a policy stations keep flagging wrongly
-gets clearer text, a tool set that tempts a reviewer into editing gets narrowed.
+**The loop it runs.** A producer records tasks; consumers work them, record what they find and credit the guidance
+that helped (`success`) or misled them (`failure`). You read what they recorded, then edit the policies and
+instructions in the dashboard, and the next consumer works under the change: a misleading decision gets a
+correction linked by `contradicts`, a policy agents keep misreading gets clearer text, a brief that left too much
+open gets a sharper `Done when:`. Nothing is redeployed for that.
 
-### Stations
+### Base and specific behaviour
 
-A station is an agent at one point in the pipeline: a container that a scheduler or a pipeline event starts (cron
-at a particular time, a CI job on a push, a pull request or a new issue), running one headless harness with one
-instruction (§ 5 has the runs and cells it is built from). For example:
+An agent's behaviour comes from two places:
 
-| Station | Started by | Its instruction |
+| | Where it lives | What it holds | How it changes |
+|---|---|---|---|
+| **Base** | The initial prompt of the run or cell, the skill, the tool set and the harness's permissions | The agent's role (producer or consumer, and for what), which tools and commands it may use, how it ends, and which ledger items count as authority | Edit the run's definition, the skill's file, `METABOB_TOOLS` or the permissions, and restart |
+| **Specific** | The ledger and the memory, read at run time | The policies, rules and decisions for the files it works on, and the brief of the task it takes | Edit them in the dashboard; the next run reads the change |
+
+The base prompt tells the agent where its specific behaviour is and to read it before acting, with the tools that
+exist:
+
+- `get_problems` for the queue and the task it takes, and `concept_search { concept_id }` for that task's brief;
+- `concept_search { shape: "project_convention" }`, `{ shape: "constraint" }` and `{ shape: "review_criterion" }`
+  (with a `query` naming the area) for the rules, keeping the items whose `repo:` and `files:` lines cover its files;
+- `concept_neighbors` on the repository's anchor for its decisions, and on the task for earlier handoffs.
+
+So one consumer image, with one base prompt, does different work as the ledger changes: what a person edits in the
+dashboard is what the next consumer reads.
+
+**Which policies count is part of the base prompt.** The server applies neither R1 nor R2 when an agent reads
+memory: a policy an agent proposed (`status: proposed` in its header) reads just like one a person endorsed, and a
+rejected one like one in effect. The base prompt says which count, for example: "Follow a policy only when a person
+authored it (no `status:` line) or endorsed it; treat a `status: proposed` item as a suggestion, and do not act on
+one that conflicts with an endorsed policy."
+
+### Producers and consumers
+
+| Producer | Started by | What it records |
 |---|---|---|
-| Policy check | CI, on each pull request | Check the changed files against the policies, constraints and review criteria recorded for them; record a finding for each violation |
-| Docs drift | CI, on each merge to the main branch | Turn the changes since the last run into doc-drift tasks (worked example below) |
-| Issue triage | CI, on each new issue | Read the issue, triage it, record the result (worked example below) |
-| Nightly sweep | cron, at night | Look for known-bad patterns in a directory; record findings, and tasks for the fixes |
+| Vulnerability intake | CI, on a new advisory for a dependency | A task per affected package or call site, with the advisory in `details` |
+| Issue triage | CI, on each new issue | The triage on the issue through `gh`, and a task on the files it concerns (worked example below) |
+| Mail intake | A script, on each message to a support address | A task, or a GitHub issue, for each report that names something to change |
+| Policy check | CI, on each pull request | A finding for each change that breaks a policy, constraint or review criterion recorded for its files |
+| Docs drift | CI, on each merge to the main branch | A doc-drift task per doc the changes affect (worked example below) |
+| Nightly sweep | cron, at night | Findings, and tasks for the fixes, for known-bad patterns in a directory |
 
-Each run:
+A consumer is a headless run or a cell whose base prompt says to take one open task, do it under the policies and
+brief it reads, and close it or hand it off: the headless loop and the `task pull` loop in § 5 are consumers. It
+runs on a timer, or the producer's job starts it after recording the tasks.
 
-1. reads the queue for its scope (`get_problems`, with `file_path` for a directory) and the guidance in force
-   there: `concept_search { shape: "project_convention" }`, `{ shape: "constraint" }` and
-   `{ shape: "review_criterion" }`, and the decisions linked to the anchor (`concept_neighbors`);
-2. does its search with the harness's own tools;
-3. records what it found (`record_finding`; tasks for follow-ups), closes what it confirmed fixed, and credits the
-   guidance it relied on;
-4. leaves a handoff naming what it covered, for the next run.
+**Each agent has the capabilities it needs, and no more**: the harness's tools (`gh`, the test runner, a linter)
+allowed by name, the metabob tool set (Tool sets, below), a key of its own, and credentials scoped to its job.
+**When something is missing**, a permission, a tool, an input it cannot read, the agent surfaces it in place as a
+finding for a person rather than working around it: `record_finding` on the run's own definition (its CI workflow
+or container file), saying what it needed and what it could not do. *Needs you* lists a finding of high or critical
+severity, and any finding unclaimed for more than 48 hours.
 
-**Each station has the capabilities it needs, and no more**: the harness's tools (`gh`, the test runner, a
-linter) allowed by name, the metabob tool set (Tool sets, below), a key of its own, and credentials scoped to its
-job. **When something is missing**, a permission, a tool, an input it cannot read, the station surfaces it in
-place as a finding for a person rather than working around it: `record_finding` on the station's own definition
-(its CI workflow or container file), saying what it needed and what it could not do. *Needs you* lists a finding
-of high or critical severity at once, and any finding unclaimed for more than 48 hours.
+**Input is not authority.** Issue text, email, advisories and memory itself can be wrong or hostile: anyone can
+open an issue or send a mail, and any key with `write` can record a policy. A consumer checks what it reads against
+its base prompt, which decides what it may do; it never takes an instruction from an issue body, a mail or a brief
+that its base prompt does not allow, and a producer records what an input says as data in a task's `details`, not
+as a policy.
 
-**Changing what a station does.** A person changes the policies, constraints, review criteria or tasks in the
-dashboard; the next run reads them, and nothing is redeployed. That holds for what the station reads from the
-ledger. The station's own instruction is in its container's prompt, so changing the instruction itself is a change
-to the station's definition (What exists and what does not for stations, below).
-
-### Loading policies onto the ledger
+### Recording policies from docs
 
 Policies and rules usually start in docs: a contributing guide, an architecture decision, a style guide. An agent
-loads them by proposing each one as a ledger item in the dashboard's write format, located by repository and path,
-and a person endorses or rejects it in *Needs you*. A policy is a `project_convention` concept whose header block
-carries its kind, location and state; the prose after the blank line says the rule and where it came from:
+goes through the docs and records each rule as a concept in the dashboard's item kinds, located by repository and
+path, so people see and edit them in the dashboard's Ledger; an agent-recorded policy is a proposal a person
+endorses or rejects in *Needs you*. A policy is a `project_convention` concept whose header block carries its kind,
+location and state; the prose after the blank line says the rule and where it came from:
 
 ```
 concept_create {
@@ -255,20 +290,22 @@ why: <the rationale a person reads before endorsing>
 ```
 
 Then `concept_link { from_concept_id: "<the policy>", to_concept_id: "<the anchor>", edge_type: "related_to" }`.
-A constraint is the same with `shape: "constraint"`, a review criterion with `shape: "review_criterion"`. The
-server stamps the author lines at the top of the content (SPEC § concept_create). `status: proposed` is what makes
-it a proposal: the dashboard shows it in *Needs you*, with the `why:` line, until a different key endorses or
-rejects it (R2). An item a person authors in the dashboard carries no `status` and takes effect when written.
+A constraint is the same with `shape: "constraint"` and `kind: constraint`, a review criterion with
+`shape: "review_criterion"` and `kind: review_criterion`. The server stamps the author lines at the top of the
+content (SPEC § concept_create). `status: proposed` is what makes it a proposal: the dashboard shows it in *Needs
+you*, with the `why:` line, until a different key endorses or rejects it (R2). An item a person authors in the
+dashboard carries no `status` and takes effect when written.
 
 **What is recorded, and where.**
 
 | What | Where |
 |---|---|
-| Decisions, rejected approaches, conventions an agent proposes | Memory: concepts linked to the `repo_anchor` |
+| Tasks a producer records, and what consumers find | The ledger, on the files they concern |
+| Decisions, rejected approaches, policies an agent proposes | Memory: concepts linked to the `repo_anchor` |
 | Policies, constraints, review criteria people author | The ledger, at a location, through the dashboard's Ledger |
 | Credit on each concept | Its load, success and failure counts and its relevance |
 | Rulings and endorsements | The ledger; *Needs you* and Activity show them |
-| What each worker called, and what each claim and close did | `METABOB_CALL_LOG` on the worker's machine |
+| What each run called, and what each claim and close did | `METABOB_CALL_LOG` on the run's machine |
 
 ### Policies on the ledger
 
@@ -282,19 +319,16 @@ In the dashboard's Ledger, select a path and add:
 | Review criterion | What a change there must meet |
 | Instruction (a task) | Work to do, with its brief |
 
-Agents are meant to recall the guidance in effect for the files they touch before editing, and credit what helped
-or misled them. Two rules decide what is in effect:
+Two rules decide what is in effect, and the dashboard is where people apply them:
 
-- **R2.** A policy an agent proposes (`status: proposed`) is meant to stay pending until a different key endorses
-  it in *Needs you*; an item authored directly is meant to take effect when written.
-- **R1.** When two items conflict, a person rules (refine, A stands, B stands); until then both are meant to stay
-  in recall, each flagged as awaiting a ruling.
+- **R2.** A policy an agent proposes (`status: proposed`) is pending until a different key endorses it in *Needs
+  you*; an item authored directly takes effect when written.
+- **R1.** When two items conflict, a person rules (refine, A stands, B stands); until then both are flagged as
+  awaiting a ruling.
 
-**What the server does.** It has no recall of guidance by location and does not apply R1 or R2: an agent
-finds guidance through `concept_search` by shape (`project_convention`, `constraint`, `review_criterion`) or by
-following links into the repository's anchor, and nothing filters out a proposed or rejected item or flags a
-conflict. The one place the server reads conventions is `task pull`'s integration policy, which does not check a
-convention's proposal state (§ 7). Tell agents in their prompt or brief to read the guidance for their files.
+An agent reads these items through `concept_search` by shape and through the anchor's links, and keeps the ones
+its base prompt says count (Base and specific behaviour, above). The one place the server itself reads conventions
+is `task pull`'s integration policy, which takes a trusted author's convention whatever its proposal state (§ 7).
 
 ### Tool sets
 
@@ -369,26 +403,22 @@ grow faster than closes, findings recorded by iterations are never closed, the s
 recorded (open)` run after run, and a concept collects `failure` credits with no correction linked by
 `contradicts`. Those are the places to change a policy, the skill or the brief.
 
-### What exists and what does not for stations
+### Cautions for producers and consumers
 
-- **Recall of the policies in force for a station's files is intended, not built.** The server does not recall the
-  guidance in effect at a path, and applies neither R1 nor R2: a station searches with `concept_search` by shape or
-  topic, or follows the anchor's links, and a proposed or rejected item reads like any other. Filter by the `repo:`
-  and `files:` lines and the `status:` line in what it reads, and say so in its instruction.
-- **Nothing defines how a scheduled container fetches its own instruction from the ledger.** Today the instruction
-  is in the container's prompt. What a person changes in the dashboard reaches a station through what the prompt
-  tells it to read (the guidance for its paths, and tasks recorded for it, which `task pull` takes).
-- **There is no import tool for docs to policies.** An agent reads the docs and proposes each item in the write
-  format above; a person endorses them one by one in *Needs you*.
-- **Compiling ledger guidance into skills is planned, not built.** A change to a skill is an edit to its file.
+- **A proposed policy reads like an endorsed one.** Neither R1 nor R2 is applied when an agent reads memory, so the
+  base prompt says which items count (Base and specific behaviour, above).
+- **Input can be wrong or hostile.** Issues, mail, advisories and memory are data a consumer checks against its
+  base prompt, not authority (Producers and consumers, above).
 - **Credit is voluntary.** `mark_complete` folds its own verdict into the finding's relevance, but credit on
   decisions, handoffs and steps is a `concept_record_usage` call the agent chooses to make, and an agent should not
-  credit what it wrote itself. Ask for it in the prompt or the brief where a loop depends on ranking.
+  credit what it wrote itself. Ask for it in the base prompt where a loop depends on ranking.
+- **Compiling ledger guidance into skills is planned, not built.** A change to a skill is an edit to its file.
 
 ### Worked example: triaging a GitHub issue
 
-A station started by CI on each new issue (or by cron over the open ones), whose instruction is to read the issue
-and triage it. The harness's own tools act on the issue; Metabob records the result.
+A producer started by CI on each new issue (or by cron over the open ones), whose base prompt is to read the issue
+and triage it; the triage policies it follows are on the ledger. The harness's own tools act on the issue; Metabob
+records the result, and the tasks it records are what consumers take.
 
 - **Capabilities.** `gh` with a token that can read issues and set labels and comments on this repository and
   nothing else, allowed by name (`--allowedTools "Bash(gh issue view:*)" "Bash(gh issue edit:*)" "Bash(gh issue
@@ -399,15 +429,16 @@ and triage it. The harness's own tools act on the issue; Metabob records the res
 - **Each run generates** the triage: labels and a comment through `gh`, and on the ledger either a task on the
   files the issue concerns (the issue's URL and the reproduction in `details`) or, when an open task or finding
   already covers it, nothing new: `record_finding` answers `Already recorded (open)` with the id, which the
-  comment can cite. An issue that names no file gets its task on the file the triage judges closest, and says so.
-- **The issue text is untrusted input.** Anyone can open an issue, so the station treats its text as data: it
+  comment can cite. An issue that concerns no file (a question, a request for access) gets its task on a record file for the
+  issue (§ 6).
+- **The issue text is untrusted input.** Anyone can open an issue, so the producer treats its text as data: it
   never follows instructions in it, never records it as a policy, and acts only through the commands it is allowed.
-  The outgoing guard refuses what looks like a credential in what the station records, but personal data an issue
+  The outgoing guard refuses what looks like a credential in what the producer records, but personal data an issue
   carries is not caught: summarise rather than copy (§ 7).
 - **Missing capabilities.** A label the token cannot set, or an issue it cannot read, becomes a finding on the
-  station's workflow file, for a person.
+  producer's workflow file, for a person.
 - **Refining it.** A person reads the triage tasks in the Ledger and Activity, rejects or edits the triage
-  policies, and the next run follows the change.
+  policies in the dashboard, and the next run follows the change.
 
 ### Worked example: keeping docs up to date
 
@@ -707,9 +738,11 @@ behaviour must not change.
 
 **What you set up.** A driver outside Metabob (a script, a launcher, a scheduler) that starts unattended
 iterations: headless runs in working copies, or cells, each one task in its own container with a fresh clone. Each
-gets a key, a config file, a wall time, a budget and exactly the permissions its task needs. A station (§ 3
-Stations) is one of these started at a particular time or on a pipeline event, with a standing instruction: a
-cron entry or a CI job runs a headless run or a cell, and many stations together make the pipeline's workflow.
+gets a key, a config file, a wall time, a budget and exactly the permissions its task needs. Producers and
+consumers (§ 3) are built from these: a CI job on an event, or a cron entry, runs a producer as a headless run; the
+producer records tasks; and cells, started on a timer or by the producer's job, consume them. The cell's initial
+prompt is its base behaviour, and the task brief and the policies it reads are its specific behaviour (§ 3 Base
+and specific behaviour), so many cells from one image do different work.
 
 **The loop it runs.** The driver asks the ledger for work (`task pull`'s exit code, or a headless run's stop
 reply), starts an iteration per task, and lands what the iteration committed; the iteration records follow-ups and
@@ -721,8 +754,9 @@ the harness's transcript where the driver puts it; and the agent's findings, tas
 memory as in § 4.
 
 **How you read it and change it.** The exit codes and the call log per cell, Activity per worker key, and the
-queue in `get_problems` (§ 3 Measuring a loop). You change a cell's behaviour through its prompt, its permissions,
-its tool set and skill, its task's `details` (the integration policy), and the trust list for conventions.
+queue in `get_problems` (§ 3 Measuring a loop). You change a cell's base behaviour through its prompt, its
+permissions, its tool set and skill, and the trust list for conventions; you change its specific behaviour in the
+dashboard, through the policies it reads and its task's brief and `details` (the integration policy among them).
 
 ### Unattended headless runs
 
@@ -999,9 +1033,6 @@ job on each merge, or a nightly timer, runs the iteration that turns new changes
 
 ### What exists and what does not for cells
 
-- **A station's instruction lives in its container.** Nothing defines how a scheduled container fetches its own
-  instruction from the ledger; its standing instruction is in its prompt, and the ledger supplies the guidance and
-  the tasks it reads (§ 3 What exists and what does not for stations).
 - **There is no orchestrator.** Nothing in Metabob starts, schedules or scales cells. An outside loop runs `task
   pull` and starts the harness on exit 0, as above; the exit codes are what it paces itself by.
 - **Cells do not push on their own.** The reference lab cell never pushes and never runs `finding close`. A cell
@@ -1017,12 +1048,11 @@ The repository holds the scaffolding for work that is not code: an evaluation, a
 question. Fixtures, graders, scripts and inputs are in git; the results are files the runs commit. Tasks and
 findings record the runs and their results, and follow-ups generate more runs.
 
-- **Anchor files.** Every ledger item needs a file (§ 6). Give each unit of work a tracked file in the harness: a
-  results file per run (`runs/<run>/RESULTS.md`), a notes file per question (`questions/<topic>.md`). Record the
-  task on that file; the run writes its result there and commits it, so the close records the commit that holds the
-  result. The file must be tracked by the time the task closes, and not ignored by `.gitignore` (a finding on
-  ignored files closes as local, with no commit); give the harness an `origin` remote, since without one its ledger
-  is keyed by the directory's name and shared with every repository of that name.
+- **Record files.** Each task is anchored to a tracked file the run commits its result into (§ 6): a results file
+  per run (`runs/<run>/RESULTS.md`), a notes file per question (`questions/<topic>.md`). The file must not be
+  ignored by `.gitignore` (a finding on ignored files closes as local, with no commit), and the harness needs an
+  `origin` remote, since without one its ledger is keyed by the directory's name and shared with every repository
+  of that name.
 - **Seed.** One task per run, input shard or question; `decision_record` concepts for the method (the grader, the
   metric, and the ones rejected, with why).
 - **Each iteration consumes** one run task: it runs the scripts, writes the results file and commits; the cell's
@@ -1081,17 +1111,26 @@ passes the tests the observations became.
 - **No trigger or notification.** Nothing starts an iteration when a task is recorded, a fix is merged or a person
   rules. A driver polls: a script's loop, `task pull`'s exit codes (3 for empty, 4 with `retry_after`), or a
   scheduler on a timer or on each merge (§ 5 Scheduled runs).
-- **Every ledger item needs a file.** `record_finding` requires `files`, and a close looks for the commit that
-  touches them: a git checkout that does not know any of the files writes no verdict. Memory concepts
-  (`concept_create`) need no file. For a loop whose work is not code, keep a tracked anchor file per unit of work in
-  the harness repository and commit each result into it (§ 5 Worked example: using a repository as a harness), or
-  close with `fix_commit` naming the commit that holds the outcome.
+- **Every task is anchored to a file and closed by a commit.** That is how the product works today, and so how a
+  loop whose work is not code runs:
+  - `record_finding` requires at least one file (`files`); memory concepts (`concept_create`) need none;
+  - `mark_complete endorse` closes a task when a commit since the task touches its files, or when the agent names
+    the commit with `fix_commit`; otherwise the task stays open, or `fix pending` while the commit is uncommitted,
+    unpushed or awaiting merge, and a git checkout that knows none of the files writes no verdict;
+  - `task pull` clones a git repository, and `finding close` reads the commits there.
+
+  So give the loop a harness repository with an `origin` remote, and each task a record file in it
+  (`records/<task>.md`, tracked and not ignored). Record the task on that file; the consumer writes its outcome
+  there (the triage, the reply it sent, the assessment, the result) and commits it, and the close records that
+  commit. A task about an email or an issue thus closes when the record of what was done is committed. The § 5
+  worked example (using a repository as a harness) runs this way.
 - **Recall reads a bounded window.** `get_problems` and `task pull` read findings and verdicts across the whole
   organization in pages of 300 of each kind, relevance first, then newest: up to four pages when the service pages,
   one page when it does not (`src/tools/_findings.ts@fetchAgentFindings`). An old, uncredited task can fall out of
   that window. Record tasks for real units of work, not every step, and close what is done.
-- **Credit is voluntary** (§ 3 What exists and what does not for stations).
-- **Recall by location is intended, not built** (§ 3 Policies on the ledger).
+- **Credit is voluntary** (§ 3 Cautions for producers and consumers).
+- **A proposed policy reads like an endorsed one** when an agent reads memory, so the base prompt says which count
+  (§ 3 Base and specific behaviour).
 - **Concurrency is advisory** (§ 4 What exists and what does not for shared work).
 
 ## 7. Security and what is shared
