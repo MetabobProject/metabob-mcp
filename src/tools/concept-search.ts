@@ -59,6 +59,10 @@ export const ConceptSearchTool = {
         description: 'Max results (default: 10, max: 50)',
         default: 10,
       },
+      offset: {
+        type: 'number',
+        description: 'Skip this many results, to read the next page of a list (for example offset: 50 after a full page of 50)',
+      },
     },
   },
 };
@@ -71,6 +75,7 @@ export const InputSchema = z.object({
   shape: z.string().optional(),
   min_relevance: z.number().min(0).max(1).optional(),
   limit: z.number().int().positive().max(50).default(10),
+  offset: z.number().int().nonnegative().optional(),
 });
 
 export type ConceptSearchInput = z.infer<typeof InputSchema>;
@@ -133,6 +138,7 @@ export async function handle(
     shape: input.shape,
     min_relevance: input.min_relevance,
     limit: input.limit,
+    offset: input.offset,
   });
   if (!found.ok) {
     return `concept_search: ${found.error}`;
@@ -157,6 +163,15 @@ export async function handle(
 
   for (let i = 0; i < concepts.length; i++) {
     text += renderConceptRow(concepts[i]!, i, input.content);
+  }
+
+  // A query ranks by similarity and concept-db caps what it returns, so a short list is not "all there is": a
+  // consumer reading policies by query once missed the ones in effect. Say so, and how to read every one.
+  if (input.query) {
+    text += `Ranked by similarity to the query: the nearest ${concepts.length} of those that match the filters (limit ${input.limit}), not every one. `
+      + `To read every concept of a shape, call with shape and no query${input.shape ? ` (shape: "${input.shape}")` : ''}.\n\n`;
+  } else if (concepts.length >= input.limit) {
+    text += `The limit (${input.limit}) was reached, so more may match: the next page is offset: ${(input.offset ?? 0) + concepts.length} (relevance first; at most 50 a call).\n\n`;
   }
 
   text += `Query completed in ${duration}ms.`;

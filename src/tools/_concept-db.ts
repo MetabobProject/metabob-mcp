@@ -10,8 +10,8 @@
  *
  * Pointer contracts, from concept-db src/routes/impulses.ts:
  *   - `conceptSearch { query?, shape?, source_type?, min_relevance?, limit }` →
- *     `{ content: Concept[], metadata }` (relevance DESC; no offset; rows carry
- *     their embedding vectors).
+ *     `{ content: Concept[], metadata }` (relevance DESC; `offset` pages where concept-db honours it, and one that
+ *     does not answers the first page again; rows carry their embedding vectors).
  *   - `conceptGraph { concept_id, direction?, edge_types?, limit? }` →
  *     `{ content: { root: Concept, edges: [{ edge, neighbor: Concept }] } }`, or
  *     `404 { error: "Concept not found: …" }`. `root` is the row `GET /concepts/:id`

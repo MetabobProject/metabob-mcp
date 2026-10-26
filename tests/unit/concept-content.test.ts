@@ -125,6 +125,19 @@ test('concept_search renders the concept body by default', async () => {
   expect(out).toContain('summary:  migrations run in one transaction');
 });
 
+test('a query result says it is the nearest matches, not every one, and how to list them all', async () => {
+  const rows = [1, 2, 3, 4].map((n) => ({ id: `concept:pc_${n}`, shape: 'project_convention', content: `kind: policy\nrule ${n}` }));
+  await installShapeStub({ conceptSearch: () => searchAnswer(rows) });
+  const ranked = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', query: 'csv', limit: 50 }), mockApiClient);
+  expect(ranked).toContain('Ranked by similarity to the query: the nearest 4 of those that match the filters (limit 50), not every one.');
+  expect(ranked).toContain('call with shape and no query (shape: "project_convention")');
+  const listed = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', limit: 4 }), mockApiClient);
+  expect(listed).not.toContain('Ranked by similarity');
+  expect(listed).toContain('The limit (4) was reached, so more may match: the next page is offset: 4');
+  const under = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', limit: 50 }), mockApiClient);
+  expect(under).not.toContain('limit');
+});
+
 test('concept_search discloses truncation of a long body and names the escape hatch', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
   await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:cd_long1', shape: 'gotcha', content: long }]) });
