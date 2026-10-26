@@ -211,8 +211,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "61fd691",
-        "why": "the skill's id and trailer wording changes nothing the README states"
+        "at": "1d66d55",
+        "why": "the skill's keying note changes nothing the README states"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
@@ -229,6 +229,10 @@
       "docs/SPEC.md": {
         "at": "1d139d4",
         "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
+      },
+      "docs/SUBSTRATE-GUIDE.md": {
+        "at": "1d66d55",
+        "why": "the guide does not state how the ledger is keyed; the skill's note is for agents"
       },
       "lab/README.md": {
         "at": "e978c22",
