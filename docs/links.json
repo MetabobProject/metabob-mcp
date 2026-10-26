@@ -137,7 +137,16 @@
       ],
       "docs/USER-GUIDE.md": [
         "skills/metabob/SKILL.md",
-        "src/tools/index.ts"
+        "src/tools/index.ts",
+        "src/tools/mark-complete.ts",
+        "src/repo-identity.ts",
+        "src/tools/claim-finding.ts",
+        "src/tools/_claims.ts",
+        "scripts/claude-plugin/edit-check.mjs",
+        "src/tool-allowlist.ts",
+        "src/config.ts",
+        "src/outgoing-guard.ts",
+        "src/vessel-identity.ts"
       ],
       "docs/DEPLOYING-AGENTS.md": [
         "src/task-pull.ts",
@@ -152,7 +161,23 @@
         "src/tools/claim-finding.ts",
         "src/tools/mark-complete.ts",
         "src/vessel-server.ts",
-        "src/attached-marker.ts"
+        "src/attached-marker.ts",
+        "src/config.ts",
+        "src/attach-check.ts",
+        "src/cli.ts"
+      ],
+      "docs/SUBSTRATE-GUIDE.md": [
+        "src/tools/mark-complete.ts",
+        "src/repo-identity.ts",
+        "src/tools/claim-finding.ts",
+        "src/tools/_claims.ts",
+        "scripts/claude-plugin/edit-check.mjs",
+        "src/tool-allowlist.ts",
+        "src/config.ts",
+        "src/outgoing-guard.ts",
+        "src/vessel-identity.ts",
+        "src/task-pull.ts",
+        "src/finding-close.ts"
       ]
     },
     "retired": {},
@@ -185,12 +210,16 @@
         "why": "hook-post compares by real path; the documented commands and their outputs are unchanged"
       },
       "docs/SPEC.md": {
-        "at": "3ef8795",
-        "why": "repo-identity.ts routes the fix-location reads through one runner a test may replace; the reads, their timeout and how a timeout is reported are unchanged"
+        "at": "1d139d4",
+        "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
       },
       "lab/README.md": {
         "at": "e978c22",
         "why": "the Containerfile copies the generated plugin/ without its .mcp.json; the README's 'installed as users have it (the skill and the edit check) without its .mcp.json' is still accurate"
+      },
+      "skills/metabob/SKILL.md": {
+        "at": "1d139d4",
+        "why": "the skill names no guide file; its tool table is unchanged by the rename"
       }
     }
   },

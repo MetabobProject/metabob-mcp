@@ -63,8 +63,11 @@ Reading costs nothing and changes no ranking, so read freely.
 
 ## Taking a task
 
-A task is a ledger entry in category `task`. If you were handed a task id, it's
-in `get_problems`. Otherwise pick an open task nobody holds.
+A task is a ledger entry in category `task`. If you were handed a task id, find
+it in `get_problems`, which shows its summary, files, holder and concept id; then
+read the brief itself with `concept_search { concept_id: "<the task's concept id>" }`,
+since `get_problems` doesn't show a task's details. Otherwise pick an open task
+nobody holds.
 
 - `claim_finding { problem_id, minutes: 30 }` before you start, so nobody starts
   the same work. If two agents claim at once, every reader settles it the same way

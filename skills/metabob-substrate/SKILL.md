@@ -88,7 +88,9 @@ findings held up.
 **The fleet pattern.** Put each brief in the ledger and give agents only its id:
 record one finding per unit of work with the files it **owns** stated in
 `details`, dispatch each agent with the id and a one-line title, and let each
-recall its own brief with `get_problems`. Stated, disjoint ownership is what keeps
+find its task with `get_problems` and read the brief with `concept_search
+{ concept_id: "<the task's concept id>" }` (`get_problems` shows a task's summary,
+files and concept id, not its details). Stated, disjoint ownership is what keeps
 concurrent agents apart, and the brief outlives whoever wrote it.
 
 ## Role: operator — goals on the substrate
