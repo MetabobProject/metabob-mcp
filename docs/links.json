@@ -211,8 +211,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "ee21401",
-        "why": "the skills' brief-reading wording changes nothing the README states"
+        "at": "61fd691",
+        "why": "the skill's id and trailer wording changes nothing the README states"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
