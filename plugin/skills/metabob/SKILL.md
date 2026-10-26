@@ -271,9 +271,10 @@ what the link means, and links nobody uses can be pruned over time.
 
 ## Limits worth knowing
 
-- Every ledger item concerns at least one file, and closing one records the
-  commit that touches it, or the one you name with `fix_commit` (a file the
-  commit deleted counts; an item on ignored files closes as local, with no commit).
+- A ledger item names its files, or a subject for work that changes no file. One
+  with files closes by the commit that touches them, or the one you name with
+  `fix_commit` (a file the commit deleted counts; an item on ignored files closes
+  as local, with no commit); one with only a subject closes by its outcome.
 - A claim belongs to the checkout, not the session. Two sessions in one checkout
   look like one claimer, so split their work by files and say so in the tasks.
 - The ledger's recall reads a bounded window of each kind across the
