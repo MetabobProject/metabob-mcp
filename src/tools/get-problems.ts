@@ -13,6 +13,7 @@ import {
   findingCategory,
   withoutTasks,
   workspaceRepo,
+  subjectFromRefs,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
 import { isToolPermitted } from '../tool-allowlist.js';
@@ -140,7 +141,9 @@ function localFindings(
     const s = filtered[i]!;
     localStore.markSeedRead(s.id);
     text += `${i + 1}. [${s.severity}] ${s.category}\n`;
-    text += `   File:    ${s.file_path}${s.line_start > 0 ? `:${s.line_start}–${s.line_end}` : ''}\n`;
+    const subject = subjectFromRefs(s.refs_json);
+    if (s.file_path) text += `   File:    ${s.file_path}${s.line_start > 0 ? `:${s.line_start}–${s.line_end}` : ''}\n`;
+    if (subject || !s.file_path) text += `   Subject: ${subject ?? '(none named)'}\n`;
     text += `   Summary: ${s.brief}\n`;
     if (s.confidence < 0.8) {
       text += `   Confidence: ${(s.confidence * 100).toFixed(0)}%\n`;

@@ -130,7 +130,7 @@ function fixShown(loc: FixLocation): string {
 export const MarkCompleteTool = {
   name: 'mark_complete',
   description:
-    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing and pushing: a fix still uncommitted in this checkout, on no remote branch yet, or only on a task/* branch awaiting review leaves the finding open, marked fix pending, and a finding no commit since it touches stays open unless you name its fix with fix_commit. Any other id is refused.',
+    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing and pushing: a fix still uncommitted in this checkout, on no remote branch yet, or only on a task/* branch awaiting review leaves the finding open, marked fix pending, and a finding no commit since it touches stays open unless you name its fix with fix_commit. A finding or task that names no file (work that changes nothing: investigate, test, review, operate) closes on endorse at once; say what was done or found in outcome, and link it in evidence. Any other id is refused.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -148,6 +148,15 @@ export const MarkCompleteTool = {
         type: 'string',
         description: 'Endorse only: the commit that fixes it, when no commit since the finding touches its files: a fix in another file (the symptom is in one file, the fix in another), or a fix committed before the finding was recorded. It must be in this checkout\'s HEAD, and postdate the finding or touch its files.',
       },
+      outcome: {
+        type: 'string',
+        description: 'What was done or found, recorded on the verdict for other agents and people to read; the close itself for a task that names no file',
+      },
+      evidence: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Where the outcome can be checked: a PR, an issue comment, a report, a run log',
+      },
     },
     required: ['problem_id'],
   },
@@ -157,7 +166,24 @@ export const InputSchema = z.object({
   problem_id: z.string().min(1),
   action: z.enum(['endorse', 'discard']).default('endorse'),
   fix_commit: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, 'a commit sha (7 to 40 hex digits)').optional(),
+  outcome: z.string().trim().min(1).optional(),
+  evidence: z.array(z.string().trim().min(1)).optional(),
 });
+
+/** The verdict's outcome lines: what was done or found, and where to check it. */
+function outcomeLines(input: MarkCompleteInput): string[] {
+  return [
+    ...(input.outcome ? [`outcome: ${input.outcome.replace(/\s+/g, ' ')}`] : []),
+    ...(input.evidence?.length ? [`evidence: ${input.evidence.join(', ')}`] : []),
+  ];
+}
+
+/** The reply's outcome line for a close that names no file. */
+function outcomeShown(input: MarkCompleteInput): string {
+  return input.outcome
+    ? `outcome: ${input.outcome}${input.evidence?.length ? ` (evidence: ${input.evidence.join(', ')})` : ''}`
+    : 'outcome: none given — the finding names no file, so the endorse closes it; pass outcome to say what was done or found';
+}
 
 export type MarkCompleteInput = z.infer<typeof InputSchema>;
 
@@ -235,7 +261,9 @@ async function closeOrPend(
         return `Concept "${plainId}" could not be read (${remote.error}), so no verdict was recorded.\n`
           + `  Check the attachment (/health), or use get_problems to list findings with local agf_* ids.`;
       }
-      const loc = input.action === 'endorse' ? fixLocation(workspace, filesHere(remote.content, workspace), remote.recordedAt, input.fix_commit, opts.head) : null;
+      // A finding that names no file records work that changes nothing: there is no commit to find, and endorse closes it.
+      const fileless = !remote.files.trim();
+      const loc = input.action === 'endorse' && !fileless ? fixLocation(workspace, filesHere(remote.content, workspace), remote.recordedAt, input.fix_commit, opts.head) : null;
       if (loc && NO_FIX.has(loc.kind)) return noFixHere(plainId, loc, remote.recordedAt);
       const kind = pendingKind(loc, workspace);
       const pending = kind !== null;
@@ -260,8 +288,9 @@ async function closeOrPend(
           `verdict: ${verdict}`,
           ...(loc ? fixLines(loc) : []),
           ...(opts.via ? [`fix_via: ${opts.via}`] : []),
+          ...outcomeLines(input),
           ...repoContent,
-          `files: ${remote.files}`,
+          ...(remote.files.trim() ? [`files: ${remote.files}`] : []),
           `finding summary: ${remote.summary}`,
           // Author, then provenance — two separate facts. This line used to be
           // `recorded_by: remote (no local seed on this machine)`, which made
@@ -293,6 +322,7 @@ async function closeOrPend(
         (claimed ? `  claim:      ${claimed}\n` : '') +
         `  concept-db: ${posted.ok ? `verdict shared (concept ${posted.id ?? '?'})` : `write failed (${posted.error})`}\n` +
         (loc ? `  fix:        ${fixShown(loc)}\n` : '') +
+        (fileless && input.action === 'endorse' ? `  ${outcomeShown(input)}\n` : '') +
         `  relevance:  ${!usage ? `not recorded until the fix is ${kind ? UNTIL[kind] : 'committed'}` : usage.ok ? `recorded ${input.action === 'endorse' ? 'success' : 'failure'}` : `not recorded (${usage.error})`}\n` +
         `  local:      no seed on this machine, so nothing local was retired — the finding was recorded elsewhere` +
         keyedNote +
@@ -315,10 +345,11 @@ async function closeOrPend(
     const conceptRef = conceptIdFromRefs(seed.refs_json);
     const siblings = conceptRef ? localStore.getSeedsByConceptRef(conceptRef) : [];
     const toRetire = siblings.length > 0 ? siblings.map(s => s.id) : [seedId];
-    const files = siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path];
+    const files = (siblings.length > 0 ? [...new Set(siblings.map(s => s.file_path))] : [seed.file_path]).filter(Boolean);
+    const fileless = files.length === 0;
     // The finding's recorded time: its earliest seed, since record_finding writes all of them at once.
     const recordedAt = new Date(Math.min(...(siblings.length > 0 ? siblings : [seed]).map(s => s.produced_at)));
-    const loc = input.action === 'endorse' ? fixLocation(workspace, files, recordedAt, input.fix_commit, opts.head) : null;
+    const loc = input.action === 'endorse' && !fileless ? fixLocation(workspace, files, recordedAt, input.fix_commit, opts.head) : null;
     if (loc && NO_FIX.has(loc.kind)) return noFixHere(seedId, loc, recordedAt);
     const kind = pendingKind(loc, workspace);
     const pending = kind !== null;
@@ -346,8 +377,9 @@ async function closeOrPend(
           `verdict: ${verdict}`,
           ...(loc ? fixLines(loc) : []),
           ...(opts.via ? [`fix_via: ${opts.via}`] : []),
+          ...outcomeLines(input),
           ...repoLines(here),
-          `files: ${seed.file_path}`,
+          ...(seed.file_path ? [`files: ${seed.file_path}`] : []),
           `finding summary: ${seed.brief}`,
           ...attributionLines('reviewed_by', await resolveAuthorVesselId(), sessionId),
           `origin: local`,
@@ -392,6 +424,7 @@ async function closeOrPend(
     const shown = isConceptId ? `${seedId} (via ${plainId})` : seedId;
     let out = `Finding ${shown} ${verb} in ${duration}ms\n  concept-db: ${conceptStatus}`;
     if (loc) out += `\n  fix: ${fixShown(loc)}`;
+    if (fileless && input.action === 'endorse') out += `\n  ${outcomeShown(input)}`;
     if (input.action === 'endorse' && conceptStatus.startsWith('verdict shared')) {
       const claimed = await claimWarning(toRetire, conceptRef ? plainConceptId(conceptRef) : undefined);
       if (claimed) out += `\n  claim: ${claimed}`;

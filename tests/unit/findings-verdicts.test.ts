@@ -231,11 +231,25 @@ test('renderFindingsSection: closed findings move to a tagged closed section', (
 
 test('renderFindingsSection: all-closed renders "none open" plus the closed section', () => {
   const text = renderFindingsSection(
-    findingsResult([{ id: 'cf_1', summary: 'done', content: '', verdict: 'fixed' }]),
+    findingsResult([{ id: 'cf_1', summary: 'done', content: 'files: src/a.ts', verdict: 'fixed' }]),
     { max: 10 },
   );
   expect(text).toContain('none open');
   expect(text).toContain('[FIXED] done');
+});
+
+test('renderFindingsSection: a closed finding that names no file is done, with its outcome', () => {
+  const text = renderFindingsSection(
+    findingsResult([{ id: 'cf_2', summary: 'triage the flaky login test', content: 'subject: github#12', verdict: 'fixed', outcome: 'not reproducible on main; closed the issue' }]),
+    { max: 10 },
+  );
+  expect(text).toContain('[DONE] triage the flaky login test');
+  expect(text).toContain('    outcome: not reproducible on main; closed the issue');
+});
+
+test('parseVerdictConcept reads the outcome a close wrote', () => {
+  const v = parseVerdictConcept('finding: agf_x1\nverdict: endorsed (resolved)\noutcome: reviewed, no change needed\nevidence: https://example.com/pr/3', '[verdict:endorse] r: s');
+  expect(v).toMatchObject({ findingId: 'agf_x1', verdict: 'fixed', outcome: 'reviewed, no change needed' });
 });
 
 test('renderFindingsSection: compact mode collapses closed findings to a count line', () => {

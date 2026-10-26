@@ -233,6 +233,7 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
       summary: findingSummaryText(task.summary),
       severity: /^\[([A-Z]+)\]/.exec(task.summary)?.[1] ?? null,
       files,
+      subject: header(task.content, 'subject') || null,
       details,
       origin: a.origin,
       repo: repo.id,
@@ -280,11 +281,15 @@ async function readConventions(repo: RepoIdentity): Promise<Array<{ id: string; 
     .map(r => ({ id: plainConceptId(r.id), author: header(String(r.content ?? ''), 'recorded_by'), content: String(r.content ?? '') }));
 }
 
-function contextFile(record: { task_id: string; summary: string; files: string[]; details: string; policy: unknown }, task: AgentFinding, related: AgentFinding[]): string {
+function contextFile(record: { task_id: string; summary: string; files: string[]; subject: string | null; details: string; policy: unknown }, task: AgentFinding, related: AgentFinding[]): string {
+  // A task that names no file changes nothing in the tree: it is closed by mark_complete with its outcome, not by a commit.
+  const fileless = record.files.length === 0;
   return [
     `# Task ${record.task_id}: ${record.summary}`,
     '',
-    `Files: ${record.files.join(', ') || '(none named)'}`,
+    ...(fileless ? [] : [`Files: ${record.files.join(', ')}`]),
+    ...(record.subject ? [`Subject: ${record.subject}`] : []),
+    ...(fileless ? ['', 'This task names no file: when it is done, close it with mark_complete endorse and its outcome (what was done or found) and evidence; there is no commit to push.'] : []),
     '',
     '## Details',
     '',
@@ -296,10 +301,12 @@ function contextFile(record: { task_id: string; summary: string; files: string[]
     JSON.stringify(record.policy, null, 2),
     '```',
     '',
-    '## Open findings on these files',
-    '',
-    ...(related.length ? related.map(f => `- ${f.summary} (${plainConceptId(f.id)})`) : ['(none)']),
-    '',
+    ...(fileless ? [] : [
+      '## Open findings on these files',
+      '',
+      ...(related.length ? related.map(f => `- ${f.summary} (${plainConceptId(f.id)})`) : ['(none)']),
+      '',
+    ]),
     '## The task as recorded',
     '',
     '```',

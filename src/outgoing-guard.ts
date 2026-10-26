@@ -47,7 +47,12 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
     summary: { kind: 'prose', maxBytes: 2_048 },
     details: { kind: 'prose', maxBytes: 8_192 },
     files: { kind: 'prose', maxBytes: 8_192 },
+    subject: { kind: 'prose', maxBytes: 1_024 },
     category: { kind: 'prose', maxBytes: 256 },
+  },
+  mark_complete: {
+    outcome: { kind: 'prose', maxBytes: 4_096 },
+    evidence: { kind: 'prose', maxBytes: 4_096 },
   },
   concept_create: {
     content: { kind: 'prose', maxBytes: 16_384 },

@@ -61,11 +61,11 @@ skill is written for the default set, `metabob-substrate` for `all`
 | `predict_cochanges` | **Local** | The files that change together with yours, from git history, each with its confidence — no API call, no index needed |
 | `analyze_impact` | **Local** | CPG traversal showing what a change affects |
 | `annotate_component` | **Local** | Add structured why/how notes for a finding in the local store |
-| `mark_complete` | Local + Substrate | Endorse a fix or discard a false positive. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by (any other id is refused): endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
+| `mark_complete` | Local + Substrate | Endorse a fix or discard a false positive; a finding that names no file closes on endorse with its `outcome` and `evidence`. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by (any other id is refused): endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
 | `get_metrics` | **Local** | Open findings by severity and source, plus the local CPG size |
 | `assign_git_changes` | **Local** | Map changed files to CPG components + their git-history co-changes |
 | `get_analysis_context` | Local + Substrate | Current analysis state snapshot for agent decision-making |
-| `record_finding` | Local + Substrate | Attribute an issue you noticed to code — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
+| `record_finding` | Local + Substrate | Attribute an issue you noticed to code, or a task to its files or, for work that changes no file, to a `subject` — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
 
 **Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
 

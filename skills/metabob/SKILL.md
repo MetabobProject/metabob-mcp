@@ -96,7 +96,8 @@ point, and what it didn't write is lost.
   is ignored); a task on several files has one per file, and any one closes it.
 
 - **A problem you won't fix now:** `record_finding { files, summary, severity,
-  category, details }`. A problem mentioned only in your reply is gone when
+  category, details }`, with `subject` in place of `files` when it is about
+  something other than a file. A problem mentioned only in your reply is gone when
   the session ends. If the answer is "Already recorded (open)", someone saw it
   first: use that id instead.
 - **A decision someone could reasonably have made differently:** a
@@ -143,6 +144,11 @@ don't release holds the task from everyone until it lapses.
   was recorded, name it: `fix_commit: "<sha>"`. Use `discard` for a task or
   problem that turned out not to be real. Close every item you resolved,
   including your own: an unclosed one is offered to the next agent as open work.
+- **A task that names no file** (investigate, test, review, operate) has no
+  commit to wait for: endorse closes it at once. Say what you did or found in
+  `outcome`, and where it can be checked in `evidence`: `mark_complete {
+  problem_id, outcome: "<what was done or found>", evidence: ["<PR, issue
+  comment, report or run log>"] }`.
 - **Leave a handoff** whenever the task isn't done, or the next step isn't
   obvious from the commits:
 
@@ -194,6 +200,20 @@ Read first: <concept ids: decisions, handoffs, steps>"
 
 Give parallel tasks disjoint `Owns:` lists. The brief outlives whoever wrote it,
 so write it for an agent with no memory of this conversation.
+
+Work that changes no file (triage an issue, reproduce a bug, review a design,
+run a release check) is a task too: leave out `files` and name what it is about
+in `subject`, and put what to report in `Done when:`:
+
+```
+record_finding {
+  category: "task", severity: "MEDIUM",
+  subject: "github#12: the login test is flaky on CI",
+  summary: "triage the flaky login test",
+  details: "Goal: say whether it fails on main, and why.
+Done when: the issue has a triage comment with the cause or the runs tried."
+}
+```
 
 ## Work with an order
 

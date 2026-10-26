@@ -62,7 +62,8 @@ Use it whenever more than one agent or session touches the repository.
 
 1. **Record** what you notice, when you notice it: `record_finding { files,
    summary, severity, category, details }`. Put the scope in `details`: the files
-   this work owns, the test bar, what is out of bounds. If the same finding is
+   this work owns, the test bar, what is out of bounds. Work that changes no file
+   (investigate, test, review, operate) names a `subject` in place of `files`. If the same finding is
    already open you get its id back ("Already recorded (open)") instead of a
    duplicate; pass `force: true` only for a genuinely separate finding.
 2. **Recall**: another agent finds it through `get_problems`, from any machine on
@@ -72,7 +73,9 @@ Use it whenever more than one agent or session touches the repository.
    shows "claimed by … until …", and a finding someone else holds is theirs. Renew a long piece
    of work; release it if you stop.
 3. **Close**: `mark_complete` with `endorse` when fixed and `discard` when it was a
-   false positive. Endorse after you commit the fix and push it, where the person you work for allows a push: the verdict records the commit,
+   false positive. A finding that names no file closes on endorse at once: pass
+   `outcome` (what was done or found) and `evidence` (where it can be checked). For one
+   with files, endorse after you commit the fix and push it, where the person you work for allows a push: the verdict records the commit,
    and a fix still uncommitted in your checkout leaves the finding open for everyone
    else, marked fix pending, until you endorse again after committing; so does a commit
    no remote branch has yet, until you push it, and a commit only on a task branch, until it is merged. When the fix

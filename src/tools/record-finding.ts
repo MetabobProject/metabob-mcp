@@ -4,7 +4,8 @@
  *
  * The agent (not the server) does the LLM work: it notices an issue, a
  * constraint, or a risk while working, and calls this tool to ATTRIBUTE that
- * observation to concrete code. The server then:
+ * observation to concrete code, or, for work that edits nothing (investigate,
+ * test, review, operate), to a subject. The server then:
  *
  *  1. upserts a SeedRecord per file into the LocalStore so `get_problems`
  *     surfaces it immediately in this session (ids are `agf_*` —
@@ -23,6 +24,7 @@ import { activeWorkspacePath } from '../local-index.js';
 import { openGapsOnFilesLines } from './_gap-activity.js';
 import {
   CONCEPT_REF_PREFIX,
+  SUBJECT_REF_PREFIX,
   FINDING_SHAPE,
   attributionLines,
   postConcept,
@@ -39,14 +41,18 @@ import type { SeedRecord } from '../local-store.js';
 export const RecordFindingTool = {
   name: 'record_finding',
   description:
-    'Record something you (the agent) noticed about specific code — a bug, a security risk, a design constraint, a gotcha. The finding is attributed to the given files, surfaces immediately via get_problems in this session, and is shared (best-effort) to the org-wide concept graph so other agents working on the same region of this codebase see it. Use mark_complete on the returned agf_* id to endorse (fixed) or discard (retract) it later.',
+    'Record something you (the agent) noticed about specific code — a bug, a security risk, a design constraint, a gotcha — or a task for another agent. The finding is attributed to the given files, or, for work that changes no file (investigate, test, review, operate), to a subject; either way it belongs to this repository, surfaces immediately via get_problems in this session, and is shared (best-effort) to the org-wide concept graph so other agents working on this codebase see it. Use mark_complete on the returned agf_* id to endorse (fixed, or done) or discard (retract) it later.',
   inputSchema: {
     type: 'object' as const,
     properties: {
       files: {
         type: 'array',
-        description: 'Files the finding is attributed to (workspace-relative or absolute)',
+        description: 'Files the finding is attributed to (workspace-relative or absolute). Leave out for work that changes no file, and name a subject instead',
         items: { type: 'string' },
+      },
+      subject: {
+        type: 'string',
+        description: 'What the finding or task is about when it is not a file, or besides its files: an issue URL or number, a document, a service or endpoint, a message id, a topic',
       },
       summary: {
         type: 'string',
@@ -84,12 +90,13 @@ export const RecordFindingTool = {
         default: false,
       },
     },
-    required: ['files', 'summary', 'severity', 'category'],
+    required: ['summary', 'severity', 'category'],
   },
 };
 
 export const InputSchema = z.object({
-  files: z.array(z.string().min(1)).min(1),
+  files: z.array(z.string().min(1)).default([]),
+  subject: z.string().trim().min(1).optional(),
   summary: z.string().min(1),
   details: z.string().optional(),
   severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']),
@@ -98,6 +105,9 @@ export const InputSchema = z.object({
   line_end: z.number().int().nonnegative().optional(),
   status: z.string().default('open'),
   force: z.boolean().default(false),
+}).refine(v => v.files.length > 0 || v.subject !== undefined, {
+  message: 'name what it is about: files, or a subject (an issue, document, service or topic) for work that changes no file',
+  path: ['files'],
 });
 
 export type RecordFindingInput = z.infer<typeof InputSchema>;
@@ -140,6 +150,8 @@ export async function handle(
   const repoName = repo?.name || 'unknown';
 
   const relFiles = input.files.map(f => toWorkspaceRelative(f, workspacePath));
+  // A finding that names no file is one seed with no path: the work it records changes nothing in the tree.
+  const seedFiles = relFiles.length ? relFiles : [''];
   const lineStart = input.line_start ?? 0;
   const lineEnd = input.line_end ?? lineStart;
 
@@ -150,12 +162,12 @@ export async function handle(
   // back its id instead of a second finding. SPEC §record_finding
   if (input.status === 'open' && !input.force) {
     const recall = await fetchAgentFindings(apiClient, { repo });
-    const dup = findOpenDuplicate(relFiles, input.summary, localStore, recall);
+    const dup = findOpenDuplicate(relFiles, input.summary, localStore, recall, input.subject);
     if (dup) {
       const lines = [
         `Already recorded (open): ${dup.id} — use mark_complete or add details there.`,
         `  existing: ${dup.summary}`,
-        `  files:    ${dup.files.join(', ')}`,
+        `  ${dup.files.length ? `files:    ${dup.files.join(', ')}` : `subject:  ${dup.subject ?? '(none)'}`}`,
         `  where:    ${dup.where}${dup.conceptId && dup.conceptId !== dup.id ? ` (concept ${dup.conceptId})` : ''}`,
         '',
         'Nothing new was recorded. Pass force: true to record it as a separate finding.',
@@ -170,7 +182,7 @@ export async function handle(
   const now = Date.now();
   let localStatus = 'local cache unavailable — finding not cached in-session';
   if (localStore) {
-    for (const [i, file] of relFiles.entries()) {
+    for (const [i, file] of seedFiles.entries()) {
       const id = generateFindingId();
       // The line range anchors the first file only: the others of a multi-file finding get none, not a wrong one.
       const anchored = i === 0;
@@ -184,7 +196,7 @@ export async function handle(
         severity: input.severity,
         brief: input.summary,
         confidence: 1,
-        refs_json: '[]',
+        refs_json: input.subject ? JSON.stringify([`${SUBJECT_REF_PREFIX}${input.subject}`]) : '[]',
         produced_at: now,
         stale: input.status !== 'open',
       };
@@ -203,9 +215,10 @@ export async function handle(
     const contentLines = [
       ...repoLines(repo),
       `workspace: ${workspaceId}`,
-      `files: ${relFiles.join(', ')}`,
+      ...(relFiles.length ? [`files: ${relFiles.join(', ')}`] : []),
+      ...(input.subject ? [`subject: ${input.subject.replace(/\s+/g, ' ')}`] : []),
     ];
-    if (input.line_start !== undefined) {
+    if (input.line_start !== undefined && relFiles.length) {
       contentLines.push(`lines: ${lineStart}–${lineEnd}${relFiles.length > 1 ? ` (in ${relFiles[0]})` : ''}`);
     }
     contentLines.push(
@@ -235,7 +248,7 @@ export async function handle(
     // Stash the minted concept id on each seed so a later mark_complete can
     // attribute a usage/relevance signal to it (see _findings.conceptIdFromRefs).
     if (result.ok && result.id && localStore && seedPayloads.length > 0) {
-      const refs = JSON.stringify([`${CONCEPT_REF_PREFIX}${result.id}`]);
+      const refs = JSON.stringify([`${CONCEPT_REF_PREFIX}${result.id}`, ...(input.subject ? [`${SUBJECT_REF_PREFIX}${input.subject}`] : [])]);
       for (const seed of seedPayloads) {
         localStore.upsertSeed({ ...seed, refs_json: refs });
       }
@@ -247,16 +260,18 @@ export async function handle(
   let text = `Finding recorded: [${input.severity}][${input.category}] ${input.summary}\n\n`;
   if (ids.length > 0) {
     for (const { file, id } of ids) {
-      text += `  ${file}${input.line_start !== undefined && file === relFiles[0] ? `:${lineStart}–${lineEnd}` : ''}  →  ${id}\n`;
+      text += file
+        ? `  ${file}${input.line_start !== undefined && file === relFiles[0] ? `:${lineStart}–${lineEnd}` : ''}  →  ${id}\n`
+        : `  subject: ${input.subject}  →  ${id}\n`;
     }
     text += '\n';
   } else {
-    text += `  files: ${relFiles.join(', ')}\n\n`;
+    text += relFiles.length ? `  files: ${relFiles.join(', ')}\n\n` : `  subject: ${input.subject}\n\n`;
   }
   text += `  local:      ${localStatus}\n`;
   text += `  concept-db: ${conceptStatus}\n`;
   // The system's own gaps on these files: get_problems shows findings, not gaps, so a finding can duplicate one.
-  const gaps = await openGapsOnFilesLines(relFiles, activeWorkspacePath());
+  const gaps = relFiles.length ? await openGapsOnFilesLines(relFiles, activeWorkspacePath()) : [];
   if (gaps.length) text += `${gaps.join('\n')}\n  If one is the same issue, mark_complete discard this finding.\n`;
   text += '\n';
   text += `Use mark_complete { problem_id: "<agf id>", action: "endorse"|"discard" } when resolved or retracted.\n`;

@@ -113,6 +113,20 @@ export function attributionLines(
 /** Prefix under which a finding's minted concept id is stashed in a seed's
  *  `refs_json` so mark_complete can attribute a usage/relevance signal to it. */
 export const CONCEPT_REF_PREFIX = 'concept:';
+/** A seed's subject, for a finding about something other than a file (SPEC §record_finding). */
+export const SUBJECT_REF_PREFIX = 'subject:';
+
+/** The subject a finding seed carries, or null. */
+export function subjectFromRefs(refsJson: string | undefined): string | null {
+  try {
+    const refs = JSON.parse(refsJson || '[]') as unknown;
+    if (!Array.isArray(refs)) return null;
+    const ref = refs.find(r => typeof r === 'string' && r.startsWith(SUBJECT_REF_PREFIX)) as string | undefined;
+    return ref ? ref.slice(SUBJECT_REF_PREFIX.length).trim() || null : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Extract the concept id a finding seed points at, or null. */
 export function conceptIdFromRefs(refsJson: string | undefined): string | null {
@@ -264,6 +278,8 @@ export interface AgentFinding {
   files?: string[];
   /** Set on an OPEN finding someone holds a live claim on (src/tools/_claims.ts@claim-holder). */
   claim?: { by: string; until: number; here: boolean };
+  /** A closed finding's outcome, from its verdict. */
+  outcome?: string;
 }
 
 export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable' | 'refused';
@@ -473,6 +489,8 @@ export function parseVerdictConcept(
   const branch = headerLine(content, 'fix_branch') || undefined;
   const commit = /^fix: commit ([0-9a-f]{7,40})\b/m.exec(content);
   if (verdict === 'fixed' && commit) parsed.fix = { sha: commit[1]!, branch, pushed: headerLine(content, 'fix_pushed') !== 'no' };
+  const outcome = headerLine(content, 'outcome');
+  if (outcome) parsed.outcome = outcome;
   if (verdict === 'pending') {
     parsed.pendingBy = headerLine(content, 'reviewed_by') || undefined;
     parsed.pendingBranch = branch;
@@ -497,6 +515,8 @@ export interface ParsedVerdict {
   pendingUnpushed?: boolean;
   /** A pending fix pushed for review: the branch it is to be merged into. */
   pendingAwaitingMerge?: string;
+  /** What was done or found, as the closing agent wrote it (`outcome:`). */
+  outcome?: string;
 }
 
 /**
@@ -717,6 +737,7 @@ export async function fetchAgentFindings(
           continue;
         }
         f.verdict = best.verdict;
+        if (best.outcome) f.outcome = best.outcome;
         // A closed finding has no holder: the claim ended with the work.
         delete f.claim;
         if (best.fix) {
@@ -788,6 +809,13 @@ export function withoutTasks(result: AgentFindingsResult): AgentFindingsResult {
   return result.status === 'ok' ? { ...result, findings: result.findings.filter(f => !isTaskFinding(f)) } : result;
 }
 
+/** A closed finding's tag: fixed with its commit, done (it names no file, so no commit holds it), or retracted. */
+function closedTag(f: AgentFinding): string {
+  if (f.verdict !== 'fixed') return '[RETRACTED]';
+  if (f.fix) return `[FIXED in ${f.fix.sha.slice(0, 10)}]`;
+  return (headerLine(f.content, 'files') || f.files?.length) ? '[FIXED]' : '[DONE]';
+}
+
 /**
  * The tasks section: open `task` findings from the local store and the recall, one entry per task. Claimed tasks
  * are never hidden, since who is on what is the coordination signal. They are ordered so the next move comes
@@ -805,19 +833,21 @@ export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindin
     const files = headerLine(f.content, 'files');
     const group = f.pending ? 3 : f.claim?.here ? 0 : f.claim ? 2 : 1;
     const note = f.pending ? `  ${pendingNote(f.pending)}` : f.claim ? `  ${f.claim.here ? `[yours: ${claimNote(f.claim).slice(1)}` : claimNote(f.claim)}` : '';
-    entries.push({ group, text: `  • ${findingSummaryText(f.summary) || f.id}${note}\n` + (files ? `    files: ${files}\n` : '') + `    id: ${f.id}\n` });
+    const subject = headerLine(f.content, 'subject');
+    entries.push({ group, text: `  • ${findingSummaryText(f.summary) || f.id}${note}\n` + (files ? `    files: ${files}\n` : '') + (subject ? `    subject: ${subject}\n` : '') + `    id: ${f.id}\n` });
   }
   for (const s of localTasks) {
     const ref = conceptIdFromRefs(s.refs_json);
     if (seen.has(s.id) || (ref && seen.has(plainConceptId(ref)))) continue;
     seen.add(s.id);
-    entries.push({ group: 1, text: `  • ${s.brief}\n    files: ${s.file_path}\n    id: ${s.id}\n` });
+    const subject = subjectFromRefs(s.refs_json);
+    entries.push({ group: 1, text: `  • ${s.brief}\n` + (s.file_path ? `    files: ${s.file_path}\n` : '') + (subject ? `    subject: ${subject}\n` : '') + `    id: ${s.id}\n` });
   }
   // Closed tasks stay visible, so a coordinator sees completion without filtering for it.
   const closed = recall.status === 'ok' ? recall.findings.filter(f => isTaskFinding(f) && f.verdict) : [];
   const closedLines = closed.slice(0, 5).map(f => {
-    const tag = f.verdict === 'fixed' ? (f.fix ? `[FIXED in ${f.fix.sha.slice(0, 10)}]` : '[FIXED]') : '[RETRACTED]';
-    return `  • ${tag} ${findingSummaryText(f.summary) || f.id} (id: ${f.id})\n`;
+    const tag = closedTag(f);
+    return `  • ${tag} ${findingSummaryText(f.summary) || f.id} (id: ${f.id})\n${f.outcome ? `    outcome: ${f.outcome}\n` : ''}`;
   });
   const closedPart = closed.length
     ? `Closed tasks (${closed.length}${closed.length > closedLines.length ? `, ${closedLines.length} shown` : ''}):\n${closedLines.join('')}`
@@ -877,6 +907,8 @@ export function renderFindingsSection(
       if (!opts.compact) {
         const fileLine = f.files?.length ? `files: ${f.files.join(', ')}` : f.content.split('\n').find(l => l.startsWith('files:'));
         if (fileLine) text += `    ${fileLine}\n`;
+        const subjectLine = f.content.split('\n').find(l => l.startsWith('subject:'));
+        if (subjectLine) text += `    ${subjectLine}\n`;
         text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
       }
     }
@@ -890,9 +922,10 @@ export function renderFindingsSection(
     } else {
       text += `Closed findings (verdict recorded — not open issues):\n`;
       for (const f of closed.slice(0, opts.max)) {
-        const tag = f.verdict === 'fixed' ? (f.fix ? `[FIXED in ${f.fix.sha.slice(0, 10)}]` : '[FIXED]') : '[RETRACTED]';
+        const tag = closedTag(f);
         const line = f.summary || f.content.split('\n')[0] || f.id;
         text += `  • ${tag} ${line} (concept: ${f.id})${f.fix ? fixNote(f.fix) : ''}\n`;
+        if (f.outcome) text += `    outcome: ${f.outcome}\n`;
       }
       if (closed.length > opts.max) {
         text += `  … and ${closed.length - opts.max} more closed\n`;
@@ -1041,6 +1074,8 @@ export interface OpenDuplicate {
   conceptId: string | null;
   summary: string;
   files: string[];
+  /** The subject of a finding that names no file. */
+  subject?: string;
   where: 'local store' | 'recorded by agents on this codebase';
 }
 
@@ -1054,7 +1089,26 @@ export function findOpenDuplicate(
   summary: string,
   localStore: LocalStore | null | undefined,
   recall: AgentFindingsResult,
+  subject?: string,
 ): OpenDuplicate | null {
+  // A finding that names no file is the same one when its summary and subject match an open file-less finding's.
+  if (!files.length) {
+    const sameSubject = (other: string | null | undefined) => (other ?? '').trim().toLowerCase() === (subject ?? '').trim().toLowerCase();
+    for (const s of localStore?.getAllCachedSeeds() ?? []) {
+      if (s.file_path || !sameFindingSummary(s.brief, summary) || !sameSubject(subjectFromRefs(s.refs_json))) continue;
+      const ref = conceptIdFromRefs(s.refs_json);
+      return { id: s.id, conceptId: ref ? plainConceptId(ref) : null, summary: s.brief, files: [], subject: subject, where: 'local store' };
+    }
+    if (recall.status === 'ok') {
+      for (const f of recall.findings) {
+        if (f.verdict || headerLine(f.content, 'files') || !sameSubject(headerLine(f.content, 'subject'))) continue;
+        const text = findingSummaryText(f.summary);
+        if (!sameFindingSummary(text, summary)) continue;
+        return { id: f.id, conceptId: f.id, summary: text, files: [], subject, where: 'recorded by agents on this codebase' };
+      }
+    }
+    return null;
+  }
   if (localStore) {
     for (const file of files) {
       for (const s of localStore.getCachedSeeds(file)) {

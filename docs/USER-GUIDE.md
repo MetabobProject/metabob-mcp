@@ -103,6 +103,7 @@ The tools it uses:
 | To continue earlier work | "Pick up the payments task where it was left" |
 | To stop and hand over | "Stop here and hand this off" |
 | To split work | "Make one task per area, each owning its files" |
+| Work that changes no code | "Record a task: triage issue #12 and say whether it fails on main" |
 | To plan larger work | "Plan the port to TypeScript as tasks for several agents; show me the split first" |
 | To record a process | "Write down the release process as steps" |
 | To fix the memory | "That decision is out of date: we moved to webhooks" |
@@ -122,6 +123,9 @@ The tools it uses:
 
 4. The agent claims it, reads the brief, works in the files it owns, commits, pushes and closes it. If it can't
    push, the task stays `fix pending` and the agent tells you.
+
+A task doesn't have to change code: "triage issue #12", "review the release checklist" or "check the staging
+deploy" names what it is about instead of files, and the agent closes it with what it found and a link to it.
 
 For parallel agents, give each task its own files and run each agent in its own clone or `git worktree`. To run
 agents unattended, see [DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md).
