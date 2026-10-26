@@ -59,7 +59,9 @@ With `METABOB_TOOLS` unset, the server lists these eleven tools and refuses a ca
 
 In Claude Code, `/mcp` → `metabob` shows them. The server has other tools (code analysis and an operator's
 cockpit for the system behind it); `METABOB_TOOLS=all` lists every tool, and a comma-separated list lists exactly
-those. It is read when the server starts, so restart or reconnect the client after changing it. Where to set it:
+those. It is read when the server starts, so restart or reconnect the client after changing it. `all` needs 0.4.0 or
+later: an earlier server reads it as one tool's name and lists none, so pin the version where it is set. Where to
+set it:
 
 - **Claude Code with the plugin:** in `~/.claude/settings.json` as `{ "env": { "METABOB_TOOLS": "all" } }`, or
   exported in the shell that starts `claude`.

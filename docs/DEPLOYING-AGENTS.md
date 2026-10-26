@@ -346,7 +346,7 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 | Value | Lists |
 |---|---|
 | unset or empty | The default eleven: the ledger and memory tools plus `init_workspace` |
-| `all` | Every tool: the full tool set, with code analysis and goal tools |
+| `all` | Every tool: the full tool set, with code analysis and goal tools. A server before 0.4.0 reads `all` as one tool's name and lists none, so pin 0.4.0 or later where it is set |
 | `a,b,c` | Exactly those tools; a name that is no tool lists nothing and is reported at start |
 
 A tool outside the set is refused by name before it runs, on stdio and on the local resolver. Change it in the

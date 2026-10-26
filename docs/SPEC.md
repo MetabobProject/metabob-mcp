@@ -65,6 +65,9 @@ the loopback resolver alike, and its `/v2/capabilities` lists the same:
 - `all`: every tool;
 - a comma-separated list: exactly those tools.
 
+A server before 0.4.0 reads `all` as the name of one tool and so lists none: a launch that sets it pins 0.4.0 or
+later.
+
 A tool the set leaves out is refused by name, before it runs. Under the default set the refusal says the tool is
 not in the default set and that `METABOB_TOOLS=all` in the server's environment lists every tool, to take effect
 after a restart or reconnect; under a list it says the tool is not enabled (METABOB_TOOLS allowlist). While
