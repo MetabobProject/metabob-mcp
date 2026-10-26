@@ -70,7 +70,7 @@ describe('pullTask', () => {
     return { url: bare, repo: normalizeRemoteUrl(bare)! };
   }
 
-  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string; repo?: string; files?: string }>, verdicts: Array<Record<string, unknown>> = []) {
+  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string; repo?: string; files?: string }>, verdicts: Array<Record<string, unknown>> = [], opts: { writesUnseen?: Array<Record<string, unknown>> } = {}) {
     const rows: Array<Record<string, unknown>> = [
       ...tasks.map(t => ({
         id: `concept:concept_${t.n}`, shape: 'code_finding', summary: `[${t.sev}][task] r: task ${t.n}`, created_at: new Date(Date.now() - 3_600_000).toISOString(),
@@ -88,7 +88,8 @@ describe('pullTask', () => {
       concept_create_write: (p) => {
         n++;
         const id = `v${String(n).padStart(3, '0')}`;
-        rows.push({ id: `concept:${id}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date().toISOString() });
+        // writesUnseen: the write lands, but reads never show it (concept-db's read path behind its write).
+        (opts.writesUnseen ?? rows).push({ id: `concept:${id}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date().toISOString() });
         return { body: { success: true, content: JSON.stringify({ id }) } };
       },
     });
@@ -152,6 +153,17 @@ describe('pullTask', () => {
     const r = await pullTask(args(o.url, 'p4'), 'sess4', 'metabob-mcp-cell1', [0, 0, 0]);
     expect(r.code).toBe(4);
     expect(r.extra?.retry_after).toBe(new Date(at + 10 * 60_000).toISOString());
+  });
+
+  test('a claim the reads never show is withdrawn, and the pull says to retry soon', async () => {
+    const o = origin('o-unseen');
+    const unseen: Array<Record<string, unknown>> = [];
+    await ledger(o.repo, [{ n: 'u', sev: 'HIGH' }], [], { writesUnseen: unseen });
+    const r = await pullTask(args(o.url, 'p7'), 'sess7', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(4);
+    expect(r.message).toContain('unsettled');
+    expect(unseen.map(x => /verdict: (\w[\w ]*)/.exec(String(x.content))?.[1])).toEqual(['claimed', 'claim withdrawn']);
+    expect(Date.parse(String(r.extra?.retry_after)) - Date.now()).toBeLessThan(31_000);
   });
 
   test('a bad ref after the claim withdraws the claim, so the task is not blocked', async () => {

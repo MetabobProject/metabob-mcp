@@ -341,6 +341,15 @@ describe('the agent cell (lab/cell.sh, lab/cell/)', () => {
     }
   });
 
+  test('the cell has one identity: task pull and the harness\'s MCP server both get the same VESSEL_ID', () => {
+    const lines = code(entry);
+    const set = lines.findIndex((l) => /^VESSEL_ID="\$\{CELL_VESSEL_ID:-metabob-cell-\$\(hostname\)\}"; export VESSEL_ID$/.test(l));
+    const pull = lines.findIndex((l) => /task pull --origin/.test(l));
+    expect(set).toBeGreaterThan(-1);
+    expect(set).toBeLessThan(pull);
+    expect(entry).toMatch(/"VESSEL_ID": "\$VESSEL_ID"/);
+  });
+
   test('documents and handles every subcommand', () => {
     const usage = cell.split('\n').filter((l) => l.startsWith('#')).join('\n');
     const dispatch = cell.slice(cell.lastIndexOf('case "${1:-}" in'));

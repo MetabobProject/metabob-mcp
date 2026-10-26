@@ -193,13 +193,14 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
   const tried: string[] = [];
   const heldUntil: number[] = recall.findings.filter(f => isTaskFinding(f) && !f.verdict && f.claim && !f.claim.here).map(f => f.claim!.until);
   for (const task of candidates) {
-    const result = await claim(ClaimInput.parse({ problem_id: task.id, action: 'claim', minutes: a.minutes }), sessionId, null, { repo, ...(pauses ? { pauses } : {}) });
+    const result = await claim(ClaimInput.parse({ problem_id: task.id, action: 'claim', minutes: a.minutes }), sessionId, null, { repo, withdrawUnsettled: true, ...(pauses ? { pauses } : {}) });
     tried.push(`${task.id}: ${result.outcome}`);
     if (result.outcome === 'held' || result.outcome === 'lost') {
       if (result.holder) heldUntil.push(result.holder.until);
       continue;
     }
-    // An unsettled claim is worth retrying soon: the read path had not caught up with the write.
+    // An unsettled claim was withdrawn by claim() (withdrawUnsettled), so it cannot hold the task while this cell
+    // moves on; it is worth retrying soon: the read path had not caught up with the write.
     if (result.outcome === 'unsettled') {
       heldUntil.push(Date.now() + 30_000);
       continue;

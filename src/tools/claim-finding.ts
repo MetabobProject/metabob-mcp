@@ -140,6 +140,11 @@ export interface ClaimOptions {
   pauses?: readonly number[];
   /** The repository the claim names; the active workspace's by default (task pull names the task's). */
   repo?: RepoIdentity | null;
+  /**
+   * Withdraw a claim the read-back never shows (`unsettled`), so it cannot hold the finding while the caller moves
+   * on: what task pull does, since its next step is another task. An agent's claim_finding leaves it to renew.
+   */
+  withdrawUnsettled?: boolean;
 }
 
 export async function handle(
@@ -233,6 +238,10 @@ export async function claim(
     await pause(ms);
     after = await state(found.ids, posted.id, found.conceptId);
     if (typeof after === 'string' || after.seenOwn) break;
+  }
+  if ((typeof after === 'string' || !after.seenOwn) && opts.withdrawUnsettled) {
+    const withdrawn = await write(null, 'withdrawn');
+    return r('unsettled', `Claim written (concept ${posted.id ?? '?'}) but not shown by concept-db's reads, so it was withdrawn${withdrawn.ok ? '' : ` (the withdrawal failed: ${withdrawn.error}; it lapses on its own)`}.`, { key });
   }
   if (typeof after === 'string') return r('unsettled', `Claim written (concept ${posted.id ?? '?'}), but it could not be read back to confirm it holds: ${after}`, { key });
   if (!after.seenOwn) {

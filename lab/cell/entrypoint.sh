@@ -11,8 +11,10 @@
 #
 # env (from the 0600 env file): METABOB_API_KEY, ANTHROPIC_API_KEY, DISCOVERY_ENDPOINT, CELL_ORIGIN
 #      optional: CELL_MODEL (claude-sonnet-5), CELL_WALL_S (1800), CELL_BUDGET_USD (5), CELL_CLAIM_MINUTES (45),
+#                CELL_VESSEL_ID (the cell's identity; metabob-cell-<container hostname> by default),
 #                CELL_SKIP_HARNESS=1 (everything but the harness: the recipe's smoke test)
-# exit: the harness's code, or task pull's (2 not attached, 3 no open task, 4 tasks held by others)
+# exit: the harness's code, or task pull's (1 failure, 2 not attached or a missing input, 3 no open task, 4 tasks held
+#       by others or a claim not settled)
 set -uo pipefail
 
 OUT=/out TASK=/task WORK=/work
@@ -72,6 +74,11 @@ meta[wall_s]="$WALL_S"; meta[budget_usd]="$BUDGET"; meta[egress]="${CELL_EGRESS:
 
 # 1. task pull
 SESSION_ID="cell-$(cat /proc/sys/kernel/random/uuid)"; export SESSION_ID
+# One identity for the cell: task pull claims under it and the harness's MCP server holds the claim under it. Each
+# derives its own from the key and /work otherwise (task pull before the clone, the server inside it), so the agent
+# would read its own claim as another's. The container's hostname is kept across a restart of the same container.
+VESSEL_ID="${CELL_VESSEL_ID:-metabob-cell-$(hostname)}"; export VESSEL_ID
+meta[vessel_id]="$VESSEL_ID"
 node "$MCP" task pull --origin "$CELL_ORIGIN" --task-dir "$TASK" --work-dir "$WORK" --minutes "$CLAIM_MIN" --json > "$OUT/task-pull.json" 2> "$OUT/task-pull.log"
 rc=$?
 meta[task_pull_exit]="$rc"
@@ -105,7 +112,7 @@ meta[base]="$BASE"
 # 3. the harness
 cat > "$PRIVATE/mcp.json" <<EOF
 { "mcpServers": { "metabob": { "command": "node", "args": ["$MCP"],
-  "env": { "METABOB_CONFIG_PATH": "$PRIVATE/config.json", "METABOB_CALL_LOG": "$OUT/calls.jsonl", "SESSION_ID": "$SESSION_ID" } } } }
+  "env": { "METABOB_CONFIG_PATH": "$PRIVATE/config.json", "METABOB_CALL_LOG": "$OUT/calls.jsonl", "SESSION_ID": "$SESSION_ID", "VESSEL_ID": "$VESSEL_ID" } } } }
 EOF
 PROMPT="You are an agent cell working one task from a shared ledger, in this repository (/work).
 The task and its context: /task/task.json and /task/context.md. Read them first. The task's finding id is $TASK_ID.
