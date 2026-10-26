@@ -138,7 +138,8 @@ Set these in the server's environment: for the Claude Code plugin, in `~/.claude
 | `WORKSPACE_PATH=<path>` | Names the project when the client starts the server elsewhere |
 | `HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS` | A corporate proxy or root certificate |
 
-A `.metabob/config.json` in a project gives that project its own key or address. Every setting is in the
+A `.metabob/config.json` in a project gives that project its own key or address (not with the Codex plugin, which
+starts the server in its own folder). Every setting is in the
 README's [Configuration](../README.md#configuration) section.
 
 ## 6. Troubleshooting
