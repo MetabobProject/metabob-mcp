@@ -53,21 +53,44 @@ own sections below.
 
 ---
 
+## Tool sets
+
+`METABOB_TOOLS` decides which tools the server lists (`src/vessel-server.ts@parseToolAllowlist`), on stdio and on
+the loopback resolver alike, and its `/v2/capabilities` lists the same:
+
+- unset or empty: the default set (`src/tools/index.ts@default-tool-set`), the shared task ledger and the shared
+  memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
+  `concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
+  `init_workspace`;
+- `all`: every tool;
+- a comma-separated list: exactly those tools.
+
+A tool the set leaves out is refused by name, before it runs. Under the default set the refusal says the tool is
+not in the default set and that `METABOB_TOOLS=all` in the server's environment lists every tool, to take effect
+after a restart or reconnect; under a list it says the tool is not enabled (METABOB_TOOLS allowlist). While
+attached, the server's marker names the tools it lists (`src/attached-marker.ts`), so the Claude Code plugin's edit
+check asks only for tools the agent has: `get_problems` alone under the default set, `get_problems` and
+`path_activity` under `all`.
+
 ## Agent instructions
 
-The `initialize` result carries MCP `instructions` (`src/server-instructions.ts@SERVER_INSTRUCTIONS`),
-which MCP clients place in the agent's context at connect time. They state what the server is for,
-lead with what to do before editing files other agents or the substrate also work on (`get_problems`
-for those files, then `path_activity` on them; `record_finding` for a problem noticed and not fixed,
-since a bug mentioned only in a reply is lost; `mark_complete` for what was fixed), tell the agent to
-load the `metabob` skill before its first call (it holds the sequencing and the
-rules), name the first-call set in one sentence (`get_analysis_context`, `get_problems`,
-`record_finding`, `mark_complete`) as the fallback when the skill is not available, so a client that
-defers tool schemas loads all four with one tool search, name the ledger and goal loops and the
-recent-trace listing, separate the
-local tools from the substrate tools, and say that a named cause from a substrate tool is the
-attachment's state, diagnosed with `metabob-mcp attach --check`. They change only with the tool
-set: every tool they name exists in the registry, which the W4 skill-contract workflow test holds.
+The `initialize` result carries MCP `instructions` (`src/server-instructions.ts@serverInstructions`), which MCP
+clients place in the agent's context at connect time. They name only tools the server lists (§ Tool sets), which
+`tests/unit/tool-sets.test.ts` and the W4 skill-contract workflow test hold.
+
+- **The default set** (`src/server-instructions.ts@DEFAULT_INSTRUCTIONS`): what the server is for (a shared task
+  ledger and a shared memory across sessions, machines and clients); load the `metabob` skill before the first call;
+  as the fallback when the skill is not available, `get_analysis_context` and `get_problems` first, and all eleven
+  tools in one tool search for a client that defers tool schemas; one line per ledger and memory tool; what to do on
+  `workspace_undetermined`; and that a named cause such as `key_rejected` is the connection's state, diagnosed with
+  `metabob-mcp attach --check`. They do not mention the substrate.
+- **`all`** (`src/server-instructions.ts@FULL_INSTRUCTIONS`): what to do before editing files other agents or the
+  substrate also work on (`get_problems` for those files, then `path_activity` on them; `record_finding` for a
+  problem noticed and not fixed; `mark_complete` for what was fixed); load the `metabob-substrate` skill before the
+  first call; the first-call set in one sentence (`get_analysis_context`, `get_problems`, `record_finding`,
+  `mark_complete`); the ledger and goal loops and the recent-trace listing; the local tools apart from the substrate
+  tools; and the attachment's named causes.
+- **A list:** the `all` text, less every line that names a tool the list leaves out.
 
 ## Configuration
 

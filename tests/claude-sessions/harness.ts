@@ -264,6 +264,8 @@ export function buildPluginDir(target: Target, setup: McpSetup): string {
     METABOB_CONFIG_PATH: configPath,
     METABOB_TELEMETRY: 'off',
     LOG_LEVEL: 'info',
+    // The scenarios drive the whole cockpit (goals, traces, the local tools), so the server lists every tool.
+    METABOB_TOOLS: 'all',
     ...target.netEnv,
     ...(setup.extraEnv ?? {}),
   };

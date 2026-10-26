@@ -1,5 +1,5 @@
 /**
- * W2 — the ledger across two sessions (skills/metabob/SKILL.md, Phases 0, 3, 4).
+ * W2 — the ledger across two sessions (skills/metabob-substrate/SKILL.md, Phases 0, 3, 4).
  *
  * Two server processes share one substrate and one workspace but not a home
  * directory, so nothing passes between them except through concept-db:

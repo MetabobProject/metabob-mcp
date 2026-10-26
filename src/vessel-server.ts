@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { AnalysisAPIClient } from './api-client.js';
 import type { CircuitBreaker } from './circuit-breaker.js';
 import { CircuitState } from './circuit-breaker.js';
-import { TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
+import { DEFAULT_TOOL_SET, TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
 import type { AuthService } from './auth-service.js';
 import type { LocalStore, AgentTaskRecord } from './local-store.js';
 import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
@@ -31,12 +31,23 @@ export function isAgentTaskShape(shape?: string): boolean {
   return !!shape && QUEUED_SHAPES.has(shape);
 }
 
-/** Parse METABOB_TOOLS. `null` = no allowlist configured (everything permitted). */
+/**
+ * Parse METABOB_TOOLS (SPEC §tool-sets): unset or empty → the default set (DEFAULT_TOOL_SET); `all` → every tool
+ * (`null`); a comma list → exactly those names.
+ */
 export function parseToolAllowlist(raw: string | undefined): ReadonlySet<string> | null {
   const trimmed = raw?.trim();
-  if (!trimmed) return null;
-  const names = trimmed.split(',').map(n => n.trim()).filter(n => n.length > 0);
-  return names.length > 0 ? new Set(names) : null;
+  if (trimmed?.toLowerCase() === 'all') return null;
+  const names = (trimmed ?? '').split(',').map(n => n.trim()).filter(n => n.length > 0);
+  return new Set(names.length > 0 ? names : DEFAULT_TOOL_SET);
+}
+
+/** Which grammar METABOB_TOOLS took: the default set, every tool, or a list the operator gave. */
+export type ToolSetKind = 'default' | 'all' | 'list';
+export function toolSetKind(raw: string | undefined = process.env['METABOB_TOOLS']): ToolSetKind {
+  const trimmed = raw?.trim();
+  if (trimmed?.toLowerCase() === 'all') return 'all';
+  return (trimmed ?? '').split(',').some(n => n.trim().length > 0) ? 'list' : 'default';
 }
 
 let allowlistMemo: { value: ReadonlySet<string> | null } | null = null;
@@ -54,7 +65,7 @@ export function isToolPermitted(name: string): boolean {
   return allowlistMemo.value === null || allowlistMemo.value.has(name);
 }
 
-/** True when an allowlist is configured at all — for reporting, not enforcement. */
+/** True when not every tool is listed (the default set or a list) — for reporting, not enforcement. */
 export function toolAllowlistActive(): boolean {
   if (!allowlistMemo) allowlistMemo = { value: parseToolAllowlist(process.env['METABOB_TOOLS']) };
   return allowlistMemo.value !== null;
@@ -62,6 +73,10 @@ export function toolAllowlistActive(): boolean {
 
 /** The refusal every plane gives, so a caller cannot tell them apart by wording. */
 export function toolNotEnabledMessage(name: string): string {
+  if (toolSetKind() === 'default' && TOOL_REGISTRY[name]) {
+    return `Tool "${name}" is not in this server's default tool set (the shared ledger and memory). `
+      + 'METABOB_TOOLS=all in the server\'s environment lists every tool; restart or reconnect the client after setting it.';
+  }
   return `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`;
 }
 
@@ -265,7 +280,7 @@ export class VesselServer {
         version: VERSION,
         shapes: [...SERVED_SHAPES],
         protocols: ['mcp:stdio', 'http:resolver'],
-        tools: getAllTools().map(t => ({ name: t.name, description: t.description })),
+        tools: getAllTools().filter(t => isToolPermitted(t.name)).map(t => ({ name: t.name, description: t.description })),
         resolver: { endpoint: '/v2/impulses/resolve', authScheme: 'ApiKey', timeoutMs: 30000 },
       });
     });

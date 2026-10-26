@@ -72,7 +72,13 @@ describe('the plugin bundles', () => {
   });
 
   test('the shipped skill and edit check are the repository\'s own', () => {
-    expect(read('plugin/skills/metabob/SKILL.md')).toBe(read('skills/metabob/SKILL.md'));
+    // Both skills ship: `metabob` for the default tool set, `metabob-substrate` for METABOB_TOOLS=all.
+    const skills = JSON.parse(read('scripts/plugins/source.json')).skills as string[];
+    expect(skills).toEqual(['metabob', 'metabob-substrate']);
+    for (const name of skills) {
+      expect(read(`plugin/skills/${name}/SKILL.md`)).toBe(read(`skills/${name}/SKILL.md`));
+      expect(read(`skills/${name}/SKILL.md`)).toStartWith(`---\nname: ${name}\n`);
+    }
     expect(read('plugin/scripts/edit-check.mjs')).toBe(read('scripts/claude-plugin/edit-check.mjs'));
     expect(relative(ROOT, join(ROOT, 'plugin'))).toBe('plugin');
   });

@@ -62,6 +62,10 @@ Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bump
 
 ## Tools
 
+The server lists these tools with `METABOB_TOOLS=all`; unset, it lists the default set (`get_analysis_context`,
+`get_problems`, `claim_finding`, `record_finding`, `mark_complete`, the five `concept_*` reads and writes other than
+`concept_sequence` and `concept_usage_stats`, and `init_workspace`; docs/SPEC.md § Tool sets).
+
 | Tool | Tier | Key behaviour |
 |------|------|--------------|
 | `init_workspace` | **Local** | Parses the workspace into the in-process CPG; makes no request. `batch_size` / `sync_api` are accepted and ignored |
@@ -149,7 +153,7 @@ wins over its derived value only when set explicitly.
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `METABOB_STDIO_KEEPALIVE` | _(unset)_ | Set to `1` to survive stdin EOF — headless operation (the loopback HTTP resolver only). Otherwise the process exits on stdin EOF or `SIGHUP`, so an orphaned server does not outlive its MCP client |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
-| `METABOB_TOOLS` | _(unset → all)_ | Comma-separated tool allowlist, enforced on stdio and on the loopback resolver |
+| `METABOB_TOOLS` | _(unset → the default set)_ | Which tools the server lists, on stdio and on the loopback resolver (docs/SPEC.md § Tool sets): unset, the eleven of the shared ledger and memory (`src/tools/index.ts@default-tool-set`); `all`, every tool in the table above; a comma list, exactly those. Sessions working on this repository run with `all` |
 | `METABOB_EDIT_CHECK` | _(on)_ | `off` disables the Claude Code plugin's edit check (README § Claude Code plugin); `METABOB_EDIT_CHECK_DIR` moves its per-session state and `METABOB_MARKER_DIR` the server's attached marker from the temp directory |
 | `METABOB_CALL_LOG` | _(unset)_ | A file to append one JSON line per tool call to, on stdio and the loopback resolver (tool, argument names and sizes, outcome, the tool's result kind, duration; never a value), for scoring call order in any harness. Local only, mode 0600 (docs/SPEC.md § Call log) |
 | `METABOB_TASK_TRUST` | _(the task's recorder)_ | `task pull`: comma-separated authors whose `project_convention` concepts may set a task's integration policy (docs/SPEC.md § task pull) |

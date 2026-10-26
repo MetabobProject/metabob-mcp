@@ -1,217 +1,242 @@
 ---
 name: metabob
-description: Use before editing code in a repository other agents or the substrate also work on: check what is known-wrong and in flight on the files first (get_problems, path_activity), then record what you find and close what you fix on the shared ledger of the Metabob MCP server. Also use when a session reviews code or notices issues worth leaving for others, picks up or closes work on the ledger (who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load at the START of a session where Metabob is connected.
+description: Use whenever work on a repository spans more than one agent, session or execution. That covers picking up a task another agent recorded, handing unfinished work to whoever comes next, keeping parallel agents from redoing or colliding with each other's work, learning why the code is the way it is from the decisions and rejected approaches earlier agents recorded, and leaving what you learned for the next one. It works through the metabob MCP tools for the shared task ledger and shared memory (get_problems, claim_finding, record_finding, mark_complete, concept_search, concept_neighbors, concept_create, concept_link, concept_record_usage). Load it at the start of any session where these tools are connected and the work continues something, splits across agents or will be continued later, even when nobody mentions memory or coordination.
 ---
 
-# Metabob: working as a participant in the substrate
+# Shared memory and tasks
 
-The substrate is a system that develops itself. You take part in it as one more
-participant: you hand it goals, you read and add to its shared memory, you
-coordinate with other agents through its ledger, and you report what you
-observed. It judges outcomes; you supply work and evidence. Each role below says
-when to use it, the calls in order, and what the substrate learns from it.
+Several agents work on the same repository, at the same time or one after
+another, on different machines and in different tools. They share two things:
 
-For questions about what the code *does*, read the code. `grep`, `git` and a file
-reader are faster.
+- **a task ledger**: tasks and problems, who holds each one, and what closed with which commit;
+- **a memory**: decisions, rejected approaches, handoffs and step guidance, each ranked by how often it actually helped.
 
-## Rules
+Both hold only what agents put into them. Nothing is filled in for you: no file
+is read into them and no history is inferred. Every task, claim, decision,
+rejected approach and credit in them is a call some agent made. The next agent
+knows what you leave and nothing more. A session that only reads leaves the next
+one where it started. A session that records its one non-obvious decision saves
+the next one the time it took to reach it. So treat recording as part of the
+work, not a report about it.
 
-- **Before you edit, check.** `get_problems` for the files you are about to change,
-  then `path_activity` on them: an open finding may already describe the change, and
-  the substrate may be landing it. A problem you notice and are not fixing goes into
-  `record_finding`, not just your reply, where the next agent never sees it. After the
-  edit, `mark_complete` for what you fixed.
-- **Never grade your own work.** Whether a goal was reached is goal-host's
-  judgment. Read `reached` and the `learning:` line; never treat a run you
-  dispatched as a success because it ended.
-- **State goals in natural language.** Describe the outcome you want. Do not
-  break a goal into shapes or steps for the system; mapping a goal onto its
-  shapes is the substrate's job.
-- **Inspect before you trust.** Read `goal_reasoning` before relying on a reach:
-  a walk can end `reached` on hollow content.
-- **Your verdict is evidence, not authority.** `provide_feedback` records it as
-  an `automated` observation. A person's judgment reaches the substrate through
-  its human surface; do not represent the user's view as yours.
-- **Write into the system's memory.** Findings, decisions and rejected
-  approaches go into the ledger and concept-db, where the next agent recalls
-  them, rather than into notes only you keep.
-- **Poll gently.** A few quick reads, then 10–15 s apart; stop when a dispatch is
-  no longer running.
+## The tools
 
-## Start of session
+| Tool | Use it to |
+|---|---|
+| `get_analysis_context` | See where you are: the workspace the ledger is keyed to, the open count, and recent recall |
+| `get_problems` | Read the work queue: tasks, listed apart with their claims, then problems, then what closed |
+| `claim_finding` | Take a task before you start, renew it during long work, release it if you stop |
+| `record_finding` | Record a problem you won't fix now, or a task for another agent |
+| `mark_complete` | Close what you finished (`endorse`) or what turned out not to be real (`discard`) |
+| `concept_search` | Find what earlier agents learned, by topic, by shape, or one concept in full |
+| `concept_neighbors` | Follow the links from a concept: a task's handoffs, a repository's decisions, the next step |
+| `concept_create` | Write a decision, a rejected approach, a handoff or a step |
+| `concept_link` | Attach what you wrote to what it is about, so the next agent can reach it |
+| `concept_record_usage` | Tell the memory which concepts helped you and which misled you |
+| `init_workspace` | Name the project when a call answers `workspace_undetermined` |
 
-1. `get_analysis_context` — the open-findings count, the code index's state, and
-   a compact recall of what other agents recorded here.
-2. `get_problems` — the work queue. It opens with one count across the local
-   store and findings other agents recorded; findings carrying a verdict appear in
-   a trailing **closed** section tagged `[FIXED]`/`[RETRACTED]`.
-3. `init_workspace { workspace_path }` — **one call indexes the whole workspace**
-   locally; the code-safety tools below work right after it. Nothing leaves the
-   machine. Call again only when it reports `parse budget reached`.
-4. For the org's design memory, `concept_search` with a **`shape` filter and no
-   `query`** lists that shape's concepts, up to `limit` (at most 50).
+These are the only tools this work needs. If your client loads tool schemas on
+demand, load all eleven in one tool search before your first call.
 
-If a call answers `workspace_undetermined`, your client started the server in the
-plugin's own folder: call `init_workspace { workspace_path: "<the project's absolute
-path>" }` first (a relative path resolves against the plugin's folder), then start
-again from step 1.
+## At the start
 
-## Role: coordinator — the shared ledger
+1. `get_analysis_context`. Its `workspace:` line names the repository the
+   ledger is keyed to. If that isn't the project you're working in, call
+   `init_workspace { workspace_path: "<the project's absolute path>" }`, then
+   start again. Do the same when any call answers `workspace_undetermined`. A
+   relative path such as `.` may not name the project.
+2. `get_problems`: the open tasks, who holds them and until when, and what
+   recently closed. A closed item is work you don't need to redo.
+3. Find the repository's anchor: `concept_search { shape: "repo_anchor", query:
+   "<repo name>", limit: 50 }`. Anchors are shared across the organization, so pick
+   the one that names this repository. If there is none, create it:
+   `concept_create { shape: "repo_anchor", source_type: "memo", content:
+   "<repo name>: <one-line purpose, primary language>" }`.
+4. Read the repository's memory: `concept_neighbors { concept_id: "<anchor>",
+   direction: "incoming" }` gives the decisions linked to it. Then
+   `concept_search { query: "<the area or symptom you're working on>" }`. If you
+   hold a task, read what earlier executions left on it:
+   `concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming" }`.
+   Read any concept in full with `concept_search { concept_id }`.
 
-Use it whenever more than one agent or session touches the repository.
+Reading costs nothing and changes no ranking, so read freely.
 
-1. **Record** what you notice, when you notice it: `record_finding { files,
-   summary, severity, category, details }`. Put the scope in `details`: the files
-   this work owns, the test bar, what is out of bounds. If the same finding is
-   already open you get its id back ("Already recorded (open)") instead of a
-   duplicate; pass `force: true` only for a genuinely separate finding.
-2. **Recall**: another agent finds it through `get_problems`, from any machine on
-   the same repository (the ledger is keyed by the repository's git remote).
-   Before you start on a finding another agent could also pick up, `claim_finding` it: recall
-   shows "claimed by … until …", and a finding someone else holds is theirs. Renew a long piece
-   of work; release it if you stop.
-3. **Close**: `mark_complete` with `endorse` when fixed and `discard` when it was a
-   false positive. Endorse after you commit the fix and push it, where the person you work for allows a push: the verdict records the commit,
-   and a fix still uncommitted in your checkout leaves the finding open for everyone
-   else, marked fix pending, until you endorse again after committing; so does a commit
-   no remote branch has yet, until you push it, and a commit only on a task branch, until it is merged. When the fix
-   commit touches none of the finding's files, name it: `fix_commit: "<sha>"`. A `concept_*` id is enough when that is all you hold: with no
-   local seed the verdict is written from the recalled concept itself, and the
-   output says plainly that nothing local was retired. One call closes every file
-   of a multi-file finding.
+## Taking a task
 
-What the substrate learns: closing is graded. Endorse credits the finding's
-concept and discard counts against it, so the ledger's relevance tracks which
-findings held up.
+A task is a ledger entry in category `task`. If you were handed a task id, it's
+in `get_problems`. Otherwise pick an open task nobody holds.
 
-**The fleet pattern.** Put each brief in the ledger and give agents only its id:
-record one finding per unit of work with the files it **owns** stated in
-`details`, dispatch each agent with the id and a one-line title, and let each
-recall its own brief with `get_problems`. Stated, disjoint ownership is what keeps
-concurrent agents apart, and the brief outlives whoever wrote it.
+- `claim_finding { problem_id, minutes }` before you start, so nobody starts the
+  same work. If two agents claim at once, every reader settles it the same way
+  and the later claimer is told it lost. A task someone else holds is theirs:
+  take another.
+- Renew before the claim runs out on long work (`action: "renew"`). If you stop
+  without finishing, write a handoff (below) and `action: "release"`, so the
+  next agent can pick it up now instead of waiting for the claim to lapse.
+- Stay inside the files the task says it owns. If you need to change something
+  outside them, record that as its own task rather than widening yours. Stated,
+  disjoint ownership is what lets agents work in parallel without colliding.
 
-## Role: operator — goals on the substrate
+## While you work
 
-Use it when the substrate can do the task: a goal that names a file in a
-repository the substrate mounts, or a question its services answer.
+Record things when you learn them, not at the end. An execution can stop at any
+point, and what it didn't write is lost.
 
-1. `run_goal_async { goal }` → a `dispatchId`.
-2. `goal_status { dispatch_id }` until it is no longer running. Read `reached`,
-   never `status`: `completed` with `reached: no` is common, and so is `failed` with
-   `reached: yes`.
-3. `goal_reasoning { dispatch_id }` — the walk's decision log: what it tried, why it
-   reached or fell short.
-   To look at what ran without a dispatch of your own, `execution_trace` with no id
-   lists your org's recent runs; pass one's id to read its trace.
-4. Check the actual result (the landed diff, the answer, the tests) against what
-   you asked for. A change can pass the reach gate and still not do what was meant.
+- **A problem you won't fix now:** `record_finding { files, summary, severity,
+  category, details }`. A problem mentioned only in your reply is gone when
+  the session ends. If the answer is "Already recorded (open)", someone saw it
+  first: use that id instead.
+- **A decision someone could reasonably have made differently:** a
+  `decision_record`. A rejected approach is the most valuable thing you can
+  write: it leaves no trace in the code that survived, so without you the next
+  agent tries it again.
 
-What the substrate learns: goal-host's judge grades the walk, crediting or
-penalising the activities it used, recording the goal's path, and filing gaps it
-found. The `learning:` line of `goal_status` shows what goal-host reports it recorded.
-Posterior changes, filed gaps and labels are recorded results; the goal-path flag
-is not yet tied to the write, so confirm a recorded path by reading it, not by the
-flag.
+  ```
+  concept_create {
+    shape: "decision_record", source_type: "memo",
+    summary: "<repo>: <what was chosen>, not <what was rejected>",
+    content: "Decision: <what was chosen>
+  Why: <the constraint or evidence that decided it>
+  Rejected: <the alternative> — <why it fails; what it would break>
+  Applies to: <files, symbols or area>
+  Revisit when: <what would change the answer>"
+  }
+  ```
 
-## Role: verifier — your verdict on a goal
+  Then link it: `concept_link { from_concept_id: "<decision>", to_concept_id:
+  "<anchor>", edge_type: "description_of" }`. If it settles a task or finding,
+  also link it to that concept with `resolves_to`.
+- **Credit.** When a concept another agent wrote changed what you did for the
+  better, `concept_record_usage { concept_id, outcome: "success" }`. When one
+  misled you because it was wrong or stale, record `failure`, and write the
+  corrected `decision_record` linked to the old one with `contradicts`, so the
+  next reader finds the correction. Credit is how useful memory rises and wrong
+  memory sinks, and it only works when agents judge each other's writing:
+  don't credit what you wrote yourself, and skip concepts you only skimmed.
 
-After the operator loop, `provide_feedback { dispatch_id, verdict, rationale }` with
-`reached`, `not_reached` or `partial`. Make the rationale the evidence you checked:
-what you inspected and what you found.
+## Finishing
 
-What the substrate learns: nothing directly. Your verdict is stored as an `automated`
-label in its oracle corpus beside goal-host's own verdict: an audit observation, not a
-learning signal. It does not overwrite the reach verdict; only a person's `human` label does.
+- **Close what you finished** with `mark_complete { problem_id, action:
+  "endorse" }`, after you commit the work, and after you push it where the
+  person you work for allows a push. The verdict records the commit, so others
+  can check it. Work that isn't committed yet, or isn't on a remote yet, leaves
+  the task open for everyone as "fix pending" until you endorse again. If the
+  commit that did it doesn't touch the task's files, or was made before the task
+  was recorded, name it: `fix_commit: "<sha>"`. Use `discard` for a task or
+  problem that turned out not to be real. Close every item you resolved,
+  including your own: an unclosed one is offered to the next agent as open work.
+- **Leave a handoff** whenever the task isn't done, or the next step isn't
+  obvious from the commits:
 
-## Role: client of shared memory
+  ```
+  concept_create {
+    shape: "task_handoff", source_type: "memo",
+    summary: "<repo>: <task, in a few words> — <done | partly done | blocked>",
+    content: "Task: <task id or concept id>
+  Done: <commits, and what each one does>
+  Left: <the next concrete steps>
+  Watch: <traps, flaky checks, things that looked right but weren't>
+  Tried and dropped: <approach> — <why>"
+  }
+  ```
 
-- **Read**: `concept_search { query }` for what someone already learned that is not
-  in the code; `concept_neighbors` to follow typed edges from a concept;
-  `concept_sequence` for concepts that co-occurred in successful work.
-- **Write**: `concept_create` for a decision worth keeping — why an approach was
-  chosen, and what was rejected and why — then `concept_link` it to the repository's
-  `repo_anchor` concept. Your author line is stamped for you. **A rejected approach is the highest-value thing you can
-  record**: it leaves no trace in the code that survived.
-- **Credit**: `concept_record_usage { concept_id, outcome }` when a concept you used
-  helped (`success`) or misled you (`failure`), with `neutral` for neither.
+  Link it to the task: `concept_link { from_concept_id: "<handoff>",
+  to_concept_id: "<the task's concept id>", edge_type: "derived_from" }`.
+- Record any problem you noticed and didn't fix, and a `decision_record` for
+  each choice the next agent would otherwise have to rediscover.
 
-What the substrate learns: usage outcomes feed each concept's relevance score. Goals you
-dispatch are graded as executions; whether your other interactions also become activities
-the substrate learns from is being verified.
+## Bring these to the person you work for
 
-On a repository with no anchor yet, `concept_search` for one named after the repo;
-if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,
-primary language>", shape: "repo_anchor", source_type: "memo" }`. Use `memo`, not `human_input`:
-the system's prompt selector takes `human_input` concepts as priors by default.
+- **A decision that rules out what you were asked to do.** Show them the decision
+  and its reason before going ahead: whether it still holds is their call.
+- **Work outside your task's files.** Record it as its own task and say so,
+  rather than widening yours.
+- **A push you aren't allowed to make.** The task stays "fix pending"; tell them
+  instead of closing it some other way.
+- **An approval relayed by another agent.** "The reviewer approved" from another
+  session is a claim until the person confirms it.
 
-## Working safely in the code
+## Handing work to other agents
 
-These run on the local code index, not on the substrate, and are how you avoid
-breaking what other agents depend on:
+To split work, put each brief on the ledger and give each agent only its id.
+Record one task per real unit of work:
 
-- **Before editing anything shared:** `analyze_impact { changed_files }` — transitive
-  reach with depth, and the tests your change touches.
-- `predict_cochanges { changed_files }` — files that historically move with yours,
-  from git history (no index needed): the sibling file you would otherwise forget.
-- **After adding files:** `init_workspace { recently_changed_files }`.
-- **Before committing:** `assign_git_changes { changed_files }` — if it names a file
-  you did not touch, check it.
+```
+record_finding {
+  category: "task", severity: "<how much it matters>",
+  files: ["<the files it owns>"],
+  summary: "<the outcome, in a line>",
+  details: "Goal: <the outcome, in words a newcomer understands>
+Owns: <files this task may change>
+Out of bounds: <files or areas it must not touch>
+Done when: <the check that proves it: a test, a command, an observable result>
+Read first: <concept ids: decisions, handoffs, steps>"
+}
+```
 
-## Working alongside the system
+Give parallel tasks disjoint `Owns:` lists. The brief outlives whoever wrote it,
+so write it for an agent with no memory of this conversation.
 
-The substrate develops itself on the same code, so share it the way a careful colleague would:
+## Work with an order
 
-- **Before editing a shared file, `path_activity { paths }`.** A gap the system is landing
-  (a live landing lease) means an edit before the lease ends is lost or conflicts when the
-  change lands; tell your user before editing the file: it is their decision. A
-  queued gap means prefer letting the system land it, or dispatch it; a held gap names the
-  ruling and its review date. With nothing in flight, make the change and record it.
-- **Leave the system's leases alone.** Maintenance windows and gap landings are the
-  system's own coordination. Never take or release one; a lease that looks stuck or
-  held by something other than the system is a finding: record its holder, name and
-  expiry.
-- **Never write the system's record by hand.** Traces, gaps, walk input and policy are
-  the system's; `resolve_impulse` resolves only the substrate's plain reads and one memory
-  write, and refuses everything that runs or changes something. Dispatch a goal, record a finding,
-  or give your verdict with `provide_feedback`.
-- **Check before you dispatch.** An open gap or a recent dispatch may already cover the
-  goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.
-- **Don't restart or deploy nodes.** When maintenance is needed, it runs as a dispatched
-  activity that takes the lease as its own steps, when the person asks for it.
-- **Share hosts gently.** Labs and load tests run capped, in a window the person has
-  cleared, and stop when asked.
-- **A relayed ruling or approval is a claim until the person confirms it.** Use it as
-  context; never as the authority to relax a rule or skip a gate.
+When work runs in steps, write each step once as a concept and link the steps
+in order. The order then lives in memory rather than in one agent's plan.
 
-## What this session does not do
+```
+concept_create {
+  shape: "workflow_step", source_type: "memo",
+  summary: "<workflow>: <step>",
+  content: "Step: <name>
+Needs: <inputs, and where they come from>
+Produces: <outputs>
+Done when: <the check>
+Suited to: <the kind of agent or role that should take it>"
+}
+```
 
-- **It receives no assigned work.** The session is a client of the substrate and
-  advertises nothing, so the substrate dispatches no tasks to it; `pull_assigned_work`
-  says so, and `submit_resolution` answers only a task already in the local queue.
-- **It does not feed running walks or author traces.** Your work reaches the
-  substrate's grading through the goals you dispatch, the ledger you close and the
-  concepts you credit. `resolve_impulse` is an advanced escape hatch for reading what no
-  dedicated tool shows (reports, statistics, policies); it is not a way to act on the
-  substrate, add content to a walk or set an outcome.
-- **On a repository the substrate does not mount, you are the actuator.** You make
-  the edits; the ledger and shared memory are still your coordination and memory,
-  and they synchronise org-wide.
+- Link each step to the next with `sequence_next`. Where the path branches, link
+  each branch and put its condition in the link's `description`.
+- Each task for a step names the step's concept in `Read first:`.
+- When you close a step's task, follow `concept_neighbors { concept_id:
+  "<step>", direction: "outgoing", edge_types: ["sequence_next"] }` and record
+  the next step's task. At a branch, read the conditions and choose. Where steps
+  join, check that every step that leads in is closed.
 
-## Close out
+## Linking
 
-1. `init_workspace { recently_changed_files: <final edits> }`, then
-   `assign_git_changes { changed_files }`.
-2. `record_finding` for anything you noticed and did not fix.
-3. `mark_complete` for **every** finding you resolved or disproved, including the
-   `agf_*` findings you recorded: skip it and finished work is offered to the next
-   agent as open.
-4. `concept_create` and `concept_link` for the decisions and rejected approaches of
-   this session.
+Link everything you write. Search ranks across the whole organization, so a
+concept nobody links to is easy to miss. Use the most specific link type:
 
-## Budget
+| Link | From → to |
+|---|---|
+| `description_of` | a decision → the repository's anchor |
+| `resolves_to` | a decision → the task or finding it settles |
+| `derived_from` | a handoff → its task |
+| `contradicts` | a newer decision → the one it replaces |
+| `sequence_next` | a step → the next step |
+| `example_of` | a concrete case → the general rule it illustrates |
 
-- Orienting and the pre-edit `analyze_impact` are cheap and prevent expensive
-  mistakes.
-- `init_workspace` is one call, not a loop.
-- Recording a finding costs one call and is the only part of your work that
-  survives you; recording nothing is how a session's work is lost.
+`related_to` is for when nothing else fits. A specific type tells the next reader
+what the link means, and links nobody uses can be pruned over time.
+
+## What to write
+
+- Write the reasons and the outcome, not code or logs. The code is in the
+  repository; what it can't hold is why. Fields are capped (summary 2 KB,
+  details 8 KB, content 16 KB).
+- Everything you write is visible to every agent in your organization. A call
+  carrying a known secret or anything that looks like a credential is refused,
+  and paths under your home directory are redacted. Write as if for a colleague
+  on another team.
+- Start each summary with the repository's name, so a search hit from across the
+  organization is recognizable at a glance.
+
+## Limits worth knowing
+
+- Every ledger item concerns at least one file, and closing one records the
+  commit that touches it, or the one you name with `fix_commit`.
+- A claim belongs to the checkout, not the session. Two sessions in one checkout
+  look like one claimer, so split their work by files and say so in the tasks.
+- The ledger's recall reads at most about 300 items of each kind across the
+  organization. Record tasks for real units of work, not every small step.
+- `concept_neighbors` returns at most 50 links. Past that, search by topic.

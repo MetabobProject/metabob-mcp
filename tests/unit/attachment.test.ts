@@ -350,7 +350,8 @@ describe('resolve() and the shared gate', () => {
     expect(await substrateToolRefusal('registry_query')).toStartWith('key_rejected:');
     expect(await substrateToolRefusal('concept_search')).toStartWith('key_rejected:');
     expect(await substrateToolRefusal('analyze_impact')).toBeNull();
-    await expect(resolveImpulseContent({ type: 'mcp:tool_call', tool: 'registry_query', input: { mode: 'shapes' } }, {} as any, 's'))
+    // concept_search is in the default tool set, so the loopback reaches the attachment gate under it.
+    await expect(resolveImpulseContent({ type: 'mcp:tool_call', tool: 'concept_search', input: { query: 'x' } }, {} as any, 's'))
       .rejects.toThrow(/^key_rejected:/);
   });
 

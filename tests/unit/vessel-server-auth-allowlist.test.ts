@@ -25,6 +25,7 @@ import {
   isToolPermitted,
   __resetToolAllowlistForTests,
 } from '../../src/vessel-server';
+import { DEFAULT_TOOL_SET } from '../../src/tools/index';
 import { CircuitState } from '../../src/circuit-breaker';
 import { setResolverIdentity } from '../../src/resolver-identity';
 import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
@@ -107,11 +108,10 @@ describe('resolver auth (finding C)', () => {
 });
 
 describe('METABOB_TOOLS parsing (finding D)', () => {
-  test('absent / empty / separator-only values mean "no allowlist"', () => {
-    expect(parseToolAllowlist(undefined)).toBeNull();
-    expect(parseToolAllowlist('')).toBeNull();
-    expect(parseToolAllowlist('  ')).toBeNull();
-    expect(parseToolAllowlist(' , ')).toBeNull();
+  test('absent / empty / separator-only values mean the default set; `all` means every tool', () => {
+    for (const raw of [undefined, '', '  ', ' , ']) expect([...parseToolAllowlist(raw)!].sort()).toEqual([...DEFAULT_TOOL_SET].sort());
+    expect(parseToolAllowlist('all')).toBeNull();
+    expect(parseToolAllowlist(' ALL ')).toBeNull();
   });
 
   test('a comma list is trimmed into a set', () => {
@@ -126,6 +126,9 @@ describe('METABOB_TOOLS parsing (finding D)', () => {
     expect(isToolPermitted('get_problems')).toBe(false);
     setAllowlist(undefined);
     expect(isToolPermitted('get_problems')).toBe(true);
+    expect(isToolPermitted('run_goal_async')).toBe(false);
+    setAllowlist('all');
+    expect(isToolPermitted('run_goal_async')).toBe(true);
   });
 });
 

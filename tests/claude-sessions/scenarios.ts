@@ -166,7 +166,7 @@ async function s1(ctx: Ctx, label = 'S1'): Promise<ScenarioResult> {
   });
   const skill = t.skillLoads.find((s) => /metabob/.test(s.skill));
   const oriented = metabobCalls(t).filter((c) => ['get_analysis_context', 'get_problems'].includes(c.tool));
-  const instructionsFragment = 'a shared work ledger and code-structure tools';
+  const instructionsFragment = 'a shared work ledger and code-structure tools'; // the METABOB_TOOLS=all instructions
   const reqs = since(ctx, m);
   const checks: Check[] = [
     ...sessionChecks(t),

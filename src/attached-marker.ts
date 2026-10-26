@@ -5,7 +5,8 @@
  * only where there is a shared ledger behind it. A plugin installed before a key is configured, or a key that is
  * rejected, holds nothing.
  *
- * The file is `metabob-attached-<sha256(real workspace path)[:16]>.json` holding `{ pid, orgId, at }`. It is
+ * The file is `metabob-attached-<sha256(real workspace path)[:16]>.json` holding `{ pid, orgId, at, tools }`, `tools`
+ * being the names this server lists (SPEC §tool-sets), so the edit check asks only for tools the agent has. It is
  * written when the attachment authenticates, refreshed every minute while it stays authenticated, and removed when
  * it stops being authenticated or the process exits. It is written 0600, since the temp directory is shared on a
  * multi-user host. The edit check trusts it only while `pid` is alive, `at` is recent and, where the OS has user
@@ -32,14 +33,14 @@ export function markerPath(workspace: string, env: NodeJS.ProcessEnv = process.e
  * Keep the marker for `workspace` in step with `attachment`: present while it is authenticated, absent otherwise.
  * Returns a stop function that removes the marker.
  */
-export function keepAttachedMarker(attachment: Attachment, workspace: string, env: NodeJS.ProcessEnv = process.env): () => void {
+export function keepAttachedMarker(attachment: Attachment, workspace: string, env: NodeJS.ProcessEnv = process.env, tools: readonly string[] = []): () => void {
   const file = markerPath(workspace, env);
   const sync = () => {
     try {
       const auth = attachment.state().auth;
       if (auth.status === 'authenticated') {
         // 0600: the temp directory is shared on a multi-user host.
-        writeFileSync(file, JSON.stringify({ pid: process.pid, orgId: auth.orgId ?? null, at: new Date().toISOString() }), { mode: 0o600 });
+        writeFileSync(file, JSON.stringify({ pid: process.pid, orgId: auth.orgId ?? null, at: new Date().toISOString(), tools }), { mode: 0o600 });
       } else {
         rmSync(file, { force: true });
       }

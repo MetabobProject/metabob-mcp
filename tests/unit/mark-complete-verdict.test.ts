@@ -155,7 +155,7 @@ test('SKILL.md does not tell agents the concept-only call is refused', async () 
   // a wrong claim here is not a docs nit: an agent that believes the call will be
   // refused skips it, and the cross-agent verdict above is never written.
   const skill = await Bun.file(
-    new URL('../../skills/metabob/SKILL.md', import.meta.url),
+    new URL('../../skills/metabob-substrate/SKILL.md', import.meta.url),
   ).text();
 
   const lines = skill.split('\n');

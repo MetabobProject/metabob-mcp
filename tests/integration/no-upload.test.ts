@@ -107,6 +107,7 @@ test('the server sends no workspace content to any endpoint it is configured wit
     cwd: import.meta.dir + '/../..',
     env: {
       ...process.env,
+      METABOB_TOOLS: 'all', // these tests drive tools outside the default set
       HOME: home,
       USERPROFILE: home,
       METABOB_CONFIG_PATH: join(home, 'no-such-config.json'),

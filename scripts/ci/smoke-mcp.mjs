@@ -8,7 +8,10 @@
 //
 // Checks (--expect):
 //   local-tools    init_workspace on a small temporary project, then search_codebase finds its symbol (the native
-//                  parser loads on this platform) and predict_cochanges answers from its git history
+//                  parser loads on this platform) and predict_cochanges answers from its git history; needs a
+//                  server started with METABOB_TOOLS=all
+//   default-tools  tools/list is the eleven of the default set (SPEC §tool-sets), and a tool outside it is refused
+//                  with the way to list every tool
 //   undetermined   get_problems answers workspace_undetermined (started in the plugin's own folder)
 //   runtime=<name> the server's start line names that runtime (node or bun)
 // Always: the initialize answer carries this checkout's version, tools/list lists the tools, and stdout carries only
@@ -79,7 +82,7 @@ if (Number.isFinite(initUnderMs)) check(`initialize within ${initUnderMs / 1000}
 if (init.result) {
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   const tools = (await rpc('tools/list', {})).result?.tools?.map((t) => t.name) ?? [];
-  check('tools/list', tools.length > 20 && tools.includes('predict_cochanges') && tools.includes('record_finding'), `${tools.length} tools`);
+  check('tools/list', tools.includes('record_finding') && tools.includes('get_problems'), `${tools.length} tools`);
 
   for (const e of expects) {
     if (e === 'local-tools') {
@@ -94,6 +97,11 @@ if (init.result) {
       check('search_codebase', found.includes('smokeCoreThing') && found.includes('core.ts'), found.split('\n')[0]);
       const co = await call('predict_cochanges', { changed_files: ['core.ts'], confidence_threshold: 0 });
       check('predict_cochanges', /1\. user\.ts\n {3}Confidence: 100%/.test(co), co.split('\n').slice(0, 4).join(' | '));
+    } else if (e === 'default-tools') {
+      const lean = ['get_analysis_context', 'get_problems', 'claim_finding', 'record_finding', 'mark_complete', 'concept_search', 'concept_neighbors', 'concept_create', 'concept_link', 'concept_record_usage', 'init_workspace'];
+      check('the default tool set', tools.length === lean.length && lean.every((t) => tools.includes(t)), `${tools.length} tools`);
+      const refused = await rpc('tools/call', { name: 'analyze_impact', arguments: { changed_files: ['x.ts'] } });
+      check('a tool outside it is refused with the way to list every tool', /METABOB_TOOLS=all/.test(refused.error?.message ?? ''), (refused.error?.message ?? text(refused)).slice(0, 120));
     } else if (e === 'undetermined') {
       const p = await call('get_problems', {});
       check('workspace_undetermined', p.startsWith('workspace_undetermined:'), p.slice(0, 120));

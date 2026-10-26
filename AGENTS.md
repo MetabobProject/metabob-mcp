@@ -11,8 +11,9 @@ ledger while you work on it.
 
 ## Working with Metabob
 
-The `metabob` skill (`skills/metabob/SKILL.md`) is the full version of these rules; read it if your harness
-does not load skills.
+Sessions working on this repository run the server with `METABOB_TOOLS=all` (every tool; the default lists only
+the shared ledger and memory). The `metabob-substrate` skill (`skills/metabob-substrate/SKILL.md`) is the full
+version of these rules for that setup; read it if your harness does not load skills.
 
 1. **Check the attachment.** `get_analysis_context` says whether the session is attached, to which org, and
    under which identity it writes. A named cause (`key_rejected`, `anchor_unreachable`, …) is the attachment's

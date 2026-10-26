@@ -43,6 +43,14 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 
 ## Tools
 
+**The default tool set.** With `METABOB_TOOLS` unset the server lists eleven tools, the shared task ledger and the
+shared memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
+`concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
+`init_workspace`. It refuses a call to any other tool, saying how to list them. **`METABOB_TOOLS=all`** in the
+server's environment lists every tool in the table below; a comma-separated list lists exactly those. The `metabob`
+skill is written for the default set, `metabob-substrate` for `all`
+([docs/SHARED-MEMORY.md](docs/SHARED-MEMORY.md) is the guide to the default set).
+
 | Tool | Tier | Description |
 |------|------|-------------|
 | `init_workspace` | **Local** | Build the local CPG index; sends nothing off the machine |
@@ -226,7 +234,8 @@ refused.
 
 The plugins are generated, with `node scripts/build-plugins.mjs`, from one source: `package.json` (name,
 version, description), `scripts/plugins/source.json` (metadata, the server entry and the settings),
-`skills/metabob/SKILL.md` and `scripts/claude-plugin/edit-check.mjs`. The generated files are committed;
+the skills (`skills/metabob/SKILL.md`, for the default tool set, and `skills/metabob-substrate/SKILL.md`, for
+`METABOB_TOOLS=all`) and `scripts/claude-plugin/edit-check.mjs`. The generated files are committed;
 `tests/unit/plugin-bundles.test.ts` fails when one differs from what the generator writes, and CI validates
 the Claude manifests with `claude plugin validate` and the Agent Plugins ones against the published 1.0
 schemas (copies in `tests/fixtures/agent-plugins/`). Edit the source and regenerate, never a generated file.
@@ -241,7 +250,8 @@ The Claude Code plugin is `plugin/`, which the marketplace (`.claude-plugin/mark
   applies, and a value still holding its placeholder text is ignored;
 - `hooks/hooks.json`: the edit check, in exec form (`node` with its arguments, no shell), so a plugin path
   with spaces, or Windows, needs no quoting;
-- `plugin/scripts/edit-check.mjs` and `plugin/skills/metabob/SKILL.md`, copies of the repository's own.
+- `plugin/scripts/edit-check.mjs` and `plugin/skills/{metabob,metabob-substrate}/SKILL.md`, copies of the
+  repository's own.
 
 `plugin/` holds no `package.json`, so Claude Code runs no dependency install when it installs the plugin.
 
@@ -251,7 +261,7 @@ portable format (Codex among them, through `.agents/plugins/marketplace.json`, w
 - `mcp.json`: the same pinned server, with no environment. 1.0 carries no secrets, so the key and the endpoint
   come from the config file (`~/.substrate/config.json`, which the substrate installer writes, or
   `~/.metabob/config.json`; § Configuration);
-- `skills/metabob/SKILL.md`, the skill.
+- `skills/metabob/SKILL.md` and `skills/metabob-substrate/SKILL.md`, the skills.
 
 1.0 has no hooks, so the edit check is Claude Code's alone; AGENTS.md carries the same rule for other harnesses.
 The server takes its workspace from the client's MCP roots when the client offers them, else from the directory it
@@ -349,6 +359,6 @@ opencode and Zed read it as it is. Two harnesses get a pointer:
 - `.continue/rules/metabob.md` (always applied) points Continue at `AGENTS.md`.
 
 Claude Code reads [CLAUDE.md](CLAUDE.md), with the full architecture and the same development rules, and the
-`metabob` skill. No `.github/copilot-instructions.md`, `.cursorrules` or `.windsurfrules` is kept: every harness
+`metabob-substrate` skill (this repository's sessions run the server with `METABOB_TOOLS=all`). No `.github/copilot-instructions.md`, `.cursorrules` or `.windsurfrules` is kept: every harness
 that reads one also reads `AGENTS.md`, and Zed takes the first of those files it finds, so a stale one would
 hide `AGENTS.md`. See [docs/](docs/) for detailed references.

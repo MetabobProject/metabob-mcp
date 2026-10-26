@@ -109,6 +109,9 @@ export class McpServer {
       // the process we hold would be a trampoline rather than the server.
       METABOB_NO_SYSTEM_CA: '1',
       LOG_LEVEL: 'info',
+      // The workflows drive the whole cockpit, so they list every tool. A test of the default tool set passes
+      // `env: { METABOB_TOOLS: undefined }` (w13-default-tools.test.ts).
+      METABOB_TOOLS: 'all',
     });
     for (const [k, v] of Object.entries(opts.env ?? {})) {
       if (v === undefined) delete env[k];

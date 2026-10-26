@@ -15,6 +15,7 @@
  */
 import { test, expect } from 'bun:test';
 import { spawn, type ChildProcess } from 'child_process';
+import { DEFAULT_TOOL_SET, TOOL_REGISTRY } from '../../src/tools/index';
 
 interface MCPResponse {
   jsonrpc: '2.0';
@@ -128,12 +129,24 @@ test('an allowlisted tool is not refused by the allowlist', async () => {
   expect(message).not.toMatch(/METABOB_TOOLS allowlist/);
 });
 
-test('an unset allowlist lists every registered tool', async () => {
-  const [, list] = await drive('', [INIT, listReq]);
+test('METABOB_TOOLS=all lists every registered tool', async () => {
+  const [, list] = await drive('all', [INIT, listReq]);
 
   const names: string[] = list!.result.tools.map((t: { name: string }) => t.name);
-  // The exact count is not the contract — "no allowlist means no filtering" is.
-  expect(names.length).toBeGreaterThan(20);
+  expect(names.length).toBe(Object.keys(TOOL_REGISTRY).length);
   expect(names).toContain('record_finding');
   expect(names).toContain('analyze_impact');
+}, 30000);
+
+test('an unset METABOB_TOOLS lists the default set, and a call outside it says how to list every tool', async () => {
+  const [, list, call] = await drive('', [
+    INIT,
+    listReq,
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'run_goal_async', arguments: { goal: 'x' } } },
+  ]);
+
+  const names: string[] = list!.result.tools.map((t: { name: string }) => t.name).sort();
+  expect(names).toEqual([...DEFAULT_TOOL_SET].sort());
+  expect(call!.error!.message).toContain('is not in this server\'s default tool set');
+  expect(call!.error!.message).toContain('METABOB_TOOLS=all');
 }, 30000);

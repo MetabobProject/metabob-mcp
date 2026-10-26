@@ -39,6 +39,7 @@ async function sendMCPRequest(request: MCPRequest): Promise<MCPResponse> {
       stdio: ['pipe', 'pipe', 'inherit'],
       env: {
         ...process.env,
+        METABOB_TOOLS: 'all', // these tests drive tools outside the default set
         SESSION_ID: 'integration-test-session',
         // Not attached to any substrate: these exercise the local server only.
         METABOB_ENDPOINT: '',
@@ -335,6 +336,7 @@ async function driveSession(
     stdio: ['pipe', 'pipe', 'ignore'],
     env: {
       ...process.env,
+      METABOB_TOOLS: 'all', // these tests drive tools outside the default set
       HOME: home,
       USERPROFILE: home, // os.homedir() reads this one on Windows
       METABOB_CONFIG_PATH: join(home, 'no-such-config.json'),

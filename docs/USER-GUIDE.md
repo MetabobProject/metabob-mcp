@@ -76,8 +76,11 @@ clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp li
 `plugin:metabob:metabob … ✔ Connected` when it works. The first start downloads the package; if that outlasts
 Claude Code's 30 s connect timeout (a slow link, or Windows), reconnect from `/mcp`.
 
-The plugin brings three parts: the MCP server, the `metabob` skill (the rules and order of a session, loaded
-by the agent at the start), and the **edit check** (§ 3). Without the installer's config, put the key and
+The plugin brings three parts: the MCP server, the skills (the rules and order of a session, loaded by the agent
+at the start), and the **edit check** (§ 3). The server lists eleven tools by default, the shared task ledger and
+memory, which the `metabob` skill covers and [SHARED-MEMORY.md](SHARED-MEMORY.md) describes;
+`METABOB_TOOLS=all` in its environment lists every tool this guide covers, for which the `metabob-substrate`
+skill is written (where to set it: SHARED-MEMORY.md § 2). Without the installer's config, put the key and
 endpoint in `~/.metabob/config.json`:
 
 ```json

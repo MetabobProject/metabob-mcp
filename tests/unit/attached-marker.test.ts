@@ -20,11 +20,11 @@ describe('attached marker', () => {
     const ws = mkdtempSync(join(tmpdir(), 'marker-ws-'));
     const env = { METABOB_MARKER_DIR: mkdtempSync(join(tmpdir(), 'marker-dir-')) } as NodeJS.ProcessEnv;
     const { a } = fakeAttachment('authenticated');
-    const stop = keepAttachedMarker(a, ws, env);
+    const stop = keepAttachedMarker(a, ws, env, ['get_problems', 'record_finding']);
     await Bun.sleep(10);
     const file = markerPath(ws, env);
     const m = JSON.parse(readFileSync(file, 'utf8'));
-    expect(m).toMatchObject({ pid: process.pid, orgId: 'org_x' });
+    expect(m).toMatchObject({ pid: process.pid, orgId: 'org_x', tools: ['get_problems', 'record_finding'] });
     expect(Date.now() - Date.parse(m.at)).toBeLessThan(5_000);
     if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     stop();

@@ -1,5 +1,5 @@
 /**
- * W4 — the skill contract (skills/metabob/SKILL.md). The skill is what an agent
+ * W4 — the skill contract (skills/metabob-substrate/SKILL.md). The skill is what an agent
  * actually follows, so the server must serve it as written:
  *   - every tool the skill names is in tools/list;
  *   - every step it tells an agent to take works under the default
@@ -17,7 +17,7 @@ import { McpServer, cleanupTempDirs, makeWorkspace } from './harness/mcp-client'
 setDefaultTimeout(30_000);
 const BOOT_TIMEOUT_MS = 30_000;
 
-const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob', 'SKILL.md'), 'utf8');
+const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob-substrate', 'SKILL.md'), 'utf8');
 
 /** Identifiers the skill writes in backticks that are values, not tools or parameters. */
 const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input', 'not_reached', 'workspace_undetermined']);
@@ -76,7 +76,7 @@ function expectWorks(tool: string, out: string): void {
 describe('W4 skill contract', () => {
   test('the server hands the agent instructions at connect, naming only real tools', () => {
     const instructions: string = server.initializeResult?.instructions ?? '';
-    expect(instructions).toContain('`metabob` skill');
+    expect(instructions).toContain('`metabob-substrate` skill');
     // Named attachment and network causes appear in backticks too; they are states, not tools.
     const causes = new Set(['key_rejected', 'anchor_unreachable', 'proxy_auth_required']);
     const named = backtickedIdentifiers(instructions).filter(id => !NOT_TOOLS.has(id) && !causes.has(id));
@@ -100,7 +100,7 @@ describe('W4 skill contract', () => {
     const first = lines.findIndex(l => l.startsWith('First calls'));
     expect(start).toBeGreaterThan(-1);
     expect(start).toBeLessThan(first);
-    expect(lines[start]).toContain('load the `metabob` skill before your first metabob call');
+    expect(lines[start]).toContain('load the `metabob-substrate` skill before your first metabob call');
     expect(lines[first]).toContain('only when the skill is not available');
   });
 

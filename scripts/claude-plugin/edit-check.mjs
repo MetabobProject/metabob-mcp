@@ -12,7 +12,9 @@
  *
  * In a repository the substrate does not mount there is nothing in flight to check: when path_activity answers
  * that the repository is not one the substrate mounts (src/tools/path-activity.ts@unmounted-repo), the session's
- * directory is recorded as unmounted, and a later hold there asks for get_problems only.
+ * directory is recorded as unmounted, and a later hold there asks for get_problems only. A server that does not
+ * list path_activity (its default tool set, SPEC §tool-sets) names its tools in the marker, and a hold for it asks
+ * for get_problems only.
  *
  * Held at most once per file per session, and only when the metabob server is attached for this directory or an
  * ancestor (src/attached-marker.ts writes the marker): with no key, a rejected key or no server, there is no shared
@@ -77,7 +79,10 @@ function markerFor(dir) {
   return join(process.env.METABOB_MARKER_DIR || tmpdir(), `metabob-attached-${tag}.json`);
 }
 
-/** The directory (`cwd` or an ancestor) a live metabob server is attached for, or null: a recent marker whose process is alive. */
+/**
+ * The directory (`cwd` or an ancestor) a live metabob server is attached for, with the tools that server lists, or
+ * null: a recent marker whose process is alive. A marker that names no tools is taken to list every tool.
+ */
 function attachedRoot(cwd) {
   let dir = resolve(cwd || process.cwd());
   try { dir = realpathSync.native(dir); } catch { /* not on disk */ }
@@ -90,7 +95,7 @@ function attachedRoot(cwd) {
       const fresh = Date.now() - Date.parse(m.at) < 5 * 60_000;
       let alive = false;
       try { process.kill(m.pid, 0); alive = true; } catch (e) { alive = e && e.code === 'EPERM'; }
-      if (fresh && alive) return dir;
+      if (fresh && alive) return { dir, tools: Array.isArray(m.tools) && m.tools.length ? new Set(m.tools) : null };
     } catch { /* no marker here */ }
     const up = dirname(dir);
     if (up === dir) return null;
@@ -108,8 +113,10 @@ function pre(input) {
   if (!existsSync(isAbsolute(String(target)) ? String(target) : resolve(cwd || process.cwd(), String(target)))) return;
   // With no attached server there is no shared ledger to check: hold nothing. And only a file inside the attached
   // workspace has a ledger behind it: a file elsewhere (a cache, a temp file, another checkout) is never held.
-  const root = attachedRoot(cwd);
-  if (!root) return;
+  const attached = attachedRoot(cwd);
+  if (!attached) return;
+  const root = attached.dir;
+  const has = (tool) => attached.tools === null || attached.tools.has(tool);
   let real = file;
   try { real = realpathSync.native(isAbsolute(String(target)) ? String(target) : resolve(cwd || process.cwd(), String(target))).replace(/\\/g, '/'); } catch { /* new or unreadable: as given */ }
   const rootN = root.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -120,7 +127,9 @@ function pre(input) {
   appendFileSync(state, `held ${file}\n`);
   const local = [...unmounted].some((d) => file === d || file.startsWith(`${d}/`));
   const reason = [
-    local
+    !has('path_activity')
+      ? `Held, not an error. metabob: before editing ${target}, call get_problems for it: other agents may have recorded problems or tasks on it.`
+      : local
       ? `Held, not an error. metabob: before editing ${target}, call get_problems for it: other agents may have recorded problems on it.`
         + ' (path_activity is not needed here: the substrate does not mount this repository, so nothing is in flight on it.)'
       : `Held, not an error. metabob: before editing ${target}, call get_problems for it and path_activity on it: other agents may have recorded`

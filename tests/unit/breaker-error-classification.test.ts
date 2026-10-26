@@ -102,7 +102,7 @@ async function sendSequential(requests: Array<Record<string, unknown>>): Promise
       DISCOVERY_ENDPOINT: '',
       // Never bind the port a live sidecar may hold.
       HEALTH_PORT: String(19000 + Math.floor(Math.random() * 900)),
-      METABOB_TOOLS: '',
+      METABOB_TOOLS: 'all', // analyze_impact and search_codebase are outside the default set
       LOG_LEVEL: 'error',
     },
     cwd: import.meta.dir + '/../..',

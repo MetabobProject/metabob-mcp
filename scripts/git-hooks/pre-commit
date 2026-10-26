@@ -82,6 +82,8 @@ ROOT_ALLOWLIST=(
 ALLOWED_TOPLEVEL_DIRS=(
   src
   plugin
+  # The agent skills the package and the plugins ship (skills/<name>/SKILL.md).
+  skills
   lab
   test
   tests

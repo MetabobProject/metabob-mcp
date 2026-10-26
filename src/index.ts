@@ -20,7 +20,7 @@ console.info = console.error;
 console.debug = console.error;
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { SERVER_INSTRUCTIONS } from './server-instructions.js';
+import { serverInstructions } from './server-instructions.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -39,6 +39,7 @@ import {
   isToolPermitted,
   toolAllowlistActive,
   toolNotEnabledMessage,
+  toolSetKind,
 } from './vessel-server.js';
 import { resolveVesselId, VESSEL_BASE_NAME, VESSEL_VERSION } from './vessel-identity.js';
 import { setResolverIdentity } from './resolver-identity.js';
@@ -137,7 +138,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
-    instructions: SERVER_INSTRUCTIONS,
+    instructions: serverInstructions(),
   }
 );
 
@@ -182,7 +183,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     }));
 
   if (toolAllowlistActive()) {
-    log('info', `Registered ${tools.length} of ${all.length} tools (METABOB_TOOLS allowlist active)`);
+    log('info', toolSetKind() === 'default'
+      ? `Registered ${tools.length} of ${all.length} tools (the default set; METABOB_TOOLS=all lists every tool)`
+      : `Registered ${tools.length} of ${all.length} tools (METABOB_TOOLS allowlist active)`);
   } else {
     log('info', `Registered ${tools.length} tools`);
   }
@@ -465,7 +468,8 @@ async function main() {
     markerFor = workspace;
     // The plugin's own folder is no workspace, so it gets no marker.
     const dirs = [...new Set([workspace, ...(launchedInPluginRoot() ? [] : [process.cwd()])])];
-    markerStops = dirs.map((dir) => keepAttachedMarker(attachment!, dir));
+    const listed = getAllTools().filter((t) => isToolPermitted(t.name)).map((t) => t.name);
+    markerStops = dirs.map((dir) => keepAttachedMarker(attachment!, dir, process.env, listed));
   };
   const stopAttachedMarker = () => { for (const stop of markerStops) stop(); };
 

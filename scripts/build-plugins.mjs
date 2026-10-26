@@ -5,11 +5,11 @@
 //   node scripts/build-plugins.mjs --check   exit 1, naming each file, when a committed one differs from what it writes
 //
 // Inputs: package.json (name, version, description), scripts/plugins/source.json (metadata, the server, the Claude
-// userConfig), skills/metabob/SKILL.md (the skill) and scripts/claude-plugin/edit-check.mjs (the edit check).
+// userConfig, the skills to ship), skills/<name>/SKILL.md (each skill) and scripts/claude-plugin/edit-check.mjs (the edit check).
 // Output:
 //   - the Claude Code plugin in plugin/: .claude-plugin/plugin.json, .mcp.json (the server pinned to this exact
 //     version, its environment from the userConfig), hooks/hooks.json (exec form: no shell, so no quoting with spaces
-//     or on Windows), scripts/edit-check.mjs and skills/metabob/SKILL.md; and .claude-plugin/marketplace.json, which
+//     or on Windows), scripts/edit-check.mjs and skills/<name>/SKILL.md; and .claude-plugin/marketplace.json, which
 //     lists it. plugin/ holds no package.json, so Claude Code runs no dependency install for it;
 //   - the Agent Plugins 1.0 bundle at the repository root: plugin.json and mcp.json (the same pinned server, no
 //     environment: 1.0 has no secrets, so the key comes from the config file), beside the skill in skills/; and
@@ -58,7 +58,7 @@ export function generate() {
       },
     }),
     'plugin/scripts/edit-check.mjs': read('scripts/claude-plugin/edit-check.mjs'),
-    'plugin/skills/metabob/SKILL.md': read('skills/metabob/SKILL.md'),
+    ...Object.fromEntries(src.skills.map((name) => [`plugin/skills/${name}/SKILL.md`, read(`skills/${name}/SKILL.md`)])),
     'plugin.json': json({
       $schema: `${AGENT_PLUGINS}/plugin.schema.json`,
       name: src.name,

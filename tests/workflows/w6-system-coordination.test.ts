@@ -1,5 +1,5 @@
 /**
- * W6 — working alongside the system (skills/metabob/SKILL.md, "Working alongside the
+ * W6 — working alongside the system (skills/metabob-substrate/SKILL.md, "Working alongside the
  * system"), through a real server process against the fake substrate:
  *   path_activity reads the whole gap store once and serves later calls from its cache;
  *   analyze_impact adds the in-flight line only from that cache, never starting the read;

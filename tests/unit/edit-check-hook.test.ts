@@ -56,6 +56,20 @@ describe('edit check', () => {
     expect(JSON.parse(hook('pre', edit(s, `${s.repo}/src/strings.ts`, 'Write'), env).out).hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
+  test('a server that does not list path_activity (its default tool set) gets a hold that asks for get_problems only', () => {
+    const s = setup();
+    attach(s.repo, s.state, { pid: process.pid, orgId: 'org', at: new Date().toISOString(), tools: ['get_problems', 'record_finding', 'mark_complete'] });
+    const env = { METABOB_EDIT_CHECK_DIR: s.state, METABOB_MARKER_DIR: s.state };
+    const reason = JSON.parse(hook('pre', edit(s, 'src/math.ts'), env).out).hookSpecificOutput.permissionDecisionReason as string;
+    expect(reason).toStartWith('Held, not an error. metabob: before editing src/math.ts, call get_problems for it:');
+    expect(reason).not.toContain('path_activity');
+    expect(reason).not.toContain('substrate');
+    // A marker naming every tool keeps the full ask.
+    const t = setup();
+    attach(t.repo, t.state, { pid: process.pid, orgId: 'org', at: new Date().toISOString(), tools: ['get_problems', 'path_activity'] });
+    expect(hook('pre', edit(t, 'src/math.ts'), { METABOB_EDIT_CHECK_DIR: t.state, METABOB_MARKER_DIR: t.state }).out).toContain('path_activity on it');
+  });
+
   test('a file already checked with path_activity or get_problems is not held', () => {
     const s = setup();
     const env = { METABOB_EDIT_CHECK_DIR: s.state, METABOB_MARKER_DIR: s.state };

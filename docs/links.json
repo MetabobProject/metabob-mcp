@@ -11,7 +11,8 @@
       "QUICK_START": "docs/QUICK_START.md",
       "README": "README.md",
       "SPEC": "docs/SPEC.md",
-      "USER_GUIDE": "docs/USER-GUIDE.md"
+      "USER_GUIDE": "docs/USER-GUIDE.md",
+      "SHARED_MEMORY": "docs/SHARED-MEMORY.md"
     },
     "live": [
       "CLAUDE.md",
@@ -21,6 +22,7 @@
       "docs/DOCLINKS.md",
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
+      "docs/SHARED-MEMORY.md",
       "docs/SPEC.md",
       "docs/USER-GUIDE.md",
       "lab/README.md",
@@ -130,6 +132,10 @@
         "plugin.json",
         "mcp.json",
         ".agents/plugins/marketplace.json"
+      ],
+      "docs/SHARED-MEMORY.md": [
+        "skills/metabob/SKILL.md",
+        "src/tools/index.ts"
       ]
     },
     "retired": {},
@@ -180,6 +186,9 @@
       "plugin/scripts/edit-check.mjs": {
         "README": [
           "claude-code-plugin"
+        ],
+        "SPEC": [
+          "tool-sets"
         ]
       },
       "scripts/build-plugins.mjs": {
@@ -189,7 +198,8 @@
       },
       "scripts/ci/smoke-mcp.mjs": {
         "SPEC": [
-          "runtime"
+          "runtime",
+          "tool-sets"
         ]
       },
       "scripts/ci/smoke-registry.mjs": {
@@ -200,6 +210,9 @@
       "scripts/claude-plugin/edit-check.mjs": {
         "README": [
           "claude-code-plugin"
+        ],
+        "SPEC": [
+          "tool-sets"
         ]
       },
       "src/agent-delivery.ts": {
@@ -230,6 +243,9 @@
       "src/attached-marker.ts": {
         "README": [
           "claude-code-plugin"
+        ],
+        "SPEC": [
+          "tool-sets"
         ]
       },
       "src/attachment.ts": {
@@ -368,7 +384,8 @@
       },
       "src/server-instructions.ts": {
         "SPEC": [
-          "agent-instructions"
+          "agent-instructions",
+          "tool-sets"
         ]
       },
       "src/sqlite.ts": {
@@ -560,7 +577,8 @@
         ],
         "SPEC": [
           "concept-graph-tools",
-          "substrate-goal-tools"
+          "substrate-goal-tools",
+          "tool-sets"
         ]
       },
       "src/tools/init-workspace.ts": {
@@ -668,6 +686,7 @@
         "SPEC": [
           "call-log",
           "impulse-shapes",
+          "tool-sets",
           "workspace"
         ]
       },
@@ -870,6 +889,11 @@
           "get_problems"
         ]
       },
+      "tests/unit/tool-sets.test.ts": {
+        "SPEC": [
+          "tool-sets"
+        ]
+      },
       "tests/unit/traces-by-shape.test.ts": {
         "SPEC": [
           "execution_trace"
@@ -913,6 +937,11 @@
         "README": [],
         "SPEC": [
           "workspace"
+        ]
+      },
+      "tests/workflows/w13-default-tools.test.ts": {
+        "SPEC": [
+          "tool-sets"
         ]
       },
       "tests/workflows/w2-ledger.test.ts": {
@@ -989,12 +1018,14 @@
         "src/outgoing-guard.ts",
         "src/sqlite.ts",
         "src/tools/index.ts",
+        "src/tools/index.ts@default-tool-set",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
       ],
       "README.md": [
         "AGENTS.md",
         "CLAUDE.md",
+        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
         "plugin/scripts/edit-check.mjs",
@@ -1074,6 +1105,10 @@
         "README.md",
         "docs/SPEC.md"
       ],
+      "docs/SHARED-MEMORY.md": [
+        "README.md",
+        "docs/SPEC.md"
+      ],
       "docs/SPEC.md": [
         "docs/DOCLINKS.md",
         "scripts/ci/smoke-mcp.mjs",
@@ -1081,6 +1116,7 @@
         "src/agent-delivery.ts@deliverResolution",
         "src/agent-delivery.ts@reconcileUndelivered",
         "src/attach-check.ts@attachCheck",
+        "src/attached-marker.ts",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
         "src/attachment.ts@attachment-resolve",
@@ -1141,7 +1177,9 @@
         "src/repo-identity.ts@repoIdentity",
         "src/repo-identity.ts@vesselAliases",
         "src/resolver-identity.ts@getResolverVesselId",
-        "src/server-instructions.ts@SERVER_INSTRUCTIONS",
+        "src/server-instructions.ts@DEFAULT_INSTRUCTIONS",
+        "src/server-instructions.ts@FULL_INSTRUCTIONS",
+        "src/server-instructions.ts@serverInstructions",
         "src/sqlite.ts",
         "src/task-pull.ts@candidateTasks",
         "src/task-pull.ts@integration-policy",
@@ -1206,6 +1244,7 @@
         "src/tools/goal-status.ts@handle",
         "src/tools/index.ts",
         "src/tools/index.ts@TOOL_REGISTRY",
+        "src/tools/index.ts@default-tool-set",
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/init-workspace.ts@handle",
         "src/tools/mark-complete.ts@awaitingMerge",
@@ -1234,14 +1273,17 @@
         "src/vessel-server.ts@QUEUED_SHAPES",
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
+        "src/vessel-server.ts@parseToolAllowlist",
         "src/vessel-server.ts@resolveImpulseContent",
         "src/vessel-server.ts@resolvePointerToTool",
         "src/workspace-root.ts",
+        "tests/unit/tool-sets.test.ts",
         "tests/workflows/networks/matrix.test.ts"
       ],
       "docs/USER-GUIDE.md": [
         "README.md",
         "docs/CONFORMANCE.md",
+        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
         "lab/cell.sh"
       ],
@@ -1352,7 +1394,9 @@
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/repo-identity.ts@vesselAliases": "835a5162d346",
       "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
-      "src/server-instructions.ts@SERVER_INSTRUCTIONS": "df1a99115872",
+      "src/server-instructions.ts@DEFAULT_INSTRUCTIONS": "042b6b803ad8",
+      "src/server-instructions.ts@FULL_INSTRUCTIONS": "b41ead278ce5",
+      "src/server-instructions.ts@serverInstructions": "e4da65e82021",
       "src/task-pull.ts@candidateTasks": "b837bf561ed5",
       "src/task-pull.ts@integration-policy": "8d64a30d9de1",
       "src/task-pull.ts@runTaskPull": "459c7b911e07",
@@ -1415,6 +1459,7 @@
       "src/tools/goal-reasoning.ts@handle": "c64a718133c6",
       "src/tools/goal-status.ts@handle": "4bdf740420c9",
       "src/tools/index.ts@TOOL_REGISTRY": "c2ebce7570f5",
+      "src/tools/index.ts@default-tool-set": "8d64a30d9de1",
       "src/tools/index.ts@substrateToolRefusal": "33e28bf195bc",
       "src/tools/init-workspace.ts@handle": "4bdf740420c9",
       "src/tools/mark-complete.ts@awaitingMerge": "cc9a2834afea",
@@ -1445,6 +1490,7 @@
       "src/vessel-server.ts@VesselServer": "52e392baadee",
       "src/vessel-server.ts@health-attachment": "b4b6670aa58e",
       "src/vessel-server.ts@loopback-bind": "ef89ff76c40c",
+      "src/vessel-server.ts@parseToolAllowlist": "4e953a0e1ab5",
       "src/vessel-server.ts@resolveImpulseContent": "558979c18fdc",
       "src/vessel-server.ts@resolvePointerToTool": "16d1a9fc8690"
     }
