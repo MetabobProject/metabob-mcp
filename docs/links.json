@@ -156,12 +156,12 @@
         "why": "index.ts and local-index.ts changed init_workspace's binding (existing directory only, never the plugin folder); the WORKSPACE_PATH row's workspace_undetermined text and the local-index row still hold"
       },
       "README.md": {
-        "at": "4ae8bf1",
-        "why": "the 0.3.5 bump changed only the pinned version in the generated bundles; README names the pin as <version>, so its text holds"
+        "at": "84497bf",
+        "why": "the 0.4.0 bump changed only the pinned version in the generated bundles; README names the pin as <version>"
       },
       "docs/CONFORMANCE.md": {
-        "at": "661c82f",
-        "why": "_findings.ts gained the fix lines for a predating claim and ignored files, and run-goal.ts only its learning_mode and tags descriptions; no participation requirement or its evidence changes"
+        "at": "84497bf",
+        "why": "index.ts and vessel-server.ts gained the default tool set and its refusal; CONFORMANCE's requirements concern transport, endpoint, identity, anchoring and advertised shapes, none of which a tool set changes"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
