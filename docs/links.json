@@ -173,8 +173,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "0dfd2b6",
-        "why": "the metabob skill's wording changed (push as you go, short claims, Fixes-Finding); README describes the skills generally and still holds"
+        "at": "5671e04",
+        "why": "the rc.2 bump changes only the pinned version in the bundles; README names it as <version>"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
