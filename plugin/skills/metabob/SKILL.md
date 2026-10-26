@@ -51,7 +51,9 @@ demand, load all eleven in one tool search before your first call.
    "<repo name>", limit: 50 }`. Anchors are shared across the organization, so pick
    the one that names this repository. If there is none, create it:
    `concept_create { shape: "repo_anchor", source_type: "memo", content:
-   "<repo name>: <one-line purpose, primary language>" }`.
+   "<repo name>: <one-line purpose, primary language>\nrepo: <the value on
+   get_analysis_context's ledger: line, before the comma>" }`, so whatever
+   copies the repository's identity from the anchor gets the exact value.
 4. Read the repository's memory: `concept_neighbors { concept_id: "<anchor>",
    direction: "incoming" }` gives the decisions linked to it. Then
    `concept_search { query: "<the area or symptom you're working on>" }`. If you

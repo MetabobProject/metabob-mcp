@@ -148,7 +148,7 @@ the substrate learns from is being verified.
 
 On a repository with no anchor yet, `concept_search` for one named after the repo;
 if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,
-primary language>", shape: "repo_anchor", source_type: "memo" }`. Use `memo`, not `human_input`:
+primary language>\nrepo: <the value on get_analysis_context's ledger: line, before the comma>", shape: "repo_anchor", source_type: "memo" }`. Use `memo`, not `human_input`:
 the system's prompt selector takes `human_input` concepts as priors by default.
 
 ## Working safely in the code
