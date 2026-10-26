@@ -462,6 +462,7 @@ for i in $(seq 1 20); do                               # the cap on rounds
     --append-system-prompt "$(cat consumer-prompt.md)" \
     --mcp-config ./metabob-mcp.json --strict-mcp-config --permission-mode acceptEdits \
     --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" "Bash(npm run:*)" \
+      "Bash(gh issue view:*)" "Bash(gh issue comment:*)" "Bash(gh issue close:*)" \
     --max-budget-usd 5) || break
   case "$out" in *NO_OPEN_TASKS*) break ;; esac
 done
@@ -522,6 +523,9 @@ with `loop-mcp.json` starting the installed bin under the same identity:
   comes from the task (§ 7.1): with `push_to: task` and `integrate: review` in the brief, the fix waits on
   `task/<task id>` as `fix pending (awaiting merge)` until `finding close` after the merge.
 - A task that names no file is closed by the agent itself, with `mark_complete` and its `outcome`.
+- When tasks come from issues, add `"Bash(gh issue view:*)" "Bash(gh issue comment:*)" "Bash(gh issue close:*)"` to
+  `--allowedTools` and name GitHub in the base prompt's "You can reach" line, so the agent can report the outcome
+  on the issue (consumer step 6).
 - A rebase that stops on a conflict ends the round unpushed; the next round under the same identity takes the task
   again from a fresh clone while the claim is live.
 

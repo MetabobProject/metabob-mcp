@@ -138,6 +138,22 @@ test('a query result says it is the nearest matches, not every one, and how to l
   expect(under).not.toContain('limit');
 });
 
+test('an offset a concept-db does not page says so, rather than passing the first page off as the next', async () => {
+  const rows = [1, 2].map((n) => ({ id: `concept:pc_${n}`, shape: 'project_convention', content: `rule ${n}` }));
+  await installShapeStub({ conceptSearch: () => searchAnswer(rows) });
+  const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', limit: 2, offset: 2 }), mockApiClient);
+  expect(out).toContain('concept-db does not page: offset 2 answered the first page again, so at most 2 concepts of shape "project_convention" can be read');
+  expect(out).not.toContain('pc_1');
+});
+
+test('an offset a concept-db pages returns the next page', async () => {
+  const page = (offset: number) => [1, 2].map((n) => ({ id: `concept:pc_${offset + n}`, shape: 'project_convention', content: `rule ${offset + n}` }));
+  await installShapeStub({ conceptSearch: (p) => searchAnswer(page(Number(p.offset ?? 0))) });
+  const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', limit: 2, offset: 2 }), mockApiClient);
+  expect(out).toContain('pc_3');
+  expect(out).not.toContain('does not page');
+});
+
 test('concept_search discloses truncation of a long body and names the escape hatch', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
   await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:cd_long1', shape: 'gotcha', content: long }]) });

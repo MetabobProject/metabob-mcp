@@ -144,6 +144,17 @@ export async function handle(
     return `concept_search: ${found.error}`;
   }
   const concepts = found.value;
+  // A concept-db that does not page answers an offset with the first page again: say so, or the agent reads page
+  // one twice, believes it read page two, and misses everything past it with no sign.
+  if (input.offset && concepts.length) {
+    const first = await searchConcepts({ query: input.query, source_type: input.source_type, shape: input.shape, min_relevance: input.min_relevance, limit: input.limit });
+    const ids = (rows: typeof concepts) => rows.map((c) => String((c as { id?: unknown }).id ?? '')).join('\n');
+    if (first.ok && ids(first.value) === ids(concepts)) {
+      return `concept-db does not page: offset ${input.offset} answered the first page again, so at most ${input.limit} concepts`
+        + `${input.shape ? ` of shape "${input.shape}"` : ''} can be read this way, and any past them are not visible. `
+        + `Narrow the read instead (a shape, a source_type, min_relevance).\n\nQuery completed in ${Date.now() - start}ms.`;
+    }
+  }
   const duration = Date.now() - start;
 
   if (concepts.length === 0) {
