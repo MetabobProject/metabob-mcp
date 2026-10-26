@@ -44,7 +44,7 @@ and participant alongside the system on code it also changes.
 ## 2. Set up
 
 Setup is the same as for the default set apart from `METABOB_TOOLS`: the key, the address, the config file, each
-client and `attach --check` are in [USER-GUIDE.md](USER-GUIDE.md), § Set up. What is specific to `all`:
+client and `attach --check` are in [USER-GUIDE.md](USER-GUIDE.md), § Install. What is specific to `all`:
 
 ### Version
 
@@ -61,7 +61,7 @@ you set `METABOB_TOOLS=all`, start a server of 0.4.0 or later:
 
 `METABOB_TOOLS` is read when the server starts, so restart or reconnect the client after setting it.
 
-- **Claude Code with the plugin** (installed as USER-GUIDE.md, § Set up, describes; it ships both skills and the
+- **Claude Code with the plugin** (installed as USER-GUIDE.md, § Install, describes; it ships both skills and the
   edit check, § 3). Set `{ "env": { "METABOB_TOOLS": "all" } }` in `~/.claude/settings.json`, or export
   `METABOB_TOOLS=all` in the shell that starts `claude`.
 - **Claude Code with a server you add yourself.**
@@ -79,7 +79,7 @@ you set `METABOB_TOOLS=all`, start a server of 0.4.0 or later:
       "env": { "METABOB_TOOLS": "all" } } } }
   ```
 
-  with the key and address in `env` too when no config file supplies them (USER-GUIDE.md, § Set up).
+  with the key and address in `env` too when no config file supplies them (USER-GUIDE.md, § Install).
 - **Headless runs and agent cells.** In the environment the harness starts the server with.
 
 In each, `<version>` is 0.4.0 or later.
@@ -98,11 +98,11 @@ the agent, and in those the rules file carries that rule too.
 `/mcp` → `metabob` (or the client's tool list) shows more than eleven tools, `path_activity`, `run_goal_async`
 and `execution_trace` among them. A call that answers `is not in this server's default tool set` means the
 server started without `METABOB_TOOLS=all`. For the attachment itself, `attach --check` and
-`get_analysis_context` work as USER-GUIDE.md, § Set up (Check the connection), describes.
+`get_analysis_context` work as USER-GUIDE.md, § Install (Check it), describes.
 
 ## 3. A session under `all`
 
-A session runs as in USER-GUIDE.md, § What changes in how your agent works: the agent orients on the ledger and memory,
+A session runs as in USER-GUIDE.md, § What it does: the agent orients on the ledger and memory,
 claims its task, records what it notices and does not fix, closes what it fixed with the commit, and writes down
 its decisions. Under `all` the `metabob-substrate` skill adds a check before every edit of a shared file, and
 the local code tools (§ 4) before and after the edit.
@@ -157,7 +157,7 @@ affect, and which tests?"
 
 ## 5. What to ask your agent
 
-Everything in USER-GUIDE.md, § What you can ask for, holds. Under `all`, also:
+Everything in USER-GUIDE.md, § What to ask for, holds. Under `all`, also:
 
 | You want | Ask, for example | What the agent does |
 |---|---|---|
@@ -170,8 +170,8 @@ Everything in USER-GUIDE.md, § What you can ask for, holds. Under `all`, also:
 
 ## 6. Where your agent stops and asks you
 
-The default set's stops are in USER-GUIDE.md, § What needs your decision. The `metabob-substrate`
-skill brings these to you as well:
+With either skill the agent asks you before a push you haven't allowed, before working outside its task's files,
+and when a recorded decision contradicts your request. The `metabob-substrate` skill brings these to you as well:
 
 - **A landing lease.** When `path_activity` shows the system landing a change to a file, an edit before the
   lease ends is lost or conflicts. The agent tells you, and you decide whether to edit.
@@ -232,8 +232,8 @@ These replace host access (`docker exec`, `journalctl`, a raw `curl`) for readin
 
 ## 9. The ledger and memory under `all`
 
-The ledger, claims, briefs and memory work as USER-GUIDE.md describes in § What changes in how your agent works,
-§ Hand a task to another agent and § Several agents on one repository; unattended workers and agent cells are in
+The ledger, claims, briefs and memory work as USER-GUIDE.md describes in § What it does and § Hand a task to
+another agent, by the rules SPEC gives under § mark_complete and § claim_finding; unattended workers and agent cells are in
 [DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md). An agent given a task reads
 its brief with `concept_search { concept_id: <the task's concept id> }`: `get_problems` shows a task's summary
 and id, never its details. For a task recalled from the ledger, the id `get_problems` shows is that concept id
@@ -250,8 +250,8 @@ and id, never its details. For a task recalled from the ledger, the id `get_prob
 
 ## 10. What else leaves your machine
 
-Everything in USER-GUIDE.md, § What leaves your machine, holds, including the outgoing guard every string passes
-and the `client_claim` every write carries. Beyond your key, the tools `all` adds send:
+What the default tools send is listed per call in DEPLOYING-AGENTS.md, § 5, with the outgoing guard every string
+passes and the `client_claim` every write carries. Beyond your key, the tools `all` adds send:
 
 | The agent… | What is sent |
 |---|---|

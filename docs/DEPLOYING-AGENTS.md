@@ -133,7 +133,7 @@ The Codex plugin takes no settings: the key and discovery address come from the 
 server in the plugin's folder, so every tool answers `workspace_undetermined` until the agent calls `init_workspace
 { workspace_path: "<the project's absolute path>" }`, which the skill does (README § Codex plugin). For
 `METABOB_TOOLS=all`, which the plugin's server cannot take, replace the plugin with a server you add, and install
-the skill by hand from a checkout of this repository (USER-GUIDE § 4):
+the skill by hand from a checkout of this repository (SUBSTRATE-GUIDE § 2):
 
 ```bash
 codex plugin remove metabob@metabob
@@ -147,7 +147,7 @@ cp -R skills/metabob-substrate ~/.codex/skills/
 - **Key and configuration:** the person's own worker key, in the plugin's settings (Claude Code), the config file
   or the client's MCP `env`. The default tool set suits most sessions (§ 4).
 - **Reads and writes:** with the `metabob` skill loaded, it reads the queue and the repository's memory at the start,
-  claims what it takes, records what it notices, and closes what it commits; USER-GUIDE § 1 walks through it.
+  claims what it takes, records what it notices, and closes what it commits; USER-GUIDE § 2 lists it.
 - **Stops:** when the person ends it. Unfinished work should get a handoff and a released claim first ("stop here
   and hand this off").
 
@@ -265,7 +265,7 @@ done
   `npm test` and `npm run` stand for your project's own (`Bash(bun test:*)`, `Bash(make check:*)`). A headless run
   refused a command has no one to ask, so allow every check a brief may name.
 - `metabob-mcp.json` is the one in § Unattended headless runs. With `--strict-mcp-config` the run's server is that
-  one; give the run the skill as a copy in `~/.claude/skills/` (USER-GUIDE § 3) or with `--plugin-dir`.
+  one; give the run the skill as a copy in `~/.claude/skills/` (USER-GUIDE § 1) or with `--plugin-dir`.
 - It stops on `NO_OPEN_TASKS`, on a failed run (any non-zero exit, `timeout`'s 124 included) and at the cap. It also
   stops when every remaining task is held by someone else; run it again later, or from a scheduler.
 
@@ -558,7 +558,7 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 
 A tool outside the set is refused by name before it runs, on stdio and on the local resolver. Change it in the
 server's environment, then restart or reconnect the client. Where to set it in each client (the Claude Code plugin,
-a server added with `claude mcp add`, Codex, Cursor and Continue, headless runs) is in USER-GUIDE § 4. A list
+a server added with `claude mcp add`, Codex, Cursor and Continue, headless runs) is in SUBSTRATE-GUIDE § 2. A list
 is the way to give a worker less: a read-mostly reviewer, for example, without `claim_finding`.
 
 ### Skills
@@ -653,8 +653,8 @@ not built.
   as the `Authorization` header of its requests, and in the body of the org check it makes when it attaches. Keep it in the plugin's sensitive setting, a 0600 config file or the server's `env`, not
   in prompts, briefs or the harness's environment where the model can read it.
 - **What leaves the machine.** No source file, excerpt or file list, and no usage telemetry; only what the agent's
-  calls carry (summaries, details, file paths, commit ids, concept text, the author and session lines). USER-GUIDE
-  § 10 lists it per call. `get_problems` matches recalled items to your files locally. `METABOB_CALL_LOG` stays on
+  calls carry (summaries, details, file paths, commit ids, concept text, the author and session lines), listed per
+  call at the end of this section. `get_problems` matches recalled items to your files locally. `METABOB_CALL_LOG` stays on
   the machine.
 - **The outgoing guard.** Every string a sending tool passes is checked before the call runs
   (`src/outgoing-guard.ts@guard-tool-input`; SPEC § Outgoing text guard): the key, secret-named values from the
@@ -667,6 +667,20 @@ not built.
 - **Ledger text is untrusted input.** Any key with `write` can record a brief, a policy or a convention, and an
   agent acts on what it reads. Give `write` only to workers you run, keep cells' trust lists short, and review
   what cells push before it is merged (`integrate: review`).
+
+**What each call sends.** Every request carries the key. Beyond it:
+
+| The agent… | What is sent |
+|---|---|
+| records a task or problem (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none) and the directory's name, a hash naming the workspace, the item's ids, and the author and session |
+| closes one (`mark_complete`) | the verdict, the item's summary, files and repository, the fix commit, its branch, the base and target branch names, the author and session, and whether the verdict came from a local copy |
+| claims one (`claim_finding`) | the item's id and summary, the repository's identity, the claim's length and end, the author and session |
+| writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes, its shape, any pointer it gives, the author and session |
+| searches or reads (`concept_search`, `concept_neighbors`) | the search text, or the ids it reads |
+
+Every write also carries a `client_claim`: the operator, session and client it declares (SPEC § Client claim).
+Each field has a size cap (a summary 2 KB, details 8 KB, a concept 16 KB). The tools `METABOB_TOOLS=all` adds are
+in SUBSTRATE-GUIDE.md, § What else leaves your machine.
 
 ## 6. Troubleshooting
 

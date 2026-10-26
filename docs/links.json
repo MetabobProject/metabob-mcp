@@ -1385,8 +1385,7 @@
         "README.md",
         "docs/DEPLOYING-AGENTS.md",
         "docs/SPEC.md",
-        "docs/SUBSTRATE-GUIDE.md",
-        "src/config.ts@deriveLocalDiscoveryEndpoint"
+        "docs/SUBSTRATE-GUIDE.md"
       ],
       "lab/README.md": [
         "lab/cell.sh",
