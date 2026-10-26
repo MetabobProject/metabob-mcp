@@ -50,7 +50,7 @@ with your own API key, and it has four screens:
 | **Needs you** (`/`) | Rule on conflicts between ledger items (R1); endorse or reject policies an agent proposed (R2); settle findings that need a person: high or critical severity, agents disagreeing, or unclaimed for more than 48 hours; review items credited as misleading |
 | **Ledger** (`/ledger`) | Browse by location (repository → directory → file): the policies, constraints, review criteria, instructions and findings that apply at a path, with claim state; author items at a location, supersede or retire them, and triage findings |
 | **Activity** (`/activity`) | Who did what to which item, and when, rebuilt from the ledger's own rows |
-| **Access** (`/keys`) | List, issue and revoke API keys; needs a key with the `admin` scope |
+| **Access** (`/keys`) | List, view, issue, regenerate and revoke API keys; needs a key with the `admin` scope |
 
 Every ledger action in the dashboard needs a key with the `write` scope (or `admin`, which implies it). There are
 no roles and no notion of a person as distinct from an agent: what a key can do depends only on its scopes, and an
@@ -305,7 +305,7 @@ worker that needs to change a file outside its task records that as its own task
 | Dashboard **Activity** | One line per act: recorded finding, created task, claimed, released, endorsed, discarded, fix pending, proposed, added, rejected, ruled, flagged conflict |
 | `METABOB_CALL_LOG=<file>` | On the worker's machine: one JSON line per tool call, with the tool, argument names and sizes, the outcome, the claim or close result, and the duration, never a value (`src/call-log.ts@logCall`; SPEC § Call log) |
 
-The dashboard caches its reads for 60 seconds; "Read again" behind its Source toggle drops the cache.
+The dashboard caches its reads for 60 seconds; "Read again" behind its Source toggle drops the cache, and needs no `write` or `admin` scope.
 
 ### Pending fixes and merges
 
