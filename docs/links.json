@@ -1124,8 +1124,10 @@
         "src/call-log.ts@logCall",
         "src/finding-close.ts@runFindingClose",
         "src/finding-close.ts@trailerIds",
+        "src/local-index.ts@lazy-native",
         "src/operator-id.ts@clientClaim",
         "src/outgoing-guard.ts@guard-tool-input",
+        "src/repo-identity.ts@fix-location",
         "src/server-instructions.ts@COCKPIT_TOOLS",
         "src/server-instructions.ts@serverInstructions",
         "src/task-pull.ts@candidateTasks",
@@ -1342,7 +1344,8 @@
         "docs/DEPLOYING-AGENTS.md",
         "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
-        "lab/cell.sh"
+        "lab/README.md",
+        "src/config.ts@deriveLocalDiscoveryEndpoint"
       ],
       "lab/README.md": [
         "lab/cell.sh",

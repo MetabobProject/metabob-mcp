@@ -6,6 +6,23 @@ what they do. It is the technical companion of [Shared memory and coordination](
 the ledger and the memory from the user's side; read that first. Tool parameters are in the
 [specification](SPEC.md), and installation per client is in the [README](../README.md#integrations).
 
+**Before any agent pushes, read § 5.** Three behaviours there decide what reaches your branches unreviewed: a
+cell's integration policy defaults to pushing straight to `main`; `mark_complete endorse` closes a finding once its
+fix is on any remote branch not named `task/…`; and a `project_convention` from a trusted author sets a cell's
+policy even while it is only proposed.
+
+## Terms used here
+
+| Term | Meaning |
+|---|---|
+| Task | An open finding in category `task`: work recorded on the ledger for an agent to take |
+| Cell | One task, one container, one fresh clone (§ 2 Agent cells) |
+| R1, R2 | The two rules that decide which guidance is in effect. R1: when two ledger items conflict, a person rules, and until then both stay flagged. R2: a policy an agent proposes stays pending until a different key endorses it. The dashboard is where people apply them; the server applies neither (§ 4 Ledger content) |
+| `repo_anchor` | The concept that stands for one repository in the shared memory. Decisions, conventions and review criteria are linked to it, so an agent reads a repository's memory by following the links into it (`concept_neighbors`). The `metabob` skill finds it with `concept_search { shape: "repo_anchor" }` and creates it when there is none |
+| Cockpit tool | One of the operator tools beyond the default set (goals, traces, the registry, `path_activity`), listed only under `METABOB_TOOLS=all` or a list that names it. Listing `path_activity`, `run_goal_async` or `run_goal` (`src/server-instructions.ts@COCKPIT_TOOLS`) switches the instructions and the skill to `metabob-substrate` (§ 4) |
+| Unmounted | A repository `path_activity` reports as one the shared service may not mount: none of the system's own open gaps names it, so the tool checks none of its paths, and the edit check asks for `get_problems` only |
+| The substrate installer | The setup for a local substrate, which writes the API key and endpoint into `~/.substrate/config.json`; on a machine it set up, the server needs no other configuration (README § Quick Start). A worker of the hosted service does without it: its key and discovery address go in a config file (§ 1) |
+
 ## 1. The pieces
 
 | Piece | Where it runs | What it does |
@@ -22,13 +39,35 @@ until that succeeds every shared tool answers with one line naming the cause (`k
 `anchor_unreachable`, …) while the local tools keep working. `metabob-mcp attach --check` walks each step and names
 the failing one. The local index is rebuilt in memory at each launch; nothing about the code is persisted or sent.
 
+**Prerequisites** on each machine or image that runs an agent:
+
+- `git` on PATH: Claude Code clones the plugin's marketplace with it, the ledger is keyed by the repository's
+  origin, and a close reads the commits.
+- Node 22.13 or later (or 23.4 or later). It runs everything, the server included, whose local store uses
+  `node:sqlite`. On an older Node the server re-execs into Bun 1.1 or later when Bun is on PATH, and exits with
+  `runtime_unsupported` when it is not; `attach --check`, `task pull` and `finding close` run on any Node 18 or
+  later (SPEC § Runtime).
+- Linux, macOS or Windows x64.
+
+Where a script, a scheduler or an image calls the server's commands, install the bin, which puts `metabob-mcp` on
+PATH:
+
+```bash
+npm i -g @metabob/mcp@<version>
+metabob-mcp --version
+```
+
+Pin a version you have run, here and in every `npx` entry, rather than `@latest`: `@latest` changes what a worker
+runs at its next start, and `METABOB_TOOLS=all` needs 0.4.0 or later. The Claude Code and Codex plugins pin their
+own version.
+
 **Attaching to the hosted service** needs two values, the key and the discovery address. For a one-off check
 from a shell:
 
 ```bash
 export METABOB_API_KEY=<the worker's key>
 export DISCOVERY_ENDPOINT=https://ide.metabob.com
-npx @metabob/mcp@latest attach --check     # exit 0 means attached
+npx @metabob/mcp@<version> attach --check     # exit 0 means attached
 ```
 
 For a worker, put them in a 0600 config file rather than the harness's environment (§ 5). The server reads the
@@ -65,8 +104,46 @@ the agent is told, and how it ends. In each case give the worker its own named k
 
 ### An interactive session
 
-- **Start:** install the plugin or add the server to the client (README § Integrations); start the client in the
-  project.
+**Claude Code with the plugin** (the server, both skills and the edit check):
+
+```bash
+claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
+claude plugin install metabob@metabob \
+  --config api_key=<the person's key> --config discovery_endpoint=https://ide.metabob.com
+claude mcp list       # shows plugin:metabob:metabob … ✔ Connected
+```
+
+Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes Claude Code clone over ssh, which fails on a
+machine with no GitHub ssh key. `api_key` is kept as a sensitive setting; `/plugin configure` changes the settings
+later, and a blank one falls back to the config file (§ 1). If the first start takes longer than Claude Code's
+connect timeout, `/mcp` shows the server failed; reconnecting there starts it from the npx cache (README § Claude
+Code plugin). The plugin's server takes `METABOB_TOOLS` from Claude Code's environment: set it in
+`~/.claude/settings.json` as `{ "env": { "METABOB_TOOLS": "all" } }`, or export it in the shell that starts
+`claude`, then restart or reconnect.
+
+**Codex with the plugin** (the server and both skills; Codex has no hooks, so no edit check):
+
+```bash
+codex plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
+codex plugin add metabob@metabob
+codex mcp list        # shows metabob … enabled
+```
+
+The Codex plugin takes no settings: the key and discovery address come from the config file (§ 1). Codex starts the
+server in the plugin's folder, so every tool answers `workspace_undetermined` until the agent calls `init_workspace
+{ workspace_path: "<the project's absolute path>" }`, which the skill does (README § Codex plugin). For
+`METABOB_TOOLS=all`, which the plugin's server cannot take, replace the plugin with a server you add, and install
+the skill by hand from a checkout of this repository (SHARED-MEMORY § 2):
+
+```bash
+codex plugin remove metabob@metabob
+codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>
+cp -R skills/metabob-substrate ~/.codex/skills/
+```
+
+**Other clients** (Cursor, Continue, Claude Desktop, `claude mcp add`): README § Integrations.
+
+- **Start:** start the client in the project.
 - **Key and configuration:** the person's own worker key, in the plugin's settings (Claude Code), the config file
   or the client's MCP `env`. The default tool set suits most sessions (§ 4).
 - **Reads and writes:** with the `metabob` skill loaded, it reads the queue and the repository's memory at the start,
@@ -126,7 +203,7 @@ trailer 'Fixes-Finding: agf_…', push, then mark_complete it." \
 with `metabob-mcp.json`:
 
 ```json
-{ "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp@latest"],
+{ "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp@<version>"],
   "env": { "METABOB_CONFIG_PATH": "/path/to/worker-config.json", "METABOB_CALL_LOG": "/path/to/calls.jsonl" } } } }
 ```
 
@@ -159,6 +236,85 @@ codex exec --sandbox workspace-write --json -o last-message.txt \
 **Stops:** when the harness exits, or when the wall time or budget cuts it off. A run cut off mid-task leaves its
 claim to lapse (§ 3).
 
+### A headless loop
+
+Two ways to work tasks one after another with no one watching. Both need permission to push, or every fix stays
+pending (§ 3 Pending fixes and merges).
+
+**A `claude -p` loop in one checkout.** Each round is one session. Neither CLI tells the script whether a task was
+open, so the prompt asks for a reply the script stops on (SHARED-MEMORY § 8):
+
+```bash
+cd /path/to/checkout      # this loop's own working copy (a clone or a git worktree)
+prompt="Use the metabob skill. Take one open task nobody holds and finish it or hand it off: run its done \
+checks, commit with the trailer 'Fixes-Finding: <its id>', push, then mark_complete it. A task marked fix \
+pending is not open. If none is open and unheld, reply only NO_OPEN_TASKS."
+for i in $(seq 1 20); do                               # the cap on rounds
+  out=$(timeout 1800 claude -p "$prompt" \
+    --mcp-config ./metabob-mcp.json --strict-mcp-config \
+    --permission-mode acceptEdits \
+    --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" "Bash(npm run:*)" \
+    --max-budget-usd 5) || break
+  case "$out" in *NO_OPEN_TASKS*) break ;; esac
+done
+```
+
+- `--allowedTools` lists the metabob tools, git (the push included) and the commands the tasks' done checks run;
+  `npm test` and `npm run` stand for your project's own (`Bash(bun test:*)`, `Bash(make check:*)`). A headless run
+  refused a command has no one to ask, so allow every check a brief may name.
+- `metabob-mcp.json` is the one in § Unattended headless runs. With `--strict-mcp-config` the run's server is that
+  one; give the run the skill as a copy in `~/.claude/skills/` (SHARED-MEMORY § 2) or with `--plugin-dir`.
+- It stops on `NO_OPEN_TASKS`, on a failed run (any non-zero exit, `timeout`'s 124 included) and at the cap. It also
+  stops when every remaining task is held by someone else; run it again later, or from a scheduler.
+
+**A `task pull` loop.** Each round gets fresh directories, as `task pull` requires, and the exit code decides what
+happens next:
+
+```bash
+export VESSEL_ID=loop-payments-1                  # one identity for task pull, the server and finding close
+export METABOB_CONFIG_PATH=/path/to/worker-config.json
+ORIGIN=https://github.com/acme/payments.git
+for i in $(seq 1 20); do
+  round=$(mktemp -d)
+  metabob-mcp task pull --origin "$ORIGIN" --task-dir "$round/task" --work-dir "$round/work" --json \
+    > "$round/pull.out" 2> "$round/pull.err"
+  rc=$?
+  case $rc in
+    0) ;;                                                   # pulled: work it below
+    3) break ;;                                             # nothing open: done
+    4) until=$(grep '^{' "$round/pull.err" | tail -1 | jq -r .retry_after)   # held by others: wait
+       sleep "$(node -e 'console.log(Math.max(5, Math.ceil((Date.parse(process.argv[1]) - Date.now()) / 1000)))' "$until")"
+       continue ;;
+    *) cat "$round/pull.err" >&2; exit "$rc" ;;             # 2: not attached (attach --check); 1: read the message
+  esac
+  task="$round/task/task.json"; id=$(jq -r .task_id "$task"); push_to=$(jq -r .policy.push_to "$task")
+  ( cd "$round/work" &&
+    timeout 1800 claude -p "Work task $id. Read $task and $round/task/context.md first. Commit with a \
+message whose last line is: Fixes-Finding: $id. Do not push." \
+      --mcp-config /path/to/loop-mcp.json --strict-mcp-config --permission-mode acceptEdits \
+      --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" --max-budget-usd 5 &&
+    git fetch origin main && git rebase origin/main &&
+    git rev-list origin/main..HEAD > "$round/commits" &&
+    git push origin "HEAD:$push_to" &&
+    metabob-mcp finding close --commits-from "$round/commits" --task "$task" ) || echo "round $i: $id not landed" >&2
+done
+```
+
+with `loop-mcp.json` starting the installed bin under the same identity:
+
+```json
+{ "mcpServers": { "metabob": { "command": "metabob-mcp",
+  "env": { "METABOB_CONFIG_PATH": "/path/to/worker-config.json", "VESSEL_ID": "loop-payments-1" } } } }
+```
+
+- `task pull`'s `--json` reply for an exit other than 0 is the last JSON line on standard error, after any
+  `warn:` lines, so the loop reads `retry_after` from there.
+- `finding close` runs in the clone (its `--work-dir` defaults to the current directory) and takes the target from
+  `--task`, since its default task file is `/task/task.json`.
+- The landing steps follow the task's policy (§ Agent cells, Where the fix goes). A rebase that stops on a conflict
+  ends the round unpushed. The round's directory keeps the work; the next round, under the same identity, takes the
+  task again from a fresh clone while the claim is live, and after the claim ends any worker may take it.
+
 ### Agent cells
 
 A cell is one task, one container, one fresh clone. `metabob-mcp task pull` and `metabob-mcp finding close` are its
@@ -168,16 +324,32 @@ entry and exit steps; both run under Node and need no Bun.
 metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <id,…>] [--json]
 # the harness works in /work and commits with the trailer  Fixes-Finding: agf_…
 cd /work      # git and finding close run in the clone (finding close's --work-dir defaults to the current directory)
-git fetch origin <target> && git rebase origin/<target>
-git rev-list origin/<target>..HEAD > /tmp/commits      # this cell's own commits only
-git push origin HEAD:<branch>
+git fetch origin main && git rebase origin/main
+git rev-list origin/main..HEAD > /tmp/commits          # this cell's own commits only, listed before the push
+git push origin "HEAD:$(jq -r .policy.push_to /task/task.json)"     # main, or task/<task id>
 metabob-mcp finding close --commits-from /tmp/commits [--target <branch>] [--task /task/task.json] [--json]
 ```
+
+**Where the fix goes.** `task.json`'s `policy` decides the branch to push and the target `finding close` checks
+(`src/finding-close.ts@runFindingClose`: `--target`, else `main` under `integrate: review`, otherwise `push_to`,
+else `main`). The rebase and the list of the cell's own commits are against `origin/main` in every case:
+`origin/task/<task id>` does not exist before the cell's first push.
+
+| `push_to` | `integrate` | Push | `finding close` checks | The finding |
+|---|---|---|---|---|
+| `main` (default) | `push` (default) | `HEAD:main` | `main` | Closed by the push: no review |
+| `task` | `review` | `HEAD:task/<task id>` | `main` | `fix pending (awaiting merge)` until someone merges the branch; run `finding close` again after the merge |
+| `task` | `push` | `HEAD:task/<task id>` | `task/<task id>` | Closed once the task branch is pushed: no review, and nothing reaches `main` |
+| `main` | `review` | `HEAD:main` | `main` | Closed by the push: pushing to `main` is the merge, so no review happens |
+
+Only the second row holds work for review. The clone starts at the task's `ref:` when it declares one; the policy
+still integrates into `main`.
 
 **What `task pull` takes** (`src/task-pull.ts@runTaskPull`, `src/task-pull.ts@candidateTasks`): open findings in
 category `task` on the origin's repository, in this order:
 
-1. a task this cell already holds, so a restarted cell resumes it;
+1. a task this cell's identity already holds, so a new container under the same identity resumes it (Resuming a
+   cell's task, below);
 2. then unclaimed tasks, most severe first.
 
 A task someone else holds, a closed one and one with a fix pending are skipped. Each candidate is claimed with
@@ -206,7 +378,8 @@ boundary.
 
 **What `finding close` closes** (`src/finding-close.ts@runFindingClose`): each finding a `Fixes-Finding: agf_…`
 trailer in the listed commits names (`src/finding-close.ts@trailerIds`), only when it is an open finding of this
-repository and only once the fix is merged into the target (`--target`, else the task's policy, else `main`):
+repository and only once the fix is merged into the target (Where the fix goes, above; the task's policy is read
+from `--task`, else `/task/task.json`):
 
 | State of the fix | Result |
 |---|---|
@@ -216,22 +389,49 @@ repository and only once the fix is merged into the target (`--target`, else the
 | On no remote branch | Reported as unpushed; nothing written |
 
 Its exit codes are 0 (done, each finding's outcome reported), 2 (not attached) and 1 (any other failure, including a
-failed fetch). List the commits with `git rev-list origin/<target>..HEAD` after the rebase, never `<base>..HEAD`,
+failed fetch). List the commits with `git rev-list origin/main..HEAD` after the rebase, never `<base>..HEAD`,
 which after a rebase also holds other cells' merged commits.
 
 **Identity in a cell.** Set `VESSEL_ID` to one value per cell and pass it to `task pull`, the harness's server and
 `finding close`. Without it each derives its identity from the key and the work directory, and `task pull` does so
 before the clone exists while the server does so after it, so they differ: the agent reads the claim `task pull`
 took as someone else's and takes another task. The lab cell's entrypoint sets it from `CELL_VESSEL_ID`, else
-`metabob-cell-<container hostname>`, kept across a restart of the same container. The task and work directories
-must be empty or missing, or `task pull` exits 1: a restarted cell starts from a fresh clone and resumes its claim.
+`metabob-cell-<container hostname>`.
+
+**Resuming a cell's task.** `task pull` takes a task its identity already holds before any other, but only into
+task and work directories that are empty or missing; anything else exits 1 (`src/task-pull.ts@runTaskPull`). So:
+
+- **Restarting the same container exits 1.** The lab entrypoint never clears `/task` or `/work`, and both survive
+  a restart in the container's filesystem.
+- **A new container without `CELL_VESSEL_ID` cannot resume.** It has a new hostname, so a new
+  `metabob-cell-<hostname>` identity, which reads the old claim as someone else's.
+- **To resume, give each cell a stable `CELL_VESSEL_ID`** (or `VESSEL_ID` in your own entrypoint) **and start a
+  new container with it.** Its fresh `/task` and `/work` let `task pull` run, and the same identity takes its own
+  claim first. It resumes only while that claim is live: `--minutes` (the lab's `CELL_CLAIM_MINUTES`, 45) plus
+  the two minutes readers allow (§ 3 Claims); after that any cell may take the task. Work the old container had not
+  pushed does not carry over: the new one starts from a fresh clone.
 
 **The reference recipe** is the lab cell (`lab/cell/Containerfile`, `lab/cell/entrypoint.sh`, lab/README.md
 § Agent cell): `task pull` with a 45-minute claim, `claude -p` with a model, budget and wall time from `CELL_*`
 variables, web tools refused, the key only in a private 0600 config file the harness's environment does not carry,
 and `METABOB_CALL_LOG` into the result bundle. It is built for judging work, so it **never pushes and never runs
-`finding close`**: its push URL is disabled and its work is judged outside the cell. A cell meant to land work adds
-the fetch, rebase, push and `finding close` steps above, and a git credential for the push.
+`finding close`**: its work is judged outside the cell.
+
+**A cell that lands work** starts from that recipe and drops what keeps the lab cell from pushing. The lab
+entrypoint empties git's `credential.helper`, sets `GIT_ASKPASS=/bin/false` and `GIT_TERMINAL_PROMPT=0`, and sets
+the push URL to `no-push://the-cell-does-not-push`; a landing cell's entrypoint leaves those out and, after the
+harness exits, runs in `/work` (the entrypoint, not the agent):
+
+1. `git fetch origin main && git rebase origin/main`, the `rebase` conflict rule; a conflict ends the cell with
+   nothing pushed;
+2. `git rev-list origin/main..HEAD > /tmp/commits`: the cell's own commits, listed before the push;
+3. `git push origin HEAD:<push_to>`, the branch from `task.json`'s policy (Where the fix goes);
+4. `metabob-mcp finding close --commits-from /tmp/commits`, which reads the target from `/task/task.json`.
+
+The git credential is for step 3 alone. Scope it to the one repository, and give it to git only for the push,
+after the harness has exited, so the agent's session never holds it. Where review is wanted, let it push `task/*`
+branches and not `main` (protect `main` on the git host): a task or a convention that says `push_to: main` then
+fails at the push instead of landing unreviewed (§ 5).
 
 ### Scheduled runs
 
@@ -331,8 +531,8 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 - **Ask for a handoff.** A worker told to stop writes a `task_handoff` linked to its task and releases its claim,
   so the next worker can start at once.
 - **Kill it.** A worker stopped without a release leaves its claim live until its end (plus the two-minute skew),
-  then the task is free again. Nobody else can take it before then, short of closing the finding. A cell's
-  `task pull` resumes a task the same identity still holds.
+  then the task is free again. Nobody else can take it before then, short of closing the finding. A new cell
+  container under the same identity resumes a task that identity still holds (§ 2 Agent cells).
 - **Cut it off.** Revoke its key in Access.
 - **Take the task off the queue.** Triage it in the dashboard's Ledger (resolved or retracted), or close it with
   `mark_complete`; a closed task shows no claim and `task pull` skips it.
@@ -418,15 +618,30 @@ or misled them. Two rules decide what is in effect:
 **What the server does.** It has no recall of guidance by location and does not apply R1 or R2: an agent
 finds guidance through `concept_search` by shape (`project_convention`, `constraint`, `review_criterion`) or by
 following links into the repository's anchor, and nothing filters out a proposed or rejected item or flags a
-conflict. The one place the server reads conventions is `task pull`'s integration policy, which takes a
-`project_convention` from a trusted author and does not check its proposal state: a convention marked proposed
-still sets a cell's policy when a trusted author wrote it. Tell agents in their prompt or brief to read the guidance
-for their files, and trust only authors whose conventions are in effect.
+conflict. The one place the server reads conventions is `task pull`'s integration policy, which does not check a
+convention's proposal state (§ 5). Tell agents in their prompt or brief to read the guidance for their files.
 Recall that applies R1 and R2 is how the system is meant to work. Compiling ledger guidance into skills is planned,
 not built.
 
 ## 5. Security and what is shared
 
+- **A cell lands on `main`, unreviewed, by default.** The integration policy defaults to `push_to: main` and
+  `integrate: push` (`src/task-pull.ts@integration-policy`), so an entrypoint that lands work as § 2 Agent cells
+  lays out pushes the fix straight to `main`, and `finding close` closes it. A task recorded from the dashboard
+  carries no policy lines, so it gets these defaults. To require review, the task's `details` (or a trusted
+  author's `project_convention` for the repository) declare both `push_to: task` and `integrate: review`: the fix
+  goes to `task/<task id>` and stays `fix pending (awaiting merge)` until someone merges it. `integrate: review`
+  alone still pushes to `main`. Back the policy with a git credential that cannot push `main` (§ 2 Agent cells).
+- **`mark_complete endorse` closes on any branch not named `task/…`.** It closes a finding once its fix commit is
+  on any remote branch other than a task branch (`src/repo-identity.ts@fix-location`); it does not know which
+  branches are for review. A team that pushes pull-request branches under other names (`fix/…`, `feature/…`) closes
+  findings before anyone reviews them. Push work meant for review to `task/<task id>` branches, which leave the
+  finding pending until the merge, or tell agents not to endorse and run `finding close` after the merge.
+- **A proposed convention still sets a cell's policy.** The server does not apply R1 or R2, so `task pull` takes a
+  `project_convention` from a trusted author whatever its proposal state: a convention marked `proposed` and not
+  yet endorsed sets `push_to` and `integrate` for every cell that trusts its author. The trusted authors are
+  `--trust` or `METABOB_TASK_TRUST`, else the task's own recorder; name them explicitly, keep the list to authors
+  whose conventions are in effect, and put the policy in the task's own `details` where it matters.
 - **Keys.** Each worker has its own key; nobody shares one. The server sends the key to the shared service only:
   as the `Authorization` header of its requests, and in the body of the org check it makes when it attaches. Keep it in the plugin's sensitive setting, a 0600 config file or the server's `env`, not
   in prompts, briefs or the harness's environment where the model can read it.
@@ -445,3 +660,33 @@ not built.
 - **Ledger text is untrusted input.** Any key with `write` can record a brief, a policy or a convention, and an
   agent acts on what it reads. Give `write` only to workers you run, keep cells' trust lists short, and review
   what cells push before it is merged (`integrate: review`).
+
+## 6. Troubleshooting
+
+Run `metabob-mcp attach --check` first (`npx @metabob/mcp@<version> attach --check` where the bin is not
+installed). It runs the attachment as the server does, prints each hop and ends with `attached` or the one line
+with the named cause; exit 0 means attached. Its `config` line names the file it read and the key's last four
+characters, which shows a key shadowed by another config file (§ 1). Every shared tool answers with the same named
+cause while the server is not attached.
+
+| Cause | What it means | Next step |
+|---|---|---|
+| `not_configured` | No key, or no discovery address | Set both (§ 1); the server's start-up message names the missing one and the lookup order |
+| `key_rejected` | The identity service refused the key: revoked, expired, mistyped, or another config file's key | Check `attach --check`'s `config` line; issue a key in Access (§ 3). A running server re-checks every five minutes, so a revoked key shows here within that |
+| `key_read_only` | The key has only the `read` scope: no write is sent, and `record_finding` and `mark_complete` keep only their local half | Give the worker a key with `write` |
+| `anchor_unreachable(<host:port>)` | Discovery cannot be reached | Check `DISCOVERY_ENDPOINT`; on a network that needs a proxy, set `HTTPS_PROXY` |
+| `identity_unreachable(…)` | The identity address discovery's `/bootstrap` names does not answer | The `identity` line shows what was advertised and tried; set `IDENTITY_ENDPOINT` to an address this machine can reach |
+| `blocked_by_portal` | A proxy or captive portal answered with its own page | Sign in to the portal, or set the proxy it requires |
+| `proxy_auth_required(<schemes>)` | The proxy asks for authentication | `Basic`: put the credentials in the proxy URL. `NTLM` or `Negotiate`: run a local authenticating relay and point `HTTPS_PROXY` at it |
+| `tls_intercepted(<issuer>)` | The certificate chain is signed by an issuer the server does not trust, usually TLS inspection | Add that issuer's root certificate (PEM) with `NODE_EXTRA_CA_CERTS`, or to the OS trust store |
+| `connect_timeout`, `dns_failed`, `connect_refused`, … | Another network cause | SPEC § Named network causes gives each one |
+| `workspace_undetermined` | The server started outside the project (Codex starts it in the plugin's folder) and no client root or `WORKSPACE_PATH` names it | The agent calls `init_workspace { workspace_path: "<the project's absolute path>" }`, or set `WORKSPACE_PATH` |
+| `local_index_unavailable(<module>: …)` | A native module of the local code index cannot load on this platform (`src/local-index.ts@lazy-native`) | The ledger, memory and shared tools are unaffected, and `init_workspace` still names the workspace; the local code tools need a supported platform (§ 1) |
+| `runtime_unsupported` | The Node on PATH has no `node:sqlite` and no Bun is on PATH, so the server exits 1 | Install Node 22.13 or later (or 23.4 or later), or Bun 1.1 or later (§ 1) |
+| `task pull` exits 1: the directories "must be empty or missing" | The task or work directory holds an earlier run | Start a new container, or give each round new directories (§ 2 Resuming a cell's task) |
+
+**Where the logs go.** The server logs to standard error, one line per event with its time and level, and the
+harness decides where that lands (its MCP log, or a script's redirect); `LOG_LEVEL=debug` adds the debug lines, and
+the default is `info`. `task pull` and `finding close` print their result on standard output for exit 0 and on
+standard error otherwise (one JSON line with `--json`), with warnings on standard error. `METABOB_CALL_LOG` records
+each tool call on the worker's machine (§ 3 Following progress).

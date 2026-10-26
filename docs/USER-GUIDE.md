@@ -1,8 +1,19 @@
 # Metabob MCP user guide
 
-This guide is for a person who works with an AI coding agent (Claude Code, Cursor, Codex, Continue or any MCP
-client) and wants that agent to take part in Metabob. Exact tool parameters are in the
-[specification](SPEC.md); installation details per client are in the [README](../README.md).
+This guide is for a person whose AI coding agent (Claude Code, Codex, Cursor, Continue or another MCP client)
+runs the Metabob MCP server with **`METABOB_TOOLS=all`**: every tool, with the `metabob-substrate` skill. That is
+the shared ledger and memory, the local code tools and an operator's cockpit for the substrate.
+
+**Which guide is yours.** With `METABOB_TOOLS` unset, the server lists eleven tools, the shared task ledger and
+memory (`get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
+`concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
+`init_workspace`), for which the `metabob` skill is written; that reader's guide is
+[SHARED-MEMORY.md](SHARED-MEMORY.md). To tell which you have, look at the tools the server lists (in Claude Code,
+`/mcp` → `metabob`): eleven, read SHARED-MEMORY.md; more, read on; none, `METABOB_TOOLS=all` is set on a server
+before 0.4.0 (§ 2). To list every tool, set `METABOB_TOOLS=all` in the server's environment (§ 2).
+
+Exact tool parameters are in the [specification](SPEC.md); installation details per client are in the
+[README](../README.md).
 
 ## 1. What it is for
 
@@ -16,10 +27,14 @@ other agents know afterwards. Metabob gives agents three things they lack on the
   concepts that later agents find by searching, so the reasoning outlives the session that had it. Whether a
   concept helped is recorded, so memory that keeps helping ranks higher.
 - **Coordination.** An agent can say it is starting on a finding (a claim), so another agent does not start the
-  same work, and an agent can see what the substrate itself has in flight on a file.
+  same work, and an agent can see what the substrate itself has in flight on a file: its **gaps**, the work the
+  substrate has identified in a repository it mounts, each queued, held, or being landed under a **landing
+  lease** (the system applying a change to the file, with a holder and an expiry).
 
-It also has local code tools (impact analysis, co-change history, code search) that work in any repository with
-no substrate at all. They are a convenience; the ledger and memory are the reason to use it.
+It also has local code tools (impact analysis `analyze_impact`, co-change history `predict_cochanges`, code
+search `search_codebase`) that work in any repository with no substrate at all. They are listed under
+`METABOB_TOOLS=all` only: the default set has `init_workspace` alone, which indexes the code. They are a
+convenience; the ledger and memory are the reason to use it.
 
 **The substrate** is the set of services behind it (a ledger and memory store, goal execution, discovery).
 **Attached** means the MCP server has proven its API key with the substrate. Until then the substrate tools
@@ -31,7 +46,9 @@ machine's local store: what is recorded then reaches no other agent.
 The server sends no source file, excerpt or file list anywhere, and no usage telemetry. What reaches the
 substrate is what an agent's tool calls carry. Every request carries your API key (to discovery, which forwards
 it to the producing service; to the identity service for the key check; and, for `concept_usage_stats`' recent
-rows only, straight to concept-db's advertised address). Beyond the key:
+rows only, straight to concept-db's advertised address). Writes name their author by the **vessel id**, the
+identity this server writes as: `VESSEL_ID` when set, else a stable `metabob-mcp-<hash>` derived from the key and
+the workspace, registered nowhere. Beyond the key:
 
 | The agent… | What is sent |
 |---|---|
@@ -58,10 +75,54 @@ tools send nothing.
 
 ## 2. Set up
 
+### What you need
+
+Two values, neither with a default: an **API key** and the **substrate's address**.
+
+- The key comes from your organization's Metabob admin, or from your Metabob account. Every agent that shares
+  the work uses a key from the same organization.
+- The address is, for a substrate on your own machine, its endpoint (`http://127.0.0.1:18080`); for a remote
+  substrate, its discovery endpoint (`https://…`), which you get with the key.
+
 ### With the substrate installer
 
-The substrate installer writes your API key and endpoint to `~/.substrate/config.json`. The MCP server reads
-it; nothing else is needed.
+The substrate installer is the program that sets up a substrate on your machine. It writes your API key and the
+local endpoint to `~/.substrate/config.json`, which the server reads; nothing else is needed. That file wins over
+`~/.metabob/config.json` when both exist.
+
+### Without the installer
+
+Put the key and the address in `~/.metabob/config.json`, or in `./.metabob/config.json` in the directory the
+server starts in (an MCP client usually starts it in the project) for that project alone; the full lookup order
+is in the README, § Configuration. For a local substrate:
+
+```json
+{ "metabob": { "apiKey": "mb_your_api_key_here", "endpoint": "http://127.0.0.1:18080" } }
+```
+
+For a remote one:
+
+```json
+{ "metabob": { "apiKey": "mb_your_api_key_here", "discoveryEndpoint": "https://discovery.example.com" } }
+```
+
+The server finds discovery, the substrate's front door, from the address. An `http://` endpoint with an explicit
+port whose last two digits are 80 (`:18080`) gives it (`:18100`); any other endpoint (https, or http with no port
+or another port) gives none (`src/config.ts@deriveLocalDiscoveryEndpoint`), so a remote substrate takes
+`discoveryEndpoint`.
+
+Or export them: `METABOB_API_KEY` with `METABOB_ENDPOINT` (local) or `DISCOVERY_ENDPOINT` (remote). An exported
+`METABOB_ENDPOINT` takes only the key from a config file, never its addresses, so a remote `METABOB_ENDPOINT`
+needs `DISCOVERY_ENDPOINT` beside it.
+
+### Listing every tool
+
+`METABOB_TOOLS=all` in the server's environment lists every tool; it is read when the server starts, so restart or
+reconnect the client after setting it. It needs server 0.4.0 or later: an earlier one lists no tools for it. With
+a plugin, the server's version is the plugin's own (its `.mcp.json` pins it), so a plugin before 0.4.0 lists none
+under `all`. With a server you add yourself, if `npx -y @metabob/mcp --version` prints an earlier version, name a
+0.4.0 or later version where you start the server. Where to set it in each client:
+[SHARED-MEMORY.md](SHARED-MEMORY.md) § 2, and below.
 
 ### Claude Code: the plugin
 
@@ -76,18 +137,19 @@ clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp li
 `plugin:metabob:metabob … ✔ Connected` when it works. The first start downloads the package; if that outlasts
 Claude Code's 30 s connect timeout (a slow link, or Windows), reconnect from `/mcp`.
 
-The plugin brings three parts: the MCP server, the skills (the rules and order of a session, loaded by the agent
-at the start), and the **edit check** (§ 3). The server lists eleven tools by default, the shared task ledger and
-memory, which the `metabob` skill covers and [SHARED-MEMORY.md](SHARED-MEMORY.md) describes;
-`METABOB_TOOLS=all` in its environment lists every tool this guide covers, for which the `metabob-substrate`
-skill is written (where to set it: SHARED-MEMORY.md § 2). Without the installer's config, put the key and
-endpoint in `~/.metabob/config.json`:
+The plugin ships no credentials. It uses the installer's config or the config file above, or takes them as its
+settings, at install or later with `/plugin configure`:
 
-```json
-{ "metabob": { "apiKey": "mb_your_api_key_here", "endpoint": "http://127.0.0.1:18080" } }
+```bash
+claude plugin install metabob@metabob --config api_key=mb_your_api_key_here --config discovery_endpoint=https://discovery.example.com
 ```
 
-or export `METABOB_API_KEY` and `METABOB_ENDPOINT`. Use your substrate's endpoint; there is no default.
+(`--config endpoint=http://127.0.0.1:18080` for a local substrate). A blank setting falls back to the config file.
+
+The plugin brings three parts: the MCP server, the skills (`metabob` for the default tool set, `metabob-substrate`
+for `METABOB_TOOLS=all`, loaded by the agent at the start of a session), and the **edit check** (§ 3). For every
+tool, set `METABOB_TOOLS` in `~/.claude/settings.json` as `{ "env": { "METABOB_TOOLS": "all" } }`, or export it
+in the shell that starts `claude`.
 
 ### Codex: the plugin
 
@@ -97,23 +159,41 @@ codex plugin add metabob@metabob
 ```
 
 It brings the MCP server and the skills; there is no edit check outside Claude Code, and no plugin settings, so
-the key and endpoint come from the installer's config or `~/.metabob/config.json`. Codex starts the server in the
+the key and address come from the installer's config or `~/.metabob/config.json`. Codex starts the server in the
 plugin's own folder without saying which project you are in, so the agent's first call is
 `init_workspace { workspace_path: "<your project's absolute path>" }`; until then every tool answers
 `workspace_undetermined`, and the skill tells the agent what to do.
 
+The plugin's server takes no extra environment, so for every tool remove the plugin
+(`codex plugin remove metabob@metabob`), add the server yourself
+(`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@latest`) and install the skill as for
+other clients (below).
+
 ### Other clients
 
-Add the server to the client's MCP configuration:
+Add the server to the client's MCP configuration (the README shows each client's format):
 
 ```json
-{ "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp"] } } }
+{ "mcpServers": { "metabob": {
+    "command": "npx", "args": ["-y", "@metabob/mcp@latest"],
+    "env": {
+      "METABOB_TOOLS": "all",
+      "METABOB_API_KEY": "mb_your_api_key_here",
+      "DISCOVERY_ENDPOINT": "https://discovery.example.com"
+    } } } }
 ```
 
-The server sends its own instructions to the client (load the skill; under `METABOB_TOOLS=all`, check before
-editing; record what you do not fix), but not every client shows them to the agent: Codex and Gemini CLI document doing so, others may not.
-In those, put the session rules in the client's rules file (`AGENTS.md`, `.cursor/rules`, Copilot
-instructions; see the README). The edit check is a Claude Code hook and exists only there.
+For a local substrate, `METABOB_ENDPOINT` takes the place of `DISCOVERY_ENDPOINT`. Leave the key and address out
+of `env` when the installer's config or a config file supplies them.
+
+Then install the skill: copy `skills/metabob-substrate/` (in this repository, and in the npm package) into the
+client's skills directory, `~/.claude/skills/` for Claude Code or `~/.codex/skills/` for Codex. A client with no
+skills directory takes it through its rules file: point `AGENTS.md` (or `.cursor/rules`, Copilot instructions;
+see the README) at the skill's `SKILL.md`.
+
+The server sends its own instructions to the client (load the skill, check before editing, record what you do not
+fix), but not every client shows them to the agent: Codex and Gemini CLI document doing so, others may not. In
+those, the rules file carries the session rules too. The edit check is a Claude Code hook and exists only there.
 
 ### Check the connection
 
@@ -122,7 +202,7 @@ npx @metabob/mcp attach --check
 ```
 
 It walks each step (proxy, TLS, discovery, identity, the key check, one read) and names the cause of a failure:
-`key_rejected`, `anchor_unreachable`, `proxy_auth_required(NTLM)`, `tls_intercepted(<issuer>)` and so on.
+`key_rejected`, `anchor_unreachable` (discovery does not answer), `proxy_auth_required(NTLM)`, `tls_intercepted(<issuer>)` and so on.
 Corporate proxies and inspected TLS come from your environment (`HTTPS_PROXY`, `NO_PROXY`,
 `NODE_EXTRA_CA_CERTS`) and the OS trust store, never from Metabob's config. When the substrate is briefly
 unreachable at start, the server retries on its own and on the next substrate call.
@@ -132,9 +212,8 @@ which org, and under which identity it writes.
 
 ## 3. A session, as you see it
 
-You give your agent its task as usual. With the `metabob-substrate` skill loaded and `METABOB_TOOLS=all` (the tools
-this guide covers), it does the following without being asked; with the default tool set, the `metabob` skill
-covers the ledger and memory only ([SHARED-MEMORY.md](SHARED-MEMORY.md) § 3).
+You give your agent its task as usual. With the `metabob-substrate` skill loaded, it does the following without
+being asked.
 
 **At the start.** It checks the attachment and the open findings for the repository (`get_analysis_context`,
 `get_problems`), indexes the code locally (`init_workspace`) and may list the decisions recorded for the
@@ -182,12 +261,12 @@ closed, and anything that needs your decision (§ 5).
 |---|---|---|
 | To know what is already known about some code | "What do other agents know about `src/payments/`?" | `get_problems` for those files, `concept_search` for decisions |
 | To keep a problem for later | "Record that as a finding, don't fix it now" | `record_finding` with files, severity, details |
-| To know what is in flight before you edit | "Is anything in flight on the file I am about to change?" | `path_activity`: gaps the system is landing, queued or held |
-| To keep a decision | "Write down why we chose the queue over polling, and that polling was rejected" | `concept_create`, linked to the repository's anchor concept (a `repo_anchor` named after the repository, created when there is none) |
-| The blast radius of a change | "What does changing this file affect, and which tests?" | `analyze_impact` (the local code index), `predict_cochanges` (git history) |
+| To know what is in flight before you edit | "Is anything in flight on the file I am about to change?" | `path_activity` (`METABOB_TOOLS=all` only): gaps the system is landing, queued or held |
+| To keep a decision | "Write down why we chose the queue over polling, and that polling was rejected" | `concept_create`, linked to the repository's anchor concept: a `repo_anchor` concept named after the repository, which its decisions link to so later agents find them (the agent creates it when there is none) |
+| The blast radius of a change | "What does changing this file affect, and which tests?" | `analyze_impact` (the local code index), `predict_cochanges` (git history); both `METABOB_TOOLS=all` only |
 | To close something | "That finding was a false positive" | `mark_complete` discard |
-| Several agents on one repository | "Record one task per area, then give each agent its id" | `record_finding` per task, each agent recalls its own brief |
-| The substrate to do the work (substrate repos) | "Dispatch a goal to …" | `run_goal_async`, then `goal_status`, `goal_reasoning` |
+| Several agents on one repository | "Record one task per area, then give each agent its id" | `record_finding` per task; each agent reads its own brief (§ 6) |
+| The substrate to do the work (substrate repos) | "Dispatch a goal to …" | `run_goal_async`, then `goal_status`, `goal_reasoning`; all `METABOB_TOOLS=all` only |
 
 You can always ask for the raw tool output.
 
@@ -205,8 +284,9 @@ Some calls are yours. The skill tells the agent to bring these to you rather tha
   substrate's human surface. The agent does not represent your view as its own.
 - **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
   never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
-- **Lab and load work on shared hosts.** When an agent runs a lab or a load test, it runs capped, in a window
-  you clear.
+- **Lab and load work on shared hosts.** A lab or a load test runs capped, in a window you clear. Running them
+  is operator work: [DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md) for agents, [lab/README.md](../lab/README.md) for
+  the lab.
 
 ## 6. Several agents on one repository
 
@@ -216,9 +296,27 @@ super-repo that holds vessels under `repos/<name>/` and each vessel's own checko
 same file.
 
 **Give each agent a brief with stated ownership.** Record one finding per unit of work, with the files it owns,
-the test bar and what is out of bounds in its details, then give each agent only its id. It recalls its own
-brief, and the brief outlives whoever wrote it. Findings in category `task` are listed apart from problems,
-grouped as yours, unclaimed, someone else's and pending.
+the test bar and what is out of bounds in its details, then give each agent only its id. It reads its own brief
+from the ledger, and the brief outlives whoever wrote it. Findings in category `task` are listed apart from
+problems, grouped as yours, unclaimed, someone else's and pending.
+
+**An example.** In one session, ask for the task:
+
+> Record a task for another agent: the CSV export drops rows whose date is empty. Goal: every row is exported,
+> an empty date as an empty field. Owns: the CSV writer under `src/export/` and its tests. Out of bounds:
+> every other file. Done when: the export tests pass, with one for an empty date.
+
+The agent records it (`record_finding`, category `task`) and replies with its id, `agf_…`. From any session on
+the repository, "List the open tasks" shows it (`get_problems`): its summary, its id, and who holds it. Then, in
+another session or another client:
+
+> Take task agf_…: claim it, do what its brief says, commit and push the fix, and close it.
+
+That agent claims the task (`claim_finding`), reads the brief in full (`get_problems` shows the summary and the
+id of the task's concept; `concept_search { concept_id }` reads the details), works only in the files it owns,
+commits and pushes, and closes the task with the commit (`mark_complete`, endorse). Without a push the task stays
+`[fix pending]` (§ 3), and the agent says so. To plan a larger piece of work into tasks, and to start workers on
+them, see [SHARED-MEMORY.md](SHARED-MEMORY.md) § 7 (putting work on the ledger) and § 8 (starting workers).
 
 **Claims.** Before starting on a finding another agent could also take (a task or any other finding), an agent claims it
 (`claim_finding`): recall then shows `[claimed by … until …: someone is working on it]`. A claim lasts 60
@@ -247,23 +345,10 @@ task can arrive in a session.
 
 ## 8. Agent cells
 
-An agent can also run unattended in a container, one task at a time:
-
-```bash
-metabob-mcp task pull --origin <git url>      # claim a task, write /task, clone /work
-# … the harness works in /work and commits with a trailer:  Fixes-Finding: agf_…
-metabob-mcp finding close --commits-from <file>   # after a push: close the findings those commits name, once merged
-```
-
-`task pull` takes this cell's own held task first, then the most severe unclaimed one, and writes the task, its
-context (related open findings, the integration policy) and the base commit. `finding close` closes a finding
-only once its fix is merged into the target branch on the origin, never over a revert. Each cell sets one
-`VESSEL_ID` for both commands and its server ([DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md)). The lab's
-`lab/cell.sh` builds a cell with a pinned harness and caps that commits but never pushes, so its work is judged
-from the bundle it leaves (lab/README.md, "Agent cell").
-
-For scoring how agents use the tools in any harness, `METABOB_CALL_LOG=<file>` appends one line per tool call
-(tool, argument names and sizes, outcome, duration; never a value).
+An agent can also run unattended in a container, one task at a time: `npx @metabob/mcp task pull` claims a task
+and clones the repository, and `npx @metabob/mcp finding close` closes it once its fix is merged. Setting up
+cells, headless runs and call logs (`METABOB_CALL_LOG`) is operator work, in
+[DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md).
 
 ## 9. Memory that improves with use
 
@@ -280,14 +365,14 @@ the conditions that would invalidate the advice in the content; they are convent
 
 | Symptom | Next step |
 |---|---|
-| The tools do not appear | Reconnect the client; check Node 22.13+ or 23.4+ (or an older Node with Bun 1.1+) on PATH and the server entry |
+| The tools do not appear | Reconnect the client; check Node 22.13+ or 23.4+ (or an older Node with Bun 1.1+) on PATH and the server entry. A server before 0.4.0 lists none under `METABOB_TOOLS=all` (§ 2) |
 | A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
 | "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
 | A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |
 | The close says the commit predates the finding and touches none of its files | That commit is not the fix; name the commit that changed the finding's files |
 | The close says no commit since the finding touches its files | If the fix is in other files, name its commit with `fix_commit` |
 | The close says the commit is on no remote branch | Push it, then endorse again |
-| The close says the commit is only on task branches | It awaits review: once merged, fetch and endorse again, or run `finding close` |
+| The close says the commit is only on task branches | It awaits review: once merged, fetch and endorse again, or run `npx @metabob/mcp finding close` |
 | The close says none of the finding's files is here | Endorse from the checkout that has the fix |
 | The close says git did not answer in time | Try again |
 | Two agents did the same work | Give stated, disjoint ownership; in one working copy, claims do not separate sessions |
