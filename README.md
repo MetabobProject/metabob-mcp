@@ -200,8 +200,10 @@ tools, and says once which input is missing.
 
 **The edit check** (`scripts/claude-plugin/edit-check.mjs`, shipped as `plugin/scripts/edit-check.mjs` and wired by `plugin/hooks/hooks.json`). Before an agent's first edit of an
 existing file in a session, the plugin holds that edit once and asks the agent to run `get_problems`
-for the file and `path_activity` on it, then retry: other agents may have recorded problems on the
-file, and the substrate may have work in flight there. Instructions alone did not change what agents
+for the file, and `path_activity` on it when the server lists that tool, then retry: other agents may
+have recorded problems on the file, and the substrate may have work in flight there. A server with the
+default tool set does not list `path_activity` (it names its tools in its marker), so its holds ask for
+`get_problems` only. Instructions alone did not change what agents
 do on edit tasks; holding the first edit once did. It holds only where the metabob server is
 attached: while attached, the server keeps a marker for its workspace in the temp directory
 (`src/attached-marker.ts`), and the check holds an edit only when a live, recent marker of the current user's covers the
