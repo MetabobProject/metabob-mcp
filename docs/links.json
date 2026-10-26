@@ -167,17 +167,23 @@
         "src/cli.ts"
       ],
       "docs/SUBSTRATE-GUIDE.md": [
-        "src/tools/mark-complete.ts",
-        "src/repo-identity.ts",
-        "src/tools/claim-finding.ts",
-        "src/tools/_claims.ts",
-        "scripts/claude-plugin/edit-check.mjs",
         "src/tool-allowlist.ts",
-        "src/config.ts",
-        "src/outgoing-guard.ts",
-        "src/vessel-identity.ts",
-        "src/task-pull.ts",
-        "src/finding-close.ts"
+        "src/server-instructions.ts",
+        "scripts/claude-plugin/edit-check.mjs",
+        "src/tools/path-activity.ts",
+        "src/tools/_gap-activity.ts",
+        "src/tools/analyze-impact.ts",
+        "src/tools/predict-cochanges.ts",
+        "src/tools/search-codebase.ts",
+        "src/tools/run-goal-async.ts",
+        "src/tools/run-goal.ts",
+        "src/tools/goal-status.ts",
+        "src/tools/goal-reasoning.ts",
+        "src/tools/provide-feedback.ts",
+        "src/tools/execution-trace.ts",
+        "src/tools/registry-query.ts",
+        "src/tools/resolve-impulse.ts",
+        "skills/metabob-substrate/SKILL.md"
       ]
     },
     "retired": {},
@@ -198,12 +204,16 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "5671e04",
-        "why": "the rc.2 bump changes only the pinned version in the bundles; README names it as <version>"
+        "at": "ee21401",
+        "why": "the skills' brief-reading wording changes nothing the README states"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
         "why": "index.ts's shutdown releases this session's claims before detaching; no participation requirement or its evidence changes"
+      },
+      "docs/DEPLOYING-AGENTS.md": {
+        "at": "ee21401",
+        "why": "ee21401 updated its worker prompts to read the brief with concept_search, matching the skill"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
@@ -218,8 +228,8 @@
         "why": "the Containerfile copies the generated plugin/ without its .mcp.json; the README's 'installed as users have it (the skill and the edit check) without its .mcp.json' is still accurate"
       },
       "skills/metabob/SKILL.md": {
-        "at": "1d139d4",
-        "why": "the skill names no guide file; its tool table is unchanged by the rename"
+        "at": "ee21401",
+        "why": "the user-guide rewrite describes the skill; the skill's own behaviour and wording are unchanged by it"
       }
     }
   },
@@ -1369,13 +1379,14 @@
         "docs/DEPLOYING-AGENTS.md",
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
-        "lab/README.md",
-        "src/config.ts@deriveLocalDiscoveryEndpoint"
+        "lab/README.md"
       ],
       "docs/USER-GUIDE.md": [
         "README.md",
+        "docs/DEPLOYING-AGENTS.md",
         "docs/SPEC.md",
-        "lab/cell/entrypoint.sh"
+        "docs/SUBSTRATE-GUIDE.md",
+        "src/config.ts@deriveLocalDiscoveryEndpoint"
       ],
       "lab/README.md": [
         "lab/cell.sh",
