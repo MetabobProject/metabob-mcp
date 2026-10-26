@@ -214,8 +214,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "db46c4f",
-        "why": "the skills' anchor template gains a repo: line; the doc does not show the template"
+        "at": "429bd89",
+        "why": "the rc.4 bump changes only the pinned version in the bundles; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
