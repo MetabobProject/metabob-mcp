@@ -12,7 +12,8 @@
       "README": "README.md",
       "SPEC": "docs/SPEC.md",
       "USER_GUIDE": "docs/USER-GUIDE.md",
-      "SHARED_MEMORY": "docs/SHARED-MEMORY.md"
+      "SHARED_MEMORY": "docs/SHARED-MEMORY.md",
+      "DEPLOYING_AGENTS": "docs/DEPLOYING-AGENTS.md"
     },
     "live": [
       "CLAUDE.md",
@@ -27,7 +28,8 @@
       "docs/USER-GUIDE.md",
       "lab/README.md",
       "scripts/git-hooks/README.md",
-      "skills/metabob/SKILL.md"
+      "skills/metabob/SKILL.md",
+      "docs/DEPLOYING-AGENTS.md"
     ],
     "covers": {
       "docs/SPEC.md": [
@@ -136,6 +138,16 @@
       "docs/SHARED-MEMORY.md": [
         "skills/metabob/SKILL.md",
         "src/tools/index.ts"
+      ],
+      "docs/DEPLOYING-AGENTS.md": [
+        "src/task-pull.ts",
+        "src/finding-close.ts",
+        "src/cli-attach.ts",
+        "src/server-instructions.ts",
+        "src/vessel-identity.ts",
+        "scripts/claude-plugin/edit-check.mjs",
+        "lab/cell/entrypoint.sh",
+        "skills/metabob-substrate/SKILL.md"
       ]
     },
     "retired": {},
@@ -1085,6 +1097,28 @@
         "tests/workflows/networks/matrix.test.ts",
         "tests/workflows/w3-attachment.test.ts"
       ],
+      "docs/DEPLOYING-AGENTS.md": [
+        "README.md",
+        "docs/SHARED-MEMORY.md",
+        "docs/SPEC.md",
+        "lab/cell/entrypoint.sh",
+        "scripts/claude-plugin/edit-check.mjs",
+        "src/attachment.ts@DEFAULT_HEARTBEAT_MS",
+        "src/call-log.ts@logCall",
+        "src/finding-close.ts@runFindingClose",
+        "src/finding-close.ts@trailerIds",
+        "src/operator-id.ts@clientClaim",
+        "src/outgoing-guard.ts@guard-tool-input",
+        "src/server-instructions.ts@COCKPIT_TOOLS",
+        "src/server-instructions.ts@serverInstructions",
+        "src/task-pull.ts@candidateTasks",
+        "src/task-pull.ts@integration-policy",
+        "src/task-pull.ts@runTaskPull",
+        "src/task-pull.ts@validRef",
+        "src/tools/_claims.ts@claim-holder",
+        "src/vessel-identity.ts@resolveVesselId",
+        "src/vessel-server.ts@parseToolAllowlist"
+      ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs",
         "scripts/doclinks.mjs@slug",
@@ -1334,6 +1368,7 @@
       "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
       "src/attach-check.ts@attachCheck": "92725a3de110",
       "src/attachment.ts@AttachmentState": "932e31e10472",
+      "src/attachment.ts@DEFAULT_HEARTBEAT_MS": "5bec51a5eba0",
       "src/attachment.ts@attach": "ba8daa75d093",
       "src/attachment.ts@attachment-resolve": "2dccda2acc14",
       "src/attachment.ts@classifyDiscoveryAnswer": "e69b73b4936e",
