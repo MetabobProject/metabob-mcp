@@ -44,6 +44,11 @@ pinned version that is not on npm yet cannot start.
 # 1. Bump the version and regenerate the plugin bundles, which pin it
 npm version --no-git-tag-version <x.y.z>
 node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
+# The repository's own .mcp.json pins the same version (a test holds it). Edit it; or, when your copy is
+# skip-worktree with local settings (`git ls-files -v .mcp.json` shows S), write the committed one:
+git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>"#' > "$TMPDIR/mcp.json" \
+  && git update-index --cacheinfo "100644,$(git hash-object -w "$TMPDIR/mcp.json"),.mcp.json" \
+  && git update-index --skip-worktree .mcp.json
 bun install --frozen-lockfile        # the lockfile is unchanged by a version bump
 
 # 2. Check, then commit the release on dev
@@ -72,7 +77,7 @@ keep the last release, and `main` stays where it is: plugin marketplaces clone t
 bundles pin the last release.
 
 ```bash
-# 1. Bump to the candidate and regenerate the bundles, which pin it; commit on dev
+# 1. Bump to the candidate and regenerate the bundles, which pin it, and the repository's own .mcp.json; commit on dev
 npm version --no-git-tag-version <x.y.z>-rc.<n>
 node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
 bun run typecheck && bun run build && bun run test

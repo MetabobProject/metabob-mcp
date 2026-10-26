@@ -106,6 +106,16 @@ describe('the plugin bundles', () => {
     expect(existsSync(join(ROOT, 'skills', 'metabob', 'SKILL.md'))).toBe(true);
   });
 
+  test('the repository\'s own committed .mcp.json pins this version, with every tool', () => {
+    // Read from git's index, not the working tree: a contributor's copy may be skip-worktree with local paths.
+    const committed = spawnSync('git', ['show', ':.mcp.json'], { cwd: ROOT, encoding: 'utf8' });
+    expect(committed.status).toBe(0);
+    const server = JSON.parse(committed.stdout).mcpServers.metabob;
+    // An older release reads `all` as a list naming one tool, so the pin must be a version that knows it.
+    expect(server.args).toEqual(['-y', `--package=metabob-mcp-server@npm:@metabob/mcp@${pkg.version}`, 'metabob-mcp']);
+    expect(server.env).toEqual({ METABOB_TOOLS: 'all' });
+  });
+
   test('the Codex marketplace lists the root bundle, by the path form Codex accepts', () => {
     const market = JSON.parse(read('.agents/plugins/marketplace.json'));
     expect(market.name).toBe('metabob');
