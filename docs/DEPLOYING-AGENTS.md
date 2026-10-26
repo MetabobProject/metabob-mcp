@@ -2,7 +2,7 @@
 
 This guide is for whoever sets up, runs and steers AI coding agents that share a repository through Metabob: which
 pieces are involved, how to start an agent for each kind of task, how to manage a group of them, and how to shape
-what they do. It is the technical companion of [Shared memory and coordination](SHARED-MEMORY.md), which explains
+what they do. It is the technical companion of [user guide](USER-GUIDE.md), which explains
 the ledger and the memory from the user's side; read that first. Tool parameters are in the
 [specification](SPEC.md), and installation per client is in the [README](../README.md#integrations).
 
@@ -133,7 +133,7 @@ The Codex plugin takes no settings: the key and discovery address come from the 
 server in the plugin's folder, so every tool answers `workspace_undetermined` until the agent calls `init_workspace
 { workspace_path: "<the project's absolute path>" }`, which the skill does (README § Codex plugin). For
 `METABOB_TOOLS=all`, which the plugin's server cannot take, replace the plugin with a server you add, and install
-the skill by hand from a checkout of this repository (SHARED-MEMORY § 2):
+the skill by hand from a checkout of this repository (USER-GUIDE § 2):
 
 ```bash
 codex plugin remove metabob@metabob
@@ -147,7 +147,7 @@ cp -R skills/metabob-substrate ~/.codex/skills/
 - **Key and configuration:** the person's own worker key, in the plugin's settings (Claude Code), the config file
   or the client's MCP `env`. The default tool set suits most sessions (§ 4).
 - **Reads and writes:** with the `metabob` skill loaded, it reads the queue and the repository's memory at the start,
-  claims what it takes, records what it notices, and closes what it commits; SHARED-MEMORY § 3 walks through it.
+  claims what it takes, records what it notices, and closes what it commits; USER-GUIDE § 3 walks through it.
 - **Stops:** when the person ends it. Unfinished work should get a handoff and a released claim first ("stop here
   and hand this off").
 
@@ -242,7 +242,7 @@ Two ways to work tasks one after another with no one watching. Both need permiss
 pending (§ 3 Pending fixes and merges).
 
 **A `claude -p` loop in one checkout.** Each round is one session. Neither CLI tells the script whether a task was
-open, so the prompt asks for a reply the script stops on (SHARED-MEMORY § 8):
+open, so the prompt asks for a reply the script stops on (USER-GUIDE § 8):
 
 ```bash
 cd /path/to/checkout      # this loop's own working copy (a clone or a git worktree)
@@ -263,7 +263,7 @@ done
   `npm test` and `npm run` stand for your project's own (`Bash(bun test:*)`, `Bash(make check:*)`). A headless run
   refused a command has no one to ask, so allow every check a brief may name.
 - `metabob-mcp.json` is the one in § Unattended headless runs. With `--strict-mcp-config` the run's server is that
-  one; give the run the skill as a copy in `~/.claude/skills/` (SHARED-MEMORY § 2) or with `--plugin-dir`.
+  one; give the run the skill as a copy in `~/.claude/skills/` (USER-GUIDE § 2) or with `--plugin-dir`.
 - It stops on `NO_OPEN_TASKS`, on a failed run (any non-zero exit, `timeout`'s 124 included) and at the cap. It also
   stops when every remaining task is held by someone else; run it again later, or from a scheduler.
 
@@ -551,7 +551,7 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 
 A tool outside the set is refused by name before it runs, on stdio and on the local resolver. Change it in the
 server's environment, then restart or reconnect the client. Where to set it in each client (the Claude Code plugin,
-a server added with `claude mcp add`, Codex, Cursor and Continue, headless runs) is in SHARED-MEMORY § 2. A list
+a server added with `claude mcp add`, Codex, Cursor and Continue, headless runs) is in USER-GUIDE § 2. A list
 is the way to give a worker less: a read-mostly reviewer, for example, without `claim_finding`.
 
 ### Skills
@@ -646,7 +646,7 @@ not built.
   as the `Authorization` header of its requests, and in the body of the org check it makes when it attaches. Keep it in the plugin's sensitive setting, a 0600 config file or the server's `env`, not
   in prompts, briefs or the harness's environment where the model can read it.
 - **What leaves the machine.** No source file, excerpt or file list, and no usage telemetry; only what the agent's
-  calls carry (summaries, details, file paths, commit ids, concept text, the author and session lines). SHARED-MEMORY
+  calls carry (summaries, details, file paths, commit ids, concept text, the author and session lines). USER-GUIDE
   § 12 lists it per call. `get_problems` matches recalled items to your files locally. `METABOB_CALL_LOG` stays on
   the machine.
 - **The outgoing guard.** Every string a sending tool passes is checked before the call runs

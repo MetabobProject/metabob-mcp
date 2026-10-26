@@ -12,7 +12,7 @@
       "README": "README.md",
       "SPEC": "docs/SPEC.md",
       "USER_GUIDE": "docs/USER-GUIDE.md",
-      "SHARED_MEMORY": "docs/SHARED-MEMORY.md",
+      "SUBSTRATE_GUIDE": "docs/SUBSTRATE-GUIDE.md",
       "DEPLOYING_AGENTS": "docs/DEPLOYING-AGENTS.md"
     },
     "live": [
@@ -23,7 +23,7 @@
       "docs/DOCLINKS.md",
       "docs/PUBLISHING.md",
       "docs/QUICK_START.md",
-      "docs/SHARED-MEMORY.md",
+      "docs/SUBSTRATE-GUIDE.md",
       "docs/SPEC.md",
       "docs/USER-GUIDE.md",
       "lab/README.md",
@@ -135,7 +135,7 @@
         "mcp.json",
         ".agents/plugins/marketplace.json"
       ],
-      "docs/SHARED-MEMORY.md": [
+      "docs/USER-GUIDE.md": [
         "skills/metabob/SKILL.md",
         "src/tools/index.ts"
       ],
@@ -1054,8 +1054,8 @@
       "README.md": [
         "AGENTS.md",
         "CLAUDE.md",
-        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
+        "docs/SUBSTRATE-GUIDE.md",
         "docs/USER-GUIDE.md",
         "plugin/scripts/edit-check.mjs",
         "scripts/build-plugins.mjs",
@@ -1116,8 +1116,8 @@
       ],
       "docs/DEPLOYING-AGENTS.md": [
         "README.md",
-        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
+        "docs/USER-GUIDE.md",
         "lab/cell/entrypoint.sh",
         "scripts/claude-plugin/edit-check.mjs",
         "src/attachment.ts@DEFAULT_HEARTBEAT_MS",
@@ -1156,13 +1156,9 @@
       ],
       "docs/QUICK_START.md": [
         "README.md",
-        "docs/SHARED-MEMORY.md",
-        "docs/SPEC.md"
-      ],
-      "docs/SHARED-MEMORY.md": [
-        "README.md",
         "docs/SPEC.md",
-        "lab/cell/entrypoint.sh"
+        "docs/SUBSTRATE-GUIDE.md",
+        "docs/USER-GUIDE.md"
       ],
       "docs/SPEC.md": [
         "docs/DOCLINKS.md",
@@ -1338,14 +1334,19 @@
         "tests/unit/tool-sets.test.ts",
         "tests/workflows/networks/matrix.test.ts"
       ],
-      "docs/USER-GUIDE.md": [
+      "docs/SUBSTRATE-GUIDE.md": [
         "README.md",
         "docs/CONFORMANCE.md",
         "docs/DEPLOYING-AGENTS.md",
-        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
+        "docs/USER-GUIDE.md",
         "lab/README.md",
         "src/config.ts@deriveLocalDiscoveryEndpoint"
+      ],
+      "docs/USER-GUIDE.md": [
+        "README.md",
+        "docs/SPEC.md",
+        "lab/cell/entrypoint.sh"
       ],
       "lab/README.md": [
         "lab/cell.sh",

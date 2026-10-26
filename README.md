@@ -51,7 +51,7 @@ shared memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_
 server's environment lists every tool (CLAUDE.md's tools table and [docs/SPEC.md](docs/SPEC.md) list them all; the
 table below shows the main ones); a comma-separated list lists exactly those. The `metabob`
 skill is written for the default set, `metabob-substrate` for `all`
-([docs/SHARED-MEMORY.md](docs/SHARED-MEMORY.md) is the guide to the default set).
+([the user guide](docs/USER-GUIDE.md) covers the default set, [docs/SUBSTRATE-GUIDE.md](docs/SUBSTRATE-GUIDE.md) every tool).
 
 | Tool | Tier | Description |
 |------|------|-------------|

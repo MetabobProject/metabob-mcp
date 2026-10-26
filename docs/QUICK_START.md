@@ -38,7 +38,7 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.
 
 Restart Claude Code. Tools appear as `mcp__metabob__init_workspace`, etc. The server lists eleven tools by default,
 the shared ledger and memory; add `-e METABOB_TOOLS=all` for every tool, which the flow below and the operator's
-cockpit use ([SHARED-MEMORY.md](SHARED-MEMORY.md) is the guide to the default set).
+cockpit use ([USER-GUIDE.md](USER-GUIDE.md) covers the default set, [SUBSTRATE-GUIDE.md](SUBSTRATE-GUIDE.md) every tool).
 
 For Claude Desktop, Cursor, and VS Code (Continue), see the Integrations section of [../README.md](../README.md).
 

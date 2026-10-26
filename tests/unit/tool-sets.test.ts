@@ -73,8 +73,8 @@ describe('the tool sets', () => {
     expect(table.sort()).toEqual([...DEFAULT_TOOL_SET].sort());
   });
 
-  test('the shared-memory guide lists the default set', () => {
-    const guide = read('docs/SHARED-MEMORY.md');
+  test('the user guide lists the default set', () => {
+    const guide = read('docs/USER-GUIDE.md');
     const table = [...guide.matchAll(/^\| `([a-z_]+)` \|/gm)].map((m) => m[1]!).filter((t) => registered.has(t));
     expect([...new Set(table)].sort()).toEqual([...DEFAULT_TOOL_SET].sort());
   });

@@ -19,7 +19,7 @@ describe('plugin install on a fresh machine', () => {
   });
 
   test('the README and the guide add the marketplace by its https URL and name the prerequisites', () => {
-    for (const doc of ['README.md', 'docs/USER-GUIDE.md']) {
+    for (const doc of ['README.md', 'docs/SUBSTRATE-GUIDE.md']) {
       const text = read(doc);
       expect(text).toContain('claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git');
       expect(text).not.toMatch(/claude plugin marketplace add MetabobProject\/metabob-mcp\b/);
