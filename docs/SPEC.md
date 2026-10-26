@@ -55,10 +55,10 @@ own sections below.
 
 ## Tool sets
 
-`METABOB_TOOLS` decides which tools the server lists (`src/vessel-server.ts@parseToolAllowlist`), on stdio and on
+`METABOB_TOOLS` decides which tools the server lists (`src/tool-allowlist.ts@parseToolAllowlist`), on stdio and on
 the loopback resolver alike, and its `/v2/capabilities` lists the same:
 
-- unset or empty: the default set (`src/tools/index.ts@default-tool-set`), the shared task ledger and the shared
+- unset or empty: the default set (`src/tool-allowlist.ts@default-tool-set`), the shared task ledger and the shared
   memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
   `concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
   `init_workspace`;
@@ -70,7 +70,8 @@ not in the default set and that `METABOB_TOOLS=all` in the server's environment 
 after a restart or reconnect; under a list it says the tool is not enabled (METABOB_TOOLS allowlist). While
 attached, the server's marker names the tools it lists (`src/attached-marker.ts`), so the Claude Code plugin's edit
 check asks only for tools the agent has: `get_problems` alone under the default set, `get_problems` and
-`path_activity` under `all`.
+`path_activity` under `all` (and `get_problems` alone in a repository `path_activity` reports the substrate does not
+mount).
 
 ## Agent instructions
 
@@ -104,8 +105,8 @@ so a machine it has set up needs no environment and no flags: an MCP client entr
 `gapStoreEndpoint` (which this server does not use) and never a proxy or a CA: those come from the
 environment and the OS (§ Network).
 
-A plugin host fills `METABOB_API_KEY`, `DISCOVERY_ENDPOINT` and `METABOB_ENDPOINT` (and the installer's
-`SUBSTRATE_*` names) from its user's settings (README § Agent plugins). A setting left unfilled can reach the server
+A plugin host fills `METABOB_API_KEY`, `DISCOVERY_ENDPOINT` and `METABOB_ENDPOINT` from its user's settings
+(README § Agent plugins); the installer's `SUBSTRATE_*` names are treated the same way if a host fills them. A setting left unfilled can reach the server
 as the placeholder text itself (`${user_config.api_key}`): the server removes such a value at start, with one line
 naming the variable, and uses the config file as it does for an empty one (`src/config.ts@unsubstituted-placeholders`),
 so a placeholder is never sent as a key or dialled as an endpoint.
@@ -355,7 +356,8 @@ Node 22.13 / 23.4 and later. One file and one schema serve both, so switching ru
 | the same, an older Node, Bun on PATH | Bun: the server re-execs into Bun (`src/cli.ts`) | Node |
 | the same, an older Node, no Bun | none: the server exits 1 with `runtime_unsupported`, naming both fixes (Node 22.13 or later, or Bun) | Node |
 
-Each row of the table is checked on every push by `.github/workflows/package-smoke.yml`, from the packed tarball
+Each row of the table but the first (development from source) is checked on every push to `main` and `dev`, and on
+every pull request, by `.github/workflows/package-smoke.yml`, from the packed tarball
 installed with npm: on ubuntu, macOS and Windows with Node 22 and no Bun, the server is driven over stdio
 (`scripts/ci/smoke-mcp.mjs`: initialize, `tools/list`, `init_workspace`, `search_codebase`, `predict_cochanges`,
 and stdout carrying only JSON-RPC), and the plugins' own launch command runs from a checkout of this repository
@@ -530,7 +532,10 @@ through a proxy) nothing is known about the key, and nothing is gated.
 
 It is Node-safe and runs in the runtime that launched it (§ Runtime), so a cell that runs `npx @metabob/mcp` needs no Bun for it; W7 runs the built CLI under Node.
 
-**Getting attached.** It loads the configuration and attaches as the server does (§ Attachment). Its vessel identity is `VESSEL_ID`, else derived from the key and the work directory, and its session is `SESSION_ID`, else a new one. The repository is the origin URL's identity (§ Repository identity), so every clone of one origin shares one ledger.
+**Getting attached.** It loads the configuration and attaches as the server does (§ Attachment). Its vessel identity is `VESSEL_ID`, else derived from the key and the work directory. Run before the clone,
+that derivation differs from the one the harness's server makes inside the clone, so a cell sets one `VESSEL_ID` for
+`task pull`, its server and `finding close` (the lab's `lab/cell/entrypoint.sh` does: `CELL_VESSEL_ID`, else
+`metabob-cell-<container hostname>`); a claim that does not settle is withdrawn before the next task is tried. Its session is `SESSION_ID`, else a new one. The repository is the origin URL's identity (§ Repository identity), so every clone of one origin shares one ledger.
 
 **Choosing a task.** Tasks are open findings in category `task` (§ get_problems) on that repository (`src/task-pull.ts@candidateTasks`). No checkout exists yet, so the super-repo/vessel aliases (§ Repository identity) come from the origin's identity: a vessel origin also reads tasks the super-repo recorded under `repos/<name>/`, and `task.json` names their files as the vessel does (`src/repo-identity.ts@vesselAliases`). The rule applies to any origin, so a super-repo origin reads its own tasks plus any recorded under `repos/<its name>/`. It tries them in this order:
 - a task this cell already holds, so a restarted cell resumes it;
@@ -544,7 +549,7 @@ A task someone else holds, a closed one and one with a fix pending are skipped. 
 - the integration policy with each value's source;
 - the claim (holder, end), the recorder, the time and the session;
 - the trust list for conventions and whether it was defaulted;
-- `base`, the commit the clone checked out, which the entrypoint passes to `finding close` as `<base>..HEAD`.
+- `base`, the commit the clone checked out: where the clone started, not the range `finding close` takes (§ finding close).
 
 It also writes `context.md`: the details, the policy, the open non-task findings on the task's files, and the task as recorded. Then it clones the origin into the work directory, at the task's `ref:` when it declares one.
 
@@ -559,8 +564,8 @@ A convention steers pushes, so it is untrusted input. It counts only from an aut
 
 **Exit codes:**
 - 0: a task was pulled.
-- 3: no open task, so the cell is done.
-- 4: open tasks exist, but others hold them, or a claim was not settled yet. `--json` gives `retry_after`, the earliest claim end, for the entrypoint loop to wait until.
+- 3: no open task, or none could be claimed (each refused, closed or failed) and none is held by others, so the cell is done.
+- 4: open tasks exist, but others hold them, or a claim was not settled yet. `--json` gives `retry_after`: the earliest claim end, or about 30 s ahead for a claim that did not settle (and was withdrawn), for the entrypoint loop to wait until.
 - 2: not attached.
 - 1: any other failure.
 
@@ -570,7 +575,7 @@ The reply lists what each candidate's claim did.
 
 `metabob-mcp finding close (--commits-from <file> | --commits <range>) [--target <branch>] [--work-dir <dir>] [--task <task.json>] [--json]` (`src/finding-close.ts@runFindingClose`) is close by commit. It is Node-safe, like `task pull`.
 
-**Which commits.** A cell closes only its own commits. After it fetches and rebases (the `rebase` conflict rule), and before it pushes, the entrypoint lists them with `git rev-list origin/<target>..HEAD` into a file, pushes and verifies, then runs `finding close --commits-from <file>`. A `<base>..HEAD` range would be wrong after a rebase: it also holds the commits other cells merged since `base`, and their trailers would be closed under this cell's name. `task.json`'s `base` records where the clone started, not the range. A person can pass `--commits <range>` after their own push.
+**Which commits.** A cell closes only its own commits. After it fetches and rebases (the `rebase` conflict rule), and before it pushes, an entrypoint that integrates lists them with `git rev-list origin/<target>..HEAD` into a file, pushes and verifies, then runs `finding close --commits-from <file>`. The lab's cell (`lab/cell/entrypoint.sh`) does not push: its commits are judged from the bundle it leaves. A `<base>..HEAD` range would be wrong after a rebase: it also holds the commits other cells merged since `base`, and their trailers would be closed under this cell's name. `task.json`'s `base` records where the clone started, not the range. A person can pass `--commits <range>` after their own push.
 
 **The claim.** A commit in the range claims a fix with a `Fixes-Finding: agf_…` trailer, one per finding (`src/finding-close.ts@trailerIds`, git's own trailer parse). Only the finding id and the commit sha are sent, never commit text.
 
@@ -583,7 +588,7 @@ The reply lists what each candidate's claim did.
 - **Pushed but not merged** (on some remote branch, as under `review`): the verdict is `fix pending (awaiting merge)` with `fix_target:`. Recall tags it `[fix pending: pushed by <vesselId>, awaiting merge into <target>]`. A later `finding close` after the merge closes it.
 - **On no remote branch:** nothing is written; it is reported as unpushed.
 
-**Plain endorse vs close by commit.** `mark_complete endorse` closes a finding once its fix commit is on a remote branch (§ mark_complete). `finding close` closes it only once the fix is merged into the target. Under the `review` policy the cell uses `finding close`, so a fix pushed for review stays pending until merged.
+**Plain endorse vs close by commit.** `mark_complete endorse` closes a finding once its fix commit is on a remote branch other than a task branch (§ mark_complete; a commit only on `task/*` branches awaits its merge). `finding close` closes it only once the fix is merged into the target. Under the `review` policy the cell uses `finding close`, so a fix pushed for review stays pending until merged.
 
 **Exit codes:** 0 done, with each finding's outcome reported; 2 not attached; 1 any other failure, including a failed fetch.
 
@@ -696,7 +701,7 @@ Index the workspace into the local CPG. Indexing is local: no file content leave
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `workspace_path` | string | the configured workspace (§ Workspace) | Absolute path to the workspace root; it must be an existing directory |
+| `workspace_path` | string | the configured workspace (§ Workspace) | The workspace root, an existing directory; a relative path resolves against the server's launch directory (so, for a server started in its plugin folder, it is refused: give the absolute path) |
 | `recently_changed_files` | string[] | `[]` | Changed files — the output reports how many co-change neighbours they have |
 | `batch_size` | number | `20` | Accepted (1–20) and ignored |
 | `include` | string[] | `[ts,tsx,js,jsx,mjs,cjs,py]` | Extensions to index (with or without the leading dot) |
@@ -745,7 +750,7 @@ Problems for this codebase, ranked by severity: the findings in the local store 
 **Behaviour**
 - Leads with one count of open findings across both sources (`src/tools/_findings.ts@openFindingsHeadline`), e.g. `Open findings: 2 (0 in the local store, 2 recorded by agents on this codebase)`. A finding in both — this session's seed of a finding it shared — counts once and is reported as `; N in both`: local seeds group by their linked concept id, so a multi-file finding is one finding, and a recalled finding overlaps a group when it is that concept or carries one of its `agf_*` ids. Only recalled findings with no verdict count. A recall that did not run (no attachment, or concept-db refused or unreachable) is named rather than counted as zero, and so is an unavailable local store. The local count is after the `severity`/`category`/`file_path` filters; the recall count is the open list the section below shows before its cap of 10.
 - Lists the open seeds in the local store for this workspace (or, with `file_path`, for the matching files), filtered and capped, each with the id `annotate_component` and `mark_complete` take, and an age tag dated from the seeds. If the local store failed to open, the output says so.
-- States plainly that there is no server-side analysis (`src/tools/_findings.ts@NO_SERVER_ANALYSIS`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request. It also says these are agent-recorded findings only: the system's own open gaps on a file are `path_activity`'s, so none here is not none there. An empty local list reads `No agent-recorded findings …` and, with `file_path`, names the `path_activity` call for the file.
+- States plainly that there is no server-side analysis (`src/tools/_findings.ts@noServerAnalysis`): this server sends no workspace content off the machine, so no backend detections exist. It makes no analysis request. It also says these are agent-recorded findings only: the system's own open gaps on a file are `path_activity`'s, so none here is not none there. An empty local list reads `No agent-recorded findings …` and, with `file_path`, names the `path_activity` call for the file.
 - It then appends a **"Findings recorded by agents on this codebase"** section recalled from concept-db (`src/tools/_findings.ts@fetchAgentFindings`): `conceptSearch { shape: "code_finding", limit: 300 }` reads in list mode (no `query`), relevance first, then newest, kept when the concept belongs to the current repository (its `repo:` header equals the repository identity or the workspace basename, § repository-identity; else its `workspace:` basename) and, when `file_path` is given, names that file. A full page of 300 asks for the next by `offset`, up to four pages; a concept-db that answers an offset with the first page again does not page, and the process reads one page from then on. A last page that is full is reported as truncated; at most 10 open findings are shown. `finding_verdict` concepts, read the same way, close findings, which move to a separate "Closed findings" list; a retraction outranks a fix, a fix with a commit one without, and any fix a pending one. A fixed finding with a fix commit shows `[FIXED in <sha>]`, and when the commit is not in this checkout's HEAD (`src/repo-identity.ts@commitInHead`) it adds `— the fix is not in this checkout's HEAD (fixed on <branch>, not pushed when endorsed)`. A live claim (§ claim_finding) tags an open finding `[claimed by <vesselId> until <time>: someone is working on it]`. A pending fix keeps the finding in the open list, tagged `[fix pending: uncommitted in another checkout (<reviewed_by>) on <branch>; not in this one]`, or `in this checkout …; commit it, then mark_complete endorse again` when this vessel wrote it. No resolvable repo name skips the recall; concept-db unreachable is non-fatal.
 
 **Verdicts past the window** (`src/tools/_findings.ts@link-verdict`, `src/tools/_findings.ts@verdict-rows-for`). Verdicts and claims outnumber findings, and at the default relevance the newest push the oldest out of the read; a closed finding, credited and so ranked high, would then read as open. So every verdict is linked to its finding when it is written (`verdict --derived_from--> finding`, best-effort, through `conceptLink_write`); so is a claim once it is settled as held, and a release. A claim that loses a race, and its withdrawal, are not linked: the link would double the writes a race makes, and settles nothing a later reader needs. When the verdict read is truncated, each matched finding's linked verdicts are read through `conceptGraph { direction: "incoming", edge_types: ["derived_from"] }`, at most 50 findings, 8 at a time, and 200 verdicts each, and joined with the read's rows. `claim_finding` reads a finding's claims the same way. Verdicts written before linking are found by the read alone. The findings themselves are read through the window: past four pages, or one page while concept-db does not honour the offset, older findings with no credit fall out of recall.
@@ -889,13 +894,13 @@ Mark a detected problem as resolved or dismiss it as a false positive.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `problem_id` | string | **required** | Problem ID from `get_problems` — a backend id, an `agf_*` finding id, or a `concept_*` id |
+| `problem_id` | string | **required** | Problem ID from `get_problems`: an `agf_*` finding id or a `concept_*` id |
 | `action` | `endorse\|discard` | `endorse` | endorse=fixed, discard=false positive |
 | `fix_commit` | string | — | Endorse only: the commit (7–40 hex digits) that fixes the finding, for a fix that touches none of its files or that was committed before the finding was recorded |
 
 Ids are `agf_*` findings or `concept_*` ids; any other id is refused with a message saying nothing was recorded, since there are no backend detections for it to name. A `concept_*` id — the form cross-agent recall hands an agent — is resolved to its local `agf_*` seed via `LocalStore.getSeedByConceptRef`. When no local seed exists, the verdict is written from the recalled concept itself (the fleet case: one agent records, another fixes) — keyed on the `agf_*` id the finding carries, never the concept id — and the output states that nothing local was retired. For agent-recorded findings, endorse marks the LocalStore seed stale (resolved, stops surfacing), discard deletes the local seed only — the org-wide `code_finding` concept is never retracted — and every seed sharing the finding's concept is retired with it, since a multi-file finding is one finding. A `finding_verdict` concept referencing the finding id is best-effort recorded to concept-db (non-fatal). Every verdict carries its reviewer and its provenance as two separate content lines: `reviewed_by: <vesselId>` + `session: <sessionId>` (the author — omitted when no identity resolves), and `origin: local` (written against a local seed) or `origin: remote` (written from a recalled concept). `recorded_by` never appears on a verdict; it means author-of-finding and nothing else. When the finding carries a linked `code_finding` concept, the verdict is also folded into that concept's **relevance** through the same channel as `concept_record_usage` — endorse → `success`, discard → `failure` (`conceptUsage_write`, `src/tools/_findings.ts@recordConceptUsage`). A recalled concept is read as the `conceptGraph` root (`src/tools/_findings.ts@fetchConceptById`).
 
-**Where the fix is.** An endorse records where the fix lives, from the checkout's git state (`src/repo-identity.ts@fix-location`), as verdict lines (`src/tools/_findings.ts@fixLines`). A fix commit postdates the finding — its earliest seed's time, or the recalled concept's `created_at`, less two minutes for clocks — since a commit older than the finding cannot be its fix:
+**Where the fix is.** An endorse records where the fix lives, from the checkout's git state (`src/repo-identity.ts@fix-location`), as verdict lines (`src/tools/_findings.ts@fixLines`). A fix commit postdates the finding — its earliest seed's time, or the recalled concept's `created_at`, less two minutes for clocks — since a commit found in history that is older than the finding cannot be its fix (a commit named with `fix_commit` may be older when it touches the finding's files, below):
 - uncommitted changes (modified, staged, untracked or deleted) in the finding's files come first, even with `fix_commit` — `fix: uncommitted`, with the branch and `fix_base:` HEAD: a claim does not close a finding whose fix is not committed yet (the reply says the claim was not applied);
 - with `fix_commit`: that commit, when it resolves in this checkout, is in HEAD's history and postdates the finding — `fix: commit <sha>` with `fix_claimed: yes`, and `fix_touches_finding_files: no` when it touches none of them (the symptom in one file, the fix in another). A named commit older than the finding is its fix when it touches the finding's files (a finding recorded after its fix was committed): `fix_predates_finding: yes`, and the reply says so; older and touching none of them, it is refused. A commit failing any check writes no verdict and the output names the check;
 - else the newest commit since the finding touching its files: `fix: commit <sha>`, with `fix_branch:` and, when no remote branch holds it, `fix_pushed: no`;
@@ -951,7 +956,7 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
    A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
 4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
 
-**The read window.** Claims are found in the same `finding_verdict` list read the recall uses: up to 300 rows, ordered by relevance and then newest first. A verdict whose relevance falls below its peers can drop out of the window while it is still live. A read of one finding's verdicts would close that gap, and concept-db's search offers no such filter yet.
+**The read window.** Claims are found as verdicts are (§ get_problems, verdicts past the window): the `finding_verdict` list read the recall uses, and, when that read is truncated, the verdicts and claims linked to each recalled finding, read through `conceptGraph`.
 
 **Refusals.** A claim must name its holder, so with no vessel identity nothing is written. A read-only key writes nothing and says `key_read_only`. When the verdict scan reached its limit, the finding's linked claims are read too (§ get_problems), and the reply says a claim written before claims were linked may have been missed.
 
@@ -1333,6 +1338,9 @@ An unknown `task_id` is reported as such, adding that the substrate dispatches n
 ---
 
 ## Typical agent workflow
+
+With `METABOB_TOOLS=all` (the default tool set has no `predict_cochanges`, `analyze_impact`, `annotate_component`,
+goal or queue tools; `skills/metabob/SKILL.md` is its routine).
 
 ```
 1. init_workspace(workspace_path, recently_changed_files)

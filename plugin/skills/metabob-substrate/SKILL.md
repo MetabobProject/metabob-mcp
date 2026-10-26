@@ -1,6 +1,6 @@
 ---
 name: metabob-substrate
-description: For a metabob server started with METABOB_TOOLS=all, which lists the substrate cockpit tools as well as the shared ledger and memory. Use before editing code in a repository other agents or the substrate also work on: check what is known-wrong and in flight on the files first (get_problems, path_activity), then record what you find and close what you fix on the shared ledger of the Metabob MCP server. Also use when a session reviews code or notices issues worth leaving for others, picks up or closes work on the ledger (who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load it, instead of the metabob skill, at the start of a session where the metabob server lists these tools (path_activity, run_goal_async); a server with the default tools lists neither.
+description: For a metabob server started with METABOB_TOOLS=all, which lists the substrate cockpit tools as well as the shared ledger and memory. Use before editing code in a repository other agents or the substrate also work on: check what is known-wrong and in flight on the files first (get_problems, path_activity), then record what you find and close what you fix on the shared ledger of the Metabob MCP server. Also use when a session reviews code or notices issues worth leaving for others, picks up or closes work on the ledger (who owns which files, what is already done), dispatches goals to the substrate and judges their outcome, or reads and writes the org's shared memory. Also provides local impact and co-change analysis over any TS/JS/Python repo before edits. Load it, instead of the metabob skill, at the start of a session where the metabob server lists these tools (path_activity, run_goal_async, run_goal); a server with the default tools lists none of them.
 ---
 
 # Metabob: working as a participant in the substrate
@@ -75,7 +75,8 @@ Use it whenever more than one agent or session touches the repository.
    and a fix still uncommitted in your checkout leaves the finding open for everyone
    else, marked fix pending, until you endorse again after committing; so does a commit
    no remote branch has yet, until you push it, and a commit only on a task branch, until it is merged. When the fix
-   commit touches none of the finding's files, name it: `fix_commit: "<sha>"`. A `concept_*` id is enough when that is all you hold: with no
+   commit touches none of the finding's files, or was made before the finding was recorded, name it:
+   `fix_commit: "<sha>"`. A `concept_*` id is enough when that is all you hold: with no
    local seed the verdict is written from the recalled concept itself, and the
    output says plainly that nothing local was retired. One call closes every file
    of a multi-file finding.

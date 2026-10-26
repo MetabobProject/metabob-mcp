@@ -31,8 +31,9 @@ npx @metabob/mcp@latest --api-key=mb_your_api_key_here --endpoint=http://127.0.0
 
 **Runtime**: Node 22.13 or later (or 23.4 or later) runs everything, the server included: its local store uses
 Node's built-in `node:sqlite`. On an older Node, the server re-execs into [Bun](https://bun.sh) (≥1.1) when it is
-on PATH, and names both fixes when it is not. `--help`, `--version`, and the `doctor` and `attach --check`
-subcommands run on any Node 18 or later, so you can always inspect the install and diagnose connectivity.
+on PATH, and names both fixes when it is not. `--help`, `--version`, and the `doctor`, `attach --check`, `task`
+and `finding` subcommands run on any Node 18 or later, so you can always inspect the install and diagnose
+connectivity.
 
 On a host that has Bun but *no* Node at all, use `bunx @metabob/mcp` (the
 node-shebanged bin cannot be exec'd without a `node` on PATH).
@@ -47,7 +48,8 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 shared memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
 `concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
 `init_workspace`. It refuses a call to any other tool, saying how to list them. **`METABOB_TOOLS=all`** in the
-server's environment lists every tool in the table below; a comma-separated list lists exactly those. The `metabob`
+server's environment lists every tool (CLAUDE.md's tools table and [docs/SPEC.md](docs/SPEC.md) list them all; the
+table below shows the main ones); a comma-separated list lists exactly those. The `metabob`
 skill is written for the default set, `metabob-substrate` for `all`
 ([docs/SHARED-MEMORY.md](docs/SHARED-MEMORY.md) is the guide to the default set).
 
@@ -67,7 +69,7 @@ skill is written for the default set, `metabob-substrate` for `all`
 
 **Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
 
-**Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `concept_*` (incl. `concept_record_usage`), `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
+**Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `claim_finding`, `concept_*` (incl. `concept_record_usage`), `path_activity`, `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Configuration
 
@@ -77,7 +79,8 @@ skill is written for the default set, `metabob-substrate` for `all`
 | `METABOB_ENDPOINT` | — | Substrate endpoint. Env mirror of `metabob.endpoint` in the config file (`SUBSTRATE_ENDPOINT` is accepted too) |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Corporate proxy, chosen per request; loopback always goes direct (§ Corporate proxies) |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; set it with a remote endpoint |
-| `WORKSPACE_PATH` | `$PWD` | Default workspace root for `init_workspace` |
+| `WORKSPACE_PATH` | _(the client's first root, else `$PWD`)_ | The workspace the ledger is keyed by; an `init_workspace` path wins over it, and it wins over the client's roots (docs/SPEC.md § Workspace) |
+| `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists: unset, the eleven of the shared ledger and memory; `all`, every tool; a list, exactly those (§ Tools) |
 | `SESSION_ID` | random UUID | Session identifier |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
@@ -91,8 +94,9 @@ differ, the `METABOB_*` value wins, with one warning. CLI flags override environ
 With either input missing the server still starts with its local tools, and logs one message naming
 what is missing. Run `metabob-mcp --help` for the full flag reference.
 
-A local substrate endpoint (`http://127.0.0.1:18080`) derives discovery (`:18100`) by port offset; a
-remote endpoint derives nothing, so set `DISCOVERY_ENDPOINT` with it. An explicit `DISCOVERY_ENDPOINT`
+An `http://` endpoint on a port ending in 80, such as a local substrate's `http://127.0.0.1:18080`, derives
+discovery at the same block's …100 (`:18100`); any other endpoint (https, or no explicit port) derives nothing, so
+set `DISCOVERY_ENDPOINT` with it. An explicit `DISCOVERY_ENDPOINT`
 still wins. No other service URL is configuration.
 
 ## Corporate proxies & SSL inspection
@@ -163,16 +167,17 @@ claude mcp add metabob -e METABOB_API_KEY=mb_... -e METABOB_ENDPOINT=http://127.
 
 ### Claude Code plugin (MCP server + skill + edit check)
 
-This repo doubles as a plugin marketplace. The plugin bundles the MCP server,
-the `metabob` participation skill (how an agent takes part: coordinator, operator, verifier, client of shared memory),
-and an edit check:
+This repo doubles as a plugin marketplace. The plugin bundles the MCP server, two skills (`metabob`, for the
+default tool set: taking part in the shared ledger and memory; `metabob-substrate`, for `METABOB_TOOLS=all`: the
+same plus the operator's cockpit, as coordinator, operator, verifier and client of shared memory), and an edit
+check:
 
 ```bash
 claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
 
-It needs `git` and Node 22.13 or later on PATH (an older Node works with [Bun](https://bun.sh) 1.1+ on PATH):
+It needs `git` and Node 22.13 or later (or 23.4 or later) on PATH (an older Node works with [Bun](https://bun.sh) 1.1+ on PATH):
 Claude Code clones the marketplace with git, and the plugin starts the server with `npx`. Use the https URL: the `MetabobProject/metabob-mcp` shorthand makes
 Claude Code clone over ssh, which fails on a machine with no GitHub ssh key, although the repository is
 public. Check it with `claude mcp list`, which shows `plugin:metabob:metabob … ✔ Connected`. The first start
@@ -212,8 +217,9 @@ A file the agent already checked with either tool is not held, nor is a new file
 of the same file, nor a file outside the attached workspace (a cache, a temp file, another checkout). In a repository the substrate does not mount, nothing is in flight: once
 `path_activity` answers that the repository is not one the substrate mounts, holds in the session's
 directory ask for `get_problems` only. `METABOB_EDIT_CHECK=off` turns it
-off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism, so other
-clients get the same guidance from the server instructions and the skill only.
+off. If the check itself fails, the edit goes through. It is Claude Code's hook mechanism; other clients get the
+before-edit rule from the server instructions and the `metabob-substrate` skill under `METABOB_TOOLS=all`, and not
+at all under the default tool set, whose skill and instructions carry no before-edit step.
 
 ### Codex plugin (MCP server + skill)
 
@@ -223,7 +229,7 @@ codex plugin add metabob@metabob
 ```
 
 Codex reads `.agents/plugins/marketplace.json`, which lists the Agent Plugins bundle at the repository root
-(§ Agent plugins): the server and the skill. Agent Plugins has no hooks and no settings, so there is no edit
+(§ Agent plugins): the server and the skills. Agent Plugins has no hooks and no settings, so there is no edit
 check, and the key and endpoint come from the substrate installer's `~/.substrate/config.json` or from
 `~/.metabob/config.json`. `codex mcp list` shows `metabob … enabled`.
 
@@ -266,8 +272,8 @@ portable format (Codex among them, through `.agents/plugins/marketplace.json`, w
 - `skills/metabob/SKILL.md` and `skills/metabob-substrate/SKILL.md`, the skills.
 
 1.0 has no hooks, so the edit check is Claude Code's alone; AGENTS.md carries the same rule for other harnesses.
-The server takes its workspace from the client's MCP roots when the client offers them, else from the directory it
-is started in. A client that starts it in the plugin's own folder with no roots (Codex does) leaves the workspace
+The server takes its workspace from `WORKSPACE_PATH` when it is set, else from the client's MCP roots when the
+client offers them, else from the directory it is started in; an `init_workspace` path wins over all three. A client that starts it in the plugin's own folder with no roots (Codex does) leaves the workspace
 undetermined: every tool answers `workspace_undetermined` until the agent calls `init_workspace { workspace_path }`
 with the project's root, which the skill does at the start of a session (docs/SPEC.md § Workspace).
 
@@ -333,7 +339,7 @@ bun install
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
 bun test                            # run all tests
-bash scripts/git-hooks/install.sh   # install pre-commit hook
+bash scripts/git-hooks/install.sh   # install the pre-commit and pre-push hooks
 ```
 
 The local CPG implementation lives in `vendor/cpg-inference`, so a recursive submodule checkout is required before build, test, or dev commands.

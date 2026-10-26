@@ -9,7 +9,8 @@
 
 `bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. They are the only `dependencies`: every other package the server uses (the MCP SDK, zod, hono, undici, ajv, system-ca) is bundled into `dist/` and listed in `devDependencies`, so a user's `npx` installs the four native packages and nothing else. `tests/unit/package-dependencies.test.ts` holds `dependencies` equal to the build's `--external` list and checks that the bundle loads no other package.
 
-The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `skills/` carries the bundled agent skill, which is required at runtime, not incidental.
+The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `skills/` carries the agent skills (`metabob` and `metabob-substrate`) for clients that install them from the
+package; the server itself does not read them.
 
 ## The CPG library
 
@@ -24,6 +25,8 @@ resolution involved — it is source that gets bundled into `dist/cli.js`.
 
 ## Preconditions
 
+- The repository's default branch on GitHub is `main`, the branch plugin marketplaces clone
+  (`gh repo view --json defaultBranchRef`); `dev`'s bundles pin the next version, published or not
 - `bun run typecheck` passes
 - `bun run build` succeeds (`dist/cli.js` and `dist/doctor-cli.js` present)
 - `npm link && metabob-mcp --version` works from a different directory
@@ -33,7 +36,8 @@ resolution involved — it is source that gets bundled into `dist/cli.js`.
 ## Workflow
 
 The plugins pin the server to the package's exact version (README § Agent plugins), so a version bump regenerates
-them in the same commit, and the package is published before `main` moves: plugin marketplaces clone `main`, and a
+them in the same commit, and the package is published before `main` moves: plugin marketplaces clone the repository's default branch,
+which is `main`, and a
 pinned version that is not on npm yet cannot start.
 
 ```bash
@@ -64,8 +68,8 @@ git push origin HEAD:main            # allowed: version bumped, and the commit i
 ### A pre-release
 
 A release candidate (`<x.y.z>-rc.<n>`) is published under the `next` tag, so `latest` and `npx -y @metabob/mcp`
-keep the last release, and `main` stays where it is: plugin marketplaces clone `main`, and its bundles pin the
-last release.
+keep the last release, and `main` stays where it is: plugin marketplaces clone the default branch, `main`, whose
+bundles pin the last release.
 
 ```bash
 # 1. Bump to the candidate and regenerate the bundles, which pin it; commit on dev
@@ -81,7 +85,8 @@ npm view @metabob/mcp dist-tags      # latest: the last release; next: the candi
 npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp --version
 ```
 
-A client tries the candidate by pinning it (`npx -y @metabob/mcp@<x.y.z>-rc.<n>`). The release itself is the
+A client tries the candidate by pinning it, in the form the plugins use, which also works inside a checkout of
+this repository (`npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp`). The release itself is the
 workflow above, from a version bump to `<x.y.z>`; the candidate is never tagged and never reaches `main`.
 
 ## Troubleshooting

@@ -36,15 +36,25 @@ import { getResolverVesselId } from '../resolver-identity.js';
 import { headerBlock, plainConceptId } from './_concept-content.js';
 import { commitInHead, repoAliases, repoIdentity, type FixLocation, type RepoAliases, type RepoIdentity } from '../repo-identity.js';
 import { claimHolder, parseClaim, type ClaimRecord } from './_claims.js';
+import { isToolPermitted } from '../tool-allowlist.js';
 
 /**
  * What the analysis tools say where backend detections would otherwise be.
  * This server sends no workspace content off the machine, so no backend ever
  * analyses it; findings are what agents record.
  */
-export const NO_SERVER_ANALYSIS =
-  'Server-side analysis: none. This server sends no workspace content off the machine, so there are no backend detections; problems come from agents (record_finding). '
-  + 'These are agent-recorded findings only: the system\'s own open gaps on a file are path_activity\'s, and "none here" does not mean none there.';
+const NO_ANALYSIS_BASE =
+  'Server-side analysis: none. This server sends no workspace content off the machine, so there are no backend detections; problems come from agents (record_finding). ';
+
+/**
+ * The line every problems view ends with. It names path_activity, the system's own gaps, only where the server lists
+ * that tool (SPEC §tool-sets): under the default set an agent cannot call it.
+ */
+export function noServerAnalysis(): string {
+  return isToolPermitted('path_activity')
+    ? NO_ANALYSIS_BASE + 'These are agent-recorded findings only: the system\'s own open gaps on a file are path_activity\'s, and "none here" does not mean none there.'
+    : NO_ANALYSIS_BASE + 'These are agent-recorded findings only.';
+}
 
 /** The concept shape used for agent-recorded findings. */
 export const FINDING_SHAPE = 'code_finding';

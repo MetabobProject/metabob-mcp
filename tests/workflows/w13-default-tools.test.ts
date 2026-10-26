@@ -25,7 +25,11 @@ describe('the default tool set', () => {
       expect(refused.error?.message).toContain('METABOB_TOOLS=all');
 
       expect((await server.call('record_finding', { files: ['src/index.ts'], summary: 'kept for the next agent', severity: 'LOW', category: 'test' })).text).toContain('Finding recorded');
-      expect((await server.call('get_problems', {})).text).toContain('kept for the next agent');
+      const problems = (await server.call('get_problems', {})).text;
+      expect(problems).toContain('kept for the next agent');
+      // Nothing points the agent at a tool it cannot call.
+      expect(problems).not.toContain('path_activity');
+      expect((await server.call('get_problems', { file_path: 'nothing-here.ts' })).text).not.toContain('path_activity');
     } finally {
       await server.stop();
     }

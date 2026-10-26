@@ -23,10 +23,12 @@ version of these rules for that setup; read it if your harness does not load ski
 3. **Record what you notice.** A problem you notice and don't fix goes into `record_finding` (files, summary,
    severity, category, details), not only into your reply. If it is already recorded you get its id back.
 4. **Close with evidence.** After the fix: commit; push where the person you work for allows it, or leave it
-   unpushed and say so; then `mark_complete` endorse. An uncommitted fix, a commit on no remote branch
-   (`fix pending (unpushed)`), or one only on task branches leaves the finding open as "fix pending" until the
-   fix is committed, pushed or merged; a commit must postdate the finding and touch its files, or be named with
-   `fix_commit`. Use discard for a false positive.
+   unpushed and say so; then `mark_complete` endorse. An uncommitted fix, a commit on no remote branch in a
+   checkout with a remote (`fix pending (unpushed)`), or one only on task branches leaves the finding open as "fix
+   pending" until the fix is committed, pushed or merged. A commit counts when it postdates the finding and
+   touches its files; name it with `fix_commit` when it touches other files (it must postdate the finding then),
+   or when it was made before the finding was recorded (it must touch the finding's files then). Use discard for a
+   false positive.
 5. **Claim shared work.** Before starting a finding another agent could also take, `claim_finding` it; one
    someone else holds is theirs. Renew long work, release it if you stop. A claim names the working copy, not
    the session: agents sharing a working copy need stated, disjoint ownership.

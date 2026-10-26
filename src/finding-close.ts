@@ -1,7 +1,7 @@
 // Contract (behaviour): SPEC §finding-close
 /**
- * `metabob-mcp finding close --commits-from <file>` (or `--commits <range>`): close by commit. Run after a push — by a cell's entrypoint
- * once it has pushed and verified, or by a person — it closes the findings that commits name in a
+ * `metabob-mcp finding close --commits-from <file>` (or `--commits <range>`): close by commit. Run after a push — by an entrypoint
+ * that integrates, once it has pushed and verified (the lab's cell does not push), or by a person — it closes the findings that commits name in a
  * `Fixes-Finding: agf_…` trailer, once the fix is merged into the integration target on the origin. The commit is
  * the evidence, so no agent's say-so closes anything, and no commit text is sent: only the finding id and the sha.
  *

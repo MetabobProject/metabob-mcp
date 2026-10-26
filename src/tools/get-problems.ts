@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import {
-  NO_SERVER_ANALYSIS,
+  noServerAnalysis,
   fetchAgentFindings,
   openFindingsHeadline,
   renderFindingsSection,
@@ -15,6 +15,7 @@ import {
   workspaceRepo,
 } from './_findings.js';
 import type { SeedRecord } from '../local-store.js';
+import { isToolPermitted } from '../tool-allowlist.js';
 
 export const GetProblemsTool = {
   name: 'get_problems',
@@ -85,7 +86,7 @@ export async function handle(
   // Lead with one count across both sources: a reader of the first line must
   // not take "none in the local store" for "no open findings".
   const headline = openFindingsHeadline(all?.filtered ?? null, recall);
-  const core = `${headline}\n\n${localFindings(input, localStore, local, startTime)}\n\n${NO_SERVER_ANALYSIS}`;
+  const core = `${headline}\n\n${localFindings(input, localStore, local, startTime)}\n\n${noServerAnalysis()}`;
   // The category filter applies to the recalled findings as it does to the local ones.
   const cats = input.category?.length ? new Set(input.category.map(c => c.toLowerCase())) : null;
   const recalled = cats && recall.status === 'ok' ? { ...recall, findings: recall.findings.filter(f => cats.has(findingCategory(f))) } : recall;
@@ -128,7 +129,7 @@ function localFindings(
   if (filtered.length === 0) {
     const where = input.file_path ? ` for "${input.file_path}"` : '';
     return `No agent-recorded findings${where} in the local store (filters: severity=${input.severity?.join(',') ?? 'any'} category=${input.category?.join(',') ?? 'any'}).`
-      + (input.file_path ? ` For the system's own open gaps on it, path_activity { paths: ["${input.file_path}"] }.` : '');
+      + (input.file_path && isToolPermitted('path_activity') ? ` For the system's own open gaps on it, path_activity { paths: ["${input.file_path}"] }.` : '');
   }
 
   let text = `${filtered.length} problem${filtered.length === 1 ? '' : 's'}`;

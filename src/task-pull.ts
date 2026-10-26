@@ -256,7 +256,8 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
     } catch (err) {
       return release(`claimed ${key}, but cloning ${a.origin} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || String(err)}`);
     }
-    // The base the entrypoint passes to finding close (<base>..HEAD): later rebases never widen the range to other cells' commits.
+    // Where the clone started, recorded in task.json. Not the range finding close takes: after a rebase <base>..HEAD
+    // would also hold other cells' merged commits, so the entrypoint lists its own (origin/<target>..HEAD).
     const base = execFileSync('git', ['-C', a.workDir, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: GIT_ENV() }).trim();
     (record as Record<string, unknown>).base = base;
     writeFileSync(join(a.taskDir, 'task.json'), JSON.stringify(record, null, 2) + '\n');

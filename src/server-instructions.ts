@@ -10,7 +10,7 @@
  * tests/unit/tool-sets.test.ts and tests/workflows/w4-skill-contract.test.ts hold
  * that every tool named is listed. SPEC §agent-instructions
  */
-import { parseToolAllowlist, toolSetKind } from './vessel-server.js';
+import { parseToolAllowlist, toolSetKind } from './tool-allowlist.js';
 import { TOOL_REGISTRY } from './tools/index.js';
 
 /** For the default tool set: the shared task ledger and memory, and nothing else. */

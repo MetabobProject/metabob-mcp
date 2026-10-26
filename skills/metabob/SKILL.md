@@ -119,8 +119,9 @@ point, and what it didn't write is lost.
 - **Close what you finished** with `mark_complete { problem_id, action:
   "endorse" }`, after you commit the work, and after you push it where the
   person you work for allows a push. The verdict records the commit, so others
-  can check it. Work that isn't committed yet, or isn't on a remote yet, leaves
-  the task open for everyone as "fix pending" until you endorse again. If the
+  can check it. Work that isn't committed yet, isn't on a remote yet, or is only
+  on a `task/…` branch awaiting review, leaves the task open for everyone as "fix
+  pending" until you endorse again. If the
   commit that did it doesn't touch the task's files, or was made before the task
   was recorded, name it: `fix_commit: "<sha>"`. Use `discard` for a task or
   problem that turned out not to be real. Close every item you resolved,
@@ -234,9 +235,11 @@ what the link means, and links nobody uses can be pruned over time.
 ## Limits worth knowing
 
 - Every ledger item concerns at least one file, and closing one records the
-  commit that touches it, or the one you name with `fix_commit`.
+  commit that touches it, or the one you name with `fix_commit` (a file the
+  commit deleted counts; an item on ignored files closes as local, with no commit).
 - A claim belongs to the checkout, not the session. Two sessions in one checkout
   look like one claimer, so split their work by files and say so in the tasks.
-- The ledger's recall reads at most about 300 items of each kind across the
-  organization. Record tasks for real units of work, not every small step.
+- The ledger's recall reads a bounded window of each kind across the
+  organization, newest and most relevant first. Record tasks for real units of
+  work, not every small step.
 - `concept_neighbors` returns at most 50 links. Past that, search by topic.

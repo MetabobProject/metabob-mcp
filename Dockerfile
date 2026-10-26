@@ -37,16 +37,16 @@ COPY --from=build /app/package.json ./
 # Note: Running as root in container. For production, configure
 # Kubernetes SecurityContext to run as non-root user (runAsUser: 1001)
 
-# Environment variables (can be overridden)
-ENV SESSION_ID=docker-session
+# Environment variables (can be overridden). SESSION_ID is left unset, so each container gets a fresh one; the
+# resolver port is fixed for the healthcheck, outside the substrate's 8000-8999 container ports.
 ENV LOG_LEVEL=info
-ENV HEALTH_PORT=8080
+ENV HEALTH_PORT=18800
 ENV MAX_REQUESTS_PER_MINUTE=60
 
 # The HTTP resolver binds 127.0.0.1 only, so the port is not exposed: the
 # healthcheck runs inside the container's own network namespace.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD bun run -e "fetch('http://127.0.0.1:8080/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+    CMD bun run -e "fetch('http://127.0.0.1:18800/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
 # Run MCP server (dist/cli.js produced by bun run build; dist/index.js fallback)
 CMD ["bun", "run", "dist/cli.js"]

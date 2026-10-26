@@ -37,7 +37,7 @@ rows only, straight to concept-db's advertised address). Beyond the key:
 |---|---|
 | records a finding (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none) and the directory's name, a hash naming the workspace, the finding's ids, and the author (`recorded_by`, the vessel id) and session |
 | closes a finding (`mark_complete`, `finding close`) | the verdict, the finding's summary again, its files and repository, the fix commit, its branch, the base and target branch names, the author (`reviewed_by`) and session, and whether the verdict came from a local copy |
-| claims one (`claim_finding`) | the finding's id, the claim's length and end, the author and session |
+| claims one (`claim_finding`) | the finding's id and summary, the repository's identity, the claim's length and end, the author and session |
 | writes memory (`concept_create`, `concept_link`, `concept_record_usage`, `resolve_impulse`'s memory note) | the text it writes, its shape and source type, any pointer it gives (which can name a document path), the author and session |
 | dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, and any the agent adds) |
 | gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
@@ -51,7 +51,7 @@ session and the client version); `METABOB_CLIENT_CLAIM=off` drops it. `path_acti
 Each string an agent sends passes an outgoing guard first. A known secret (your key, secret-named values from
 your environment and from the workspace's and your config files) or a credential pattern refuses the call
 without repeating the value, and the refusal tells the agent to remove the credential or mask it
-(`postgres://admin:***@host`) and call again; common re-encodings of a secret are caught too. A path under your
+(`postgres://admin:***@host`) and call again. A secret is matched as written: an encoded or split one is not caught. A path under your
 home directory is redacted in prose and refused in a field the substrate acts on. Every write is checked once more
 as the server composes it, so a line the server adds itself never carries your key or a home path. The local code
 tools send nothing.
@@ -70,7 +70,7 @@ claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 claude plugin install metabob@metabob
 ```
 
-It needs `git` and Node 22.13 or later on PATH; an older Node works with [Bun](https://bun.sh) 1.1 or later on
+It needs `git` and Node 22.13 or later (or 23.4 or later) on PATH; an older Node works with [Bun](https://bun.sh) 1.1 or later on
 PATH, and with neither `/mcp` shows the server failed. Use the https URL as written: the `owner/repo` shorthand
 clones over ssh, which fails on a machine with no GitHub ssh key. `claude mcp list` shows
 `plugin:metabob:metabob … ✔ Connected` when it works. The first start downloads the package; if that outlasts
@@ -96,7 +96,7 @@ codex plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
 codex plugin add metabob@metabob
 ```
 
-It brings the MCP server and the skill; there is no edit check outside Claude Code, and no plugin settings, so
+It brings the MCP server and the skills; there is no edit check outside Claude Code, and no plugin settings, so
 the key and endpoint come from the installer's config or `~/.metabob/config.json`. Codex starts the server in the
 plugin's own folder without saying which project you are in, so the agent's first call is
 `init_workspace { workspace_path: "<your project's absolute path>" }`; until then every tool answers
@@ -110,8 +110,8 @@ Add the server to the client's MCP configuration:
 { "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp"] } } }
 ```
 
-The server sends its own instructions to the client (load the skill, check before editing, record what you do
-not fix), but not every client shows them to the agent: Codex and Gemini CLI document doing so, others may not.
+The server sends its own instructions to the client (load the skill; under `METABOB_TOOLS=all`, check before
+editing; record what you do not fix), but not every client shows them to the agent: Codex and Gemini CLI document doing so, others may not.
 In those, put the session rules in the client's rules file (`AGENTS.md`, `.cursor/rules`, Copilot
 instructions; see the README). The edit check is a Claude Code hook and exists only there.
 
@@ -132,7 +132,9 @@ which org, and under which identity it writes.
 
 ## 3. A session, as you see it
 
-You give your agent its task as usual. With the skill loaded, it does the following without being asked.
+You give your agent its task as usual. With the `metabob-substrate` skill loaded and `METABOB_TOOLS=all` (the tools
+this guide covers), it does the following without being asked; with the default tool set, the `metabob` skill
+covers the ledger and memory only ([SHARED-MEMORY.md](SHARED-MEMORY.md) § 3).
 
 **At the start.** It checks the attachment and the open findings for the repository (`get_analysis_context`,
 `get_problems`), indexes the code locally (`init_workspace`) and may list the decisions recorded for the
@@ -141,7 +143,8 @@ repository (`concept_search`). It mentions findings other agents recorded on the
 
 **Before editing a file.** It looks up what is known to be wrong in that file (`get_problems`) and what the
 substrate has in flight on it (`path_activity`). In Claude Code the edit check prompts for this: it holds the
-first edit of each existing file in a session once, with a note asking for those two calls. The retry goes
+first edit of each existing file in a session once, with a note asking for those two calls (`get_problems` alone
+when the server does not list `path_activity`, as with the default tool set). The retry goes
 through either way, so it is a reminder, not a lock. It holds nothing while the server is not attached, nor for
 a new file, a second edit of the same file, or a file outside the workspace. Once `path_activity` reports that
 the substrate does not mount the repository, nothing can be in flight there, and the check asks for
@@ -157,11 +160,14 @@ The close records the commit. It is not taken on the agent's word:
 - a commit no remote branch has yet does the same in a checkout with a remote: "push it, then mark_complete
   endorse again". If you do not let the agent push, the finding stays pending and it tells you so;
 - a commit only on task branches (`task/…`, which a review merges) leaves it open too, shown `[fix pending:
-  pushed …, awaiting merge into main]`, until an endorse finds it merged or `finding close` (§ 8) sees the merge;
+  pushed …, awaiting merge into <target>]`, the origin's default branch, until an endorse finds it merged or `finding close` (§ 8) sees the merge;
   a commit on any other remote branch counts;
-- a commit must postdate the finding and touch its files, or be named as the fix (`fix_commit`);
-- when none of the finding's files is in this checkout, or the finding has no recorded time, nothing here can
-  be shown to be its fix, and it stays open;
+- a commit must postdate the finding and touch its files, or be named as the fix (`fix_commit`): a named commit
+  in other files must postdate the finding, and one made before the finding was recorded must touch its files;
+- a fix that deleted the finding's files counts (git history still knows them); a finding whose files are all
+  ignored (`.gitignore`) closes as local to this checkout;
+- when none of the finding's files is known to this checkout (on disk or in its history), or the finding has no
+  recorded time, nothing here can be shown to be its fix, and it stays open;
 - a false positive is closed with discard instead.
 
 **At the end.** It records what it noticed and did not fix, closes every finding it resolved, and writes down
@@ -251,8 +257,10 @@ metabob-mcp finding close --commits-from <file>   # after a push: close the find
 
 `task pull` takes this cell's own held task first, then the most severe unclaimed one, and writes the task, its
 context (related open findings, the integration policy) and the base commit. `finding close` closes a finding
-only once its fix is merged into the target branch on the origin, never over a revert. The lab's
-`lab/cell.sh` builds such a cell with a pinned harness and caps (lab/README.md, "Agent cell").
+only once its fix is merged into the target branch on the origin, never over a revert. Each cell sets one
+`VESSEL_ID` for both commands and its server ([DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md)). The lab's
+`lab/cell.sh` builds a cell with a pinned harness and caps that commits but never pushes, so its work is judged
+from the bundle it leaves (lab/README.md, "Agent cell").
 
 For scoring how agents use the tools in any harness, `METABOB_CALL_LOG=<file>` appends one line per tool call
 (tool, argument names and sizes, outcome, duration; never a value).
@@ -272,7 +280,7 @@ the conditions that would invalidate the advice in the content; they are convent
 
 | Symptom | Next step |
 |---|---|
-| The tools do not appear | Reconnect the client; check Node 22.13+ (or an older Node with Bun 1.1+) on PATH and the server entry |
+| The tools do not appear | Reconnect the client; check Node 22.13+ or 23.4+ (or an older Node with Bun 1.1+) on PATH and the server entry |
 | A substrate tool answers with a named cause | `npx @metabob/mcp attach --check`; the cause is the attachment's state, not a transient error |
 | "Attaching (first attempt in progress)" | Wait a few seconds; the next substrate call retries at once |
 | A finding you closed is still open elsewhere | Its fix is pending: commit and push it, then endorse again |

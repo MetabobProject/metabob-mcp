@@ -31,9 +31,11 @@ export DISCOVERY_ENDPOINT=https://ide.metabob.com
 npx @metabob/mcp@latest attach --check     # exit 0 means attached
 ```
 
-For a worker, put them in a 0600 config file rather than the harness's environment (§ 5):
-`~/.metabob/config.json`, `./.metabob/config.json` in the directory the server starts in, or the file
-`METABOB_CONFIG_PATH` names:
+For a worker, put them in a 0600 config file rather than the harness's environment (§ 5). The server reads the
+first that exists of: the file `SUBSTRATE_CONFIG_PATH` or `METABOB_CONFIG_PATH` names, `./.substrate/config.json`
+and `./.metabob/config.json` in the directory it starts in, then `~/.substrate/config.json` (the installer's) and
+`~/.metabob/config.json`. So a worker's own file is best named with `METABOB_CONFIG_PATH`: a key in
+`~/.metabob/config.json` is shadowed by an installer's `~/.substrate/config.json`.
 
 ```json
 { "metabob": { "apiKey": "<the worker's key>", "discoveryEndpoint": "https://ide.metabob.com" } }
@@ -58,7 +60,7 @@ item's author is the name of the key that wrote it. Rows with no key stamp show 
 
 ## 2. Deploying agents for different kinds of task
 
-Every deployment below uses the same server and the same tools; what differs is how the harness is started, what
+Every deployment below uses the same server and its default tool set (§ 4 covers others); what differs is how the harness is started, what
 the agent is told, and how it ends. In each case give the worker its own named key (§ 3).
 
 ### An interactive session
@@ -190,8 +192,8 @@ withdrawn, so one bad task does not block every cell for the claim's length.
 | Code | Meaning | What the launcher does |
 |---|---|---|
 | 0 | A task was pulled | Start the harness |
-| 3 | No open task | Stop: the queue is empty |
-| 4 | Open tasks exist, but others hold them or a claim did not settle | Wait until `retry_after` (with `--json`: the earliest claim end), then pull again |
+| 3 | No open task, or none could be claimed and none is held by others | Stop: the queue is empty |
+| 4 | Open tasks exist, but others hold them or a claim did not settle (that claim is withdrawn) | Wait until `retry_after` (with `--json`: the earliest claim end, or about 30 s ahead after an unsettled claim), then pull again |
 | 2 | Not attached | Fix the key or address (`attach --check`) |
 | 1 | Any other failure | Read the message |
 
@@ -219,8 +221,10 @@ which after a rebase also holds other cells' merged commits.
 
 **Identity in a cell.** Set `VESSEL_ID` to one value per cell and pass it to `task pull`, the harness's server and
 `finding close`. Without it each derives its identity from the key and the work directory, and `task pull` does so
-before the clone exists while the server does so after it, so the claim `task pull` takes may not be the one the
-agent can renew. The lab cell's entrypoint sets no `VESSEL_ID`, so it has this mismatch.
+before the clone exists while the server does so after it, so they differ: the agent reads the claim `task pull`
+took as someone else's and takes another task. The lab cell's entrypoint sets it from `CELL_VESSEL_ID`, else
+`metabob-cell-<container hostname>`, kept across a restart of the same container. The task and work directories
+must be empty or missing, or `task pull` exits 1: a restarted cell starts from a fresh clone and resumes its claim.
 
 **The reference recipe** is the lab cell (`lab/cell/Containerfile`, `lab/cell/entrypoint.sh`, lab/README.md
 § Agent cell): `task pull` with a 45-minute claim, `claude -p` with a model, budget and wall time from `CELL_*`
@@ -285,7 +289,7 @@ A claim is how a worker says it has a task (`claim_finding`; SPEC § claim_findi
 | Release | `action: "release"` when stopping without finishing, after leaving a handoff |
 | End | The claim's start plus its minutes, by the shared clock; readers treat it as live until two minutes past that |
 | Contest | Two workers can both write a claim; every reader picks the same holder, the earliest live claim, the lower id on a tie (`src/tools/_claims.ts@claim-holder`), and the later claimer withdraws |
-| Close | `mark_complete` by anyone ends every claim on the finding; an endorse of a finding someone else holds goes ahead, and the reply names their claim |
+| Close | A verdict that closes the finding, by anyone, ends every claim on it (a pending endorse does not); an endorse of a finding someone else holds goes ahead, and the reply names their claim |
 
 A claim is advisory: it keeps honest workers off one task, it does not lock files. The Ledger screen marks two live
 claims on one file as an overlap.
@@ -336,7 +340,7 @@ merges closes them afterwards (`mark_complete endorse` after a fetch, or `findin
 
 ### Tool sets
 
-`METABOB_TOOLS`, read once when the server starts (`src/vessel-server.ts@parseToolAllowlist`; SPEC § Tool sets):
+`METABOB_TOOLS`, read once when the server starts (`src/tool-allowlist.ts@parseToolAllowlist`; SPEC § Tool sets):
 
 | Value | Lists |
 |---|---|
@@ -386,8 +390,9 @@ the file first: `get_problems`, plus `path_activity` when the server lists it an
 tool reports as unmounted (`scripts/claude-plugin/edit-check.mjs`; README § Claude Code plugin). It holds only where
 an attached server's marker covers the session's directory, and never a file already checked through either tool, a
 file being created, a second edit of a file, or a file outside the attached workspace. If the check itself fails,
-the edit goes through. `METABOB_EDIT_CHECK=off` turns it off. Other harnesses have no hooks for it; they get the same rule
-from the skill and the instructions.
+the edit goes through. `METABOB_EDIT_CHECK=off` turns it off. Other harnesses have no hooks for it; under
+`METABOB_TOOLS=all` they get the same rule from the `metabob-substrate` skill and the instructions, and under the
+default tool set the skill and instructions carry no before-edit step.
 
 ### Ledger content: how people steer agents
 
@@ -421,12 +426,12 @@ not built.
 
 ## 5. Security and what is shared
 
-- **Keys.** Each worker has its own key; nobody shares one. The server sends the key only as the `Authorization`
-  header of its requests. Keep it in the plugin's sensitive setting, a 0600 config file or the server's `env`, not
+- **Keys.** Each worker has its own key; nobody shares one. The server sends the key to the shared service only:
+  as the `Authorization` header of its requests, and in the body of the org check it makes when it attaches. Keep it in the plugin's sensitive setting, a 0600 config file or the server's `env`, not
   in prompts, briefs or the harness's environment where the model can read it.
 - **What leaves the machine.** No source file, excerpt or file list, and no usage telemetry; only what the agent's
   calls carry (summaries, details, file paths, commit ids, concept text, the author and session lines). SHARED-MEMORY
-  § 8 lists it per call. `get_problems` matches recalled items to your files locally. `METABOB_CALL_LOG` stays on
+  § 12 lists it per call. `get_problems` matches recalled items to your files locally. `METABOB_CALL_LOG` stays on
   the machine.
 - **The outgoing guard.** Every string a sending tool passes is checked before the call runs
   (`src/outgoing-guard.ts@guard-tool-input`; SPEC § Outgoing text guard): the key, secret-named values from the

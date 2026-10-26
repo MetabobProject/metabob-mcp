@@ -8,7 +8,7 @@ import { redactUrl } from '../net.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
 import {
-  NO_SERVER_ANALYSIS,
+  noServerAnalysis,
   fetchAgentFindings,
   openFindingsHeadline,
   renderFindingsSection,
@@ -183,7 +183,7 @@ export async function handle(
     text += `\nTop by severity (${recentProblems.length} shown):\n`;
     text += recentProblems.join('\n') + '\n';
   }
-  text += `${NO_SERVER_ANALYSIS}\n\n`;
+  text += `${noServerAnalysis()}\n\n`;
 
   // Co-change predictions
   if (input.recently_changed_files?.length) {

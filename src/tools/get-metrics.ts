@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { getLocalIndex } from '../local-index.js';
 import type { LocalStore } from '../local-store.js';
-import { NO_SERVER_ANALYSIS } from './_findings.js';
+import { noServerAnalysis } from './_findings.js';
 
 export const GetMetricsTool = {
   name: 'get_metrics',
@@ -72,7 +72,7 @@ export async function handle(
     text += `Local CPG: not initialised (run init_workspace)\n\n`;
   }
 
-  text += `${NO_SERVER_ANALYSIS}\n\n`;
+  text += `${noServerAnalysis()}\n\n`;
   text += `Computed locally in ${Date.now() - startTime}ms`;
   return text;
 }

@@ -36,7 +36,7 @@ export const ClaimFindingTool = {
     'Say you are starting work on a finding, so other agents do not start the same work: claim it before you begin, renew while you work, release if you stop. '
     + 'get_problems shows a live claim as "claimed by … until …". A finding someone else holds is reported with its holder and is not claimed. '
     + 'Two agents claiming at once are settled the same way for every reader: the earlier claim holds it, and the later claimer withdraws. '
-    + 'A claim lapses at its end unless renewed; mark_complete ends it. Ids are agf_* or concept_*.',
+    + 'A claim lapses at its end unless renewed; a mark_complete that closes the finding ends it (a pending endorse does not). Ids are agf_* or concept_*.',
   inputSchema: {
     type: 'object' as const,
     properties: {

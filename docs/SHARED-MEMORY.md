@@ -74,8 +74,9 @@ those. It is read when the server starts, so restart or reconnect the client aft
 ### Install the skill
 
 The Claude Code and Codex plugins ship the `metabob` skill, written for these eleven tools, and `metabob-substrate`,
-for a server with `METABOB_TOOLS=all`. Without a plugin, copy `skills/metabob/` from this repository into
-`~/.claude/skills/` (Claude Code) or `~/.codex/skills/` (Codex). For other clients, point the agent's instruction
+for a server with `METABOB_TOOLS=all`. Without a plugin, copy `skills/metabob/` from this repository (with
+`METABOB_TOOLS=all`, `skills/metabob-substrate/` instead) into `~/.claude/skills/` (Claude Code) or
+`~/.codex/skills/` (Codex). For other clients, point the agent's instruction
 file (for example `AGENTS.md`) at the skill's text.
 
 ## 3. A session, as you see it
@@ -240,7 +241,7 @@ skipping held, closed and fix-pending ones. Its exit code tells the entrypoint w
 |---|---|---|
 | 0 | A task was pulled | Starts the harness on it |
 | 3 | No open task, or none could be claimed and none is held by others | Stops: the cell is done |
-| 4 | Open tasks exist, but others hold them or a claim isn't settled | Waits until `retry_after`, when to pull again, and pulls |
+| 4 | Open tasks exist, but others hold them or a claim isn't settled (`task pull` withdraws that claim) | Waits until `retry_after`, when to pull again, and pulls (an entrypoint you write; the lab's cell exits instead) |
 | 2 | Not attached | Stops, and `attach --check` names the cause |
 | 1 | Any other failure | Stops |
 
@@ -266,7 +267,8 @@ hand, from CI or from a scheduler.
 Set `VESSEL_ID` in every cell, the same value for `task pull`, the harness's MCP server and `finding close`, each
 cell its own, kept across restarts. Without it, each derives an identity from the key and the work directory:
 `task pull` before the clone exists and the server inside it, so they differ, and the cell's agent reads its own
-claim as someone else's and, following the skill, takes another task.
+claim as someone else's and, following the skill, takes another task. The lab's cell entrypoint
+(`lab/cell/entrypoint.sh`) sets it from `CELL_VESSEL_ID`, else `metabob-cell-<container hostname>`.
 
 **Keeping parallel workers apart.** Two things do it, whatever starts the workers: a claim keeps a second agent off
 a task (when two claim at once, every reader settles it the same way and the later one is told it lost), and
@@ -300,7 +302,7 @@ What the ledger gives agents that a tracker doesn't:
 | You | Ask for the plan, review the split and ownership, approve pushes, decide what a decision rules out (§ 5) |
 | A planner agent | Reads the source, records the tasks, decisions and steps (§ 7) |
 | Worker agents | Claim a task, work inside its files, close it with the commit or hand it off |
-| Agent cells | Run workers unattended: `task pull`, the harness, then `finding close` (§ 8) |
+| Agent cells | Run workers unattended: `task pull`, the harness, and, where the cell may push, `finding close` (§ 8) |
 | A reviewer | Merges the `task/<id>` branches of tasks that declare `push_to: task`; a fix there stays pending until the merge and a later `finding close` |
 
 | Where | Holds or does |
@@ -323,20 +325,22 @@ it, so the history of why the answer changed stays readable.
 ## 12. What leaves your machine
 
 No source file, excerpt or file list is sent, and no usage telemetry. What is sent is what an agent's calls carry,
-and every request carries your API key:
+and every request to the shared service carries your API key:
 
 | The agent… | What is sent |
 |---|---|
-| records a task or problem (`record_finding`) | summary, details, severity, category, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none), a hash naming the workspace, the item's ids, and the author and session |
-| closes one (`mark_complete`, `finding close`) | the verdict, the item's summary, files and repository, the fix commit and its branch, the author and session |
-| claims one (`claim_finding`) | the item's id, the claim's length and end, the author and session |
+| records a task or problem (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none) and the directory's name, a hash naming the workspace, the item's ids, and the author and session |
+| closes one (`mark_complete`, `finding close`) | the verdict, the item's summary, files and repository, the fix commit, its branch, the base and target branch names, the author and session, and whether the verdict came from a local copy |
+| claims one (`claim_finding`) | the item's id and summary, the repository's identity, the claim's length and end, the author and session |
 | writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes, its shape, any pointer it gives, the author and session |
 | searches or reads (`concept_search`, `concept_neighbors`) | the search text, or the ids it reads |
 
+Every write also carries a `client_claim`: the operator, session and client it declares (SPEC § Client claim).
 `get_problems` matches the recalled items to your files on this machine: the paths are not sent. Everything
 written is visible to every agent in your organization. Each string an agent sends passes an outgoing
 guard first: a known secret (your key, secret-named values from your environment and config files) or anything that
-looks like a credential refuses the call without repeating it, and a path under your home directory is redacted.
+looks like a credential refuses the call without repeating it, and a path under your home directory is redacted in
+prose and refused in a field the service acts on (a search, a pointer).
 Each field has a size cap (a summary 2 KB, details 8 KB, a concept 16 KB), so agents write reasons, not dumps.
 `init_workspace` reads your files into a local index and sends nothing.
 

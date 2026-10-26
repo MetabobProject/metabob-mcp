@@ -137,7 +137,7 @@ cell mounts nothing and holds no git credential, so it never pushes; its work is
 **The image** (`lab/cell/Containerfile`) is built from `git archive` of a metabob-mcp commit and its submodules,
 recipe included, so it holds that commit's source and recipe only, recorded as its `org.opencontainers.image.revision`. It has git, bun, the
 MCP built as the npm package is, and Claude Code at a pinned version, which speaks the Anthropic provider
-key natively. The plugin is installed as users have it (the skill and the edit check) without its
+key natively. The plugin is installed as users have it (the skills and the edit check) without its
 `.mcp.json`; the cell's own MCP config starts the built server under the name the edit check matches. It
 runs as the non-root user `cell`.
 
@@ -151,7 +151,10 @@ cell exists. `metabob-lab` is a bridge network with outbound NAT, so the cell re
 API and the origin, and anywhere else. `run` records the network's driver and flags in `cell.json` (`egress`).
 
 **The entrypoint** (`lab/cell/entrypoint.sh`):
-1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45). An exit of 2, 3 or 4 ends the cell with that code.
+1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45), under the cell's one identity: `VESSEL_ID` is
+   `CELL_VESSEL_ID`, else `metabob-cell-<container hostname>`, and the harness's MCP server gets the same, so the
+   agent reads the claim as its own. Any non-zero exit ends the cell with that code (1 a failure, 2 not attached or a
+   missing input, 3 no open task, 4 tasks held by others or a claim not settled).
 2. A `pin: <40-hex sha>` line in the task's details makes `/work` a one-commit fetch of that commit, so history
    after it (a reference fix) is not in the clone. The fixture, when given, is committed onto it, and the base
    is that commit, so the diff is the work alone.

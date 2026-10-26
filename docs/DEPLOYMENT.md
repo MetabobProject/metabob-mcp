@@ -6,6 +6,9 @@ registers nowhere, so nothing outside reaches it.
 
 ## Docker
 
+The build reads the vendored CPG library, so check out the submodule first
+(`git submodule update --init --recursive`).
+
 ```bash
 docker build -t metabob-mcp:latest .
 docker run --rm \
@@ -27,22 +30,23 @@ nothing; the image's healthcheck runs inside the container.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `METABOB_API_KEY` | — | API key, sent as `Authorization: ApiKey` on every substrate request. Absent ⇒ local tools only, and one startup message names the missing key |
-| `METABOB_ENDPOINT` | — | Substrate endpoint. A local `…:18080` derives discovery and concept-db; a remote one derives nothing. Absent ⇒ local tools only, and one startup message names it |
-| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL for substrate routing; required with a remote endpoint |
-| `IDENTITY_ENDPOINT` | — | Identity vessel (tenant resolution); unset ⇒ skipped |
+| `METABOB_ENDPOINT` | — | Substrate endpoint. An `http://` endpoint on a port ending in 80 (`…:18080`) derives discovery at the block's …100; any other derives nothing. Absent ⇒ local tools only, and one startup message names it |
+| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL for substrate routing; required with an endpoint that derives none |
+| `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Identity vessel for the org check; unset ⇒ the one discovery's `/bootstrap` advertises |
+| `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists and the resolver serves: unset, the shared ledger and memory; `all`, every tool (the `code:*` impulse shapes need it); a list, exactly those |
 | `METABOB_STDIO_KEEPALIVE` | — | `1` keeps the process alive with stdin closed. Required for headless / container runs |
-| `SESSION_ID` | _(fresh UUID)_ | Session identifier |
-| `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver (the Docker image pins `8080`) |
+| `SESSION_ID` | _(fresh UUID)_ | Session identifier, fresh for each container |
+| `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver (the Docker image pins `18800`, for its healthcheck) |
 | `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | Rate limit per session |
 
 ## Health
 
 ```bash
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:18800/health
 # {"status":"healthy","circuitState":"CLOSED","attachment":{"attached":true,"advertised":"none (client-only)"},"timestamp":"..."}
 
-curl http://127.0.0.1:8080/v2/capabilities
+curl http://127.0.0.1:18800/v2/capabilities
 # {"id":"metabob-mcp","version":"...","shapes":[...],"protocols":["mcp:stdio","http:resolver"],"tools":[...],"resolver":{...}}
 ```
 

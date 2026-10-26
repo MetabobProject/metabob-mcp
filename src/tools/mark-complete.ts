@@ -130,7 +130,7 @@ function fixShown(loc: FixLocation): string {
 export const MarkCompleteTool = {
   name: 'mark_complete',
   description:
-    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing: a fix still uncommitted in this checkout leaves the finding open, marked fix pending, and a finding no commit since it touches stays open unless you name its fix with fix_commit. Any other id is refused.',
+    'Mark a finding as resolved (endorsed = you fixed it) or dismiss it (discarded = false positive). Ids are agf_* (from record_finding / get_problems) or concept_* (from cross-agent recall): endorse retires the finding as resolved and records the commit that holds the fix, discard retracts it. Endorse after committing and pushing: a fix still uncommitted in this checkout, on no remote branch yet, or only on a task/* branch awaiting review leaves the finding open, marked fix pending, and a finding no commit since it touches stays open unless you name its fix with fix_commit. Any other id is refused.',
   inputSchema: {
     type: 'object' as const,
     properties: {

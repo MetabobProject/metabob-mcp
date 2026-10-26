@@ -191,26 +191,7 @@ export const TOOL_REGISTRY: Record<string, Tool> = {
   },
 };
 
-// @anchor default-tool-set
-/**
- * The tools a server lists when METABOB_TOOLS is unset: the shared task ledger and the shared memory, for agents
- * whose work spans executions (SPEC §tool-sets). `METABOB_TOOLS=all` lists every tool; a comma list, exactly those.
- * skills/metabob/SKILL.md's tool table and the user guide's list are held equal to this by
- * tests/unit/tool-sets.test.ts.
- */
-export const DEFAULT_TOOL_SET: readonly string[] = [
-  'get_analysis_context',
-  'get_problems',
-  'claim_finding',
-  'record_finding',
-  'mark_complete',
-  'concept_search',
-  'concept_neighbors',
-  'concept_create',
-  'concept_link',
-  'concept_record_usage',
-  'init_workspace',
-];
+export { DEFAULT_TOOL_SET } from '../tool-allowlist.js';
 
 export function getAllTools(): Tool[] {
   return Object.values(TOOL_REGISTRY);

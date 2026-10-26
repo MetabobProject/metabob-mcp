@@ -421,6 +421,11 @@
           "c8-proxy-and-tls-in-the-vessel-role"
         ]
       },
+      "src/tool-allowlist.ts": {
+        "SPEC": [
+          "tool-sets"
+        ]
+      },
       "src/tools/_claims.ts": {
         "SPEC": [
           "claim_finding"
@@ -447,7 +452,8 @@
           "get_problems",
           "mark_complete",
           "record_finding",
-          "repository-identity"
+          "repository-identity",
+          "tool-sets"
         ]
       },
       "src/tools/_gap-activity.ts": {
@@ -594,8 +600,7 @@
         ],
         "SPEC": [
           "concept-graph-tools",
-          "substrate-goal-tools",
-          "tool-sets"
+          "substrate-goal-tools"
         ]
       },
       "src/tools/init-workspace.ts": {
@@ -1034,8 +1039,8 @@
         "src/os-proxy.ts",
         "src/outgoing-guard.ts",
         "src/sqlite.ts",
+        "src/tool-allowlist.ts@default-tool-set",
         "src/tools/index.ts",
-        "src/tools/index.ts@default-tool-set",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
       ],
@@ -1120,9 +1125,9 @@
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@runTaskPull",
         "src/task-pull.ts@validRef",
+        "src/tool-allowlist.ts@parseToolAllowlist",
         "src/tools/_claims.ts@claim-holder",
-        "src/vessel-identity.ts@resolveVesselId",
-        "src/vessel-server.ts@parseToolAllowlist"
+        "src/vessel-identity.ts@resolveVesselId"
       ],
       "docs/DOCLINKS.md": [
         "scripts/doclinks.mjs",
@@ -1142,14 +1147,17 @@
       ],
       "docs/QUICK_START.md": [
         "README.md",
+        "docs/SHARED-MEMORY.md",
         "docs/SPEC.md"
       ],
       "docs/SHARED-MEMORY.md": [
         "README.md",
-        "docs/SPEC.md"
+        "docs/SPEC.md",
+        "lab/cell/entrypoint.sh"
       ],
       "docs/SPEC.md": [
         "docs/DOCLINKS.md",
+        "lab/cell/entrypoint.sh",
         "scripts/ci/smoke-mcp.mjs",
         "scripts/ci/smoke-registry.mjs",
         "src/agent-delivery.ts@deliverResolution",
@@ -1227,6 +1235,8 @@
         "src/task-pull.ts@validRef",
         "src/tls-trust.ts@installSystemTrustStoreSync",
         "src/tls-trust.ts@systemCaAdditions",
+        "src/tool-allowlist.ts@default-tool-set",
+        "src/tool-allowlist.ts@parseToolAllowlist",
         "src/tools/_claims.ts@CLAIM_SKEW_MS",
         "src/tools/_claims.ts@claim-holder",
         "src/tools/_claims.ts@claimLines",
@@ -1234,7 +1244,6 @@
         "src/tools/_concept-content.ts@plainConceptId",
         "src/tools/_concept-content.ts@renderConceptContent",
         "src/tools/_concept-db.ts",
-        "src/tools/_findings.ts@NO_SERVER_ANALYSIS",
         "src/tools/_findings.ts@attributionLines",
         "src/tools/_findings.ts@duplicate-finding",
         "src/tools/_findings.ts@fetchAgentFindings",
@@ -1242,6 +1251,7 @@
         "src/tools/_findings.ts@findOpenDuplicate",
         "src/tools/_findings.ts@fixLines",
         "src/tools/_findings.ts@link-verdict",
+        "src/tools/_findings.ts@noServerAnalysis",
         "src/tools/_findings.ts@openFindingsHeadline",
         "src/tools/_findings.ts@postConcept",
         "src/tools/_findings.ts@recordConceptUsage",
@@ -1284,7 +1294,6 @@
         "src/tools/goal-status.ts@handle",
         "src/tools/index.ts",
         "src/tools/index.ts@TOOL_REGISTRY",
-        "src/tools/index.ts@default-tool-set",
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/init-workspace.ts@handle",
         "src/tools/mark-complete.ts@awaitingMerge",
@@ -1313,7 +1322,6 @@
         "src/vessel-server.ts@QUEUED_SHAPES",
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
-        "src/vessel-server.ts@parseToolAllowlist",
         "src/vessel-server.ts@resolveImpulseContent",
         "src/vessel-server.ts@resolvePointerToTool",
         "src/workspace-root.ts",
@@ -1323,6 +1331,7 @@
       "docs/USER-GUIDE.md": [
         "README.md",
         "docs/CONFORMANCE.md",
+        "docs/DEPLOYING-AGENTS.md",
         "docs/SHARED-MEMORY.md",
         "docs/SPEC.md",
         "lab/cell.sh"
@@ -1445,13 +1454,14 @@
       "src/task-pull.ts@validRef": "c0cc3246557a",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
       "src/tls-trust.ts@systemCaAdditions": "78f1aca377f4",
+      "src/tool-allowlist.ts@default-tool-set": "8d64a30d9de1",
+      "src/tool-allowlist.ts@parseToolAllowlist": "4e953a0e1ab5",
       "src/tools/_claims.ts@CLAIM_SKEW_MS": "24fadf0b22ab",
       "src/tools/_claims.ts@claim-holder": "fde67965fff8",
       "src/tools/_claims.ts@claimLines": "4b022ecb52fb",
       "src/tools/_concept-content.ts@header-block": "8d64a30d9de1",
       "src/tools/_concept-content.ts@plainConceptId": "1ca1fe8ca5a1",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
-      "src/tools/_findings.ts@NO_SERVER_ANALYSIS": "012950209acb",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
       "src/tools/_findings.ts@conceptDbReachable": "1c46b7236612",
       "src/tools/_findings.ts@duplicate-finding": "8d64a30d9de1",
@@ -1460,6 +1470,7 @@
       "src/tools/_findings.ts@findOpenDuplicate": "ac0eceeace32",
       "src/tools/_findings.ts@fixLines": "df4f3a22193e",
       "src/tools/_findings.ts@link-verdict": "8d64a30d9de1",
+      "src/tools/_findings.ts@noServerAnalysis": "c224eace8556",
       "src/tools/_findings.ts@openFindingsHeadline": "c854e9951c53",
       "src/tools/_findings.ts@postConcept": "4181ec78d7b4",
       "src/tools/_findings.ts@recordConceptUsage": "d13d14d886c6",
@@ -1501,7 +1512,6 @@
       "src/tools/goal-reasoning.ts@handle": "c64a718133c6",
       "src/tools/goal-status.ts@handle": "4bdf740420c9",
       "src/tools/index.ts@TOOL_REGISTRY": "c2ebce7570f5",
-      "src/tools/index.ts@default-tool-set": "8d64a30d9de1",
       "src/tools/index.ts@substrateToolRefusal": "33e28bf195bc",
       "src/tools/init-workspace.ts@handle": "4bdf740420c9",
       "src/tools/mark-complete.ts@awaitingMerge": "cc9a2834afea",
@@ -1532,7 +1542,6 @@
       "src/vessel-server.ts@VesselServer": "52e392baadee",
       "src/vessel-server.ts@health-attachment": "b4b6670aa58e",
       "src/vessel-server.ts@loopback-bind": "ef89ff76c40c",
-      "src/vessel-server.ts@parseToolAllowlist": "4e953a0e1ab5",
       "src/vessel-server.ts@resolveImpulseContent": "558979c18fdc",
       "src/vessel-server.ts@resolvePointerToTool": "16d1a9fc8690"
     }

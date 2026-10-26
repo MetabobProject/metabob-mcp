@@ -5,7 +5,10 @@ import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { AnalysisAPIClient } from './api-client.js';
 import type { CircuitBreaker } from './circuit-breaker.js';
 import { CircuitState } from './circuit-breaker.js';
-import { DEFAULT_TOOL_SET, TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
+import { TOOL_REGISTRY, getAllTools, substrateToolRefusal } from './tools/index.js';
+import { isToolPermitted, parseToolAllowlist, toolSetKind } from './tool-allowlist.js';
+// The allowlist rule lives in a module that imports no tool, so any tool may ask it (SPEC §tool-sets).
+export { DEFAULT_TOOL_SET, __resetToolAllowlistForTests, isToolPermitted, parseToolAllowlist, toolAllowlistActive, toolSetKind, type ToolSetKind } from './tool-allowlist.js';
 import type { AuthService } from './auth-service.js';
 import type { LocalStore, AgentTaskRecord } from './local-store.js';
 import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
@@ -31,50 +34,10 @@ export function isAgentTaskShape(shape?: string): boolean {
   return !!shape && QUEUED_SHAPES.has(shape);
 }
 
-/**
- * Parse METABOB_TOOLS (SPEC §tool-sets): unset or empty → the default set (DEFAULT_TOOL_SET); `all` → every tool
- * (`null`); a comma list → exactly those names.
- */
-export function parseToolAllowlist(raw: string | undefined): ReadonlySet<string> | null {
-  const trimmed = raw?.trim();
-  if (trimmed?.toLowerCase() === 'all') return null;
-  const names = (trimmed ?? '').split(',').map(n => n.trim()).filter(n => n.length > 0);
-  return new Set(names.length > 0 ? names : DEFAULT_TOOL_SET);
-}
-
-/** Which grammar METABOB_TOOLS took: the default set, every tool, or a list the operator gave. */
-export type ToolSetKind = 'default' | 'all' | 'list';
-export function toolSetKind(raw: string | undefined = process.env['METABOB_TOOLS']): ToolSetKind {
-  const trimmed = raw?.trim();
-  if (trimmed?.toLowerCase() === 'all') return 'all';
-  return (trimmed ?? '').split(',').some(n => n.trim().length > 0) ? 'list' : 'default';
-}
-
 /** Names in a METABOB_TOOLS list that are no registered tool (a typo, or `all` mixed into a list). */
 export function unknownToolNames(raw: string | undefined = process.env['METABOB_TOOLS']): string[] {
   if (toolSetKind(raw) !== 'list') return [];
   return [...parseToolAllowlist(raw)!].filter((name) => !TOOL_REGISTRY[name]);
-}
-
-let allowlistMemo: { value: ReadonlySet<string> | null } | null = null;
-
-/**
- * The METABOB_TOOLS allowlist applies to EVERY plane this process serves, not
- * just stdio MCP: the loopback HTTP resolver dispatches through
- * resolveImpulseContent, so an allowlist enforced only in the MCP handlers is a
- * control on one of two doors. Memoised on first call — the env is frozen at
- * process start in production, but a memo (unlike a module const) is resettable,
- * and unassertable enforcement is exactly how this drifted for two releases.
- */
-export function isToolPermitted(name: string): boolean {
-  if (!allowlistMemo) allowlistMemo = { value: parseToolAllowlist(process.env['METABOB_TOOLS']) };
-  return allowlistMemo.value === null || allowlistMemo.value.has(name);
-}
-
-/** True when not every tool is listed (the default set or a list) — for reporting, not enforcement. */
-export function toolAllowlistActive(): boolean {
-  if (!allowlistMemo) allowlistMemo = { value: parseToolAllowlist(process.env['METABOB_TOOLS']) };
-  return allowlistMemo.value !== null;
 }
 
 /** The refusal every plane gives, so a caller cannot tell them apart by wording. */
@@ -86,9 +49,6 @@ export function toolNotEnabledMessage(name: string): string {
   return `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`;
 }
 
-export function __resetToolAllowlistForTests(): void {
-  allowlistMemo = null;
-}
 
 /**
  * Accept a dispatched agent task: durably enqueue it (keyed by the stable
