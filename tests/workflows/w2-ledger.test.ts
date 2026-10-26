@@ -76,7 +76,9 @@ describe('W2 ledger across two sessions', () => {
 
     const findings = fake.state.concepts.filter(c => c.shape === 'code_finding');
     expect(findings).toHaveLength(2);
-    expect(findings[0]!.content).toContain('repo: ledger-ws');
+    // The workspace has no commit, so the ledger is keyed by the directory alone; both sessions run in it.
+    expect(findings[0]!.content).toMatch(/^repo: local:[0-9a-f]{16}$/m);
+    expect(findings[0]!.content).toContain('repo_name: ledger-ws');
     expect(findings[0]!.content).toContain('session: session-a');
     conceptId = findings[0]!.id;
     secondConceptId = findings[1]!.id;
@@ -94,6 +96,7 @@ describe('W2 ledger across two sessions', () => {
     expect(context).toContain('Open findings: 2 (0 in the local store, 2 recorded by agents on this codebase)');
     expect(context).toContain('Review 2 open findings recorded by agents on this codebase');
     expect(openRecall(context)).toContain(SUMMARY);
+    expect(context).toMatch(/^ {2}ledger: {5}local:[0-9a-f]{16}, keyed by this directory alone \(no commit yet\)/m);
   });
 
   test('B closes it by concept id, writing a verdict from the recalled concept', async () => {

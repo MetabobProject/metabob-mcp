@@ -7,6 +7,7 @@ import { getAttachment } from '../attachment.js';
 import { redactUrl } from '../net.js';
 import { seedCacheTag, type LocalStore } from '../local-store.js';
 import { mineGitCochanges } from '../git-cochange.js';
+import { repoIdentity } from '../repo-identity.js';
 import {
   noServerAnalysis,
   fetchAgentFindings,
@@ -81,8 +82,13 @@ function workspaceLine(): { line: string; identity: string } {
   const source = sessionWorkspacePath() ? 'init_workspace' : workspaceSource();
   const others = clientRootPaths().filter((r) => r !== workspace);
   const fromIdentity = identityWorkspacePath();
+  const repo = repoIdentity(workspace);
+  const keyedBy = repo.source === 'origin' ? 'its origin remote'
+    : repo.source === 'root' ? 'its first commit (no origin remote)'
+    : 'this directory alone (no commit yet): nothing recorded here is shared with another checkout';
   return {
-    line: `  workspace:  ${workspace} (from ${source})${others.length ? `; other roots: ${others.join(', ')}` : ''}`,
+    line: `  workspace:  ${workspace} (from ${source})${others.length ? `; other roots: ${others.join(', ')}` : ''}\n`
+      + `  ledger:     ${repo.id}, keyed by ${keyedBy}`,
     identity: fromIdentity && fromIdentity !== workspace ? `; identity derived from ${fromIdentity}, kept for this session` : '',
   };
 }

@@ -66,7 +66,8 @@ Use it whenever more than one agent or session touches the repository.
    already open you get its id back ("Already recorded (open)") instead of a
    duplicate; pass `force: true` only for a genuinely separate finding.
 2. **Recall**: another agent finds it through `get_problems`, from any machine on
-   the same repository (the ledger is keyed by the repository's git remote).
+   the same repository (the ledger is keyed by the repository's git remote, or its
+   first commit when it has none).
    Before you start on a finding another agent could also pick up, `claim_finding` it: recall
    shows "claimed by … until …", and a finding someone else holds is theirs. Renew a long piece
    of work; release it if you stop.

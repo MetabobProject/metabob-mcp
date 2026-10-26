@@ -7,21 +7,29 @@
  * normalized URL of the `origin` remote — the same for every clone, wherever it
  * sits on disk — plus the workspace's path below the repository root when the
  * workspace is a subdirectory, so two packages of one monorepo stay apart. With
- * no `origin` (no git, not a repository, no remote) it is the basename.
+ * no `origin` it is the repository's first commit (`root:<sha>`), which every
+ * copy of one history shares and an unrelated repository of the same name does
+ * not; with no commit (no git, not a repository, nothing committed yet) it is
+ * this directory alone (`local:<hash of its path>`).
  *
  * Node-safe: doctor runs under Node, so this uses node:child_process only.
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 export interface RepoIdentity {
-  /** The ledger key: the normalized origin URL (`github.com/org/repo`), or the basename. Compared case-insensitively. */
+  /**
+   * The ledger key: the normalized origin URL (`github.com/org/repo`), else `root:<first commit>`, else
+   * `local:<hash of the directory's path>`; a workspace below the repository root appends its subpath. Compared
+   * case-insensitively.
+   */
   id: string;
-  /** The workspace's basename: the legacy ledger key, which recall still matches. */
+  /** The workspace's basename: the name shown, and the legacy ledger key, which recall still matches. */
   name: string;
-  source: 'origin' | 'basename';
+  source: 'origin' | 'root' | 'local';
 }
 
 /**
@@ -124,17 +132,44 @@ export function repoIdentity(workspacePath: string): RepoIdentity {
   if (hit) return hit;
 
   const name = basename(key);
-  let identity: RepoIdentity = { id: name, name, source: 'basename' };
   const top = git(key, ['rev-parse', '--show-toplevel']);
+  const sub = top ? relative(real(top), real(key)).replace(/\\/g, '/').toLowerCase() : '';
+  const below = (base: string) => (sub && !sub.startsWith('..') && !isAbsolute(sub) ? `${base}/${sub}` : base);
   const url = top ? git(key, ['remote', 'get-url', 'origin']) : null;
   const origin = url && top ? normalizeRemoteUrl(url, top) : null;
-  if (origin && top) {
-    const sub = relative(real(top), real(key)).replace(/\\/g, '/').toLowerCase();
-    const inside = sub && !sub.startsWith('..') && !isAbsolute(sub);
-    identity = { id: inside ? `${origin}/${sub}` : origin, name, source: 'origin' };
+  if (origin) return remember(key, { id: below(origin), name, source: 'origin' });
+  if (top && git(key, ['rev-parse', '--verify', '-q', 'HEAD'])) {
+    const root = firstCommit(key);
+    // A history git could not walk in time is not "no commit": answer this once, uncached, and read it again next time.
+    if (!root) return { id: localId(key), name, source: 'local' };
+    return remember(key, { id: below(`root:${root}`), name, source: 'root' });
   }
+  return remember(key, { id: localId(key), name, source: 'local' });
+}
+
+function remember(key: string, identity: RepoIdentity): RepoIdentity {
   cache.set(key, identity);
   return identity;
+}
+
+/** A directory with no commit to name it: its own path, so nothing it records is shared with another directory. */
+function localId(key: string): string {
+  return `local:${createHash('sha256').update(real(key)).digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * The first commit of HEAD's history. With several roots (unrelated histories merged), the oldest by commit time,
+ * then the lowest sha, so every copy of the history picks the same one. The walk covers the whole history, so it
+ * gets the fix-location budget rather than the 3 s of a plain read.
+ */
+function firstCommit(cwd: string): string | null {
+  const roots = (git(cwd, ['rev-list', '--max-parents=0', 'HEAD'], FIX_GIT_TIMEOUT_MS) ?? '').split('\n').filter(Boolean);
+  if (roots.length <= 1) return roots[0]?.toLowerCase() ?? null;
+  const dated = (git(cwd, ['log', '--no-walk', '--format=%ct %H', ...roots]) ?? '')
+    .split('\n').map(l => l.trim().split(' ')).filter(p => p.length === 2).map(([t, h]) => ({ t: Number(t), h: h!.toLowerCase() }));
+  if (dated.length !== roots.length) return null;
+  dated.sort((a, b) => a.t - b.t || (a.h < b.h ? -1 : a.h > b.h ? 1 : 0));
+  return dated[0]!.h;
 }
 
 /** Forget cached identities (tests that rewrite a workspace's remote). */

@@ -42,7 +42,7 @@ the failing one. The local index is rebuilt in memory at each launch; nothing ab
 **Prerequisites** on each machine or image that runs an agent:
 
 - `git` on PATH: Claude Code clones the plugin's marketplace with it, the ledger is keyed by the repository's
-  origin, and a close reads the commits.
+  origin (or its first commit), and a close reads the commits.
 - Node 22.13 or later (or 23.4 or later). It runs everything, the server included, whose local store uses
   `node:sqlite`. On an older Node the server re-execs into Bun 1.1 or later when Bun is on PATH, and exits with
   `runtime_unsupported` when it is not; `attach --check`, `task pull` and `finding close` run on any Node 18 or
@@ -672,7 +672,7 @@ not built.
 
 | The agent… | What is sent |
 |---|---|
-| records a task or problem (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, or the directory's name when it has none) and the directory's name, a hash naming the workspace, the item's ids, and the author and session |
+| records a task or problem (`record_finding`) | summary, details, severity, category, status, the file paths and line range, the repository's identity (its git remote, else its first commit, else a hash of the directory's path) and the directory's name, a hash naming the workspace, the item's ids, and the author and session |
 | closes one (`mark_complete`) | the verdict, the item's summary, files and repository, the fix commit, its branch, the base and target branch names, the author and session, and whether the verdict came from a local copy |
 | claims one (`claim_finding`) | the item's id and summary, the repository's identity, the claim's length and end, the author and session |
 | writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes, its shape, any pointer it gives, the author and session |
