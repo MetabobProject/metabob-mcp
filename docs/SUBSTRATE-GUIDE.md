@@ -253,7 +253,7 @@ the brief's `finding_ids:` line.
 
 ## 10. What else leaves your machine
 
-What the default tools send is listed per call in DEPLOYING-AGENTS.md, § 7, with the outgoing guard every string
+What the default tools send is listed per call in DEPLOYING-AGENTS.md, § 7.5, with the outgoing guard every string
 passes and the `client_claim` every write carries. Beyond your key, the tools `all` adds send:
 
 | The agent… | What is sent |

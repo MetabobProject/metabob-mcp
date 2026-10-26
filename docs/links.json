@@ -156,8 +156,6 @@
         "src/tools/_claims.ts",
         "src/tools/claim-finding.ts",
         "src/tools/mark-complete.ts",
-        "src/vessel-server.ts",
-        "src/attached-marker.ts",
         "src/config.ts",
         "src/attach-check.ts",
         "src/cli.ts",
@@ -1205,7 +1203,6 @@
         "src/task-pull.ts@validRef",
         "src/tool-allowlist.ts@parseToolAllowlist",
         "src/tools/_claims.ts@claim-holder",
-        "src/tools/_findings.ts@fetchAgentFindings",
         "src/vessel-identity.ts@resolveVesselId"
       ],
       "docs/DOCLINKS.md": [
