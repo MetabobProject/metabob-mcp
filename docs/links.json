@@ -1027,6 +1027,14 @@
           "claim_finding"
         ]
       },
+      "tests/workflows/w15-no-edit-tasks.test.ts": {
+        "README": [],
+        "SPEC": [
+          "mark_complete",
+          "record_finding",
+          "task-pull"
+        ]
+      },
       "tests/workflows/w2-ledger.test.ts": {
         "SPEC": [
           "outgoing-text-guard"

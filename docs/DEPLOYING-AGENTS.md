@@ -82,8 +82,8 @@ halves are calls the agent makes, so the prompt, the brief and the skill have to
 
 | Part | What happens | The calls | Where it is recorded |
 |---|---|---|---|
-| **Seed** | The first work and the rules it follows go onto the ledger | `record_finding { category: "task", files, details }` per unit of work; `concept_create` for `decision_record`, `project_convention` and `workflow_step` concepts, linked to the `repo_anchor` with `concept_link`; or "Add here" in the dashboard's Ledger | Tasks as `code_finding` concepts keyed by repository and files; guidance and steps as concepts linked to the anchor |
-| **Consume** | An iteration takes one task and finishes it or hands it off | `get_problems`; `concept_search { concept_id }` for the brief; `concept_neighbors` on the task for earlier handoffs; `claim_finding`; `mark_complete endorse` after the commit, or `task pull` and `finding close` in a cell | Claims and closes as `finding_verdict` concepts: claimed, released, fixed with its commit, `fix pending` |
+| **Seed** | The first work and the rules it follows go onto the ledger | `record_finding { category: "task", files or subject, details }` per unit of work; `concept_create` for `decision_record`, `project_convention` and `workflow_step` concepts, linked to the `repo_anchor` with `concept_link`; or "Add here" in the dashboard's Ledger | Tasks as `code_finding` concepts keyed by repository, naming their files or subject; guidance and steps as concepts linked to the anchor |
+| **Consume** | An iteration takes one task and finishes it or hands it off | `get_problems`; `concept_search { concept_id }` for the brief; `concept_neighbors` on the task for earlier handoffs; `claim_finding`; `mark_complete endorse` after the commit, or with its `outcome` for a task that names no file; or `task pull` and `finding close` in a cell | Claims and closes as `finding_verdict` concepts: claimed, released, fixed with its commit, done with its outcome, `fix pending` |
 | **Generate** | The iteration records what it found and what comes next | `record_finding` for problems and follow-up tasks; `concept_neighbors { direction: "outgoing", edge_types: ["sequence_next"] }` on a closed step, then `record_finding` for the next step's task | New tasks and findings on the ledger |
 | **Remember** | What the next iteration would otherwise rediscover | `concept_create` for a `decision_record` (with `Rejected:`) or a `task_handoff`; `concept_link` with `description_of`, `derived_from`, `resolves_to` or `contradicts` | Concepts in the organization's memory, reachable from the anchor and the task |
 | **Credit** | The memory learns what was worth reading | `concept_record_usage { outcome: "success" \| "failure" }` on concepts another agent wrote; `mark_complete` folds its verdict into the finding's own relevance | Each concept's load and success counts, and its relevance |
@@ -450,8 +450,8 @@ records the result, and the tasks it records are what consumers take.
 - **Each run generates** the triage: labels and a comment through `gh`, and on the ledger either a task on the
   files the issue concerns (the issue's URL and the reproduction in `details`) or, when an open task or finding
   already covers it, nothing new: `record_finding` answers `Already recorded (open)` with the id, which the
-  comment can cite. An issue that concerns no file (a question, a request for access) gets its task on a record file for the
-  issue (§ 6).
+  comment can cite. An issue that concerns no file (a question, a request for access) gets a task with the issue as its
+  `subject`, closed with its outcome (§ 6).
 - **The issue text is untrusted input.** Anyone can open an issue, so the producer treats its text as data: it
   never follows instructions in it, never records it as a policy, and acts only through the commands it is allowed.
   The outgoing guard refuses what looks like a credential in what the producer records, but personal data an issue
@@ -1070,17 +1070,19 @@ The repository holds the scaffolding for work that is not code: an evaluation, a
 question. Fixtures, graders, scripts and inputs are in git; the results are files the runs commit. Tasks and
 findings record the runs and their results, and follow-ups generate more runs.
 
-- **Record files.** Each task is anchored to a tracked file the run commits its result into (§ 6): a results file
-  per run (`runs/<run>/RESULTS.md`), a notes file per question (`questions/<topic>.md`). The file must not be
-  ignored by `.gitignore` (a finding on ignored files closes as local, with no commit), and the harness needs an
-  `origin` remote, since `task pull` clones the origin and `finding close` fetches it.
+- **Results in the repository, or as the outcome.** A run whose results belong in the repository names its
+  results file (`runs/<run>/RESULTS.md`) and closes by the commit that writes it; the file must not be ignored by
+  `.gitignore` (a finding on ignored files closes as local, with no commit), and `finding close` needs an `origin`
+  remote to fetch. A question whose answer is the result names the question as its `subject` and closes with the
+  answer as its outcome, with the report or run log in `evidence` (§ 6).
 - **Seed.** One task per run, input shard or question; `decision_record` concepts for the method (the grader, the
   metric, and the ones rejected, with why).
-- **Each iteration consumes** one run task: it runs the scripts, writes the results file and commits; the cell's
-  entrypoint pushes and runs `finding close`.
+- **Each iteration consumes** one run task: it runs the scripts, writes the results file and commits, and the
+  cell's entrypoint pushes and runs `finding close`; or, for a question, it answers it and closes the task with
+  `mark_complete` and its outcome.
 - **Each iteration generates** findings on what it saw go wrong (a flaky grader, a malformed input, on the files
   involved) and follow-up tasks (a rerun with a changed setting, an outlier to look into), each on its own results
-  or notes file, for later cells to pull.
+  file or with its own subject, for later cells to pull.
 - **Memory.** The method, known-bad inputs and grader caveats, credited by the runs that relied on them. Write the
   reasons and the outcome, not the data: fields are capped (summary 2 KB, details 8 KB, a concept 16 KB), and the
   data belongs in the repository.
@@ -1132,22 +1134,21 @@ passes the tests the observations became.
 - **No trigger or notification.** Nothing starts an iteration when a task is recorded, a fix is merged or a person
   rules. A driver polls: a script's loop, `task pull`'s exit codes (3 for empty, 4 with `retry_after`), or a
   scheduler on a timer or on each merge (§ 5 Scheduled runs).
-- **Every task is anchored to a file and closed by a commit.** That is how the product works today, and so how a
-  task whose objective is to use, investigate, test, review or operate the repository runs, rather than change it.
-  A change that allows tasks without files, closed by their outcome, is under way. Today the ledger works this way:
-  - `record_finding` requires at least one file (`files`); memory concepts (`concept_create`) need none;
-  - in a git checkout with a remote, `mark_complete endorse` closes a task once a commit since the task that
+- **A task that changes files closes by its commit; one that changes none closes by its outcome.** A task whose
+  objective is to use, investigate, test, review or operate the repository, rather than change it, names a
+  `subject` (an issue, a document, a service, a topic) in place of `files`, and still belongs to the repository's
+  ledger:
+  - `record_finding` takes `files`, a `subject`, or both; it refuses neither;
+  - `mark_complete endorse` closes a task that names no file at once, writing its `outcome` (the answer, the cause
+    found, the test results, the review, the deploy's result) and `evidence` (a PR, an issue comment, a report, a
+    run log) on the verdict, and recall lists it `[DONE]` with the outcome;
+  - a task that names files closes as before: in a git checkout with a remote, once a commit since the task that
     touches its files (or one named with `fix_commit`, in HEAD's history) is on a remote branch other than
     `task/…`; while the fix is uncommitted, unpushed or only on a task branch, the task stays `fix pending`; and a
     checkout that knows none of the files writes no verdict;
-  - `task pull` clones a git repository, and `finding close` reads the commits there.
-
-  So give each such task a record file in the repository it works out of (`records/<task>.md`, tracked and not
-  ignored; the repository needs an `origin` remote). Record the task on that file; the consumer writes its outcome
-  there (the answer, the cause found, the test results, the review, the deploy's result, the reply sent to an
-  email) and commits and pushes it, and the close records that commit. A task that operates or tests the
-  repository thus closes when the record of what happened is committed and pushed. The § 5
-  worked example (using a repository as a harness) runs this way.
+  - `task pull` clones the repository for either kind and writes the subject into `task.json` and `context.md`;
+    `finding close` closes by commit trailer, so a file-less task is closed with `mark_complete` (in a cell, by
+    the harness's agent, since the entrypoint has no outcome to write).
 - **Recall reads a bounded window.** `get_problems` and `task pull` read findings and verdicts across the whole
   organization in pages of 300 of each kind, relevance first, then newest: up to four pages when the service pages,
   one page when it does not (`src/tools/_findings.ts@fetchAgentFindings`). An old, uncredited task can fall out of
