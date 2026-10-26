@@ -153,14 +153,130 @@ repository with no remote is named by its directory, and other clones don't shar
 - **In steps.** When work runs in an order, the steps are written once as linked concepts. Each step's task names
   its step, and the agent that closes a step records the next one. At a branch it reads the conditions on the links;
   where steps join, it checks that every step leading in is closed.
-- **Unattended, in containers.** `metabob-mcp task pull --origin <git url>` claims the next open task and writes it,
-  with its context, for the harness to start on; `metabob-mcp finding close` closes what the cell's commits fix once
-  they are merged ([SPEC § task pull](SPEC.md#task-pull)).
+- **Unattended.** Scripts and agent cells start workers with no one at the keyboard (§ 8).
 
 A claim belongs to the checkout, not the session: two sessions in one working copy count as one claimer. Give them
 tasks with different files, or separate working copies.
 
-## 7. Memory that improves with use
+## 7. Putting work on the ledger
+
+You don't write tasks by hand. You ask one agent to plan the work, and with the `metabob` skill loaded that agent
+puts the plan on the ledger:
+
+- It reads the source and proposes how to split the work.
+- It records one task per unit with `record_finding` in category `task`. Each brief states the goal, the files the
+  task owns, what is out of bounds, the check that proves it done, and the decisions and tasks to read or wait for
+  first. The brief is written for an agent with no memory of the planning conversation.
+- It records the decisions every task must follow as `decision_record` concepts, linked to the repository's anchor,
+  so every worker reads them at the start of its session.
+- For work that runs in an order, it writes each step as a concept and links the steps with `sequence_next` (§ 6).
+
+You review the split before anyone starts: whether the units are the right size, and whether the `Owns:` lists are
+disjoint, since that is what lets workers run side by side. Ask for changes the same way you asked for the plan.
+
+A planning request, for example:
+
+> Plan a port of this repository from Python to TypeScript, for several agents working in parallel. Read the
+> source first. Record one task per module, each owning its target files and stating the test that proves it
+> done. Record the decisions every task must follow (package layout, how errors map, which dependencies replace
+> which) and link them to the repository. Write the port's order as steps: the shared types first, then the
+> modules that use them, then the command-line entry point. Show me the split before you record anything.
+
+A prerequisite in a brief is guidance for the agent that reads it: nothing holds a task back until another closes,
+and `task pull` (§ 8) takes the most severe open task first. For work that must wait, the planner records the first
+step's tasks only, and the agent that closes a step records the next one's.
+
+## 8. Starting workers
+
+Nothing starts a worker by itself. Recording a task, a claim lapsing and a step closing trigger nothing: each
+worker is an agent session that someone or something launches, and the session takes a task when it starts.
+Whatever launches workers checks the ledger, or a person does.
+
+| How | What starts the session |
+|---|---|
+| By hand | You open a session in any client and say "take an open task", or name one by its id |
+| A script | A loop runs headless sessions until nothing is open |
+| Agent cells | Each container runs `metabob-mcp task pull` before its harness starts |
+| A scheduler | Cron, CI or a job runner runs one of the above |
+
+**By hand.** With the skill loaded, the agent reads the open tasks, claims one nobody holds and works inside its
+files. Named, it claims that one; held by someone else, it tells you.
+
+**A script.** `claude -p "<prompt>"` and `codex exec "<prompt>"` each run one session and exit. Neither tells the
+script whether a task was open, so the prompt asks for a reply the script can stop on:
+
+```bash
+while :; do
+  out=$(claude -p "Use the metabob skill. Take one open task nobody holds and finish it or hand it off. If none is open and unheld, reply only NO_OPEN_TASKS.")
+  case "$out" in *NO_OPEN_TASKS*) break ;; esac
+done
+```
+
+The loop stops when every remaining task is held by someone else; a claim that lapses later doesn't restart it, so
+run the loop again, or from a scheduler. Give the headless session the permissions the work needs, and the server and skill as in § 2. A claim belongs to
+the checkout, so loops that run side by side each need their own working copy (for example a `git worktree`).
+
+**Agent cells.** `metabob-mcp task pull --origin <git url>` claims the next task and writes it, with its context,
+into the task directory (`/task` by default), then clones the origin into the work directory (`/work`). It takes
+a task the cell already holds first, so a restarted cell resumes it, then unclaimed tasks, most severe first,
+skipping held, closed and fix-pending ones. Its exit code tells the entrypoint what to do next:
+
+| Exit | Meaning | The entrypoint |
+|---|---|---|
+| 0 | A task was pulled | Starts the harness on it |
+| 3 | No open task | Stops: the cell is done |
+| 4 | Open tasks exist, but others hold them or a claim isn't settled | Waits (`--json` gives `retry_after`, the earliest claim end) and pulls again |
+| 2 | Not attached | Stops, and `attach --check` names the cause |
+| 1 | Any other failure | Stops |
+
+After the cell pushes, `metabob-mcp finding close --commits-from <file>` closes the findings its own commits name in
+a `Fixes-Finding:` trailer, once they are merged ([SPEC § task pull](SPEC.md#task-pull)).
+
+A cell claims under `VESSEL_ID`, else an identity derived from the key and the work directory's path. Cells that
+share a key and the default `/work` therefore count as one claimer: give each cell its own `VESSEL_ID`, and keep it
+when the cell restarts so it resumes its task.
+
+**Keeping parallel workers apart.** Two things do it, whatever starts the workers: a claim keeps a second agent off
+a task (when two claim at once, every reader settles it the same way and the later one is told it lost), and
+disjoint `Owns:` lists keep agents out of each other's files.
+
+## 9. Alongside an issue tracker
+
+GitHub Issues, Jira and the like stay where people track the work. A ledger task is the agents' copy of a ticket:
+it carries a reference to the ticket in its details rather than the ticket's text, for example a line
+`Ref: github#12`. Track each piece of work in one place: the ticket for people, the ledger task for agents, and
+the reference between them. There is no integration between the two; the reference is a convention, and
+closing one doesn't close the other.
+
+A capitalized `Ref:` is plain text. Lowercase `ref:`, `push_to:`, `integrate:` and `conflicts:` lines are read by
+`task pull`: `ref:` names the branch a cell clones, and the others its integration policy.
+
+What the ledger gives agents that a tracker doesn't:
+
+- **Claims that end.** A claim lasts a set time unless renewed, so a stopped agent doesn't hold a task forever, and
+  a race between two agents settles the same way for every reader.
+- **Memory linked to the code.** Decisions, rejected approaches and handoffs are linked to the repository and its
+  tasks, and ranked by how often they helped (§ 11).
+- **Findings in front of the next editor.** A problem recorded on a file comes back to the next agent that reads
+  the ledger for that file, and the Claude Code plugin asks for that read before an agent's first edit of a file.
+
+## 10. Who does what, and where
+
+| Who | Does |
+|---|---|
+| You | Ask for the plan, review the split and ownership, approve pushes, decide what a decision rules out (§ 5) |
+| A planner agent | Reads the source, records the tasks, decisions and steps (§ 7) |
+| Worker agents | Claim a task, work inside its files, close it with the commit or hand it off |
+| Agent cells | Run workers unattended: `task pull`, the harness, then `finding close` (§ 8) |
+| A reviewer | Merges the task branches a review policy pushes to; a fix there stays pending until the merge |
+
+| Where | Holds or does |
+|---|---|
+| The MCP server, on each agent's machine | Indexes the workspace, guards every outgoing string, checks git for the fix commit, and matches recalled items to your files; sends no file contents (§ 12) |
+| The shared service (metabob) | Tasks, claims, verdicts, decisions, handoffs, links and credit, for your whole organization |
+| Your git origin | Pushes, merges and CI; a close is checked against what it holds |
+
+## 11. Memory that improves with use
 
 Reading memory changes nothing. What moves it is credit: when an agent relies on a concept another agent wrote and
 it helps, the agent records a success; when it misleads, a failure. A concept's relevance is
@@ -171,7 +287,7 @@ credit is the next agent's judgment of the work.
 Corrections are added, never overwritten. A wrong decision is answered by a new one linked to it as contradicting
 it, so the history of why the answer changed stays readable.
 
-## 8. What leaves your machine
+## 12. What leaves your machine
 
 No source file, excerpt or file list is sent, and no usage telemetry. What is sent is what an agent's calls carry,
 and every request carries your API key:
@@ -191,7 +307,7 @@ looks like a credential refuses the call without repeating it, and a path under 
 Each field has a size cap (a summary 2 KB, details 8 KB, a concept 16 KB), so agents write reasons, not dumps.
 `init_workspace` reads your files into a local index and sends nothing.
 
-## 9. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Next step |
 |---|---|
@@ -207,7 +323,7 @@ Each field has a size cap (a summary 2 KB, details 8 KB, a concept 16 KB), so ag
 | The agent didn't find a decision you know was recorded | Ask it to link the decision to the repository's anchor; unlinked concepts are easy to miss |
 | Recall shows nothing | A failed or truncated read is not "nothing recorded"; read the line under the heading |
 
-## 10. References
+## 14. References
 
 - [README](../README.md): installation per client, configuration, proxies.
 - [Specification](SPEC.md): every tool's parameters and behaviour.
