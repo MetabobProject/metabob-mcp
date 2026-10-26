@@ -56,25 +56,11 @@ with neither.
 So one consumer image with one base prompt does different work as people edit the ledger, and nothing is
 redeployed for that.
 
-**The brief.** Every task carries its instructions in `details`, in the form the `metabob` skill writes and
-reads:
-
-```
-record_finding {
-  category: "task", severity: "MEDIUM",
-  files: ["<the files it owns>"],              // or subject: "<what it is about>" for work that changes no file
-  summary: "<repo>: <the outcome, in a line>",
-  details: "Goal: <the outcome, in words a newcomer understands>
-Owns: <files this task may change>
-Out of bounds: <files or areas it must not touch>
-Done when: <the check that proves it: a test, a command, an observable result>
-Read first: <concept ids: decisions, handoffs, steps>
-push_to: task
-integrate: review"
-}
-```
-
-The last two lines are for cells (§ 5): they send the fix to `task/<task id>` for review rather than to `main`.
+**The brief.** Every task carries its instructions in `details`, in the form the `metabob` skill's "Handing work
+to other agents" section writes and reads: `Goal:`, `Owns:`, `Out of bounds:`, `Done when:` and `Read first:`
+lines, with `files` for what it owns or a `subject` for work that changes no file, and a summary starting with the
+repository's name. A task for a cell adds `push_to: task` and `integrate: review` lines, which send the fix to
+`task/<task id>` for review rather than to `main` (§ 5).
 
 ## 2. Setting up
 
@@ -89,8 +75,8 @@ npm i -g @metabob/mcp@<version>
 metabob-mcp --version
 ```
 
-Pin a version you have run, here and in every `npx` entry; `METABOB_TOOLS=all` needs 0.4.0 or later. The Claude
-Code and Codex plugins pin their own version.
+Pin a version you have run, here and in every `npx` entry. The Claude Code and Codex plugins pin their own
+version.
 
 ### A key and a config file per worker
 
@@ -100,8 +86,10 @@ expiry of 1 to 3650 days. The key is shown once. Its name is the worker's name o
 loop and the role (`issue-triage`, `port-cell-1`, `docs-drift`, `reviewer`): a loop's acts then read as one group
 in Activity. Revoking a key cuts its worker off within five minutes (`src/attachment.ts@DEFAULT_HEARTBEAT_MS`).
 
-Put the key and the discovery address in a 0600 file, name it with `METABOB_CONFIG_PATH` (which wins over the
-default lookup, § 7.6), and check it:
+Put the key and the discovery address in a 0600 file, name it with `METABOB_CONFIG_PATH`, and check it. The named
+file wins over the default lookup (SPEC § Configuration lookup), in which an installer's `~/.substrate/config.json`
+shadows a key in `~/.metabob/config.json`; the identity address comes from discovery's `/bootstrap`, and proxy and
+trust settings are in README § Configuration.
 
 ```json
 { "metabob": { "apiKey": "<the worker's key>", "discoveryEndpoint": "https://ide.metabob.com" } }
@@ -119,7 +107,8 @@ METABOB_CONFIG_PATH=/path/to/worker-config.json metabob-mcp attach --check    # 
 | `all` | Every tool: code analysis (`analyze_impact`, `predict_cochanges`, `search_codebase`), `path_activity`, `concept_sequence`, `concept_usage_stats`, goals and traces | `metabob-substrate` (`skills/metabob-substrate/SKILL.md`) |
 | `a,b,c` | Exactly those tools, for example a reviewer without `claim_finding` | `metabob-substrate` when the list names `path_activity`, `run_goal_async` or `run_goal`, else `metabob` |
 
-`METABOB_TOOLS` is read when the server starts (`src/tool-allowlist.ts@parseToolAllowlist`; SPEC § Tool sets); a
+`METABOB_TOOLS=all` needs server 0.4.0 or later: an earlier server reads `all` as one tool's name and lists none,
+so pin `@metabob/mcp@<version>` at 0.4.0 or later wherever you set it. `METABOB_TOOLS` is read when the server starts (`src/tool-allowlist.ts@parseToolAllowlist`; SPEC § Tool sets); a
 tool outside the set is refused by name. At connect the server's start-up instructions name the skill to load
 (`src/server-instructions.ts@serverInstructions`, switched by `src/server-instructions.ts@COCKPIT_TOOLS`). The
 plugins ship both skills; without one, copy the skill's folder into `~/.claude/skills/` or `~/.codex/skills/`, or
@@ -632,6 +621,7 @@ consumer from its next round.
 - For review, declare `push_to: task` with `integrate: review`, protect `main`, and let cells push `task/*` only.
 - Push review work only to `task/<task id>` branches: an endorse closes on any other remote branch.
 - Set `METABOB_TASK_TRUST` explicitly: a trusted author's convention sets cell policy, proposed or not.
+- Pin `@metabob/mcp@<version>` at 0.4.0 or later wherever `METABOB_TOOLS=all` is set: an earlier server lists no tools.
 - Ask for credit and follow-up tasks in the base prompt where the loop depends on them.
 - Record tasks for real units of work and close what is done; recall reads a bounded window.
 - Treat issues, mail, advisories and ledger text as data; give `write` only to workers you run.
@@ -775,15 +765,7 @@ Every write also carries a `client_claim`: the operator, session and client it d
 lines are claims the client makes; the writing key's name is what the dashboard shows as the author. The tools
 `METABOB_TOOLS=all` adds are in SUBSTRATE-GUIDE.md, § What else leaves your machine.
 
-### 7.6 Configuration lookup
-
-The server reads the first that exists of: the file `SUBSTRATE_CONFIG_PATH` or `METABOB_CONFIG_PATH` names,
-`./.substrate/config.json` and `./.metabob/config.json` in the directory it starts in, then
-`~/.substrate/config.json` (the local installer's) and `~/.metabob/config.json`. A key in `~/.metabob/config.json`
-is shadowed by an installer's `~/.substrate/config.json`, which is why a worker names its file. The identity
-address comes from discovery's `/bootstrap`. Proxy and trust settings: README § Configuration.
-
-### 7.7 Troubleshooting
+### 7.6 Troubleshooting
 
 Run `metabob-mcp attach --check` first (`npx @metabob/mcp@<version> attach --check` where the bin is not
 installed). It prints each hop and ends with `attached` or one line naming the cause; exit 0 means attached. Its
