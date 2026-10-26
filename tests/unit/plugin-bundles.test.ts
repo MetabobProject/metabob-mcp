@@ -77,7 +77,8 @@ describe('the plugin bundles', () => {
     expect(skills).toEqual(['metabob', 'metabob-substrate']);
     for (const name of skills) {
       expect(read(`plugin/skills/${name}/SKILL.md`)).toBe(read(`skills/${name}/SKILL.md`));
-      expect(read(`skills/${name}/SKILL.md`)).toStartWith(`---\nname: ${name}\n`);
+      // Line endings aside: a Windows checkout may hold the skill with CRLF.
+      expect(read(`skills/${name}/SKILL.md`).replace(/\r\n/g, '\n')).toStartWith(`---\nname: ${name}\n`);
     }
     expect(read('plugin/scripts/edit-check.mjs')).toBe(read('scripts/claude-plugin/edit-check.mjs'));
     expect(relative(ROOT, join(ROOT, 'plugin'))).toBe('plugin');
