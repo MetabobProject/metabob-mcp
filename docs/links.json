@@ -147,7 +147,12 @@
         "src/vessel-identity.ts",
         "scripts/claude-plugin/edit-check.mjs",
         "lab/cell/entrypoint.sh",
-        "skills/metabob-substrate/SKILL.md"
+        "skills/metabob-substrate/SKILL.md",
+        "src/tools/_claims.ts",
+        "src/tools/claim-finding.ts",
+        "src/tools/mark-complete.ts",
+        "src/vessel-server.ts",
+        "src/attached-marker.ts"
       ]
     },
     "retired": {},

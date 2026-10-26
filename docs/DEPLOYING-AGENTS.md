@@ -16,13 +16,14 @@ the ledger and the memory from the user's side; read that first. Tool parameters
 | Git | The repository's origin | Keys the ledger (every clone of one origin shares one), holds the commits a close records, and is where cells push |
 | The harness | Claude Code, Codex, Cursor, Continue or any MCP client | Runs the model, starts the server, loads the skill, and decides what the agent may do |
 
-**The server.** It is a client: it binds its local HTTP resolver to `127.0.0.1`, registers nowhere, and is reached by
-nobody. On start it proves its key against the identity service that the shared service's `/bootstrap` names, and
+**The server.** It is a client: it binds its local HTTP resolver to `127.0.0.1`, registers nowhere, and is reached
+only from this machine. On start it proves its key against the identity service that the shared service's `/bootstrap` names, and
 until that succeeds every shared tool answers with one line naming the cause (`key_rejected`,
 `anchor_unreachable`, …) while the local tools keep working. `metabob-mcp attach --check` walks each step and names
 the failing one. The local index is rebuilt in memory at each launch; nothing about the code is persisted or sent.
 
-**Attaching to the hosted service** needs two values, the key and the discovery address:
+**Attaching to the hosted service** needs two values, the key and the discovery address. For a one-off check
+from a shell:
 
 ```bash
 export METABOB_API_KEY=<the worker's key>
@@ -30,7 +31,9 @@ export DISCOVERY_ENDPOINT=https://ide.metabob.com
 npx @metabob/mcp@latest attach --check     # exit 0 means attached
 ```
 
-or, in `~/.metabob/config.json` (or `./.metabob/config.json` in the directory the server starts in):
+For a worker, put them in a 0600 config file rather than the harness's environment (§ 5):
+`~/.metabob/config.json`, `./.metabob/config.json` in the directory the server starts in, or the file
+`METABOB_CONFIG_PATH` names:
 
 ```json
 { "metabob": { "apiKey": "<the worker's key>", "discoveryEndpoint": "https://ide.metabob.com" } }
@@ -44,14 +47,14 @@ with your own API key, and it has four screens:
 
 | Screen | What you do there |
 |---|---|
-| **Needs you** (`/`) | Rule on conflicts between ledger items (R1); endorse or reject policies an agent proposed (R2); settle findings that need a person: high or critical severity, agents disagreeing, or unclaimed for more than 48 hours |
+| **Needs you** (`/`) | Rule on conflicts between ledger items (R1); endorse or reject policies an agent proposed (R2); settle findings that need a person: high or critical severity, agents disagreeing, or unclaimed for more than 48 hours; review items credited as misleading |
 | **Ledger** (`/ledger`) | Browse by location (repository → directory → file): the policies, constraints, review criteria, instructions and findings that apply at a path, with claim state; author items at a location, supersede or retire them, and triage findings |
 | **Activity** (`/activity`) | Who did what to which item, and when, rebuilt from the ledger's own rows |
 | **Access** (`/keys`) | List, issue and revoke API keys; needs a key with the `admin` scope |
 
-Every ledger action in the dashboard needs a key with the `write` scope. There are no roles and no notion of a
-person as distinct from an agent: what a key can do depends only on its scopes, and an item's author is the name of
-the key that wrote it.
+Every ledger action in the dashboard needs a key with the `write` scope (or `admin`, which implies it). There are
+no roles and no notion of a person as distinct from an agent: what a key can do depends only on its scopes, and an
+item's author is the name of the key that wrote it. Rows with no key stamp show their declared author line.
 
 ## 2. Deploying agents for different kinds of task
 
@@ -142,11 +145,13 @@ codex exec --sandbox workspace-write --json -o last-message.txt \
   "Work task agf_…: …"
 ```
 
-- `--sandbox` takes `read-only`, `workspace-write` or `danger-full-access`; `-c key=value` overrides a
-  `~/.codex/config.toml` value, including a server's environment under `mcp_servers.<name>.env`, which is where
-  `codex mcp add --env` writes it.
-- Codex's plugin starts the server in the plugin's folder, so set `WORKSPACE_PATH` (as above) or rely on the skill
-  calling `init_workspace { workspace_path }` (SPEC § Workspace).
+- `--sandbox` takes `read-only`, `workspace-write` or `danger-full-access`. `workspace-write` may block network
+  access, so a `git push` from inside the run can fail: allow network for the push, or push from outside the run.
+- `-c key=value` overrides a `~/.codex/config.toml` value, including a server's environment under
+  `mcp_servers.<name>.env`, which is where `codex mcp add --env` writes it. It works for a server added with
+  `codex mcp add`, as above.
+- The plugin's server is not a `config.toml` entry and takes no settings. Codex starts it in the plugin's folder,
+  so with the plugin, rely on the skill calling `init_workspace { workspace_path }` (SPEC § Workspace).
 - `codex exec` has no budget flag; put a wall time around it.
 
 **Stops:** when the harness exits, or when the wall time or budget cuts it off. A run cut off mid-task leaves its
@@ -160,6 +165,7 @@ entry and exit steps; both run under Node and need no Bun.
 ```bash
 metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <id,…>] [--json]
 # the harness works in /work and commits with the trailer  Fixes-Finding: agf_…
+cd /work      # git and finding close run in the clone (finding close's --work-dir defaults to the current directory)
 git fetch origin <target> && git rebase origin/<target>
 git rev-list origin/<target>..HEAD > /tmp/commits      # this cell's own commits only
 git push origin HEAD:<branch>
@@ -214,7 +220,7 @@ which after a rebase also holds other cells' merged commits.
 **Identity in a cell.** Set `VESSEL_ID` to one value per cell and pass it to `task pull`, the harness's server and
 `finding close`. Without it each derives its identity from the key and the work directory, and `task pull` does so
 before the clone exists while the server does so after it, so the claim `task pull` takes may not be the one the
-agent can renew.
+agent can renew. The lab cell's entrypoint sets no `VESSEL_ID`, so it has this mismatch.
 
 **The reference recipe** is the lab cell (`lab/cell/Containerfile`, `lab/cell/entrypoint.sh`, lab/README.md
 § Agent cell): `task pull` with a 45-minute claim, `claude -p` with a model, budget and wall time from `CELL_*`
@@ -243,7 +249,7 @@ A reviewer reads work other agents did and records its judgment; it does not gra
   anchor with `concept_neighbors`.
 - **Writes:** `record_finding` for each problem the change leaves; `mark_complete discard` for a finding that is
   not real; a `decision_record` for a judgment the next reviewer would otherwise have to reach again.
-- **Under `integrate: review`:** a cell's fix sits on `task/<task id>` as `fix pending (awaiting merge)`. Merging it
+- **Under `push_to: task` with `integrate: review`:** a cell's fix sits on `task/<task id>` as `fix pending (awaiting merge)`. Merging it
   is the reviewer's or a person's act in git; `finding close` (or an endorse after a fetch) then closes the finding.
 
 ## 3. Managing agents
@@ -296,7 +302,7 @@ worker that needs to change a file outside its task records that as its own task
 |---|---|
 | `get_problems` (any worker's session, or yours) | Open tasks with their holders and claim ends, fixes pending, problems, and what recently closed |
 | Dashboard **Ledger** | Each path's tasks, findings, claims and guidance; hotspots, overlaps, blind spots and conflicts on the tree |
-| Dashboard **Activity** | One line per act: recorded, claimed, released, endorsed, discarded, fix pending, proposed, ruled |
+| Dashboard **Activity** | One line per act: recorded finding, created task, claimed, released, endorsed, discarded, fix pending, proposed, added, rejected, ruled, flagged conflict |
 | `METABOB_CALL_LOG=<file>` | On the worker's machine: one JSON line per tool call, with the tool, argument names and sizes, the outcome, the claim or close result, and the duration, never a value (`src/call-log.ts@logCall`; SPEC § Call log) |
 
 The dashboard caches its reads for 60 seconds; "Read again" behind its Source toggle drops the cache.
@@ -376,10 +382,11 @@ text; there is no setting to change them.
 ### The edit check (Claude Code)
 
 The Claude Code plugin holds an agent's first edit of an existing file in a session, once, and asks it to check
-the file first: `get_problems` under the default set, `get_problems` and `path_activity` under `all`
-(`scripts/claude-plugin/edit-check.mjs`; README § Claude Code plugin). It holds only where an attached server's
-marker covers the session's directory, never a file being created or a second edit, and lets the edit through if the check
-itself fails. `METABOB_EDIT_CHECK=off` turns it off. Other harnesses have no hooks for it; they get the same rule
+the file first: `get_problems`, plus `path_activity` when the server lists it and the repository is not one that
+tool reports as unmounted (`scripts/claude-plugin/edit-check.mjs`; README § Claude Code plugin). It holds only where
+an attached server's marker covers the session's directory, and never a file already checked through either tool, a
+file being created, a second edit of a file, or a file outside the attached workspace. If the check itself fails,
+the edit goes through. `METABOB_EDIT_CHECK=off` turns it off. Other harnesses have no hooks for it; they get the same rule
 from the skill and the instructions.
 
 ### Ledger content: how people steer agents
@@ -397,17 +404,18 @@ In the dashboard's Ledger, select a path and add:
 Agents are meant to recall the guidance in effect for the files they touch before editing, and credit what helped
 or misled them. Two rules decide what is in effect:
 
-- **R2.** A policy an agent proposes (`status: proposed`) is pending until a different key endorses it in *Needs
-  you*; an item authored directly takes effect when written.
-- **R1.** When two items conflict, a person rules (refine, A stands, B stands); until then both are recalled,
-  flagged as awaiting a ruling.
+- **R2.** A policy an agent proposes (`status: proposed`) is meant to stay pending until a different key endorses
+  it in *Needs you*; an item authored directly is meant to take effect when written.
+- **R1.** When two items conflict, a person rules (refine, A stands, B stands); until then both are meant to stay
+  in recall, each flagged as awaiting a ruling.
 
-**What the server does today.** It has no recall of guidance by location and does not apply R1 or R2: an agent
+**What the server does.** It has no recall of guidance by location and does not apply R1 or R2: an agent
 finds guidance through `concept_search` by shape (`project_convention`, `constraint`, `review_criterion`) or by
 following links into the repository's anchor, and nothing filters out a proposed or rejected item or flags a
 conflict. The one place the server reads conventions is `task pull`'s integration policy, which takes a
-`project_convention` from a trusted author and does not check its proposal state. Tell agents in their
-prompt or brief to read the guidance for their files, and keep pending proposals out of a cell's trust list.
+`project_convention` from a trusted author and does not check its proposal state: a convention marked proposed
+still sets a cell's policy when a trusted author wrote it. Tell agents in their prompt or brief to read the guidance
+for their files, and trust only authors whose conventions are in effect.
 Recall that applies R1 and R2 is how the system is meant to work. Compiling ledger guidance into skills is planned,
 not built.
 
