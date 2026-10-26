@@ -216,8 +216,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "1d66d55",
-        "why": "the skill's keying note changes nothing the README states"
+        "at": "b815f8d",
+        "why": "the skill's limit wording matches what README's tool rows already say about subject and outcome closes"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
@@ -238,6 +238,10 @@
       "docs/SUBSTRATE-GUIDE.md": {
         "at": "1d66d55",
         "why": "the guide does not state how the ledger is keyed; the skill's note is for agents"
+      },
+      "docs/USER-GUIDE.md": {
+        "at": "b815f8d",
+        "why": "the guide already says a task may name what it is about instead of files and closes with what it found"
       },
       "lab/README.md": {
         "at": "e978c22",
