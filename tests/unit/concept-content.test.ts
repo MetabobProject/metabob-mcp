@@ -140,7 +140,8 @@ test('a query result says it is the nearest matches, not every one, and how to l
 
 test('an offset a concept-db does not page says so, rather than passing the first page off as the next', async () => {
   const rows = [1, 2].map((n) => ({ id: `concept:pc_${n}`, shape: 'project_convention', content: `rule ${n}` }));
-  await installShapeStub({ conceptSearch: () => searchAnswer(rows) });
+  // Ignores the offset, and the rows come back reordered: still the first page.
+  await installShapeStub({ conceptSearch: (p) => searchAnswer(p.offset ? [...rows].reverse() : rows) });
   const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention', limit: 2, offset: 2 }), mockApiClient);
   expect(out).toContain('concept-db does not page: offset 2 answered the first page again, so at most 2 concepts of shape "project_convention" can be read');
   expect(out).not.toContain('pc_1');

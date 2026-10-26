@@ -1219,7 +1219,7 @@ Handler: `src/tools/concept-search.ts@handle`
 | `shape` | string | — | Filter by shape |
 | `min_relevance` | number | — | Relevance threshold, 0..1 |
 | `limit` | number | `10` | Max results (max 50) |
-| `offset` | number | — | Skip this many results: the next page of a list. A concept-db that does not page answers the first page again; the tool reads the first page once to compare, and when the rows repeat it says concept-db does not page instead of returning them |
+| `offset` | number | — | Skip this many results: the next page of a list. A concept-db that does not page answers the first page again; the tool reads the first page once to compare, and when every row is already on the first page, in any order, it says concept-db does not page instead of returning them |
 
 For `concept_id`, the root of `conceptGraph { concept_id, limit: 1 }` — the row `GET /concepts/:id` returns; otherwise `conceptSearch` with the filters set (relevance first). Each result shows source type, shape, id, summary, relevance / loaded / succeeded / failed counts, last update and the body. With a `query`, the results are the nearest by similarity, and concept-db may return fewer than `limit`, so the reply says they are not every match and that a call with `shape` and no `query` lists every concept of a shape; in list mode, a reply that reaches `limit` says more may match and gives the `offset` of the next page.
 
