@@ -61,7 +61,28 @@ git tag v<x.y.z> && git push origin v<x.y.z>
 git push origin HEAD:main            # allowed: version bumped, and the commit is already on dev
 ```
 
-For a pre-release, publish with `npm publish --tag beta` and leave `main` where it is.
+### A pre-release
+
+A release candidate (`<x.y.z>-rc.<n>`) is published under the `next` tag, so `latest` and `npx -y @metabob/mcp`
+keep the last release, and `main` stays where it is: plugin marketplaces clone `main`, and its bundles pin the
+last release.
+
+```bash
+# 1. Bump to the candidate and regenerate the bundles, which pin it; commit on dev
+npm version --no-git-tag-version <x.y.z>-rc.<n>
+node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
+bun run typecheck && bun run build && bun run test
+git commit -am "chore(release): <x.y.z>-rc.<n>"
+git push origin HEAD:dev             # CI and Package smoke green on every job before publishing
+
+# 2. Publish under next, and check that latest did not move
+npm publish --tag next
+npm view @metabob/mcp dist-tags      # latest: the last release; next: the candidate
+npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp --version
+```
+
+A client tries the candidate by pinning it (`npx -y @metabob/mcp@<x.y.z>-rc.<n>`). The release itself is the
+workflow above, from a version bump to `<x.y.z>`; the candidate is never tagged and never reaches `main`.
 
 ## Troubleshooting
 

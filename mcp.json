@@ -6,7 +6,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "--package=metabob-mcp-server@npm:@metabob/mcp@0.4.0",
+        "--package=metabob-mcp-server@npm:@metabob/mcp@0.4.0-rc.1",
         "metabob-mcp"
       ]
     }
