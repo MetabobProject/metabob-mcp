@@ -290,6 +290,7 @@ A claim is how a worker says it has a task (`claim_finding`; SPEC § claim_findi
 | End | The claim's start plus its minutes, by the shared clock; readers treat it as live until two minutes past that |
 | Contest | Two workers can both write a claim; every reader picks the same holder, the earliest live claim, the lower id on a tie (`src/tools/_claims.ts@claim-holder`), and the later claimer withdraws |
 | Close | A verdict that closes the finding, by anyone, ends every claim on it (a pending endorse does not); an endorse of a finding someone else holds goes ahead, and the reply names their claim |
+| Stop | A server shutting down normally releases the claims its session took through `claim_finding`; a kill or crash leaves them to lapse; `task pull`'s claim outlives its own process |
 
 A claim is advisory: it keeps honest workers off one task, it does not lock files. The Ledger screen marks two live
 claims on one file as an overlap.

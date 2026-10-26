@@ -1046,6 +1046,7 @@
         "src/outgoing-guard.ts",
         "src/sqlite.ts",
         "src/tool-allowlist.ts@default-tool-set",
+        "src/tools/claim-finding.ts@session-claims",
         "src/tools/index.ts",
         "src/vessel-server.ts",
         "tests/unit/doclinks.test.ts"
