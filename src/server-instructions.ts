@@ -2,10 +2,11 @@
  * The MCP `instructions` this server returns from `initialize`. MCP clients
  * place them in the agent's context at connect time, so they carry what an
  * agent needs before its first call and nothing that changes per session.
- * They name only tools this server lists (SPEC §tool-sets): the default set gets
- * its own text, about the shared ledger and memory, pointing at the `metabob`
- * skill; `METABOB_TOOLS=all` or a list gets the full text, pointing at
- * `metabob-substrate`, less any paragraph that names a tool the list leaves out.
+ * They name only tools this server lists (SPEC §tool-sets). The base is the
+ * default set's text, about the shared ledger and memory, pointing at the
+ * `metabob` skill, unless the server lists a cockpit tool (COCKPIT_TOOLS): then
+ * it is the full text, pointing at `metabob-substrate`. Either way, every line
+ * that names a tool the server does not list is left out.
  * tests/unit/tool-sets.test.ts and tests/workflows/w4-skill-contract.test.ts hold
  * that every tool named is listed. SPEC §agent-instructions
  */
@@ -55,20 +56,24 @@ Local tools work in any repository with no substrate: \`init_workspace\`, \`anal
 
 Substrate tools need an attachment (an API key and a substrate endpoint). When one answers with a named cause such as \`key_rejected\`, \`anchor_unreachable\` or \`proxy_auth_required\`, that is the attachment's state, not a transient error; \`metabob-mcp attach --check\` diagnoses it.`;
 
+/** The tools whose listing makes the full, cockpit text the base: the ones the `metabob-substrate` skill is for. */
+export const COCKPIT_TOOLS: readonly string[] = ['path_activity', 'run_goal_async', 'run_goal'];
+
 /** Tool names a paragraph names in backticks. */
 function toolsNamed(paragraph: string): string[] {
   return [...paragraph.matchAll(/`([a-z][a-z0-9_]*)/g)].map((m) => m[1]!).filter((n) => n in TOOL_REGISTRY);
 }
 
 /**
- * The instructions for the tool set `raw` (METABOB_TOOLS) names: only paragraphs (and list items) whose tools are all
- * listed.
+ * The instructions for the tool set `raw` (METABOB_TOOLS) names: the default text unless a cockpit tool is listed,
+ * keeping only the paragraphs (and list items) whose tools are all listed.
  */
 export function serverInstructions(raw: string | undefined = process.env['METABOB_TOOLS']): string {
   if (toolSetKind(raw) === 'default') return DEFAULT_INSTRUCTIONS;
   const listed = parseToolAllowlist(raw);
   const permitted = (name: string) => listed === null || listed.has(name);
-  return FULL_INSTRUCTIONS.split('\n\n')
+  const base = COCKPIT_TOOLS.some(permitted) ? FULL_INSTRUCTIONS : DEFAULT_INSTRUCTIONS;
+  return base.split('\n\n')
     .map((block) => block.split('\n').filter((line) => toolsNamed(line).every(permitted)).join('\n'))
     .filter((block) => block.trim() && !/^[^\n]*:\s*$/.test(block.trim()))
     .join('\n\n');

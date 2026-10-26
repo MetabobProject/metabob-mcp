@@ -8,7 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEFAULT_TOOL_SET, TOOL_REGISTRY } from '../../src/tools/index';
-import { parseToolAllowlist, toolSetKind } from '../../src/vessel-server';
+import { parseToolAllowlist, toolSetKind, unknownToolNames } from '../../src/vessel-server';
 import { DEFAULT_INSTRUCTIONS, serverInstructions } from '../../src/server-instructions';
 
 const ROOT = resolve(import.meta.dir, '..', '..');
@@ -38,6 +38,24 @@ describe('the tool sets', () => {
       expect({ value, refused: named.filter((t) => listed !== null && !listed.has(t)) }).toEqual({ value, refused: [] });
       expect(named.length).toBeGreaterThan(0);
     }
+  });
+
+  test('a list without cockpit tools gets the default text, less the lines naming unlisted tools', () => {
+    expect(serverInstructions(DEFAULT_TOOL_SET.join(','))).toBe(DEFAULT_INSTRUCTIONS);
+    const subset = serverInstructions('get_problems,record_finding,mark_complete,concept_search');
+    expect(subset).toContain('load the `metabob` skill');
+    expect(subset.toLowerCase()).not.toContain('substrate');
+    expect(subset).toContain('`record_finding`');
+    expect(subset).not.toContain('`claim_finding`');
+    expect(subset).not.toContain('`concept_create`');
+    // A cockpit tool in the list makes the full text the base.
+    expect(serverInstructions('get_problems,path_activity')).toContain('load the `metabob-substrate` skill');
+  });
+
+  test('a list name that is no tool is reported, `all` mixed into a list included', () => {
+    expect(unknownToolNames('all,get_problems')).toEqual(['all']);
+    expect(unknownToolNames('get_problems,get_problem')).toEqual(['get_problem']);
+    expect([unknownToolNames(undefined), unknownToolNames('all'), unknownToolNames('get_problems')]).toEqual([[], [], []]);
   });
 
   test('the default instructions point at the metabob skill and never mention the substrate', () => {

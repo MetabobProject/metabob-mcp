@@ -40,6 +40,7 @@ import {
   toolAllowlistActive,
   toolNotEnabledMessage,
   toolSetKind,
+  unknownToolNames,
 } from './vessel-server.js';
 import { resolveVesselId, VESSEL_BASE_NAME, VESSEL_VERSION } from './vessel-identity.js';
 import { setResolverIdentity } from './resolver-identity.js';
@@ -581,6 +582,9 @@ async function main() {
   await server.connect(transport);
 
   log('info', 'MCP server ready');
+  // A list name that is no tool lists nothing: a typo, or `all` mixed into a list (`all` stands alone).
+  const unknown = unknownToolNames();
+  if (unknown.length) log('warn', `METABOB_TOOLS names no such tool: ${unknown.join(', ')}. \`all\` lists every tool only on its own; otherwise give tool names.`);
 
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   let shuttingDown = false;

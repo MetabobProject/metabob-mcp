@@ -90,7 +90,10 @@ clients place in the agent's context at connect time. They name only tools the s
   first call; the first-call set in one sentence (`get_analysis_context`, `get_problems`, `record_finding`,
   `mark_complete`); the ledger and goal loops and the recent-trace listing; the local tools apart from the substrate
   tools; and the attachment's named causes.
-- **A list:** the `all` text, less every line that names a tool the list leaves out.
+- **A list:** the default text, or the `all` text when the list names a cockpit tool (`path_activity`,
+  `run_goal_async`, `run_goal`; `src/server-instructions.ts@COCKPIT_TOOLS`), less every line that names a tool the
+  list leaves out. A list name that is no tool lists nothing and is reported at start (`all` lists every tool only on
+  its own).
 
 ## Configuration
 

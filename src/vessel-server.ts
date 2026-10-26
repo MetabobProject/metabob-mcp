@@ -50,6 +50,12 @@ export function toolSetKind(raw: string | undefined = process.env['METABOB_TOOLS
   return (trimmed ?? '').split(',').some(n => n.trim().length > 0) ? 'list' : 'default';
 }
 
+/** Names in a METABOB_TOOLS list that are no registered tool (a typo, or `all` mixed into a list). */
+export function unknownToolNames(raw: string | undefined = process.env['METABOB_TOOLS']): string[] {
+  if (toolSetKind(raw) !== 'list') return [];
+  return [...parseToolAllowlist(raw)!].filter((name) => !TOOL_REGISTRY[name]);
+}
+
 let allowlistMemo: { value: ReadonlySet<string> | null } | null = null;
 
 /**
