@@ -173,7 +173,7 @@ Its first line is the summary, the whole text is the brief, severity defaults to
 ### Parallel workers
 
 - **Start:** one session per task, each in **its own working copy** (a separate clone or a `git worktree`), each
-  told only its task id ("work task agf_…").
+  told only its task's concept id ("work task concept_…").
 - **Key:** one per worker.
 - **Reads and writes:** each finds its task with `get_problems` (summary, files, holder and concept id) and reads
   the brief with `concept_search { concept_id }`, claims it with `claim_finding`, stays inside the
@@ -194,9 +194,9 @@ told everything and allowed exactly what it needs.
 
 ```bash
 cd /path/to/checkout
-timeout 1800 claude -p "Work task agf_…: find it with get_problems, read its brief with concept_search
-{ concept_id: <its concept id> }, claim it, do it, commit with the
-trailer 'Fixes-Finding: agf_…', push, then mark_complete it." \
+timeout 1800 claude -p "Work task concept_…: find it with get_problems, read its brief with concept_search
+{ concept_id: <that id> }, claim it, do it, commit with the trailer 'Fixes-Finding: <an agf_ id from the
+brief's finding_ids: line>', push, then mark_complete it." \
   --mcp-config ./metabob-mcp.json --strict-mcp-config \
   --permission-mode acceptEdits --allowedTools "mcp__metabob" "Bash(git:*)" \
   --max-budget-usd 5 --output-format stream-json --verbose > transcript.jsonl
@@ -223,7 +223,7 @@ with `metabob-mcp.json`:
 ```bash
 codex exec --sandbox workspace-write --json -o last-message.txt \
   -c 'mcp_servers.metabob.env.WORKSPACE_PATH="/path/to/checkout"' \
-  "Work task agf_…: …"
+  "Work task concept_…: …"
 ```
 
 - `--sandbox` takes `read-only`, `workspace-write` or `danger-full-access`. `workspace-write` may block network
@@ -249,8 +249,8 @@ open, so the prompt asks for a reply the script stops on:
 ```bash
 cd /path/to/checkout      # this loop's own working copy (a clone or a git worktree)
 prompt="Use the metabob skill. Take one open task nobody holds and finish it or hand it off: run its done \
-checks, commit with the trailer 'Fixes-Finding: <its id>', push, then mark_complete it. A task marked fix \
-pending is not open. If none is open and unheld, reply only NO_OPEN_TASKS."
+checks, commit with the trailer 'Fixes-Finding: <an agf_ id on the brief's finding_ids: line>', push, then \
+mark_complete it. A task marked fix pending is not open. If none is open and unheld, reply only NO_OPEN_TASKS."
 for i in $(seq 1 20); do                               # the cap on rounds
   out=$(timeout 1800 claude -p "$prompt" \
     --mcp-config ./metabob-mcp.json --strict-mcp-config \

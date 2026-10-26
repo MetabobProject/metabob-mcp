@@ -115,7 +115,7 @@ The tools it uses:
    > Record a task for another agent: the CSV export drops rows whose date is empty. Owns: the CSV writer under
    > `src/export/` and its tests. Done when: the export tests pass, with one for an empty date.
 
-2. Note the task id from the reply, or ask any session to "list the open tasks".
+2. Note the task's `concept_…` id from the reply, or ask any session to "list the open tasks".
 3. In another session (any client, any machine with a checkout of the repository), give it the id:
 
    > Take task concept_…: claim it, do what its brief says, commit and push the fix, and close it.
@@ -148,9 +148,9 @@ Start with `npx @metabob/mcp attach --check`.
 
 | You see | Do |
 |---|---|
-| `not_configured` | Set the key and the address (§ 1) |
+| `not_configured` | Set the key and the address (§ 1); a remote service needs `discovery_endpoint` / `discoveryEndpoint` |
 | `key_rejected` | Get a current key from your admin |
-| `anchor_unreachable` | Check the address; a remote service needs `discovery_endpoint` / `discoveryEndpoint` |
+| `anchor_unreachable` | Discovery didn't answer at the address set: check it and the network |
 | `identity_unreachable`, `blocked_by_portal` | A network problem: sign in to the network or ask IT to allow the host |
 | `proxy_auth_required(…)`, `tls_intercepted(…)` | Set the proxy or certificate (§ 5); `npx @metabob/mcp doctor` writes a report for IT |
 | `workspace_undetermined` | Ask the agent to call `init_workspace` with the project's absolute path |

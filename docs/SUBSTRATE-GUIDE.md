@@ -65,11 +65,12 @@ you set `METABOB_TOOLS=all`, start a server of 0.4.0 or later:
   edit check, § 3). Set `{ "env": { "METABOB_TOOLS": "all" } }` in `~/.claude/settings.json`, or export
   `METABOB_TOOLS=all` in the shell that starts `claude`.
 - **Claude Code with a server you add yourself.**
-  `claude mcp add metabob -e METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`, adding `-e` for the key and
+  `claude mcp add metabob -s user -e METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`, adding `-e` for the key and
   address when no config file supplies them.
 - **Codex.** The plugin's server takes no extra environment, so remove the plugin
   (`codex plugin remove metabob@metabob`), add the server yourself
-  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`), and install the skill by
+  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`, adding `--env` for the key and
+  address when no config file supplies them), and install the skill by
   hand (below).
 - **Cursor, Continue and other clients.** In the server's `env` in the client's MCP configuration:
 
@@ -237,7 +238,9 @@ another agent, by the rules SPEC gives under § mark_complete and § claim_findi
 [DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md). An agent given a task reads
 its brief with `concept_search { concept_id: <the task's concept id> }`: `get_problems` shows a task's summary
 and id, never its details. For a task recalled from the ledger, the id `get_problems` shows is that concept id
-(`concept_…`); `claim_finding` and `mark_complete` take it as well as the task's `agf_*` id.
+(`concept_…`), and it is the id to hand over and claim with: `claim_finding` and `mark_complete` take an `agf_…`
+id only in the session whose local store holds the task. A `Fixes-Finding:` trailer names one of the `agf_…` ids on
+the brief's `finding_ids:` line.
 
 `all` adds to these:
 

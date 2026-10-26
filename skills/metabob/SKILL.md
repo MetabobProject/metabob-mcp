@@ -67,7 +67,8 @@ A task is a ledger entry in category `task`. If you were handed a task id, find
 it in `get_problems`, which shows its summary, files, holder and concept id; then
 read the brief itself with `concept_search { concept_id: "<the task's concept id>" }`,
 since `get_problems` doesn't show a task's details. Otherwise pick an open task
-nobody holds.
+nobody holds. Claim and close it by that concept id: an `agf_` id works only in
+the session that recorded the task.
 
 - `claim_finding { problem_id, minutes: 30 }` before you start, so nobody starts
   the same work. If two agents claim at once, every reader settles it the same way
@@ -90,7 +91,9 @@ point, and what it didn't write is lost.
   push, not only at the end: a session can stop at any turn, and work that isn't
   pushed is lost with it.
 - **A commit that resolves a task** carries the task's id as its last line,
-  `Fixes-Finding: <the task's agf_ id>`, so a close by commit can find it.
+  `Fixes-Finding: <an agf_ id from the brief's finding_ids: line>`, so a close by
+  commit can find it. The trailer takes only an `agf_` id (a `concept_` id there
+  is ignored); a task on several files has one per file, and any one closes it.
 
 - **A problem you won't fix now:** `record_finding { files, summary, severity,
   category, details }`. A problem mentioned only in your reply is gone when

@@ -138,15 +138,11 @@
       "docs/USER-GUIDE.md": [
         "skills/metabob/SKILL.md",
         "src/tools/index.ts",
-        "src/tools/mark-complete.ts",
-        "src/repo-identity.ts",
-        "src/tools/claim-finding.ts",
-        "src/tools/_claims.ts",
-        "scripts/claude-plugin/edit-check.mjs",
         "src/tool-allowlist.ts",
         "src/config.ts",
-        "src/outgoing-guard.ts",
-        "src/vessel-identity.ts"
+        "src/attach-check.ts",
+        "scripts/claude-plugin/edit-check.mjs",
+        "scripts/plugins/source.json"
       ],
       "docs/DEPLOYING-AGENTS.md": [
         "src/task-pull.ts",
@@ -183,7 +179,18 @@
         "src/tools/execution-trace.ts",
         "src/tools/registry-query.ts",
         "src/tools/resolve-impulse.ts",
-        "skills/metabob-substrate/SKILL.md"
+        "skills/metabob-substrate/SKILL.md",
+        "src/tools/claim-finding.ts",
+        "src/tools/mark-complete.ts",
+        "src/tools/_claims.ts",
+        "src/finding-close.ts",
+        "src/tools/get-metrics.ts",
+        "src/tools/annotate-component.ts",
+        "src/tools/assign-git-changes.ts",
+        "src/tools/concept-sequence.ts",
+        "src/tools/concept-usage-stats.ts",
+        "src/tools/pull-assigned-work.ts",
+        "src/tools/submit-resolution.ts"
       ]
     },
     "retired": {},
