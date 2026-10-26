@@ -43,20 +43,24 @@ policy even while it is only proposed.
 A loop is the cycle by which an observation becomes a record, the record becomes another agent's input, and an
 outcome changes what the next iteration does. In practice it is a workflow: **producers scatter tasks**, **consumers
 take the instructions and carry them out**, and what happened is **fed back** as results, findings, decisions,
-handoffs and credit, which the next producer and consumer read. The work need not be software:
+handoffs and credit, which the next producer and consumer read.
 
-| A producer, on… | records tasks to… | and a consumer feeds back |
+A loop is worked out of a repository, but its tasks need not edit it. A task may change the repository, or use,
+investigate, test, review or operate it:
+
+| Objective | An example task | What the consumer feeds back |
 |---|---|---|
-| a new GitHub issue | triage it and act on it | the triage, a fix, or a finding that it is a duplicate |
-| an email to a support address | answer it, or route it to whoever owns the area | what it did, and a decision when the answer sets a precedent |
-| a CI alert for a vulnerable dependency | assess each affected use, and patch it or record why not | the assessment, the patch, and a finding for each use left |
-| a report someone submits | check it against the recorded policy | each breach as a finding, and credit on the policy it applied |
-| a problem a person describes | investigate it | what was found, the approaches ruled out, and follow-up tasks |
-| a planned port of a library | port one module | the port, each mismatch as a new task, the binding decisions |
+| Change | Port one module of a library; fix the bug an issue reports | The commit, each mismatch as a new task, the decisions it made |
+| Use | Run the repository's CLI to answer a question someone asked | The answer, and a finding when the CLI cannot answer it |
+| Investigate | Find why a behaviour happens | What was found, the approaches ruled out, follow-up tasks |
+| Test | Run a suite against a build and report | The results, and a finding per failure |
+| Review | Check a change, a report or a configuration against the recorded policies | Each breach as a finding, and credit on the policy it applied |
+| Operate | Run a deploy or a migration, and record the result | The outcome, and a handoff when it stops part way |
 
-Each iteration is short and forgets everything; the loop remembers because each iteration writes down its state and
-its outcome. Today every task is anchored to a file and closed by a commit, so a loop whose work is not code keeps
-a small record file per task in a repository (§ 6 says how).
+Producers are as varied: a new GitHub issue, an email to a support address, a CI alert for a vulnerable
+dependency, a schedule, or a person asking. Each iteration is short and forgets everything; the loop remembers
+because each iteration writes down its state and its outcome. Today every task is anchored to a file and closed by
+a commit, so a task whose objective is not a change records its outcome in a file it commits (§ 6 says how).
 
 What Metabob gives a loop:
 
@@ -1112,17 +1116,19 @@ passes the tests the observations became.
   rules. A driver polls: a script's loop, `task pull`'s exit codes (3 for empty, 4 with `retry_after`), or a
   scheduler on a timer or on each merge (§ 5 Scheduled runs).
 - **Every task is anchored to a file and closed by a commit.** That is how the product works today, and so how a
-  loop whose work is not code runs:
+  task whose objective is to use, investigate, test, review or operate the repository runs, rather than change it.
+  A change that allows tasks without files, closed by their outcome, is under way; until it ships:
   - `record_finding` requires at least one file (`files`); memory concepts (`concept_create`) need none;
   - `mark_complete endorse` closes a task when a commit since the task touches its files, or when the agent names
     the commit with `fix_commit`; otherwise the task stays open, or `fix pending` while the commit is uncommitted,
     unpushed or awaiting merge, and a git checkout that knows none of the files writes no verdict;
   - `task pull` clones a git repository, and `finding close` reads the commits there.
 
-  So give the loop a harness repository with an `origin` remote, and each task a record file in it
-  (`records/<task>.md`, tracked and not ignored). Record the task on that file; the consumer writes its outcome
-  there (the triage, the reply it sent, the assessment, the result) and commits it, and the close records that
-  commit. A task about an email or an issue thus closes when the record of what was done is committed. The § 5
+  So give each such task a record file in the repository it works out of (`records/<task>.md`, tracked and not
+  ignored; the repository needs an `origin` remote). Record the task on that file; the consumer writes its outcome
+  there (the answer, the cause found, the test results, the review, the deploy's result, the reply sent to an
+  email) and commits it, and the close records that commit. A task that operates or tests the repository thus
+  closes when the record of what happened is committed. The § 5
   worked example (using a repository as a harness) runs this way.
 - **Recall reads a bounded window.** `get_problems` and `task pull` read findings and verdicts across the whole
   organization in pages of 300 of each kind, relevance first, then newest: up to four pages when the service pages,
