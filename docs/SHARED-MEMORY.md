@@ -160,12 +160,12 @@ tasks with different files, or separate working copies.
 
 ## 7. Putting work on the ledger
 
-You don't write tasks by hand. You ask one agent to plan the work, and with the `metabob` skill loaded that agent
+You needn't write tasks by hand: you can ask one agent to plan the work, and with the `metabob` skill loaded that agent
 puts the plan on the ledger:
 
 - It reads the source and proposes how to split the work.
 - It records one task per unit with `record_finding` in category `task`. Each brief states the goal, the files the
-  task owns, what is out of bounds, the check that proves it done, and the decisions and tasks to read or wait for
+  task owns, what is out of bounds, the check that proves it done, and the decisions, handoffs and steps to read
   first. The brief is written for an agent with no memory of the planning conversation.
 - It records the decisions every task must follow as `decision_record` concepts, linked to the repository's anchor,
   so every worker reads them at the start of its session.
@@ -177,10 +177,11 @@ disjoint, since that is what lets workers run side by side. Ask for changes the 
 A planning request, for example:
 
 > Plan a port of this repository from Python to TypeScript, for several agents working in parallel. Read the
-> source first. Record one task per module, each owning its target files and stating the test that proves it
-> done. Record the decisions every task must follow (package layout, how errors map, which dependencies replace
-> which) and link them to the repository. Write the port's order as steps: the shared types first, then the
-> modules that use them, then the command-line entry point. Show me the split before you record anything.
+> source first. Write the port's order as steps: the shared types first, then the modules that use them, then
+> the command-line entry point. Record the decisions every task must follow (package layout, how errors map,
+> which dependencies replace which) and link them to the repository. Record the first step's tasks only, one per
+> unit, each owning its target files and stating the test that proves it done; whoever closes a step records the
+> next step's tasks. Show me the split before you record anything.
 
 A prerequisite in a brief is guidance for the agent that reads it: nothing holds a task back until another closes,
 and `task pull` (§ 8) takes the most severe open task first. For work that must wait, the planner records the first
@@ -206,15 +207,29 @@ files. Named, it claims that one; held by someone else, it tells you.
 script whether a task was open, so the prompt asks for a reply the script can stop on:
 
 ```bash
-while :; do
-  out=$(claude -p "Use the metabob skill. Take one open task nobody holds and finish it or hand it off. If none is open and unheld, reply only NO_OPEN_TASKS.")
+prompt="Use the metabob skill. Take one open task nobody holds and finish it or hand it off. \
+A task marked fix pending is not open. If none is open and unheld, reply only NO_OPEN_TASKS."
+for i in $(seq 1 50); do
+  out=$(claude -p "$prompt") || break
   case "$out" in *NO_OPEN_TASKS*) break ;; esac
 done
 ```
 
-The loop stops when every remaining task is held by someone else; a claim that lapses later doesn't restart it, so
-run the loop again, or from a scheduler. Give the headless session the permissions the work needs, and the server and skill as in § 2. A claim belongs to
-the checkout, so loops that run side by side each need their own working copy (for example a `git worktree`).
+A failed run (the key refused, a rate limit, the server not attached) stops the loop, and the cap of 50 runs
+bounds it. It also stops when every remaining task is held by someone else; a claim that lapses later doesn't
+restart it, so run the loop again, or from a scheduler.
+
+A headless session can't ask you anything, so give it what the work needs up front, with the server and skill as
+in § 2:
+
+- **Claude Code:** `--permission-mode` and `--allowedTools` (see `claude --help`). Allow the metabob tools by the
+  names `/mcp` shows, git, and the commands the done checks run.
+- **Codex:** `-s workspace-write` (`--sandbox`) lets it edit the checkout; a push also needs network access in the
+  sandbox. Check `codex exec --help` for your version's default.
+
+The loop needs permission to push. Without it, each fix stays pending (§ 3), and a session that doesn't read the
+pending mark as taken may start the same task again. A claim belongs to the checkout, so loops that run side by
+side each need their own working copy (for example a `git worktree`).
 
 **Agent cells.** `metabob-mcp task pull --origin <git url>` claims the next task and writes it, with its context,
 into the task directory (`/task` by default), then clones the origin into the work directory (`/work`). It takes
@@ -224,17 +239,34 @@ skipping held, closed and fix-pending ones. Its exit code tells the entrypoint w
 | Exit | Meaning | The entrypoint |
 |---|---|---|
 | 0 | A task was pulled | Starts the harness on it |
-| 3 | No open task | Stops: the cell is done |
-| 4 | Open tasks exist, but others hold them or a claim isn't settled | Waits (`--json` gives `retry_after`, the earliest claim end) and pulls again |
+| 3 | No open task, or none could be claimed and none is held by others | Stops: the cell is done |
+| 4 | Open tasks exist, but others hold them or a claim isn't settled | Waits until `retry_after`, when to pull again, and pulls |
 | 2 | Not attached | Stops, and `attach --check` names the cause |
 | 1 | Any other failure | Stops |
 
-After the cell pushes, `metabob-mcp finding close --commits-from <file>` closes the findings its own commits name in
-a `Fixes-Finding:` trailer, once they are merged ([SPEC § task pull](SPEC.md#task-pull)).
+With `--json`, the reply is one JSON line, on standard output for exit 0 and on standard error for every other
+exit, so an entrypoint reads `retry_after` for exit 4 from standard error. The task and work directories must be
+empty or missing, or it exits 1: a restarted cell starts from a fresh clone and resumes the claim, not any work
+it hadn't pushed ([SPEC § task pull](SPEC.md#task-pull)).
 
-A cell claims under `VESSEL_ID`, else an identity derived from the key and the work directory's path. Cells that
-share a key and the default `/work` therefore count as one claimer: give each cell its own `VESSEL_ID`, and keep it
-when the cell restarts so it resumes its task.
+Closing by commit has three parts:
+
+- **The commits name the task.** `finding close` acts only on a `Fixes-Finding: <id>` trailer, with the `task_id`
+  from `/task/task.json`. The skill doesn't ask for one, so the harness's prompt or the task's brief must.
+- **The list comes before the push.** After rebasing, the entrypoint lists the cell's own commits
+  (`git rev-list origin/<target>..HEAD`) into a file, then pushes.
+- **The close comes after it.** `metabob-mcp finding close --commits-from <file>` closes the findings whose fix
+  is merged into the target and marks those only pushed as pending ([SPEC § finding close](SPEC.md#finding-close)).
+
+Fixes go to `main` unless the task says otherwise. A task that should be reviewed declares `push_to: task`, which
+pushes to `task/<task id>`, as well as `integrate: review`; `integrate: review` alone still pushes to `main`. Once
+a reviewer merges the branch, nothing closes the task by itself: run `finding close` again after the merge, by
+hand, from CI or from a scheduler.
+
+Set `VESSEL_ID` in every cell, the same value for `task pull`, the harness's MCP server and `finding close`, each
+cell its own, kept across restarts. Without it, each derives an identity from the key and the work directory:
+`task pull` before the clone exists and the server inside it, so they differ, and the cell's agent reads its own
+claim as someone else's and, following the skill, takes another task.
 
 **Keeping parallel workers apart.** Two things do it, whatever starts the workers: a claim keeps a second agent off
 a task (when two claim at once, every reader settles it the same way and the later one is told it lost), and
@@ -258,7 +290,8 @@ What the ledger gives agents that a tracker doesn't:
 - **Memory linked to the code.** Decisions, rejected approaches and handoffs are linked to the repository and its
   tasks, and ranked by how often they helped (§ 11).
 - **Findings in front of the next editor.** A problem recorded on a file comes back to the next agent that reads
-  the ledger for that file, and the Claude Code plugin asks for that read before an agent's first edit of a file.
+  the ledger for that file, and while the server is attached the Claude Code plugin asks for that read before an
+  agent's first edit of an existing file.
 
 ## 10. Who does what, and where
 
@@ -268,11 +301,11 @@ What the ledger gives agents that a tracker doesn't:
 | A planner agent | Reads the source, records the tasks, decisions and steps (§ 7) |
 | Worker agents | Claim a task, work inside its files, close it with the commit or hand it off |
 | Agent cells | Run workers unattended: `task pull`, the harness, then `finding close` (§ 8) |
-| A reviewer | Merges the task branches a review policy pushes to; a fix there stays pending until the merge |
+| A reviewer | Merges the `task/<id>` branches of tasks that declare `push_to: task`; a fix there stays pending until the merge and a later `finding close` |
 
 | Where | Holds or does |
 |---|---|
-| The MCP server, on each agent's machine | Indexes the workspace, guards every outgoing string, checks git for the fix commit, and matches recalled items to your files; sends no file contents (§ 12) |
+| The MCP server, on each agent's machine | Indexes the workspace when an agent calls `init_workspace`, guards every outgoing string, reads the checkout's commits and remote-tracking branches for the fix commit (only `finding close` fetches), and matches recalled items to your files; sends no file contents (§ 12) |
 | The shared service (metabob) | Tasks, claims, verdicts, decisions, handoffs, links and credit, for your whole organization |
 | Your git origin | Pushes, merges and CI; a close is checked against what it holds |
 
