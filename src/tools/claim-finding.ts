@@ -36,7 +36,7 @@ export const ClaimFindingTool = {
     'Say you are starting work on a finding, so other agents do not start the same work: claim it before you begin, renew while you work, release if you stop. '
     + 'get_problems shows a live claim as "claimed by … until …". A finding someone else holds is reported with its holder and is not claimed. '
     + 'Two agents claiming at once are settled the same way for every reader: the earlier claim holds it, and the later claimer withdraws. '
-    + 'A claim lapses at its end unless renewed; a mark_complete that closes the finding ends it (a pending endorse does not). Ids are agf_* or concept_*.',
+    + 'A claim lapses at its end unless renewed; a mark_complete that closes the finding ends it (a pending endorse does not), and this session\'s claims are released when its server shuts down. Ids are agf_* or concept_*.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -147,6 +147,15 @@ export interface ClaimOptions {
   withdrawUnsettled?: boolean;
 }
 
+// @anchor session-claims
+/**
+ * The claims this server process holds through claim_finding, by finding key, so they are released when it shuts
+ * down (SPEC §claim_finding): a session that stops while holding a task otherwise blocks it until the claim lapses.
+ * Only the tool records here; `task pull` calls claim() directly, so its claim outlives its own process for the
+ * cell's harness to work. A kill or a crash releases nothing, and the claim lapses at its end.
+ */
+const sessionClaims = new Map<string, { problemId: string; repo: RepoIdentity | null | undefined; localStore: LocalStore | null | undefined }>();
+
 export async function handle(
   input: ClaimFindingInput,
   _apiClient: AnalysisAPIClient,
@@ -156,7 +165,39 @@ export async function handle(
 ): Promise<string> {
   const result = await claim(input, sessionId, localStore, opts);
   reportResult(result.outcome);
+  if (result.key) {
+    if (result.outcome === 'claimed' || result.outcome === 'renewed') sessionClaims.set(result.key, { problemId: input.problem_id, repo: opts.repo, localStore });
+    else if (['released', 'lost', 'closed', 'held'].includes(result.outcome)) sessionClaims.delete(result.key);
+  }
   return result.message;
+}
+
+/** The claims this process holds through claim_finding, by finding key. */
+export function heldSessionClaims(): string[] {
+  return [...sessionClaims.keys()];
+}
+
+/**
+ * Release the claims this process took through claim_finding and still holds, at shutdown, within `budgetMs`
+ * altogether. A finding closed since is left alone (claim() answers `closed` and writes nothing), and so is a claim
+ * another agent holds now. Best effort: what is not released in the budget lapses at its end.
+ */
+export async function releaseSessionClaims(sessionId: string, budgetMs = 5_000): Promise<{ released: string[]; left: string[] }> {
+  const released: string[] = [];
+  const work = (async () => {
+    for (const [key, { problemId, repo, localStore }] of [...sessionClaims]) {
+      const r = await claim(InputSchema.parse({ problem_id: problemId, action: 'release' }), sessionId, localStore, { repo, pauses: [] });
+      if (r.outcome === 'released') released.push(key);
+      sessionClaims.delete(key);
+    }
+  })().catch(() => undefined);
+  await Promise.race([work, new Promise<void>((resolve) => setTimeout(resolve, budgetMs).unref?.())]);
+  return { released, left: [...sessionClaims.keys()] };
+}
+
+/** Tests only: forget the claims this process recorded. */
+export function resetSessionClaimsForTests(): void {
+  sessionClaims.clear();
 }
 
 /** claim_finding's work, with its outcome as a value: what `metabob-mcp task pull` acts on. */

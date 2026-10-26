@@ -357,6 +357,7 @@
         ],
         "SPEC": [
           "attachment",
+          "claim_finding",
           "outgoing-text-guard",
           "workspace"
         ]
@@ -966,6 +967,11 @@
           "tool-sets"
         ]
       },
+      "tests/workflows/w14-claim-release.test.ts": {
+        "SPEC": [
+          "claim_finding"
+        ]
+      },
       "tests/workflows/w2-ledger.test.ts": {
         "SPEC": [
           "outgoing-text-guard"
@@ -1276,6 +1282,7 @@
         "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS",
         "src/tools/claim-finding.ts@claimWarning",
         "src/tools/claim-finding.ts@handle",
+        "src/tools/claim-finding.ts@session-claims",
         "src/tools/concept-create.ts@concept-author-stamp",
         "src/tools/concept-create.ts@handle",
         "src/tools/concept-link.ts@handle",
@@ -1495,6 +1502,7 @@
       "src/tools/claim-finding.ts@READ_BACK_PAUSES_MS": "2ff747fa54f6",
       "src/tools/claim-finding.ts@claimWarning": "451fb20b7f06",
       "src/tools/claim-finding.ts@handle": "4bdf740420c9",
+      "src/tools/claim-finding.ts@session-claims": "8d64a30d9de1",
       "src/tools/concept-create.ts@concept-author-stamp": "8d64a30d9de1",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",
       "src/tools/concept-link.ts@handle": "4bdf740420c9",

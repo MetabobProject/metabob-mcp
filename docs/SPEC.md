@@ -956,6 +956,13 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
    A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
 4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
 
+**A session's claims end with it** (`src/tools/claim-finding.ts@session-claims`). The server keeps the claims it
+took through `claim_finding` and still holds. On a normal shutdown (stdin EOF, a closed stdout, SIGINT, SIGTERM,
+SIGHUP) it releases each one, best effort, within 5 s altogether, while the attachment is still up, and logs which
+it released. A finding closed since is left alone, as is one another agent holds now. A kill or a crash releases
+nothing: the claim lapses at its end, as it always does. `task pull` claims outside the tool, so its claim
+outlives its own process for the cell's harness to work.
+
 **The read window.** Claims are found as verdicts are (§ get_problems, verdicts past the window): the `finding_verdict` list read the recall uses, and, when that read is truncated, the verdicts and claims linked to each recalled finding, read through `conceptGraph`.
 
 **Refusals.** A claim must name its holder, so with no vessel identity nothing is written. A read-only key writes nothing and says `key_read_only`. When the verdict scan reached its limit, the finding's linked claims are read too (§ get_problems), and the reply says a claim written before claims were linked may have been missed.

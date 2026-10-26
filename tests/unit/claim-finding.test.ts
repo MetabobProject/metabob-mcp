@@ -22,6 +22,7 @@ afterAll(() => setResolverIdentity({ vesselId: undefined }));
 afterEach(() => {
   cleanupTempStores();
   setAttachment(null);
+  ClaimFinding.resetSessionClaimsForTests();
 });
 
 const api = {} as AnalysisAPIClient;
@@ -121,6 +122,35 @@ describe('claim_finding', () => {
     expect(await run(store, { action: 'release' })).toContain('Released your claim');
     expect(String(rows[2]!.content)).toContain('verdict: claim withdrawn');
     expect(await run(store, { action: 'release' })).toContain('You hold no claim');
+  });
+
+  test('at shutdown the claims this session took are released; a closed finding is left alone', async () => {
+    const { rows } = await db();
+    const store = seeded();
+    await run(store);
+    expect(ClaimFinding.heldSessionClaims()).toEqual(['agf_task1']);
+    const out = await ClaimFinding.releaseSessionClaims('s1', 5_000);
+    expect(out).toEqual({ released: ['agf_task1'], left: [] });
+    expect(String(rows.at(-1)!.content)).toContain('verdict: claim withdrawn');
+
+    // Claimed, then closed: the release writes nothing.
+    const closed = await db();
+    const store2 = seeded();
+    await run(store2);
+    await MarkComplete.handle(MarkComplete.InputSchema.parse({ problem_id: 'agf_task1' }), api, 's1', store2, NO_GIT);
+    const writes = closed.rows.length;
+    expect((await ClaimFinding.releaseSessionClaims('s1', 5_000)).released).toEqual([]);
+    expect(closed.rows).toHaveLength(writes);
+  });
+
+  test('a claim made by calling claim() directly (task pull) is not released at shutdown', async () => {
+    const { rows } = await db();
+    const store = seeded();
+    const r = await ClaimFinding.claim(ClaimFinding.InputSchema.parse({ problem_id: 'agf_task1' }), 's1', store, { pauses: [0, 0, 0] });
+    expect(r.outcome).toBe('claimed');
+    expect(ClaimFinding.heldSessionClaims()).toEqual([]);
+    expect(await ClaimFinding.releaseSessionClaims('s1', 5_000)).toEqual({ released: [], left: [] });
+    expect(rows).toHaveLength(1);
   });
 
   test('a finding another agent holds is reported with its holder and not claimed', async () => {

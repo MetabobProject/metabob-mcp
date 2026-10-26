@@ -21,6 +21,7 @@ console.debug = console.error;
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { serverInstructions } from './server-instructions.js';
+import { heldSessionClaims, releaseSessionClaims } from './tools/claim-finding.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -593,6 +594,14 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     log('info', 'Shutting down...', { reason });
+
+    // A session that ends while holding a claim would block the finding until the claim lapses: release what this
+    // process claimed through claim_finding, best effort and bounded, while the attachment is still up.
+    // SPEC §claim_finding
+    if (heldSessionClaims().length) {
+      const { released, left } = await releaseSessionClaims(SESSION_ID, 5_000);
+      log('info', 'Released this session\'s claims at shutdown', { released, ...(left.length ? { left } : {}) });
+    }
 
     attachment?.stop();
     stopAttachedMarker();

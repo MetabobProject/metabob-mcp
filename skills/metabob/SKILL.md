@@ -66,13 +66,14 @@ Reading costs nothing and changes no ranking, so read freely.
 A task is a ledger entry in category `task`. If you were handed a task id, it's
 in `get_problems`. Otherwise pick an open task nobody holds.
 
-- `claim_finding { problem_id, minutes }` before you start, so nobody starts the
-  same work. If two agents claim at once, every reader settles it the same way
+- `claim_finding { problem_id, minutes: 30 }` before you start, so nobody starts
+  the same work. If two agents claim at once, every reader settles it the same way
   and the later claimer is told it lost. A task someone else holds is theirs:
   take another.
-- Renew before the claim runs out on long work (`action: "renew"`). If you stop
-  without finishing, write a handoff (below) and `action: "release"`, so the
-  next agent can pick it up now instead of waiting for the claim to lapse.
+- Claim for about 30 minutes and renew while you work (`action: "renew"`),
+  rather than claiming for hours: a short claim frees the task soon if you stop
+  without releasing it. If you stop without finishing, write a handoff (below)
+  and `action: "release"`, so the next agent can pick it up now.
 - Stay inside the files the task says it owns. If you need to change something
   outside them, record that as its own task rather than widening yours. Stated,
   disjoint ownership is what lets agents work in parallel without colliding.
@@ -81,6 +82,12 @@ in `get_problems`. Otherwise pick an open task nobody holds.
 
 Record things when you learn them, not at the end. An execution can stop at any
 point, and what it didn't write is lost.
+
+- **Push working pieces as you go,** where the person you work for allows a
+  push, not only at the end: a session can stop at any turn, and work that isn't
+  pushed is lost with it.
+- **A commit that resolves a task** carries the task's id as its last line,
+  `Fixes-Finding: <the task's agf_ id>`, so a close by commit can find it.
 
 - **A problem you won't fix now:** `record_finding { files, summary, severity,
   category, details }`. A problem mentioned only in your reply is gone when
@@ -115,6 +122,10 @@ point, and what it didn't write is lost.
   don't credit what you wrote yourself, and skip concepts you only skimmed.
 
 ## Finishing
+
+When your session nears its limit, or you are about to stop for any reason, do
+these in order: push what works, leave a handoff, release the claim. A claim you
+don't release holds the task from everyone until it lapses.
 
 - **Close what you finished** with `mark_complete { problem_id, action:
   "endorse" }`, after you commit the work, and after you push it where the

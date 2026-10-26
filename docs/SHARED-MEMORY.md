@@ -253,7 +253,7 @@ it hadn't pushed ([SPEC § task pull](SPEC.md#task-pull)).
 Closing by commit has three parts:
 
 - **The commits name the task.** `finding close` acts only on a `Fixes-Finding: <id>` trailer, with the `task_id`
-  from `/task/task.json`. The skill doesn't ask for one, so the harness's prompt or the task's brief must.
+  from `/task/task.json`. The `metabob` skill asks for one; a harness prompt or the task's brief can repeat it.
 - **The list comes before the push.** After rebasing, the entrypoint lists the cell's own commits
   (`git rev-list origin/<target>..HEAD`) into a file, then pushes.
 - **The close comes after it.** `metabob-mcp finding close --commits-from <file>` closes the findings whose fix
