@@ -234,8 +234,8 @@
         "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
       },
       "docs/SUBSTRATE-GUIDE.md": {
-        "at": "b5ec9ee",
-        "why": "it points to SPEC § claim_finding for the claim rules, which describe the trusted release"
+        "at": "bd52120",
+        "why": "it defers the claim rules to SPEC § claim_finding"
       },
       "docs/USER-GUIDE.md": {
         "at": "db46c4f",
