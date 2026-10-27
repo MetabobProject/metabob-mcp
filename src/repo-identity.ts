@@ -289,7 +289,9 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const after = timed ? recordedAt!.getTime() - FIX_SKEW_MS : NaN;
   const commit = (sha: string, extra: { elsewhere?: boolean; claimed?: boolean; predates?: boolean } = {}): FixLocation => {
     const remotes = (fgit(cwd, ['branch', '-r', '--contains', sha]) ?? '').split('\n').map(b => b.trim()).filter(b => b && !b.includes(' -> '));
-    const awaiting = remotes.length > 0 && remotes.every(b => /^[^/]+\/task\//.test(b));
+    // On task branches only, the fix awaits its merge, unless a task branch is the target itself (push_to: task with
+    // integrate: push, where the push is the integration).
+    const awaiting = remotes.length > 0 && remotes.every(b => /^[^/]+\/task\//.test(b)) && !/^[^/]+\/task\//.test(head);
     return { kind: 'commit', sha, branch, pushed: remotes.length > 0, ...extra, ...(awaiting ? { awaitingMerge: defaultBranch(cwd) } : {}) };
   };
 

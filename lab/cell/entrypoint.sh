@@ -12,6 +12,7 @@
 # env (from the 0600 env file): METABOB_API_KEY, ANTHROPIC_API_KEY, DISCOVERY_ENDPOINT, CELL_ORIGIN
 #      optional: CELL_MODEL (claude-sonnet-5), CELL_WALL_S (1800), CELL_BUDGET_USD (5), CELL_CLAIM_MINUTES (45),
 #                CELL_VESSEL_ID (the cell's identity; metabob-cell-<container hostname> by default),
+#                METABOB_CLAIM_RELEASERS (vessel ids whose release of a claim task pull and the server take),
 #                CELL_SKIP_HARNESS=1 (everything but the harness: the recipe's smoke test)
 # exit: the harness's code, or task pull's (1 failure, 2 not attached or a missing input, 3 no open task, 4 tasks held
 #       by others or a claim not settled)
@@ -112,7 +113,7 @@ meta[base]="$BASE"
 # 3. the harness
 cat > "$PRIVATE/mcp.json" <<EOF
 { "mcpServers": { "metabob": { "command": "node", "args": ["$MCP"],
-  "env": { "METABOB_CONFIG_PATH": "$PRIVATE/config.json", "METABOB_CALL_LOG": "$OUT/calls.jsonl", "SESSION_ID": "$SESSION_ID", "VESSEL_ID": "$VESSEL_ID" } } } }
+  "env": { "METABOB_CONFIG_PATH": "$PRIVATE/config.json", "METABOB_CALL_LOG": "$OUT/calls.jsonl", "SESSION_ID": "$SESSION_ID", "VESSEL_ID": "$VESSEL_ID", "METABOB_CLAIM_RELEASERS": "${METABOB_CLAIM_RELEASERS:-}" } } } }
 EOF
 PROMPT="You are an agent cell working one task from a shared ledger, in this repository (/work).
 The task and its context: /task/task.json and /task/context.md. Read them first. The task's finding id is $TASK_ID.

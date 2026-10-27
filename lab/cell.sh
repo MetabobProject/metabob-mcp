@@ -10,7 +10,7 @@
 #
 #   env: CELL_LABEL (network-fork), CELL_CPUS (2), CELL_MEM (4g), CELL_NETWORK (metabob-lab), LAB_KEYS_DIR (lab/keys),
 #        CELL_MODEL, CELL_WALL_S, CELL_BUDGET_USD, CELL_CLAIM_MINUTES (passed to the cell; see cell/entrypoint.sh),
-#        METABOB_EDIT_CHECK=off (passed through)
+#        METABOB_EDIT_CHECK=off and METABOB_CLAIM_RELEASERS (passed through)
 #
 # Keys: the cell's env file holds METABOB_API_KEY (keys/mcp-rw.key) and ANTHROPIC_API_KEY (from the environment, else
 # the substrate installer's providers.anthropic.apiKey). It is written 0600 in a private temp directory, read once by
@@ -88,7 +88,7 @@ cmd_run() {
     printf 'METABOB_API_KEY=%s\n' "$(cat "$KEYS/mcp-rw.key")"
     if [ -z "$skip" ]; then k="$(anthropic_key)" || { echo "no ANTHROPIC_API_KEY" >&2; exit 1; }; printf 'ANTHROPIC_API_KEY=%s\n' "$k"; fi
     printf 'DISCOVERY_ENDPOINT=%s\nCELL_ORIGIN=%s\nCELL_EGRESS=%s\n' "$discovery" "$origin" "$egress"
-    for v in CELL_MODEL CELL_WALL_S CELL_BUDGET_USD CELL_CLAIM_MINUTES METABOB_EDIT_CHECK; do
+    for v in CELL_MODEL CELL_WALL_S CELL_BUDGET_USD CELL_CLAIM_MINUTES METABOB_EDIT_CHECK METABOB_CLAIM_RELEASERS; do
       [ -n "${!v:-}" ] && printf '%s=%s\n' "$v" "${!v}"
     done
     [ -n "$skip" ] && echo CELL_SKIP_HARNESS=1

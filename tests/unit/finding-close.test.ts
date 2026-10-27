@@ -137,6 +137,18 @@ describe('closeFromCommits', () => {
     expect(renderFindingsSection(recalled, { max: 10 })).toContain('[fix pending: pushed by metabob-mcp-cell1, awaiting merge into main]');
   });
 
+  test('with a task branch as the target (push_to: task, integrate: push), the push closes the finding', async () => {
+    const r = repo('task-target');
+    const rows = await ledger(r.repoId);
+    git(r.work, 'checkout', '-qb', 'task/agf_avg1');
+    writeFileSync(join(r.work, 'stats.ts'), 'fixed\n');
+    git(r.work, 'commit', '-qam', 'fix\n\nFixes-Finding: agf_avg1');
+    git(r.work, 'push', '-q', 'origin', 'task/agf_avg1');
+    const out = await close(r.work, `${r.base}..HEAD`, 'task/agf_avg1');
+    expect(out.reports[0]!.outcome).toBe('closed');
+    expect(verdicts(rows)[0]).toContain('verdict: endorsed (resolved)');
+  });
+
   test('unpushed, reverted, another repository\'s id and a closed finding write nothing', async () => {
     const r = repo('nothing');
     const rows = await ledger(r.repoId);
