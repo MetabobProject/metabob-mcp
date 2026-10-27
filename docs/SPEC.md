@@ -563,7 +563,7 @@ A `ref:` must be a branch name `git check-ref-format --branch` accepts, must not
 - `integrate`: `push` or `review`; default `push`;
 - `conflicts`: `rebase`.
 
-A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder, in which case `task.json` records `trust.defaulted: true`. The author of a row is the key that wrote it, as the host stamps it (§ Written by): the list names keys, by name or id; a row from before the stamp is read by its declared `recorded_by:`. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied.
+A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder, in which case `task.json` records `trust.defaulted: true`. The author of a row is the key that wrote it, as the host stamps it (§ Written by): the list names keys, by id (or name); a row from before the stamp is read by its declared `recorded_by:`. The default, the task's own writer, is a key too, so where agents share one key every agent's conventions count as the recorder's: give each agent that records tasks or conventions its own key. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied.
 
 **Exit codes:**
 - 0: a task was pulled.
@@ -601,7 +601,7 @@ The reply lists what each candidate's claim did.
 
 ## Written by
 
-The host stamps every concept-db row with the key that wrote it: `written_by` (the key's name) and `written_by_key` (its id), from the credential, so unlike the author lines a row declares (`recorded_by:`, `reviewed_by:`, `client_claim`), it cannot be written by an agent. Trust reads the stamp where a row carries it and the declared line only on a row from before the stamp (`src/tools/_concept-db.ts@stamped-writer`): `METABOB_CLAIM_RELEASERS` (§ claim_finding) and `METABOB_TASK_TRUST` (§ task pull) name keys. `concept_search` shows each row's `written by:` and `get_problems` each recalled finding's and task's, so a base prompt can apply the same rule. Each agent that must be trusted needs its own key.
+The host stamps every concept-db row with the key that wrote it: `written_by` (the key's name) and `written_by_key` (its id), from the credential, so unlike the author lines a row declares (`recorded_by:`, `reviewed_by:`, `client_claim`), it cannot be written by an agent. Trust reads the stamp where a row carries it and the declared line only on a row from before the stamp (`src/tools/_concept-db.ts@stamped-writer`): `METABOB_CLAIM_RELEASERS` (§ claim_finding) and `METABOB_TASK_TRUST` (§ task pull) name keys, and a vessel id in them matches only rows from before the stamp, which are trusted by their declared author, forged or not. Name a key by its id: its name is a convenience, and two keys can share one, as can a key and the key it was regenerated from. `concept_search` shows each row's `written by:` and `get_problems` each recalled finding's and task's, so a base prompt can apply the same rule. Each agent that must be trusted needs its own key.
 
 ## Client claim
 
