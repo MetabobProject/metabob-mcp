@@ -33,7 +33,7 @@ export const ConceptNeighborsTool = {
       },
       concept_id: {
         type: 'string',
-        description: 'Concept id (without the "concept:" prefix). From concept_search results.',
+        description: 'Concept id, with or without the "concept:" prefix. From concept_search results.',
       },
       direction: {
         type: 'string',

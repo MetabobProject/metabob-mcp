@@ -128,7 +128,7 @@ export const WRITES_THROUGH_ESCAPE_HATCH: Readonly<Record<string, string>> = {
  * registry-vocabulary.json decides every shape of a live vocabulary, and the test holds
  * this list to it.
  */
-/** The trace reads: cut at their timeout, the query keeps running in activity-api, so they are sent once. */
+/** The trace reads: cut at their timeout, the query keeps running in activity-api, so they are not retried. */
 const TRACE_READS: ReadonlySet<string> = new Set(['activityExecutionTrace', 'executionTraceList', 'executionTraces']);
 
 // @anchor escape-hatch-reads

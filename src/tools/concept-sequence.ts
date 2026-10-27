@@ -30,7 +30,7 @@ export const ConceptSequenceTool = {
     properties: {
       concept_id: {
         type: 'string',
-        description: 'Concept id (without the "concept:" prefix).',
+        description: 'Concept id, with or without the "concept:" prefix.',
       },
       direction: {
         type: 'string',

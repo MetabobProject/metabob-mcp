@@ -67,7 +67,7 @@ function line(content: string, key: string): string {
 
 let releasersOverride: ReadonlySet<string> | null = null;
 
-/** The writers (key names) this reader trusts to release someone else's claim: METABOB_CLAIM_RELEASERS, comma-separated. */
+/** The writers (keys, by name or id) this reader trusts to release someone else's claim: METABOB_CLAIM_RELEASERS, comma-separated. */
 export function claimReleasers(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
   if (releasersOverride) return releasersOverride;
   return new Set((env.METABOB_CLAIM_RELEASERS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
