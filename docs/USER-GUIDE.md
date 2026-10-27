@@ -157,6 +157,7 @@ Start with `npx @metabob/mcp attach --check`.
 | `anchor_unreachable` | Discovery didn't answer at the address set: check it and the network |
 | `identity_unreachable`, `blocked_by_portal` | A network problem: sign in to the network or ask IT to allow the host |
 | `proxy_auth_required(…)`, `tls_intercepted(…)` | Set the proxy or certificate (§ 5); `npx @metabob/mcp doctor` writes a report for IT |
+| `get_analysis_context` says "attaching (first attempt in progress)" | Wait a few seconds; the next call tries again |
 | `workspace_undetermined` | Ask the agent to call `init_workspace` with the project's absolute path |
 | The tools don't appear | Check `git` and Node on PATH, then reconnect from `/mcp` |
 | More than eleven tools appear | `METABOB_TOOLS` is set where the server starts, or the server is older than 0.4.0 |
