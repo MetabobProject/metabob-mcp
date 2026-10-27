@@ -12,7 +12,7 @@
       "name": "metabob",
       "source": "./plugin",
       "description": "Metabob MCP: a shared work ledger, code-structure tools and the substrate cockpit for AI agents",
-      "version": "0.4.0-rc.5",
+      "version": "0.4.0",
       "category": "development",
       "keywords": [
         "code-intelligence",
