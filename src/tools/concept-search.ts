@@ -97,7 +97,7 @@ function renderConceptRow(c: ConceptRow, index: number, mode: 'preview' | 'full'
   if (c.summary) out += `   summary:  ${c.summary}\n`;
   out += `   metrics:  rel=${rel}  loaded=${tl}  succeeded=${ts}${tf ? `  failed=${tf}` : ''}\n`;
   if (c.updated_at) out += `   updated:  ${c.updated_at}\n`;
-  if (c.written_by) out += `   written by: ${c.written_by} (the writing key, stamped by the host)\n`;
+  if (c.written_by) out += `   written by: ${c.written_by}${c.written_by_key ? ` (${c.written_by_key})` : ''}, the writing key the host stamped\n`;
   out += renderConceptContent(c.content, mode, { conceptId: id, budget: PREVIEW_CHAR_BUDGET });
   out += '\n';
   return out;

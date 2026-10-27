@@ -215,9 +215,10 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
     };
     const details = taskDetails(task.content);
     const recorder = task.writtenBy || header(task.content, 'recorded_by');
-    // Without a configured trust list, the task's recorder vouches for the conventions that shape it: recorded as defaulted.
+    // Without a configured trust list, the task's recorder (its writing key, by name and id) vouches for the
+    // conventions that shape it: recorded as defaulted.
     const trustDefaulted = a.trust.length === 0;
-    const trusted = new Set(trustDefaulted ? (recorder ? [recorder] : []) : a.trust);
+    const trusted = new Set(trustDefaulted ? [recorder, task.writtenByKey ?? ''].filter(Boolean) : a.trust);
     const conventions = await readConventions(repo);
     const policy = integrationPolicy(key, details, conventions, trusted);
     for (const r of policy.rejected) process.stderr.write(`warn: integration policy: ${r}\n`);
