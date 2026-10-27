@@ -222,6 +222,7 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
     const trustDefaulted = a.trust.length === 0;
     const trusted = new Set(trustDefaulted ? [recorder, task.writtenByKey ?? ''].filter(Boolean) : a.trust);
     const conventions = await readConventions(repo);
+    if ('error' in conventions) return release(`task ${key} was not set up: ${conventions.error}, so its integration policy is unknown`);
     const policy = integrationPolicy(key, details, conventions, trusted);
     for (const r of policy.rejected) process.stderr.write(`warn: integration policy: ${r}\n`);
     const ref = declared(details, 'ref');
@@ -319,9 +320,11 @@ export function conventionNotInEffect(c: Convention, trusted: ReadonlySet<string
  * The repository's project_convention concepts, newest first, with their endorsements, rejections and rulings. Each
  * shape is read the way recall reads findings: pages of 300 by offset, up to four (src/tools/_findings.ts@scanConceptShape).
  */
-async function readConventions(repo: RepoIdentity): Promise<Convention[]> {
+async function readConventions(repo: RepoIdentity): Promise<Convention[] | { error: string }> {
+  // Fail closed: with the conventions or the rulings unread, the defaults (push to main) could override a review
+  // policy, or a retired convention bind again. A failed verdict read only drops endorsements, which fails closed.
   const found = await scanConceptShape(PROJECT_CONVENTION_SHAPE);
-  if (!found.ok) return [];
+  if (!found.ok) return { error: `the conventions could not be read (${found.detail})` };
   const rows = found.rows
     .filter(r => header(String(r.content ?? ''), 'repo').toLowerCase() === repo.id)
     .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')));
@@ -340,7 +343,8 @@ async function readConventions(repo: RepoIdentity): Promise<Convention[]> {
     else if (verdict === 'rejected') add(rejected, target, writerOf(v, 'reviewed_by'));
   }
   const rulings = await scanConceptShape(RULING_SHAPE);
-  for (const r of rulings.ok ? rulings.rows : []) {
+  if (!rulings.ok) return { error: `the rulings could not be read (${rulings.detail})` };
+  for (const r of rulings.rows) {
     const content = String(r.content ?? '');
     const outcome = header(content, 'outcome');
     const list = (key: string) => header(content, key).split(',').map(x => plainConceptId(x.trim())).filter(Boolean);

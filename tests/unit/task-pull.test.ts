@@ -94,7 +94,7 @@ describe('pullTask', () => {
     return { url: bare, repo: normalizeRemoteUrl(bare)! };
   }
 
-  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string; repo?: string; files?: string }>, verdicts: Array<Record<string, unknown>> = [], opts: { writesUnseen?: Array<Record<string, unknown>> } = {}) {
+  async function ledger(repo: string, tasks: Array<{ n: string; sev: string; details?: string; repo?: string; files?: string }>, verdicts: Array<Record<string, unknown>> = [], opts: { writesUnseen?: Array<Record<string, unknown>>; failShapes?: string[] } = {}) {
     const rows: Array<Record<string, unknown>> = [
       ...tasks.map(t => ({
         id: `concept:concept_${t.n}`, shape: 'code_finding', summary: `[${t.sev}][task] r: task ${t.n}`, created_at: new Date(Date.now() - 3_600_000).toISOString(),
@@ -104,7 +104,9 @@ describe('pullTask', () => {
     ];
     let n = 0;
     await installShapeStub({
-      conceptSearch: (p) => ({ body: { content: rows.filter(r => r.shape === p.shape) } }),
+      conceptSearch: (p) => (opts.failShapes?.includes(String(p.shape))
+        ? { status: 503, body: { error: 'concept-db is restarting' } }
+        : { body: { content: rows.filter(r => r.shape === p.shape) } }),
       conceptGraph: (p) => {
         const root = rows.find(r => String(r.id) === `concept:${p.concept_id}`);
         return root ? { body: { content: { root, edges: [] } } } : { status: 404, body: { error: 'Concept not found' } };
@@ -162,6 +164,23 @@ describe('pullTask', () => {
     const task = JSON.parse(readFileSync(join(a.taskDir, 'task.json'), 'utf8'));
     // The retired one's integrate: review is gone; the endorsed proposal's push_to: task holds.
     expect(task.policy).toMatchObject({ push_to: 'task/agf_c1', integrate: 'push', source: { push_to: 'convention pc_new by coord-key', integrate: 'default' } });
+  });
+
+  test('with the conventions or the rulings unread, task pull withdraws its claim and exits 1, writing no task', async () => {
+    for (const shape of ['project_convention', 'ruling']) {
+      const o = origin(`o-unread-${shape}`);
+      const at = new Date(Date.now() - 600_000).toISOString();
+      const rows = await ledger(o.repo, [{ n: 'u1', sev: 'HIGH' }], [
+        { id: 'concept:pc_u', shape: 'project_convention', created_at: at, content: `kind: policy\nrepo: ${o.repo}\nrecorded_by: coord\n\nintegrate: review` },
+      ], { failShapes: [shape] });
+      const a = args(o.url, `punread-${shape}`);
+      const r = await pullTask(a, 'sess1', 'metabob-mcp-cell1', [0, 0, 0]);
+      expect(r.code).toBe(1);
+      expect(r.message).toContain(shape === 'ruling' ? 'the rulings could not be read' : 'the conventions could not be read');
+      expect(r.message).toContain('was withdrawn');
+      expect(existsSync(join(a.taskDir, 'task.json'))).toBe(false);
+      expect(rows.some(x => String(x.content).includes('verdict: claim withdrawn'))).toBe(true);
+    }
   });
 
   test('a vessel origin pulls a task recorded in the super-repo on its files, with the paths mapped', async () => {
