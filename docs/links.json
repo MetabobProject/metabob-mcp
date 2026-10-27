@@ -233,8 +233,8 @@
         "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
       },
       "docs/SUBSTRATE-GUIDE.md": {
-        "at": "bd52120",
-        "why": "it defers the claim rules to SPEC § claim_finding"
+        "at": "af636e8",
+        "why": "it defers claim and trust rules to SPEC § claim_finding and § Written by"
       },
       "docs/USER-GUIDE.md": {
         "at": "db46c4f",
