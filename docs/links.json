@@ -209,12 +209,12 @@
     ],
     "reviewed": {
       "CLAUDE.md": {
-        "at": "ccf6507",
-        "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
+        "at": "a6d6050",
+        "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "cb3b9ed",
-        "why": "the rc.5 bump changes only the pinned version in the bundles; README names no version"
+        "at": "a6d6050",
+        "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
@@ -237,8 +237,8 @@
         "why": "it defers claim and trust rules to SPEC § claim_finding and § Written by"
       },
       "docs/USER-GUIDE.md": {
-        "at": "db46c4f",
-        "why": "the skills' anchor template gains a repo: line; the doc does not show the template"
+        "at": "a6d6050",
+        "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "lab/README.md": {
         "at": "e978c22",
@@ -1195,6 +1195,7 @@
         "src/repo-identity.ts@fix-location",
         "src/server-instructions.ts@serverInstructions",
         "src/task-pull.ts@candidateTasks",
+        "src/task-pull.ts@convention-in-effect",
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@readConventions",
         "src/task-pull.ts@runTaskPull",
@@ -1300,6 +1301,7 @@
         "src/server-instructions.ts@serverInstructions",
         "src/sqlite.ts",
         "src/task-pull.ts@candidateTasks",
+        "src/task-pull.ts@convention-in-effect",
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@runTaskPull",
         "src/task-pull.ts@validRef",
@@ -1528,8 +1530,9 @@
       "src/server-instructions.ts@FULL_INSTRUCTIONS": "b41ead278ce5",
       "src/server-instructions.ts@serverInstructions": "e4da65e82021",
       "src/task-pull.ts@candidateTasks": "b837bf561ed5",
+      "src/task-pull.ts@convention-in-effect": "8d64a30d9de1",
       "src/task-pull.ts@integration-policy": "8d64a30d9de1",
-      "src/task-pull.ts@readConventions": "746de6aa6f50",
+      "src/task-pull.ts@readConventions": "c32edf21857f",
       "src/task-pull.ts@runTaskPull": "459c7b911e07",
       "src/task-pull.ts@validRef": "c0cc3246557a",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
