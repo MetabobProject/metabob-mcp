@@ -368,7 +368,7 @@ async function main() {
   // `task pull`: a cell's entrypoint step, before any harness starts (SPEC §task-pull).
   if (process.argv[2] === 'task') {
     if (process.argv[3] !== 'pull') {
-      console.error('usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <vesselId,…>] [--json]');
+      console.error('usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]');
       process.exit(1);
     }
     const { runTaskPull } = await import('./task-pull.js');

@@ -26,11 +26,27 @@ describe('integrationPolicy', () => {
   const conv = (id: string, author: string, body: string) => ({ id, author, content: `repo: r\nrecorded_by: ${author}\n\n${body}` });
 
   test('a convention trusted by its stamped key, by name or id', () => {
-    const stamped = { id: 'cv9', author: 'ops-key', authorKey: 'key_O1', content: 'repo: r\nrecorded_by: someone\n\npush_to: task' };
+    const stamped = { id: 'cv9', author: 'ops-key', writer: ['ops-key', 'key_O1'], content: 'repo: r\nrecorded_by: someone\n\npush_to: task' };
     expect(integrationPolicy('agf_t1', '', [stamped], new Set(['ops-key'])).push_to).toBe('task/agf_t1');
     expect(integrationPolicy('agf_t1', '', [stamped], new Set(['key_O1'])).push_to).toBe('task/agf_t1');
     // The declared author is not the stamped one, and the stamp decides.
     expect(integrationPolicy('agf_t1', '', [stamped], new Set(['someone'])).push_to).toBe('main');
+  });
+
+  test('a proposed convention sets nothing until a trusted key endorses it; a rejection or a ruling ends it', () => {
+    const base = { id: 'cv7', author: 'agent-key', writer: ['agent-key'], status: 'proposed', content: 'repo: r\nstatus: proposed\n\npush_to: task' };
+    const trusted = new Set(['person-key']);
+    const policy = (c: Record<string, unknown>) => integrationPolicy('agf_t1', '', [{ ...base, ...c }], trusted);
+    expect(policy({}).push_to).toBe('main');
+    expect(policy({}).rejected[0]).toContain('proposed, not endorsed by a trusted key');
+    // Endorsed by an untrusted key: still a suggestion.
+    expect(policy({ endorsedBy: [['agent-key']] }).push_to).toBe('main');
+    expect(policy({ endorsedBy: [['person-key']] }).push_to).toBe('task/agf_t1');
+    expect(policy({ endorsedBy: [['person-key']], rejectedBy: [['person-key']] }).rejected[0]).toContain('rejected');
+    // A convention in effect by its author, retired by a trusted ruling; an untrusted ruling changes nothing.
+    const inEffect = { id: 'cv8', author: 'person-key', writer: ['person-key'], content: 'repo: r\n\npush_to: task' };
+    expect(integrationPolicy('agf_t1', '', [{ ...inEffect, retiredBy: [['person-key']] }], trusted).rejected[0]).toContain('retired or overruled by a ruling');
+    expect(integrationPolicy('agf_t1', '', [{ ...inEffect, retiredBy: [['someone']] }], trusted).push_to).toBe('task/agf_t1');
   });
 
   test('the task declares it; else a trusted convention; else the default', () => {
@@ -125,6 +141,27 @@ describe('pullTask', () => {
     const claims = rows.filter(x => String(x.content).includes('verdict: claimed'));
     expect(claims).toHaveLength(1);
     expect(String(claims[0]!.content)).toContain(`repo: ${o.repo}`);
+  });
+
+  test('a convention retired by a trusted ruling sets nothing; an endorsed proposal does', async () => {
+    const o = origin('o-conv');
+    const at = new Date(Date.now() - 600_000).toISOString();
+    const conv = (id: string, body: string, extra = '') => ({ id: `concept:${id}`, shape: 'project_convention', created_at: at,
+      written_by: 'coord-key', written_by_key: 'key_C1', content: `kind: policy\nrepo: ${o.repo}\n${extra}recorded_by: coord\n\n${body}` });
+    await ledger(o.repo, [{ n: 'c1', sev: 'HIGH' }], [
+      conv('pc_old', 'integrate: review'),
+      conv('pc_new', 'push_to: task', 'status: proposed\n'),
+      { id: 'concept:rul1', shape: 'ruling', created_at: at, written_by: 'person-key', written_by_key: 'key_P1',
+        content: `kind: ruling\nrepo: ${o.repo}\nsupersedes: pc_old\noutcome: retired\nrecorded_by: dashboard:p` },
+      { id: 'concept:end1', shape: 'finding_verdict', created_at: at, written_by: 'person-key', written_by_key: 'key_P1',
+        content: `concept: pc_new\nverdict: endorsed\nrepo: ${o.repo}\nreviewed_by: dashboard:p\norigin: dashboard` },
+    ]);
+    const a = { ...args(o.url, 'pconv'), trust: ['key_C1', 'key_P1'] };
+    const r = await pullTask(a, 'sess1', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(0);
+    const task = JSON.parse(readFileSync(join(a.taskDir, 'task.json'), 'utf8'));
+    // The retired one's integrate: review is gone; the endorsed proposal's push_to: task holds.
+    expect(task.policy).toMatchObject({ push_to: 'task/agf_c1', integrate: 'push', source: { push_to: 'convention pc_new by coord-key', integrate: 'default' } });
   });
 
   test('a vessel origin pulls a task recorded in the super-repo on its files, with the paths mapped', async () => {

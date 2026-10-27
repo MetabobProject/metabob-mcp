@@ -25,13 +25,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
 import { GIT_ENV, normalizeRemoteUrl, vesselAliases, type RepoIdentity } from './repo-identity.js';
-import { searchConcepts, stampedWriter } from './tools/_concept-db.js';
+import { searchConcepts, stampedWriter, type ConceptRow } from './tools/_concept-db.js';
 import { headerBlock, plainConceptId } from './tools/_concept-content.js';
-import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
+import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, scanVerdicts, type AgentFinding } from './tools/_findings.js';
 import { claim, InputSchema as ClaimInput } from './tools/claim-finding.js';
 import { CLAIM_DEFAULT_MINUTES } from './tools/_claims.js';
 
 export const PROJECT_CONVENTION_SHAPE = 'project_convention';
+/** The dashboard's ruling on a conflict or a retirement (kind: ruling, with resolves: or supersedes: and outcome:). */
+export const RULING_SHAPE = 'ruling';
 
 export interface IntegrationPolicy {
   push_to: string;
@@ -67,7 +69,7 @@ function declared(text: string, key: string): string | null {
 export function integrationPolicy(
   taskKey: string,
   details: string,
-  conventions: Array<{ id: string; author: string; authorKey?: string; content: string }>,
+  conventions: Convention[],
   trusted: ReadonlySet<string>,
 ): IntegrationPolicy {
   const allowed: Record<'push_to' | 'integrate' | 'conflicts', (v: string) => string | null> = {
@@ -78,9 +80,9 @@ export function integrationPolicy(
   const defaults = { push_to: 'main', integrate: 'push', conflicts: 'rebase' } as const;
   const policy: IntegrationPolicy = { ...defaults, source: { push_to: 'default', integrate: 'default', conflicts: 'default' }, rejected: [] };
   const usable = conventions.filter(c => {
-    // The author is the key the host stamped (its name, or its id), else, on an older row, the declared author.
-    if (trusted.has(c.author) || (!!c.authorKey && trusted.has(c.authorKey))) return true;
-    policy.rejected.push(`convention ${c.id} by ${c.author || 'an unattributed author'}: not a trusted author`);
+    const why = conventionNotInEffect(c, trusted);
+    if (!why) return true;
+    policy.rejected.push(`convention ${c.id} by ${c.author || 'an unattributed author'}: ${why}`);
     return false;
   });
   for (const key of ['push_to', 'integrate', 'conflicts'] as const) {
@@ -137,7 +139,7 @@ function parseArgs(args: string[]): PullArgs | string {
     return i >= 0 ? args[i + 1] : undefined;
   };
   const origin = value('--origin');
-  if (!origin) return 'usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <vesselId,…>] [--json]';
+  if (!origin) return 'usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]';
   const minutes = Number(value('--minutes') ?? CLAIM_DEFAULT_MINUTES);
   return {
     origin,
@@ -273,14 +275,86 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
   return say(3, tried.length ? `no open task could be claimed (${tried.join('; ')})` : 'no open task', { tried });
 }
 
-/** The repository's project_convention concepts, newest first, as integrationPolicy reads them. */
-async function readConventions(repo: RepoIdentity): Promise<Array<{ id: string; author: string; authorKey?: string; content: string }>> {
+/** A writer as trust lists name it: the stamped key's name and id, or, on a row from before the stamp, its declared author. */
+type Writer = string[];
+
+function writerOf(row: ConceptRow, declaredKey: 'recorded_by' | 'reviewed_by'): Writer {
+  const declared = header(String(row.content ?? ''), declaredKey);
+  return row.written_by ? [stampedWriter(row, declared), String(row.written_by_key ?? '')].filter(Boolean) : [declared].filter(Boolean);
+}
+
+/** A project_convention as integrationPolicy weighs it, with what the ledger says about it. */
+export interface Convention {
+  id: string;
+  /** Its writer, shown in a refusal: the stamped key's name, else the declared author. */
+  author: string;
+  /** Every name its writer goes by: the stamped key's name and id, or the declared author. */
+  writer?: Writer;
+  /** Its `status:` line (`proposed`), or empty when it has none. */
+  status?: string;
+  /** The writers of the verdicts that endorse it, and of those that reject it. */
+  endorsedBy?: Writer[];
+  rejectedBy?: Writer[];
+  /** The writers of the rulings that retire or overrule it (a ruling's supersedes: or resolves: with its outcome). */
+  retiredBy?: Writer[];
+  content: string;
+}
+
+// @anchor convention-in-effect
+/**
+ * Why a convention does not set a policy, or null when it does: the base prompt's rule. It is in effect when a
+ * trusted key wrote it with no `status:` line, or a trusted key's verdict endorses it and none rejects it; and no
+ * trusted key's ruling retires it, refines it, or lets the other side stand. SPEC §task-pull
+ */
+export function conventionNotInEffect(c: Convention, trusted: ReadonlySet<string>): string | null {
+  const isTrusted = (w: Writer | undefined) => !!w && w.some(n => trusted.has(n));
+  const writer = c.writer ?? [c.author];
+  if ((c.retiredBy ?? []).some(isTrusted)) return 'retired or overruled by a ruling';
+  if ((c.rejectedBy ?? []).some(isTrusted)) return 'rejected';
+  if (c.status) return (c.endorsedBy ?? []).some(isTrusted) ? null : `${c.status}, not endorsed by a trusted key`;
+  return isTrusted(writer) ? null : 'not a trusted author';
+}
+
+/** The repository's project_convention concepts, newest first, with their endorsements, rejections and rulings. */
+async function readConventions(repo: RepoIdentity): Promise<Convention[]> {
   const found = await searchConcepts({ shape: PROJECT_CONVENTION_SHAPE, limit: 50 });
   if (!found.ok) return [];
-  return found.value
+  const rows = found.value
     .filter(r => header(String(r.content ?? ''), 'repo').toLowerCase() === repo.id)
-    .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')))
-    .map(r => ({ id: plainConceptId(r.id), author: stampedWriter(r, header(String(r.content ?? ''), 'recorded_by')), authorKey: r.written_by ? String(r.written_by_key ?? '') : '', content: String(r.content ?? '') }));
+    .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')));
+  if (!rows.length) return [];
+  const ids = new Set(rows.map(r => plainConceptId(r.id)));
+  const endorsed = new Map<string, Writer[]>();
+  const rejected = new Map<string, Writer[]>();
+  const retired = new Map<string, Writer[]>();
+  const add = (m: Map<string, Writer[]>, id: string, w: Writer) => m.set(id, [...(m.get(id) ?? []), w]);
+  const verdicts = await scanVerdicts();
+  for (const v of verdicts.ok ? verdicts.rows : []) {
+    const target = plainConceptId(header(String(v.content ?? ''), 'concept'));
+    if (!ids.has(target)) continue;
+    const verdict = header(String(v.content ?? ''), 'verdict');
+    if (verdict === 'endorsed') add(endorsed, target, writerOf(v, 'reviewed_by'));
+    else if (verdict === 'rejected') add(rejected, target, writerOf(v, 'reviewed_by'));
+  }
+  const rulings = await searchConcepts({ shape: RULING_SHAPE, limit: 50 });
+  for (const r of rulings.ok ? rulings.value : []) {
+    const content = String(r.content ?? '');
+    const outcome = header(content, 'outcome');
+    const list = (key: string) => header(content, key).split(',').map(x => plainConceptId(x.trim())).filter(Boolean);
+    const out: string[] = outcome === 'retired' ? list('supersedes')
+      : outcome === 'refined' ? list('resolves')
+      : outcome === 'a' ? list('resolves').slice(1, 2)
+      : outcome === 'b' ? list('resolves').slice(0, 1) : [];
+    for (const id of out) if (ids.has(id)) add(retired, id, writerOf(r, 'recorded_by'));
+  }
+  return rows.map(r => {
+    const id = plainConceptId(r.id);
+    const content = String(r.content ?? '');
+    return {
+      id, author: stampedWriter(r, header(content, 'recorded_by')), writer: writerOf(r, 'recorded_by'),
+      status: header(content, 'status'), endorsedBy: endorsed.get(id), rejectedBy: rejected.get(id), retiredBy: retired.get(id), content,
+    };
+  });
 }
 
 function contextFile(record: { task_id: string; summary: string; files: string[]; subject: string | null; details: string; policy: unknown }, task: AgentFinding, related: AgentFinding[]): string {
