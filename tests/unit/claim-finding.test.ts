@@ -236,6 +236,17 @@ describe('claim_finding', () => {
     expect(String(rows.at(-1)!.content)).toContain('verdict: claim withdrawn');
   });
 
+  test('a claim first unsettled and then confirmed is this session\'s, and is released at shutdown', async () => {
+    const opts = { lagReads: true };
+    await db(opts);
+    const store = seeded();
+    expect(await run(store)).toContain('not settled');
+    expect(ClaimFinding.heldSessionClaims()).toEqual([]);
+    opts.lagReads = false;
+    expect(await run(store)).toContain('Renewed your claim');
+    expect(ClaimFinding.heldSessionClaims()).toEqual(['agf_task1']);
+  });
+
   test('a claim the read-back does not show yet is not settled: nothing is reported as held', async () => {
     const { rows } = await db({ lagReads: true });
     const out = await run(seeded());

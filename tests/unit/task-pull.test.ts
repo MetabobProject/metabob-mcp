@@ -183,6 +183,33 @@ describe('pullTask', () => {
     }
   });
 
+  test('a page after the first that cannot be read fails the conventions too', async () => {
+    const o = origin('o-partial');
+    const at = new Date(Date.now() - 600_000).toISOString();
+    const many = Array.from({ length: 300 }, (_, i) => ({ id: `concept:pc_${i}`, shape: 'project_convention', created_at: at, content: `kind: policy\nrepo: elsewhere\n\nrule ${i}` }));
+    const rows = await ledger(o.repo, [{ n: 'p1', sev: 'HIGH' }], many);
+    // The ledger's stub answers every page alike; make the second page of conventions fail.
+    await installShapeStub({
+      conceptSearch: (p) => (p.shape === 'project_convention' && Number(p.offset ?? 0) > 0
+        ? { status: 503, body: { error: 'concept-db is restarting' } }
+        : { body: { content: rows.filter(r => r.shape === p.shape) } }),
+      conceptGraph: (p) => {
+        const root = rows.find(r => String(r.id) === `concept:${p.concept_id}`);
+        return root ? { body: { content: { root, edges: [] } } } : { status: 404, body: { error: 'Concept not found' } };
+      },
+      concept_create_write: (p) => {
+        const id = `w${rows.length}`;
+        rows.push({ id: `concept:${id}`, shape: p.conceptData.shape, summary: p.conceptData.summary, content: p.conceptData.content, created_at: new Date().toISOString() });
+        return { body: { success: true, content: JSON.stringify({ id }) } };
+      },
+    });
+    const a = args(o.url, 'ppartial');
+    const r = await pullTask(a, 'sess1', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(1);
+    expect(r.message).toContain('the conventions could not all be read');
+    expect(existsSync(join(a.taskDir, 'task.json'))).toBe(false);
+  });
+
   test('a vessel origin pulls a task recorded in the super-repo on its files, with the paths mapped', async () => {
     const o = origin('development-vessel');
     await ledger(o.repo, [

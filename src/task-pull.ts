@@ -321,10 +321,13 @@ export function conventionNotInEffect(c: Convention, trusted: ReadonlySet<string
  * shape is read the way recall reads findings: pages of 300 by offset, up to four (src/tools/_findings.ts@scanConceptShape).
  */
 async function readConventions(repo: RepoIdentity): Promise<Convention[] | { error: string }> {
-  // Fail closed: with the conventions or the rulings unread, the defaults (push to main) could override a review
-  // policy, or a retired convention bind again. A failed verdict read only drops endorsements, which fails closed.
+  // Fail closed: with the conventions, their verdicts or the rulings unread (any page of them), the defaults (push to
+  // main) could override a review policy, a rejected convention count, or a retired one bind again.
+  const unread = (what: string, scan: Awaited<ReturnType<typeof scanConceptShape>>) =>
+    !scan.ok ? `${what} could not be read (${scan.detail})` : scan.failed ? `${what} could not all be read (${scan.failed})` : null;
   const found = await scanConceptShape(PROJECT_CONVENTION_SHAPE);
-  if (!found.ok) return { error: `the conventions could not be read (${found.detail})` };
+  const conventionsUnread = unread('the conventions', found);
+  if (conventionsUnread || !found.ok) return { error: conventionsUnread ?? 'the conventions could not be read' };
   const rows = found.rows
     .filter(r => header(String(r.content ?? ''), 'repo').toLowerCase() === repo.id)
     .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')));
@@ -335,7 +338,9 @@ async function readConventions(repo: RepoIdentity): Promise<Convention[] | { err
   const retired = new Map<string, Writer[]>();
   const add = (m: Map<string, Writer[]>, id: string, w: Writer) => m.set(id, [...(m.get(id) ?? []), w]);
   const verdicts = await scanVerdicts();
-  for (const v of verdicts.ok ? verdicts.rows : []) {
+  const verdictsUnread = unread('the verdicts on them', verdicts);
+  if (verdictsUnread || !verdicts.ok) return { error: verdictsUnread ?? 'the verdicts could not be read' };
+  for (const v of verdicts.rows) {
     const target = plainConceptId(header(String(v.content ?? ''), 'concept'));
     if (!ids.has(target)) continue;
     const verdict = header(String(v.content ?? ''), 'verdict');
@@ -343,7 +348,8 @@ async function readConventions(repo: RepoIdentity): Promise<Convention[] | { err
     else if (verdict === 'rejected') add(rejected, target, writerOf(v, 'reviewed_by'));
   }
   const rulings = await scanConceptShape(RULING_SHAPE);
-  if (!rulings.ok) return { error: `the rulings could not be read (${rulings.detail})` };
+  const rulingsUnread = unread('the rulings', rulings);
+  if (rulingsUnread || !rulings.ok) return { error: rulingsUnread ?? 'the rulings could not be read' };
   for (const r of rulings.rows) {
     const content = String(r.content ?? '');
     const outcome = header(content, 'outcome');

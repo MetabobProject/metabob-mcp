@@ -133,6 +133,9 @@ export async function handle(
     });
     text += '\n';
   }
+  if (neighbors.length >= input.limit) {
+    text += `The limit (${input.limit}) was reached, so more links may exist${input.limit < 50 ? '; pass limit: 50 to read up to 50' : '; past 50, search by topic'}.\n\n`;
+  }
   text += `Query completed in ${duration}ms.`;
   return text;
 }

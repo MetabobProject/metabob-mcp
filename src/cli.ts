@@ -178,9 +178,9 @@ EXAMPLES:
 ENVIRONMENT VARIABLES:
   METABOB_API_KEY              API key (SUBSTRATE_API_KEY is accepted too; METABOB_* wins)
   METABOB_ENDPOINT             Substrate endpoint (SUBSTRATE_ENDPOINT is accepted too).
-                               A local port-published endpoint
+                               An http:// endpoint whose port ends in 80
                                (http://127.0.0.1:18080) derives discovery (:18100);
-                               a remote endpoint derives nothing, so set
+                               any other derives nothing, so set
                                DISCOVERY_ENDPOINT with it.
 
   Advanced overrides (each wins over the derived value when set):
@@ -192,6 +192,15 @@ ENVIRONMENT VARIABLES:
   LOG_LEVEL                    Same as --log-level
   HEALTH_PORT                  Same as --health-port
   MAX_REQUESTS_PER_MINUTE      Same as --max-requests-per-minute
+  METABOB_TOOLS                Which tools to list: unset, the shared ledger and
+                               memory (eleven); all, every tool; or a list
+  WORKSPACE_PATH               The project, when the client starts the server
+                               elsewhere and offers no roots
+  VESSEL_ID                    The agent's identity: the claimer and declared author
+  METABOB_CLAIM_RELEASERS      Key ids (or names) whose release of another's claim
+                               this server takes; the same list fleet-wide
+  METABOB_TASK_TRUST           task pull: key ids (or names) whose conventions,
+                               endorsements and rulings set integration policy
 
   Network (from the environment and the OS, never from a config file):
   HTTPS_PROXY / HTTP_PROXY     HTTP CONNECT proxy, chosen per request; https uses
@@ -201,6 +210,7 @@ ENVIRONMENT VARIABLES:
                                always do. PAC / WPAD scripts are not evaluated:
                                set HTTPS_PROXY to the proxy the PAC names.
   NODE_EXTRA_CA_CERTS          Extra trusted roots (PEM), on top of the OS store
+  METABOB_NO_SYSTEM_CA         1 skips the OS trust store (same as --no-system-ca)
   METABOB_CONNECT_TIMEOUT_MS   Connect budget (default 5000)
 
   Precedence: CLI flags > environment variables > config file. An explicit
@@ -246,7 +256,7 @@ INTEGRATION WITH MCP CLIENTS:
     }
   }
 
-For more information, visit: https://github.com/metabob/metabob-devbob/tree/main/repos/metabob-mcp
+For more information, visit: https://github.com/MetabobProject/metabob-mcp
 `);
 }
 

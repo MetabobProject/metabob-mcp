@@ -21,7 +21,7 @@ export const AnalyzeImpactTool = {
       },
       diff: {
         type: 'string',
-        description: 'Optional git diff for precise changed-symbol resolution',
+        description: 'Accepted for compatibility and not read: the changed files decide the impact',
       },
       direction: {
         type: 'string',

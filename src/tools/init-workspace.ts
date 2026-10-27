@@ -22,7 +22,7 @@ export const InitWorkspaceTool = {
     properties: {
       workspace_path: {
         type: 'string',
-        description: 'Absolute path to workspace root (defaults to $WORKSPACE_PATH or cwd)',
+        description: 'Absolute path to the project (defaults to WORKSPACE_PATH, else the client\'s first root, else the directory the server started in); a relative path resolves against that default',
       },
       recently_changed_files: {
         type: 'array',
@@ -41,12 +41,13 @@ export const InitWorkspaceTool = {
       },
       exclude: {
         type: 'array',
-        description: 'Directory names to skip (default: node_modules, .git, dist, build, .next, coverage)',
+        description: 'Directory names to skip (default: node_modules, .git, dist, build, .next, .nuxt, coverage, .turbo, .cache, __pycache__, .venv, venv, vendor)',
         items: { type: 'string' },
       },
       sync_api: {
         type: 'boolean',
         description: 'Accepted and ignored: init_workspace sends no files anywhere, whatever its value.',
+        default: true,
       },
     },
   },

@@ -20,7 +20,7 @@ export const AssignGitChangesTool = {
       },
       diff: {
         type: 'string',
-        description: 'Optional git diff output for line-precise component attribution',
+        description: 'Accepted for compatibility and not read: the changed files decide the attribution',
       },
       include_cochange_predictions: {
         type: 'boolean',

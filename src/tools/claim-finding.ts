@@ -50,7 +50,9 @@ export const ClaimFindingTool = {
         description: '"claim" before you start, "renew" to keep a claim you hold, "release" when you stop without closing it',
       },
       minutes: {
-        type: 'number',
+        type: 'integer',
+        default: CLAIM_DEFAULT_MINUTES,
+        maximum: CLAIM_MAX_MINUTES,
         description: `How long the claim lasts, from now (default ${CLAIM_DEFAULT_MINUTES}, at most ${CLAIM_MAX_MINUTES})`,
       },
       reason: {
@@ -163,6 +165,8 @@ export interface ClaimOptions {
  * record it either. A kill or a crash releases nothing, and the claim lapses at its end.
  */
 const sessionClaims = new Map<string, { problemId: string; repo: RepoIdentity | null | undefined; localStore: LocalStore | null | undefined }>();
+/** The claims this process wrote whose read-back did not settle: the call that confirms one is kept as taken here. */
+const unsettledHere = new Set<string>();
 
 export async function handle(
   input: ClaimFindingInput,
@@ -175,8 +179,12 @@ export async function handle(
   reportResult(result.outcome);
   if (result.key) {
     // A renewal adds nothing: a claim this process did not take (task pull's, under the same identity) outlives it.
-    if (result.outcome === 'claimed') sessionClaims.set(result.key, { problemId: input.problem_id, repo: opts.repo, localStore });
+    // The exception is the claim this process wrote whose read-back had not settled: its confirming call renews it.
+    const confirmed = result.outcome === 'renewed' && unsettledHere.has(result.key);
+    if (result.outcome === 'claimed' || confirmed) sessionClaims.set(result.key, { problemId: input.problem_id, repo: opts.repo, localStore });
     else if (['released', 'lost', 'closed', 'held'].includes(result.outcome)) sessionClaims.delete(result.key);
+    if (result.outcome === 'unsettled') unsettledHere.add(result.key);
+    else unsettledHere.delete(result.key);
   }
   return result.message;
 }
@@ -207,6 +215,7 @@ export async function releaseSessionClaims(sessionId: string, budgetMs = 5_000):
 /** Tests only: forget the claims this process recorded. */
 export function resetSessionClaimsForTests(): void {
   sessionClaims.clear();
+  unsettledHere.clear();
 }
 
 /** claim_finding's work, with its outcome as a value: what `metabob-mcp task pull` acts on. */

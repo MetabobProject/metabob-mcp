@@ -144,9 +144,10 @@ const server = new Server(
   }
 );
 
-// Log function
+// Log function: a line at or above LOG_LEVEL is written (debug < info < warn < error); an unknown level reads as info.
+const LOG_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 function log(level: string, message: string, data?: any) {
-  if (LOG_LEVEL === 'debug' || (LOG_LEVEL === 'info' && level !== 'debug')) {
+  if ((LOG_RANK[level] ?? 1) >= (LOG_RANK[LOG_LEVEL] ?? 1)) {
     const timestamp = new Date().toISOString();
     const logData = data ? ` ${JSON.stringify(data)}` : '';
     console.error(`[${timestamp}] [${level.toUpperCase()}] ${message}${logData}`);

@@ -345,7 +345,8 @@ export async function readConceptById(conceptId: string): Promise<RecalledConcep
 }
 
 type ConceptScan =
-  | { ok: true; rows: ConceptRow[]; truncated: boolean }
+  /** `failed`: a page after the first could not be read, so the rows end there (recall shows what it has). */
+  | { ok: true; rows: ConceptRow[]; truncated: boolean; failed?: string }
   | { ok: false; detail: string };
 
 /** Most pages of FINDINGS_MAX_SCAN rows one scan reads, when concept-db pages list mode. */
@@ -378,7 +379,7 @@ export async function scanConceptShape(shape: string): Promise<ConceptScan> {
     const found = await searchConcepts({ shape, limit: FINDINGS_MAX_SCAN, ...(page ? { offset: page * FINDINGS_MAX_SCAN } : {}) });
     if (!found.ok) {
       if (page === 0) return { ok: false, detail: found.error };
-      break;
+      return { ok: true, rows, truncated: true, failed: found.error };
     }
     // Dedup by concept id: one answer can carry a row twice (bare and ⟨⟩-wrapped
     // ids name the same concept). Skip repeats so the rendered recall and its

@@ -128,6 +128,9 @@ export const WRITES_THROUGH_ESCAPE_HATCH: Readonly<Record<string, string>> = {
  * registry-vocabulary.json decides every shape of a live vocabulary, and the test holds
  * this list to it.
  */
+/** The trace reads: cut at their timeout, the query keeps running in activity-api, so they are sent once. */
+const TRACE_READS: ReadonlySet<string> = new Set(['activityExecutionTrace', 'executionTraceList', 'executionTraces']);
+
 // @anchor escape-hatch-reads
 export const READS_THROUGH_ESCAPE_HATCH: ReadonlySet<string> = new Set([
   'activeDispatches', 'activity', 'activityExecutionTrace', 'activityMetrics', 'activityTemplate',
@@ -212,7 +215,9 @@ export async function handle(input: ResolveImpulseInput, _apiClient: AnalysisAPI
   let res;
   try {
     // An allowlisted read is a read (no claim, transient retries); the memory writes are writes.
-    res = await resolveShape(pointer, { timeoutMs: timeoutMs(), read: READS_THROUGH_ESCAPE_HATCH.has(String(pointer.type)) });
+    // A trace read cut at its timeout leaves the query running in activity-api, so it is not repeated (SPEC §attachment).
+    const type = String(pointer.type);
+    res = await resolveShape(pointer, { timeoutMs: timeoutMs(), read: READS_THROUGH_ESCAPE_HATCH.has(type), ...(TRACE_READS.has(type) ? { noTimeoutRetry: true } : {}) });
   } catch (err) {
     return `resolve_impulse: ${describeResolveFailure(err)}`;
   }
