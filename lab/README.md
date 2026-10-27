@@ -17,7 +17,7 @@ otherwise.
 | command | what it does |
 |---|---|
 | `lab/lab.sh capacity` | Prints whether this host can hold the lab, with the numbers (§ Capacity), and exits 0 when it fits; starts nothing. Run it before `up` on a shared host |
-| `lab/lab.sh up` | First checks the host can hold the lab (§ Capacity), then starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes makes sure the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) exists — creating it after a short grace period, since the light lab masks the unit that clones it — and issues the test keys. Asks the registry for a tag on every `up`, since a local copy of a mutable tag can be any age (a pull of an unchanged tag moves no layers); a digest (`name@sha256:…`) is pulled only when missing. It logs the image's revision, and `check` logs the revision the running nodes use. When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
+| `lab/lab.sh up` | First checks the host can hold the lab (§ Capacity), then starts the hub, waits for `seeded`, issues the spoke's join key from the hub, starts the spoke, waits for `served` on both nodes, then makes sure the spoke's workspace (`WORKSPACE_ROOT`, where local-tools runs commands) exists — creating it after a short grace period, since the light lab masks the unit that clones it — and issues the test keys. Asks the registry for a tag on every `up`, since a local copy of a mutable tag can be any age (a pull of an unchanged tag moves no layers); a digest (`name@sha256:…`) is pulled only when missing. It logs the image's revision, and `check` logs the revision the running nodes use. When both nodes are already running and healthy with their keys present, it says so and returns at once; after a partial failure it picks up where the lab stands |
 | `lab/lab.sh check` | Proves the lab serves the MCP: writes a temporary MCP config (mode 0600, in a temporary directory removed on exit) from `keys/mcp-rw.key`, the spoke's discovery and the hub's identity; runs `metabob-mcp attach --check` with the repository's `dist/cli.js` (built first when it is missing or older than `src/`); then, through the MCP over stdio (`lab/check-goal.ts`), dispatches the LLM-free goal *How many vessels are currently registered in the discovery registry?* with `run_goal_async` and polls `goal_status` until `reached: yes`. Prints one verdict line; exits nonzero on any failure, and `3` when goal-host's spend-rate policy refuses the identical check goal (attach verified, the reach not re-proven), so a gate keyed on the exit code never passes a reach it did not see. `check --attach-only` stops after `attach --check` |
 | `lab/lab.sh cycle` | `destroy`, `up`, `check`: the from-scratch proof |
 | `lab/lab.sh status` | Each node's `substrate-status` verdict at the `live`, `seeded` and `served` levels |
@@ -103,15 +103,16 @@ hub: `lab.sh keys` replaces it.
 
 `bun tests/claude-sessions/run.ts --target lab` runs the Claude Code session scenarios against this lab
 with no environment: the target defaults to the spoke's discovery, the hub's identity, `keys/mcp-rw.key`
-and the nodes `hub,spoke` (`LAB_DISCOVERY`, `LAB_IDENTITY`, `LAB_KEY_FILE`, `LAB_NODES` point it at a
-different lab, and then the lifecycle does not apply). Before any scenario, the runner drives the
-lifecycle with `--lab-lifecycle`:
+and the node `10.89.77.10`, the hub's lab-network address, which the hub's producers carry as seen from the
+spoke (`LAB_DISCOVERY`, `LAB_IDENTITY`, `LAB_KEY_FILE` and `LAB_NODES` override each). Setting `LAB_DISCOVERY` or
+`LAB_KEY_FILE` points the run at a different lab, and then the lifecycle does not apply. Before any scenario, the
+runner drives the lifecycle with `--lab-lifecycle`:
 
 | mode | before the scenarios | after |
 |---|---|---|
-| `reuse` (default) | `check`; when it fails, `up`, then `check` | the lab keeps running |
+| `reuse` (default) | `check --attach-only`; when it fails, `up`, then `check --attach-only` | the lab keeps running |
 | `fresh` | `destroy`, `up`, `check` | `down`: the volumes stay, so the next `up` is faster |
-| `keep` | as `reuse` | the lab keeps running |
+| `keep` | as `reuse`: `check --attach-only`; when it fails, `up`, then `check --attach-only` | the lab keeps running |
 
 Each step's duration and verdict goes into the run's JSON report under `lab`, with the teardown. A failed
 step fails the run before any scenario starts, with the line `LAB LIFECYCLE FAILED at lab.sh <step>`,
@@ -154,8 +155,9 @@ API and the origin, and anywhere else. `run` records the network's driver and fl
 1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45), under the cell's one identity: `VESSEL_ID` is
    `CELL_VESSEL_ID`, else `metabob-cell-<container hostname>`, and the harness's MCP server gets the same, so the
    agent reads the claim as its own. `METABOB_CLAIM_RELEASERS`, passed through from `cell.sh`, reaches both, so a
-   release by a trusted identity counts for `task pull` and the server alike. Any non-zero exit ends the cell with that code (1 a failure, 2 not attached or a
-   missing input, 3 no open task, 4 tasks held by others or a claim not settled).
+   release counts for `task pull` and the server alike when the list names the key that wrote it, by name or id.
+   Any non-zero exit ends the cell with that code (1 a failure, 2 not attached or a missing input, 3 no open task,
+   4 tasks held by others or a claim not settled).
 2. A `pin: <40-hex sha>` line in the task's details makes `/work` a one-commit fetch of that commit, so history
    after it (a reference fix) is not in the clone. The fixture, when given, is committed onto it, and the base
    is that commit, so the diff is the work alone.

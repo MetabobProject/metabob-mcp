@@ -95,7 +95,7 @@ parameters.
 | `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists: unset, the eleven of the shared ledger and memory; `all`, every tool; a list, exactly those (§ Tools) |
 | `SESSION_ID` | random UUID | Session identifier |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver |
-| `LOG_LEVEL` | `info` | `debug \| info \| warn \| error` |
+| `LOG_LEVEL` | `info` | `debug \| info \| warn \| error`: writes the lines at or above it |
 | `MAX_REQUESTS_PER_MINUTE` | `60` | MCP rate limit per session |
 
 The key and endpoint are read from the environment, else from a config file resolved directory-aware

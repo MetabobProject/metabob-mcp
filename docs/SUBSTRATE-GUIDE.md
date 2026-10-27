@@ -49,13 +49,12 @@ client and `attach --check` are in [USER-GUIDE.md](USER-GUIDE.md), § Install. W
 ### Version
 
 `all` needs server 0.4.0 or later: an earlier server reads `all` as the name of one tool and lists none. Wherever
-you set `METABOB_TOOLS=all`, start a server of 0.4.0 or later:
+you set `METABOB_TOOLS=all`:
 
 - With a plugin, the server's version is the plugin's own (its `.mcp.json` pins it), so a plugin before 0.4.0
   lists no tools under `all`.
-- With a server you add yourself, name the version in the command: `@metabob/mcp@<version>`, with a version of
-  0.4.0 or later. `@metabob/mcp@latest` is whichever release npm marks as latest, which can be an earlier one.
-  `npx -y @metabob/mcp@<version> --version` prints the version a command starts.
+- With a server you add yourself, name the version in the command: `@metabob/mcp@0.4.0`.
+  `npx -y @metabob/mcp@0.4.0 --version` prints the version a command starts.
 
 ### Turning it on
 
@@ -65,25 +64,23 @@ you set `METABOB_TOOLS=all`, start a server of 0.4.0 or later:
   edit check, § 3). Set `{ "env": { "METABOB_TOOLS": "all" } }` in `~/.claude/settings.json`, or export
   `METABOB_TOOLS=all` in the shell that starts `claude`.
 - **Claude Code with a server you add yourself.**
-  `claude mcp add metabob -s user -e METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`, adding `-e` for the key and
+  `claude mcp add metabob -s user -e METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.0`, adding `-e` for the key and
   address when no config file supplies them.
 - **Codex.** The plugin's server takes no extra environment, so remove the plugin
   (`codex plugin remove metabob@metabob`), add the server yourself
-  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@<version>`, adding `--env` for the key and
+  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.0`, adding `--env` for the key and
   address when no config file supplies them), and install the skill by
   hand (below).
 - **Cursor, Continue and other clients.** In the server's `env` in the client's MCP configuration:
 
   ```json
   { "mcpServers": { "metabob": {
-      "command": "npx", "args": ["-y", "@metabob/mcp@<version>"],
+      "command": "npx", "args": ["-y", "@metabob/mcp@0.4.0"],
       "env": { "METABOB_TOOLS": "all" } } } }
   ```
 
   with the key and address in `env` too when no config file supplies them (USER-GUIDE.md, § Install).
 - **Headless runs and agent cells.** In the environment the harness starts the server with.
-
-In each, `<version>` is 0.4.0 or later.
 
 ### Install the skill without a plugin
 
@@ -118,8 +115,9 @@ identified there, each one:
 - **held** by an operator ruling, with its review date and what lifts it when they are recorded: it is not open
   work;
 - **being landed** under a **landing lease**: the system is applying a change to the file, with a holder and an
-  expiry. An edit before the lease ends is lost or conflicts when the change lands, and whether to edit anyway is
-  your decision (§ 6). A lease past its expiry is shown as lapsed, and its gap counts as queued.
+  expiry. An edit before the lease ends is lost or conflicts when the change lands, so the agent leaves the file
+  until the lease ends, and records a finding naming the lease when its task needs the file sooner (§ 6). A lease
+  past its expiry is shown as lapsed, and its gap counts as queued.
 
 With nothing in flight, the agent makes the change and records it. The paths are matched on your machine and
 never sent. In a repository the substrate does not mount, `path_activity` says the repository may not be one the
@@ -169,13 +167,14 @@ Everything in USER-GUIDE.md, § What to ask for, holds. Under `all`, also:
 | To see what ran recently | "What has the substrate run lately?" | `execution_trace` with no id |
 | To know who serves a shape | "Which vessels serve `conceptSearch`?" | `registry_query { mode: "vessels", shape }` |
 
-## 6. Where your agent stops and asks you
+## 6. What needs a decision
 
-With either skill the agent asks you before a push you haven't allowed, before working outside its task's files,
-and when a recorded decision contradicts your request. The `metabob-substrate` skill brings these to you as well:
+With either skill, what needs a decision (a push it may not make, work outside its task's files, a recorded decision
+that contradicts its instructions) goes on the ledger. The `metabob-substrate` skill also brings these to you:
 
 - **A landing lease.** When `path_activity` shows the system landing a change to a file, an edit before the
-  lease ends is lost or conflicts. The agent tells you, and you decide whether to edit.
+  lease ends is lost or conflicts. The agent leaves the file until the lease ends; when its task needs the file
+  sooner, it records a finding naming the lease, and whether to edit is your decision.
 - **A held gap.** It names the operator ruling and its review date and says what lifts it; it is not open work.
 - **Your judgment of an outcome.** An agent's verdict on a goal (`provide_feedback`) is stored as an
   `automated` observation; it never overrides the substrate's own verdict. A person's verdict goes through the
@@ -185,9 +184,7 @@ and when a recorded decision contradicts your request. The `metabob-substrate` s
   `resolve_impulse` refuses those writes.
 - **Restarts and deployments.** The agent does not restart or deploy the substrate's nodes. Maintenance runs as
   a dispatched activity, when you ask for it.
-- **Lab and load work on shared hosts.** A lab or a load test runs capped, in a window you clear, and stops when
-  you ask. Running them is operator work: [DEPLOYING-AGENTS.md](DEPLOYING-AGENTS.md) for agents,
-  [lab/README.md](../lab/README.md) for the lab.
+- **Load tests.** A load test runs capped, in a window you clear, and stops when you ask.
 
 ## 7. Goals on the substrate
 
@@ -207,8 +204,8 @@ For repositories the substrate itself mounts, an agent can hand it a goal instea
 
 A dispatch in the default learn mode teaches the substrate: the `learning:` line of `goal_status` says what the
 walk recorded (a goal path, changed template scores, gaps filed, a label), or `none recorded`. A dispatch with
-`learning_mode: "observe"` asks the substrate to trace the walk without learning from it. After a miss the agent
-tells you why and asks whether to retry, rephrase, or do the work itself. Before dispatching it checks that an
+`learning_mode: "observe"` asks the substrate to trace the walk without learning from it. After a miss, the agent's
+instructions decide whether it retries, rephrases or does the work itself. Before dispatching it checks that an
 open gap or a recent dispatch does not already cover the goal; a 429 from goal-host is its spend-rate cap, not
 something to retry.
 
@@ -239,7 +236,7 @@ another agent, by the rules SPEC gives under § mark_complete and § claim_findi
 its brief with `concept_search { concept_id: <the task's concept id> }`: `get_problems` shows a task's summary
 and id, never its details. For a task recalled from the ledger, the id `get_problems` shows is that concept id
 (`concept_…`), and it is the id to hand over and claim with: `claim_finding` and `mark_complete` take an `agf_…`
-id only in the session whose local store holds the task. A `Fixes-Finding:` trailer names one of the `agf_…` ids on
+id only on the machine whose local store holds the task. A `Fixes-Finding:` trailer names one of the `agf_…` ids on
 the brief's `finding_ids:` line.
 
 `all` adds to these:
@@ -274,7 +271,7 @@ The rows that apply to every tool set are in USER-GUIDE.md, § Troubleshooting. 
 
 | Symptom | Next step |
 |---|---|
-| No tools appear with `METABOB_TOOLS=all` | The server is before 0.4.0: name `@metabob/mcp@<version>` with 0.4.0 or later, or update the plugin (§ 2) |
+| No tools appear with `METABOB_TOOLS=all` | The server is before 0.4.0: name `@metabob/mcp@0.4.0`, or update the plugin (§ 2) |
 | Only eleven tools appear | `METABOB_TOOLS=all` did not reach the server's environment: check where it is set (§ 2) and reconnect |
 | `path_activity` says the repository may not be one the substrate mounts | Nothing is in flight there; check `get_problems` and edit |
 | `path_activity` says the substrate keeps no gap store | Nothing is in flight to check; edit |

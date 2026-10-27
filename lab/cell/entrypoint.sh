@@ -12,7 +12,8 @@
 # env (from the 0600 env file): METABOB_API_KEY, ANTHROPIC_API_KEY, DISCOVERY_ENDPOINT, CELL_ORIGIN
 #      optional: CELL_MODEL (claude-sonnet-5), CELL_WALL_S (1800), CELL_BUDGET_USD (5), CELL_CLAIM_MINUTES (45),
 #                CELL_VESSEL_ID (the cell's identity; metabob-cell-<container hostname> by default),
-#                METABOB_CLAIM_RELEASERS (vessel ids whose release of a claim task pull and the server take),
+#                METABOB_CLAIM_RELEASERS (the keys, by id or name, whose release of a claim task pull and the server
+#                take),
 #                CELL_SKIP_HARNESS=1 (everything but the harness: the recipe's smoke test)
 # exit: the harness's code, or task pull's (1 failure, 2 not attached or a missing input, 3 no open task, 4 tasks held
 #       by others or a claim not settled)

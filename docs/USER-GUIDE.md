@@ -7,16 +7,15 @@ every tool (`METABOB_TOOLS=all`), see [SUBSTRATE-GUIDE.md](SUBSTRATE-GUIDE.md).
 ## 1. Install
 
 You need an API key from your organization's Metabob admin (or your Metabob account) and an address: for a remote
-service, its discovery endpoint (`https://…`); for one on your machine, `http://127.0.0.1:18080`.
+service, its discovery endpoint (`https://…`); for one on your machine, `http://127.0.0.1:18080`. Every client
+needs `git` and Node 22.13 or later (or 23.4 or later) on PATH, or an older Node with [Bun](https://bun.sh) 1.1 or
+later.
 
 ### Claude Code
 
-It needs `git` and Node 22.13 or later (or 23.4 or later) on PATH, or an older Node with [Bun](https://bun.sh) 1.1
-or later.
-
 ```bash
 claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git
-claude plugin install metabob@metabob --config api_key=<your key> --config discovery_endpoint=<https://…>
+claude plugin install metabob@metabob --config "api_key=<your key>" --config "discovery_endpoint=<https://…>"
 ```
 
 For a service on your machine, use `--config endpoint=http://127.0.0.1:18080` instead of `discovery_endpoint`.
@@ -42,11 +41,11 @@ Put the key and address in `~/.metabob/config.json`:
 ### Other clients
 
 Add this to the client's MCP configuration (Cursor `.cursor/mcp.json`, Claude Desktop, Continue and others; the
-[README](../README.md#integrations) shows each file), with a version 0.4.0 or later:
+[README](../README.md#integrations) shows each file):
 
 ```json
 { "mcpServers": { "metabob": {
-    "command": "npx", "args": ["-y", "@metabob/mcp@<version>"],
+    "command": "npx", "args": ["-y", "@metabob/mcp@0.4.0"],
     "env": { "METABOB_API_KEY": "<your key>", "DISCOVERY_ENDPOINT": "<https://…>" } } } }
 ```
 
@@ -73,8 +72,8 @@ You don't call the tools; your agent does, guided by the skill. In each session 
 - **closes** what it finished, with the commit, once the fix is pushed;
 - **hands off** unfinished work with a note, so the next agent continues from there.
 
-It asks you before a push you haven't allowed, before working outside its task's files, and when a recorded
-decision contradicts your request. In Claude Code, the plugin also reminds the agent to check the ledger before its
+When something needs your decision (a push it isn't allowed to make, work outside its task's files, a recorded
+decision that contradicts your request), it records it on the ledger and carries on with the rest. In Claude Code, the plugin also reminds the agent to check the ledger before its
 first edit of each file.
 
 The tools it uses:
@@ -122,7 +121,7 @@ The tools it uses:
    > Take task concept_…: claim it, do what its brief says, commit and push the fix, and close it.
 
 4. The agent claims it, reads the brief, works in the files it owns, commits, pushes and closes it. If it can't
-   push, the task stays `fix pending` and the agent tells you.
+   push, the task stays `fix pending`.
 
 A task doesn't have to change code: "triage issue #12", "review the release checklist" or "check the staging
 deploy" names what it is about instead of files, and the agent closes it with what it found and a link to it.
@@ -142,9 +141,8 @@ Set these in the server's environment: for the Claude Code plugin, in `~/.claude
 | `WORKSPACE_PATH=<path>` | Names the project when the client starts the server elsewhere |
 | `HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS` | A corporate proxy or root certificate |
 
-A `.metabob/config.json` in a project gives that project its own key or address (not with the Codex plugin, which
-starts the server in its own folder). Every setting is in the
-README's [Configuration](../README.md#configuration) section.
+A `.metabob/config.json` in a project gives that project its own key or address (not with the Codex plugin).
+Every setting is in the README's [Configuration](../README.md#configuration) section.
 
 ## 6. Troubleshooting
 
@@ -160,7 +158,7 @@ Start with `npx @metabob/mcp attach --check`.
 | `get_analysis_context` says "attaching (first attempt in progress)" | Wait a few seconds; the next call tries again |
 | `workspace_undetermined` | Ask the agent to call `init_workspace` with the project's absolute path |
 | The tools don't appear | Check `git` and Node on PATH, then reconnect from `/mcp` |
-| More than eleven tools appear | `METABOB_TOOLS` is set where the server starts, or the server is older than 0.4.0 |
+| More than eleven tools appear | Remove `METABOB_TOOLS` from the server's environment and reconnect; with a server you added yourself, name `@metabob/mcp@0.4.0` |
 | A task you closed shows `fix pending` | Commit and push the fix, then ask the agent to close it again |
 | Two agents did the same work | Give each task its own files, and each agent its own clone |
 

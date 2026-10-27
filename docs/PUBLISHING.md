@@ -7,7 +7,7 @@
 
 ## About the build
 
-`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/cli.js`. Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. They are the only `dependencies`: every other package the server uses (the MCP SDK, zod, hono, undici, ajv, system-ca) is bundled into `dist/` and listed in `devDependencies`, so a user's `npx` installs the four native packages and nothing else. `tests/unit/package-dependencies.test.ts` holds `dependencies` equal to the build's `--external` list and checks that the bundle loads no other package.
+`bun build` compiles all TypeScript — including `@metabob/cpg-inference` source, which is bundled inline — into `dist/` (`dist/cli.js`, `dist/doctor-cli.js` and their chunks). Native Node addons (`tree-sitter`, `tree-sitter-javascript`, `tree-sitter-python`, `tree-sitter-typescript`) are kept **external** because `.node` binaries cannot be bundled; they are listed in `dependencies` so npm installs them alongside `dist/cli.js`. They are the only `dependencies`: every other package the server uses (the MCP SDK, zod, hono, undici, ajv, system-ca) is bundled into `dist/` and listed in `devDependencies`, so a user's `npx` installs the four native packages and nothing else. `tests/unit/package-dependencies.test.ts` holds `dependencies` equal to the build's `--external` list and checks that the bundle loads no other package.
 
 The published tarball is the `files` allowlist in `package.json`: `dist/**/*`, `skills/**/*`, `README.md`, `LICENSE`. `skills/` carries the agent skills (`metabob` and `metabob-substrate`) for clients that install them from the
 package; the server itself does not read them.
@@ -17,7 +17,7 @@ package; the server itself does not read them.
 The CPG library is a git submodule at `vendor/cpg-inference`, imported by
 relative path (`src/cpg-inference.ts` re-exports `../vendor/cpg-inference/src/*`).
 There is no `@metabob/cpg-inference` entry in `package.json` and no npm
-resolution involved — it is source that gets bundled into `dist/cli.js`.
+resolution involved — it is source that gets bundled into `dist/`.
 
 `bun run preflight` (`scripts/verify-vendor.ts`) fails the build when
 `vendor/cpg-inference/src/index.ts` is absent; the fix is
@@ -31,7 +31,9 @@ resolution involved — it is source that gets bundled into `dist/cli.js`.
 - `bun run build` succeeds (`dist/cli.js` and `dist/doctor-cli.js` present)
 - `npm link && metabob-mcp --version` works from a different directory
 - `npm publish --dry-run` shows no warnings
-- `README.md` matches the tool set in `src/tools/index.ts` and the env vars in `src/cli.ts`
+- `README.md`'s tool table is the default set (`src/tool-allowlist.ts@default-tool-set`), its "Every tool" paragraph
+  names every other tool in `src/tools/index.ts`, and its configuration table lists the variables `src/cli.ts`
+  and `src/config.ts` read
 
 ## Workflow
 
@@ -46,8 +48,8 @@ npm version --no-git-tag-version <x.y.z>
 node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
 # The repository's own .mcp.json pins the same version (a test holds it). Edit it; or, when your copy is
 # skip-worktree with local settings (`git ls-files -v .mcp.json` shows S), write the committed one:
-git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>"#' > "$TMPDIR/mcp.json" \
-  && git update-index --cacheinfo "100644,$(git hash-object -w "$TMPDIR/mcp.json"),.mcp.json" \
+git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>"#' > "${TMPDIR:-/tmp}/mcp.json" \
+  && git update-index --cacheinfo "100644,$(git hash-object -w "${TMPDIR:-/tmp}/mcp.json"),.mcp.json" \
   && git update-index --skip-worktree .mcp.json
 bun install --frozen-lockfile        # the lockfile is unchanged by a version bump
 
@@ -60,7 +62,8 @@ git push origin HEAD:dev             # CI and Package smoke run at this head: bo
 # 3. Publish, then verify the published package
 npm publish --dry-run
 npm publish
-npm info @metabob/mcp version
+npm dist-tag add @metabob/mcp@<x.y.z> next   # so next is never older than latest
+npm view @metabob/mcp dist-tags              # latest and next: <x.y.z>
 # The alias form, as the plugins launch it: in this checkout, whose package.json has the package's name and
 # version, `npx -y @metabob/mcp@<x.y.z>` would take the checkout for the package and fail (`mcp: not found`).
 npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z> metabob-mcp --version
@@ -80,6 +83,9 @@ bundles pin the last release.
 # 1. Bump to the candidate and regenerate the bundles, which pin it, and the repository's own .mcp.json; commit on dev
 npm version --no-git-tag-version <x.y.z>-rc.<n>
 node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
+git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>-rc.<n>"#' > "${TMPDIR:-/tmp}/mcp.json" \
+  && git update-index --cacheinfo "100644,$(git hash-object -w "${TMPDIR:-/tmp}/mcp.json"),.mcp.json" \
+  && git update-index --skip-worktree .mcp.json
 bun run typecheck && bun run build && bun run test
 git commit -am "chore(release): <x.y.z>-rc.<n>"
 git push origin HEAD:dev             # CI and Package smoke green on every job before publishing

@@ -40,8 +40,9 @@ demand, load all eleven in one tool search before your first call.
 
 ## At the start
 
-1. `get_analysis_context`. Its `workspace:` line names the repository the
-   ledger is keyed to. If that isn't the project you're working in, call
+1. `get_analysis_context`. Its `workspace:` line names the project directory,
+   and its `ledger:` line the repository the ledger is keyed to. If that isn't
+   the project you're working in, call
    `init_workspace { workspace_path: "<the project's absolute path>" }`, then
    start again. Do the same when any call answers `workspace_undetermined`. A
    relative path such as `.` may not name the project.
@@ -55,10 +56,10 @@ demand, load all eleven in one tool search before your first call.
    get_analysis_context's ledger: line, before the comma>" }`, so whatever
    copies the repository's identity from the anchor gets the exact value.
 4. Read the repository's memory: `concept_neighbors { concept_id: "<anchor>",
-   direction: "incoming" }` gives the decisions linked to it. Then
+   direction: "incoming", limit: 50 }` gives the decisions linked to it. Then
    `concept_search { query: "<the area or symptom you're working on>" }`. If you
    hold a task, read what earlier executions left on it:
-   `concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming" }`.
+   `concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming", limit: 50 }`.
    Read any concept in full with `concept_search { concept_id }`.
 
 Reading costs nothing and changes no ranking, so read freely.
@@ -69,8 +70,8 @@ A task is a ledger entry in category `task`. If you were handed a task id, find
 it in `get_problems`, which shows its summary, files, holder and concept id; then
 read the brief itself with `concept_search { concept_id: "<the task's concept id>" }`,
 since `get_problems` doesn't show a task's details. Otherwise pick an open task
-nobody holds. Claim and close it by that concept id: an `agf_` id works only in
-the session that recorded the task.
+nobody holds. Claim and close it by that concept id: an `agf_` id works only on
+the machine whose local store holds the task.
 
 - `claim_finding { problem_id, minutes: 30 }` before you start, so nobody starts
   the same work. If two agents claim at once, every reader settles it the same way
@@ -134,7 +135,8 @@ point, and what it didn't write is lost.
 
 When your session nears its limit, or you are about to stop for any reason, do
 these in order: push what works, leave a handoff, release the claim. A claim you
-don't release holds the task from everyone until it lapses.
+don't release holds the task from everyone until it lapses, unless your server
+shuts down normally, which releases the claims it took.
 
 - **Close what you finished** with `mark_complete { problem_id, action:
   "endorse" }`, after you commit the work, and after you push it where your
@@ -242,7 +244,7 @@ Suited to: <the kind of agent or role that should take it>"
   each branch and put its condition in the link's `description`.
 - Each task for a step names the step's concept in `Read first:`.
 - When you close a step's task, follow `concept_neighbors { concept_id:
-  "<step>", direction: "outgoing", edge_types: ["sequence_next"] }` and record
+  "<step>", direction: "outgoing", edge_types: ["sequence_next"], limit: 50 }` and record
   the next step's task. At a branch, read the conditions and choose. Where steps
   join, check that every step that leads in is closed.
 
@@ -272,8 +274,9 @@ what the link means, and links nobody uses can be pruned over time.
   carrying a known secret or anything that looks like a credential is refused,
   and paths under your home directory are redacted. Write as if for a colleague
   on another team.
-- Start each summary with the repository's name, so a search hit from across the
-  organization is recognizable at a glance.
+- Start each concept's summary with the repository's name, so a search hit from
+  across the organization is recognizable at a glance (`record_finding` adds it
+  for you).
 
 ## Limits worth knowing
 
@@ -287,4 +290,5 @@ what the link means, and links nobody uses can be pruned over time.
 - The ledger's recall reads a bounded window of each kind across the
   organization, newest and most relevant first. Record tasks for real units of
   work, not every small step.
-- `concept_neighbors` returns at most 50 links. Past that, search by topic.
+- `concept_neighbors` returns 10 links unless you pass `limit`, at most 50, and
+  says when the limit was reached. Past 50, search by topic.

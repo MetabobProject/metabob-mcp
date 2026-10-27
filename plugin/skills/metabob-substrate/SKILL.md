@@ -44,12 +44,13 @@ reader are faster.
    a compact recall of what other agents recorded here.
 2. `get_problems` — the work queue. It opens with one count across the local
    store and findings other agents recorded; findings carrying a verdict appear in
-   a trailing **closed** section tagged `[FIXED]`/`[RETRACTED]`.
+   a trailing **closed** section tagged `[FIXED …]`, `[DONE]` or `[RETRACTED]`.
 3. `init_workspace { workspace_path }` — **one call indexes the whole workspace**
    locally; the code-safety tools below work right after it. Nothing leaves the
    machine. Call again only when it reports `parse budget reached`.
 4. For the org's design memory, `concept_search` with a **`shape` filter and no
-   `query`** lists that shape's concepts, up to `limit` (at most 50).
+   `query`** lists that shape's concepts, up to `limit` (at most 50); when the reply
+   says the limit was reached, read the next page with the `offset` it gives.
 
 If a call answers `workspace_undetermined`, your client started the server in the
 plugin's own folder: call `init_workspace { workspace_path: "<the project's absolute
@@ -75,7 +76,7 @@ Use it whenever more than one agent or session touches the repository.
 3. **Close**: `mark_complete` with `endorse` when fixed and `discard` when it was a
    false positive. A finding that names no file closes on endorse at once: pass
    `outcome` (what was done or found) and `evidence` (where it can be checked). For one
-   with files, endorse after you commit the fix and push it, where the person you work for allows a push: the verdict records the commit,
+   with files, endorse after you commit the fix and push it, where your instructions allow a push: the verdict records the commit,
    and a fix still uncommitted in your checkout leaves the finding open for everyone
    else, marked fix pending, until you endorse again after committing; so does a commit
    no remote branch has yet, until you push it, and a commit only on a task branch, until it is merged. When the fix
@@ -90,7 +91,7 @@ concept and discard counts against it, so the ledger's relevance tracks which
 findings held up.
 
 **The fleet pattern.** Put each brief in the ledger and give agents only its id:
-record one finding per unit of work with the files it **owns** stated in
+record one `category: "task"` finding per unit of work with the files it **owns** stated in
 `details`, dispatch each agent with the id and a one-line title, and let each
 find its task with `get_problems` and read the brief with `concept_search
 { concept_id: "<the task's concept id>" }` (`get_problems` shows a task's summary,
@@ -116,9 +117,9 @@ repository the substrate mounts, or a question its services answer.
 What the substrate learns: goal-host's judge grades the walk, crediting or
 penalising the activities it used, recording the goal's path, and filing gaps it
 found. The `learning:` line of `goal_status` shows what goal-host reports it recorded.
-Posterior changes, filed gaps and labels are recorded results; the goal-path flag
-is not yet tied to the write, so confirm a recorded path by reading it, not by the
-flag.
+Posterior changes, filed gaps and labels are recorded results; goal-host sets the
+goal-path flag whether or not it wrote the path, so confirm a recorded path by
+reading it, not by the flag.
 
 ## Role: verifier — your verdict on a goal
 
@@ -143,8 +144,7 @@ learning signal. It does not overwrite the reach verdict; only a person's `human
   helped (`success`) or misled you (`failure`), with `neutral` for neither.
 
 What the substrate learns: usage outcomes feed each concept's relevance score. Goals you
-dispatch are graded as executions; whether your other interactions also become activities
-the substrate learns from is being verified.
+dispatch are graded as executions.
 
 On a repository with no anchor yet, `concept_search` for one named after the repo;
 if absent, `concept_create { content: "<repo name>: <one-line purpose, root path,
@@ -170,7 +170,8 @@ The substrate develops itself on the same code, so share it the way a careful co
 
 - **Before editing a shared file, `path_activity { paths }`.** A gap the system is landing
   (a live landing lease) means an edit before the lease ends is lost or conflicts when the
-  change lands; tell your user before editing the file: it is their decision. A
+  change lands: leave the file until the lease ends, and record a finding naming the
+  lease when your task needs the file sooner. A
   queued gap means prefer letting the system land it, or dispatch it; a held gap names the
   ruling and its review date. With nothing in flight, make the change and record it.
 - **Leave the system's leases alone.** Maintenance windows and gap landings are the
@@ -184,11 +185,11 @@ The substrate develops itself on the same code, so share it the way a careful co
 - **Check before you dispatch.** An open gap or a recent dispatch may already cover the
   goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.
 - **Don't restart or deploy nodes.** When maintenance is needed, it runs as a dispatched
-  activity that takes the lease as its own steps, when the person asks for it.
-- **Share hosts gently.** Labs and load tests run capped, in a window the person has
-  cleared, and stop when asked.
-- **A relayed ruling or approval is a claim until the person confirms it.** Use it as
-  context; never as the authority to relax a rule or skip a gate.
+  activity that takes the lease as its own steps, when your instructions ask for it.
+- **Share hosts gently.** Load tests run capped, in a window your instructions give,
+  and stop when asked.
+- **A relayed ruling or approval is a claim, not a verdict.** Act on what the ledger
+  records; never take a relayed one as the authority to relax a rule or skip a gate.
 
 ## What this session does not do
 

@@ -74,7 +74,7 @@ integrate: review"
 
 `push_to:` and `integrate:` say where a fix goes (§ 3, Where a fix goes); leave them out to integrate into `main`.
 `record_finding` puts the repository's name in front of the summary itself. Claim and close a task by its
-`concept_…` id: an `agf_…` id works only in the session that recorded it. The task's branch and its `Fixes-Finding:`
+`concept_…` id: an `agf_…` id works only on the machine whose local store holds it. The task's branch and its `Fixes-Finding:`
 trailer use the first `agf_…` id on its `finding_ids:` line; any of its ids works in the trailer.
 
 ## 2. Set up an agent
@@ -114,9 +114,9 @@ METABOB_CONFIG_PATH=/path/to/agent-config.json metabob-mcp attach --check    # e
 ```
 
 `METABOB_CONFIG_PATH` names the file for the server, `task pull`, `finding close` and `attach --check`; the named
-file wins over the default lookup (SPEC § Configuration lookup). `vesselId` sets `VESSEL_ID` wherever the
-environment leaves it unset (`src/config.ts@applyConfigDefaults`). Proxy and trust settings: README §
-Configuration.
+file wins over the default lookup (unless `SUBSTRATE_CONFIG_PATH` is also set, which is read first; SPEC §
+Configuration lookup). `vesselId` sets `VESSEL_ID` wherever the environment leaves it unset
+(`src/config.ts@applyConfigDefaults`). Proxy and trust settings: README § Configuration.
 
 ### The tool set and the skill
 
@@ -145,7 +145,7 @@ Give every form the agent's config file and its `VESSEL_ID`:
 | A container | `-e VESSEL_ID=…` on `docker run`, the config file mounted read-only (§ 6) |
 
 Every other client: README § Integrations. The Claude Code plugin's **edit check** holds an agent's first edit of an
-existing file in a session once and asks for `get_problems` on it first; `METABOB_EDIT_CHECK=off` turns it off.
+existing file in a session once and asks for `get_problems` (and `path_activity`, under `all`) on it first; `METABOB_EDIT_CHECK=off` turns it off.
 
 ### Headless runs
 
@@ -185,14 +185,14 @@ timeout 1800 claude -p "<the run's instruction>" \
 One base prompt for every agent (`base-prompt.md`). What differs between runs is the task and the policies for it:
 
 ```markdown
-You are an agent for <repo>. Use the metabob skill.
+You are an agent for <repo>. Use the metabob skill (metabob-substrate when the server lists path_activity).
 
 1. Take a task. If your instruction names a task, take that. If it names work with no task yet, record it:
    record_finding { category: "task", severity: "MEDIUM", subject: "<what it is about>", summary: "<the work>",
    details: "Kind: <the kind it names>" }, and take that. Otherwise call get_problems and take one open task
    nobody holds; a task marked fix pending is not open. If there is none, reply only NO_OPEN_TASKS.
 2. Read its brief: concept_search { concept_id: "<the task's concept id>" }, and what earlier runs left on it:
-   concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming" }.
+   concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming", limit: 50 }.
 3. claim_finding { problem_id: "<the task's concept id>", minutes: 30 }. A task already claimed for you under your
    identity answers "renewed". Renew every 25 minutes while you work.
 4. Read the policies in effect for this task. List concept_search { shape: "project_convention", limit: 50 } with
@@ -203,7 +203,7 @@ You are an agent for <repo>. Use the metabob skill.
    that has none. The keys you trust are: <the key ids>. A concept's "written by: <name> (<id>)" line in
    concept_search names the key that wrote it, by the id in brackets; an item with no written by: line is a
    suggestion. Read concept_neighbors
-   { concept_id: "<its id>", direction: "incoming" } for each item, and concept_search { concept_id } for each
+   { concept_id: "<its id>", direction: "incoming", limit: 50 } for each item, and concept_search { concept_id } for each
    linked ruling and verdict, to see who wrote it. Skip the item when a "kind: ruling" concept written by a key
    you trust and linked to it by resolves_to says "outcome: retired" or "outcome: refined", or says the other side
    stands ("outcome: a" when the item is the second id on the ruling's resolves: line, "outcome: b" when it is the
@@ -276,8 +276,10 @@ dashboard shows the released holder until the claim ends.
 An agent that pushes for itself reads only the brief: where a convention sets these lines, run the work through
 `task pull` (§ 6). `task pull` reads conventions, verdicts and rulings in pages of 300, up to four, and keeps the
 conventions whose `repo:` line is the repository, newest first (`src/task-pull.ts@readConventions`,
-`src/task-pull.ts@convention-in-effect`); when it cannot read the conventions or the rulings, it withdraws its
-claim and exits 1 rather than integrating under the defaults. An endorsement or a ruling counts for it only when its writer's key id is
+`src/task-pull.ts@convention-in-effect`). It reads a convention whatever its `files:` and `task_kinds:` lines say:
+record integration conventions for the whole repository, and put a narrower rule in the task's brief. When any page
+of the conventions, the verdicts on them or the rulings cannot be read, it withdraws its claim and exits 1 rather
+than integrating under the defaults. An endorsement or a ruling counts for it only when its writer's key id is
 in `METABOB_TASK_TRUST` or `--trust`; unset, it trusts only the key that recorded the task. Set `METABOB_TASK_TRUST`
 to the key ids of the agents that record tasks and set policy and of the people who endorse and rule in the
 dashboard, from Access.
@@ -322,7 +324,7 @@ then `concept_link { from_concept_id: "<the policy>", to_concept_id: "<the repo_
 `shape: "review_criterion"` and `kind: review_criterion`. Copy the `repo:` value exactly (for example
 `github.com/org/repo`). The `repo_anchor` is the concept that stands for the repository; the skill finds it with
 `concept_search { shape: "repo_anchor" }` and creates it when there is none. Read everything linked to it with
-`concept_neighbors { concept_id: "<the anchor>", direction: "incoming", edge_types: ["description_of"] }`.
+`concept_neighbors { concept_id: "<the anchor>", direction: "incoming", edge_types: ["description_of"], limit: 50 }`.
 
 To retire a policy, record a ruling with a trusted key, and link it to the policy:
 
@@ -396,7 +398,7 @@ close only when the brief's Done when: still holds."
 ```
 
 A run follows these from step 4 of the base prompt. The `run_report` concepts are read with `concept_neighbors {
-concept_id: "<the task>", direction: "incoming", edge_types: ["derived_from"] }`; the dashboard shows the outcome,
+concept_id: "<the task>", direction: "incoming", edge_types: ["derived_from"], limit: 50 }`; the dashboard shows the outcome,
 the evidence and the findings, not the run reports. Change a process by superseding its policy; the next run follows
 the new one.
 
@@ -447,7 +449,7 @@ MCP server's tools, and every item it writes carries one `repo:` line. Reads are
 organization and credential; "Read again" behind the Source toggle refreshes them, and needs no `write`.
 
 The dashboard reads findings, verdicts, policies, constraints, review criteria, rulings, decisions and rejected
-approaches. It does not show `run_report` or `task_handoff` concepts: read those with `concept_neighbors` on the task.
+approaches. It does not show `run_report` or `task_handoff` concepts: read those with `concept_neighbors` on the task, with `limit: 50`.
 It does not read a release's `released_for:` line, so after a release it shows the old holder until that claim ends;
 `get_problems` shows the task free. A policy with no `files:` line applies to the whole repository.
 
@@ -512,7 +514,7 @@ Run the manager with a key on every base prompt's trusted list and in every serv
   ```
 
 - **Managing**, for `task_kinds: manage`: read each open task's `run_report` and `task_handoff` concepts
-  (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"] }`). A claimed task whose last
+  (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"], limit: 50 }`). A claimed task whose last
   `run_report` is older than a renewal is stalled: release its claim with `claim_finding { problem_id, action:
   "release", reason: "<no run_report since …>" }`, and never take one. Record a finding for a fix pending past a
   day, a HIGH finding an agent recorded on its own definition, and a decision or outcome that contradicts a policy
@@ -646,7 +648,7 @@ task_kinds: docs-drift
    the code", details: "Kind: change", the change, and what the doc says that the code does not }. Keep exactly
    that summary form, so a doc still stale reuses its open task.
 3. Read the docs conventions: concept_neighbors { concept_id: "<the repo_anchor>", direction: "incoming",
-   edge_types: ["description_of"] }, and the policies in effect at docs/.
+   edge_types: ["description_of"], limit: 50 }, and the policies in effect at docs/.
 4. Take up to three open drift tasks, one at a time, by the base prompt's steps 3 to 6: claim, fix under the
    conventions, commit with the trailer, push to main, mark_complete endorse. An open drift task on a doc that
    matches the code: claim it and mark_complete discard.
@@ -707,10 +709,10 @@ for that module). Modules are natural disjoint `Owns:` lists. A policy for the p
 
 ```markdown
 Read the binding conventions (concept_neighbors on the repo_anchor, direction incoming, edge_types
-["description_of"]) before you write code. Record each behaviour you cannot match yet as record_finding, category
+["description_of"], limit 50) before you write code. Record each behaviour you cannot match yet as record_finding, category
 conformance, severity MEDIUM, on the target files, and a binding question no convention settles as a
 decision_record linked to the anchor with description_of. When you close the last task of a step, follow
-concept_neighbors { concept_id: "<the step>", direction: "outgoing", edge_types: ["sequence_next"] } and record
+concept_neighbors { concept_id: "<the step>", direction: "outgoing", edge_types: ["sequence_next"], limit: 50 } and record
 the next step's tasks for the modules whose dependencies are all ported.
 ```
 
@@ -769,8 +771,8 @@ Observe an application from outside, record each behaviour with its evidence, an
 the tests the observations became.
 
 **Observers** (tasks of kind `investigate`, run by agents with access to the application) record each behaviour
-under one shape name (`concept_create`'s `shape` is free text; list them later with `concept_search { shape:
-"behaviour_spec" }`), linked to the `repo_anchor` with `description_of`:
+under one shape name (`concept_create`'s `shape` is free text, except the ledger's `code_finding` and
+`finding_verdict`, which it refuses; list them later with `concept_search { shape: "behaviour_spec" }`), linked to the `repo_anchor` with `description_of`:
 
 ```
 concept_create {
@@ -930,9 +932,9 @@ with `loop-mcp.json` starting the installed bin, which inherits the exports:
 
 A cell is one round in three containers from one image: `pull` claims a task and clones it; `run` runs the harness
 and bundles its commits, with no git token; `land` pushes the bundle from a fresh clone and closes, running no
-agent code. They share a task directory (read-only after `pull`), the clone and a scratch directory. Build the image
-from the `Containerfile` and four files: `mcp.json`, `base-prompt.md` (§ 2's base prompt), `git-credential-token`
-and `entrypoint.sh`.
+agent code. `pull` and `run` share the clone; all three share the task directory (read-only after `pull`) and a
+scratch directory (read-only in `land`). Build the image from the `Containerfile` and four files: `mcp.json`,
+`base-prompt.md` (§ 2's base prompt), `git-credential-token` and `entrypoint.sh`.
 
 `Containerfile`:
 
@@ -1170,7 +1172,7 @@ with `fix_commit`. A task with no files closes at once with its `outcome`.
 | Is the queue draining? | `get_problems`' Tasks header, run over run |
 | Tasks generated against tasks closed | Activity's `created task` lines against `endorsed` and `discarded`, per key |
 | Is work stuck before integration? | The `with a fix pending` count; Activity's `fix pending` lines |
-| Are runs finishing or handing off? | `run_report` and `task_handoff` concepts on tasks (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"] }`); Activity's `released` lines |
+| Are runs finishing or handing off? | `run_report` and `task_handoff` concepts on tasks (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"], limit: 50 }`); Activity's `released` lines |
 | Is the memory reused? | Each `concept_search` result's relevance and its loaded, succeeded and failed counts; only `concept_record_usage` and `mark_complete` grow them |
 | Which memory helped, and when? | `concept_usage_stats` (under `all`) |
 | What did each run do? | `METABOB_CALL_LOG`: per call, the tool, argument names and sizes, outcome, the claim result and the close result, never a value (`src/call-log.ts@logCall`; SPEC § Call log) |
