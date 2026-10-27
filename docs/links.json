@@ -234,8 +234,8 @@
         "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
       },
       "docs/SUBSTRATE-GUIDE.md": {
-        "at": "db46c4f",
-        "why": "the skills' anchor template gains a repo: line; the doc does not show the template"
+        "at": "b5ec9ee",
+        "why": "it points to SPEC § claim_finding for the claim rules, which describe the trusted release"
       },
       "docs/USER-GUIDE.md": {
         "at": "db46c4f",
