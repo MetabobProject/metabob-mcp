@@ -39,7 +39,7 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { createConcept } from './_concept-db.js';
 import { plainConceptId } from './_concept-content.js';
-import { attributionLines, resolveAuthorVesselId } from './_findings.js';
+import { FINDING_SHAPE, VERDICT_SHAPE, attributionLines, resolveAuthorVesselId } from './_findings.js';
 
 const SOURCE_TYPES = [
   'goal',
@@ -128,8 +128,8 @@ interface ConceptResponse {
 /**
  * The author of a concept, stamped as record_finding stamps a finding's: `recorded_by: <vesselId>` and
  * `session: <id>` as the content's first lines, so every reader's first match is the stamp (task pull's convention
- * trust reads the first `recorded_by:`). Author lines the agent wrote in the leading header block (up to the first
- * blank line) are removed, matched at any indentation and in any case, whether or not an identity resolves, and the
+ * trust reads the first `recorded_by:`). Author and provenance lines the agent wrote in the leading header block (up
+ * to the first blank line: `recorded_by`, `reviewed_by`, `session`, `origin`) are removed, matched at any indentation and in any case, whether or not an identity resolves, and the
  * reply says what was removed. The body after the header block is left as written. With no vessel identity nothing
  * is stamped: an author is omitted, never faked, and never taken from what the agent wrote. Declared, not verified,
  * like every author line until principals are stamped from the credential. SPEC §concept_create
@@ -140,7 +140,7 @@ export function stampAuthor(content: string, vesselId: string | undefined, sessi
   const headerEnd = blank < 0 ? lines.length : blank;
   const replaced: string[] = [];
   const header = lines.slice(0, headerEnd).filter((line) => {
-    const m = /^\s*(recorded_by|session)\s*:\s*(.*)$/i.exec(line);
+    const m = /^\s*(recorded_by|reviewed_by|session|origin)\s*:\s*(.*)$/i.exec(line);
     if (!m) return true;
     replaced.push(line.trim());
     return false;
@@ -149,12 +149,21 @@ export function stampAuthor(content: string, vesselId: string | undefined, sessi
   return { content: [...stamp, ...header, ...lines.slice(headerEnd)].join('\n'), replaced };
 }
 
+/** The shapes only the ledger tools write. */
+const LEDGER_SHAPES: ReadonlySet<string> = new Set([FINDING_SHAPE, VERDICT_SHAPE]);
+
 export async function handle(
   input: ConceptCreateInput,
   _apiClient: AnalysisAPIClient,
   sessionId?: string,
 ): Promise<string> {
   const start = Date.now();
+  // Findings, claims and verdicts are the ledger tools' to write: a concept_create of those shapes could forge a
+  // claim, a release or an endorsement with whatever author lines it likes. SPEC §concept_create
+  const shape = input.shape.trim().toLowerCase();
+  if (LEDGER_SHAPES.has(shape)) {
+    return `concept_create: refused: shape "${input.shape}" is the ledger's (${shape === FINDING_SHAPE ? 'record_finding writes findings and tasks' : 'claim_finding writes claims and releases, mark_complete verdicts'}), so nothing was written.`;
+  }
   const vesselId = await resolveAuthorVesselId();
   const stamped = stampAuthor(input.content, vesselId, sessionId);
 

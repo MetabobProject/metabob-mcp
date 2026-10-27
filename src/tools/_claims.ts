@@ -20,8 +20,9 @@
  *
  * A release of someone else's claim (a manager freeing a stalled task) is a withdrawal written by the releaser with
  * `released_for: <holder>` and `release_reason:`. It ends the holder's claim only for a reader that trusts the
- * releaser: one named in that reader's METABOB_CLAIM_RELEASERS, or a person (`dashboard:`). Trust is the reader's,
- * since any server could name itself; and authors are declared, not verified, so it is a convention among a fleet.
+ * releaser, one named in that reader's METABOB_CLAIM_RELEASERS. Trust is the reader's, since any server could name
+ * itself; and authors are declared, not verified, so it is a convention among a fleet, which only works when every
+ * reader has the same list.
  */
 
 import type { ConceptRow } from './_concept-db.js';
@@ -79,7 +80,7 @@ export function setClaimReleasersForTests(ids: Iterable<string> | null): void {
 
 /** Whether this reader takes a release by `by` of someone else's claim. */
 export function trustedReleaser(by: string, releasers: ReadonlySet<string> = claimReleasers()): boolean {
-  return by.startsWith('dashboard:') || releasers.has(by);
+  return releasers.has(by);
 }
 
 /**

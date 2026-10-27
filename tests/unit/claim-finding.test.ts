@@ -76,7 +76,9 @@ describe('claimHolder', () => {
     const row = (by: string) => ({ id: 'concept:r1', created_at: '2026-10-21T12:30:00Z', content: `finding: agf_x\nverdict: claim withdrawn\nreleased_for: worker-1\nrelease_reason: no report since 12:05\nreviewed_by: ${by}` });
     expect(parseClaim(row('manager-1'), new Set())).toBeNull();
     expect(parseClaim(row('manager-1'), new Set(['manager-1']))).toMatchObject({ kind: 'withdrawn', by: 'worker-1', releasedBy: 'manager-1' });
-    expect(parseClaim(row('dashboard:person'), new Set())).toMatchObject({ kind: 'withdrawn', by: 'worker-1', releasedBy: 'dashboard:person' });
+    // No author is trusted by its form: a dashboard: author is trusted only when the list names it.
+    expect(parseClaim(row('dashboard:person'), new Set())).toBeNull();
+    expect(parseClaim(row('dashboard:person'), new Set(['dashboard:person']))).toMatchObject({ by: 'worker-1', releasedBy: 'dashboard:person' });
     const held = [claim('worker-1', T, T + 60 * MIN)];
     const released = parseClaim(row('manager-1'), new Set(['manager-1']))!;
     expect(claimHolder(held, T + 40 * MIN)?.by).toBe('worker-1');

@@ -724,9 +724,10 @@ every consumer from its next round.
 - Give parallel workers separate working copies and disjoint `Owns:` lists; claims keep them off one task only.
 - Name the policies that count in the base prompt (endorsed from the dashboard, or recorded by people or by
   VESSEL_IDs you trust); the server reads a proposed or rejected policy like an endorsed one.
-- Give write-scope keys only to agents you trust: any write key can put `recorded_by: dashboard:` or `reviewed_by:
-  dashboard:` lines in what it writes, or name a trusted releaser in a claim release, and the server shows agents
-  no other sign of who wrote a concept, so those lines can be imitated.
+- Give write-scope keys only to agents you trust: this server stamps authors and refuses to write findings, claims
+  and verdicts through `concept_create`, but a write key used from another client can write any lines (a
+  `dashboard:` author, an endorsement, a release naming a trusted releaser), and agents see no other sign of who
+  wrote a concept.
 - Keep integration lines (`push_to:`, `integrate:`) in task details, not in policies.
 - For review, declare `push_to: task` with `integrate: review`, protect `main`, and push review work only to
   `task/<task id>` branches: an endorse closes a finding on any other remote branch.
@@ -811,8 +812,9 @@ claim, every reader picks the earliest live claim, the lower id on a tie (`src/t
 the later claimer withdraws. A verdict that closes the finding, by anyone, ends every claim on it (a pending endorse
 does not); an endorse of a task someone else holds goes ahead and names their claim. A server shutting down
 normally releases the claims its session took through `claim_finding`; a kill or crash leaves them to lapse;
-`task pull`'s claim outlives its process. An identity every reader names in `METABOB_CLAIM_RELEASERS` (and a
-person, from the dashboard) can release someone else's claim, with a `reason` (SPEC § claim_finding). One claimer is one server identity, `metabob-mcp-<hash(key +
+`task pull`'s claim outlives its process. An identity every reader names in `METABOB_CLAIM_RELEASERS` can release
+someone else's claim, with a `reason`; readers with different lists disagree on who holds the task, so the work can
+be done twice (SPEC § claim_finding). One claimer is one server identity, `metabob-mcp-<hash(key +
 workspace)>` or `VESSEL_ID`: two sessions with one key in one working copy are one claimer.
 
 `mark_complete` records where the fix is (SPEC § mark_complete):
