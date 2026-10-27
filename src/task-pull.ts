@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
 import { GIT_ENV, normalizeRemoteUrl, vesselAliases, type RepoIdentity } from './repo-identity.js';
-import { searchConcepts } from './tools/_concept-db.js';
+import { searchConcepts, stampedWriter } from './tools/_concept-db.js';
 import { headerBlock, plainConceptId } from './tools/_concept-content.js';
 import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, type AgentFinding } from './tools/_findings.js';
 import { claim, InputSchema as ClaimInput } from './tools/claim-finding.js';
@@ -67,7 +67,7 @@ function declared(text: string, key: string): string | null {
 export function integrationPolicy(
   taskKey: string,
   details: string,
-  conventions: Array<{ id: string; author: string; content: string }>,
+  conventions: Array<{ id: string; author: string; authorKey?: string; content: string }>,
   trusted: ReadonlySet<string>,
 ): IntegrationPolicy {
   const allowed: Record<'push_to' | 'integrate' | 'conflicts', (v: string) => string | null> = {
@@ -78,7 +78,8 @@ export function integrationPolicy(
   const defaults = { push_to: 'main', integrate: 'push', conflicts: 'rebase' } as const;
   const policy: IntegrationPolicy = { ...defaults, source: { push_to: 'default', integrate: 'default', conflicts: 'default' }, rejected: [] };
   const usable = conventions.filter(c => {
-    if (trusted.has(c.author)) return true;
+    // The author is the key the host stamped (its name, or its id), else, on an older row, the declared author.
+    if (trusted.has(c.author) || (!!c.authorKey && trusted.has(c.authorKey))) return true;
     policy.rejected.push(`convention ${c.id} by ${c.author || 'an unattributed author'}: not a trusted author`);
     return false;
   });
@@ -213,7 +214,7 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
       return say(1, `${why}. ${released.outcome === 'released' ? `The claim on ${key} was withdrawn.` : `The claim on ${key} could not be withdrawn (${released.message}); it lapses on its own.`}`);
     };
     const details = taskDetails(task.content);
-    const recorder = header(task.content, 'recorded_by');
+    const recorder = task.writtenBy || header(task.content, 'recorded_by');
     // Without a configured trust list, the task's recorder vouches for the conventions that shape it: recorded as defaulted.
     const trustDefaulted = a.trust.length === 0;
     const trusted = new Set(trustDefaulted ? (recorder ? [recorder] : []) : a.trust);
@@ -272,13 +273,13 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
 }
 
 /** The repository's project_convention concepts, newest first, as integrationPolicy reads them. */
-async function readConventions(repo: RepoIdentity): Promise<Array<{ id: string; author: string; content: string }>> {
+async function readConventions(repo: RepoIdentity): Promise<Array<{ id: string; author: string; authorKey?: string; content: string }>> {
   const found = await searchConcepts({ shape: PROJECT_CONVENTION_SHAPE, limit: 50 });
   if (!found.ok) return [];
   return found.value
     .filter(r => header(String(r.content ?? ''), 'repo').toLowerCase() === repo.id)
     .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')))
-    .map(r => ({ id: plainConceptId(r.id), author: header(String(r.content ?? ''), 'recorded_by'), content: String(r.content ?? '') }));
+    .map(r => ({ id: plainConceptId(r.id), author: stampedWriter(r, header(String(r.content ?? ''), 'recorded_by')), authorKey: r.written_by ? String(r.written_by_key ?? '') : '', content: String(r.content ?? '') }));
 }
 
 function contextFile(record: { task_id: string; summary: string; files: string[]; subject: string | null; details: string; policy: unknown }, task: AgentFinding, related: AgentFinding[]): string {

@@ -72,6 +72,15 @@ describe('claimHolder', () => {
     expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_until: 2026-10-21T13:00:00Z'))).toBeNull();
   });
 
+  test('a stamped row is trusted by its key, whatever author it declares', () => {
+    const row = { id: 'concept:r2', created_at: '2026-10-21T12:30:00Z', written_by: 'manager-key', written_by_key: 'key_M1',
+      content: 'finding: agf_x\nverdict: claim withdrawn\nreleased_for: worker-1\nrelease_reason: stalled\nreviewed_by: trusted-vessel' };
+    // The declared author is a forgery the stamp overrides.
+    expect(parseClaim(row, new Set(['trusted-vessel']))).toBeNull();
+    expect(parseClaim(row, new Set(['manager-key']))).toMatchObject({ by: 'worker-1', releasedBy: 'manager-key' });
+    expect(parseClaim(row, new Set(['key_M1']))).toMatchObject({ by: 'worker-1' });
+  });
+
   test("a release of someone else's claim counts only for a reader that trusts the releaser", () => {
     const row = (by: string) => ({ id: 'concept:r1', created_at: '2026-10-21T12:30:00Z', content: `finding: agf_x\nverdict: claim withdrawn\nreleased_for: worker-1\nrelease_reason: no report since 12:05\nreviewed_by: ${by}` });
     expect(parseClaim(row('manager-1'), new Set())).toBeNull();
@@ -177,16 +186,16 @@ describe('claim_finding', () => {
     expect((await ClaimFinding.releaseSessionClaims('s1', 5_000)).released).toEqual([]);
   });
 
-  test("an identity the fleet trusts releases a stalled claim with a reason, and the task is free", async () => {
+  test("a release of a stalled claim needs a reason, and frees the task for a reader that trusts its writer", async () => {
     const { rows } = await db({ rows: [other('claimed', Date.now() - MIN, 'claim_minutes: 60\n')] });
     const store = seeded();
-    // Without a reason, or untrusted, nothing is written.
+    // Without a reason nothing is written.
     expect(await run(store, { action: 'release' })).toContain('to release a stalled claim, pass a reason');
-    expect(await run(store, { action: 'release', reason: 'no run report since its claim' })).toContain('takes METABOB_CLAIM_RELEASERS naming you (metabob-mcp-thiscell)');
     expect(rows).toHaveLength(1);
     setClaimReleasersForTests(['metabob-mcp-thiscell']);
     const out = await run(store, { action: 'release', reason: 'no run report since its claim' });
     expect(out).toContain("Released metabob-mcp-other's claim on finding agf_task1 (no run report since its claim)");
+    expect(out).toContain('wherever METABOB_CLAIM_RELEASERS names the key this server writes with');
     expect(String(rows.at(-1)!.content)).toMatch(/^released_for: metabob-mcp-other$/m);
     expect(String(rows.at(-1)!.content)).toMatch(/^reviewed_by: metabob-mcp-thiscell$/m);
     expect(await run(store)).toContain('Claimed finding agf_task1');

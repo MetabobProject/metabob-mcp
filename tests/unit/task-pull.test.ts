@@ -25,6 +25,14 @@ afterEach(() => setAttachment(null));
 describe('integrationPolicy', () => {
   const conv = (id: string, author: string, body: string) => ({ id, author, content: `repo: r\nrecorded_by: ${author}\n\n${body}` });
 
+  test('a convention trusted by its stamped key, by name or id', () => {
+    const stamped = { id: 'cv9', author: 'ops-key', authorKey: 'key_O1', content: 'repo: r\nrecorded_by: someone\n\npush_to: task' };
+    expect(integrationPolicy('agf_t1', '', [stamped], new Set(['ops-key'])).push_to).toBe('task/agf_t1');
+    expect(integrationPolicy('agf_t1', '', [stamped], new Set(['key_O1'])).push_to).toBe('task/agf_t1');
+    // The declared author is not the stamped one, and the stamp decides.
+    expect(integrationPolicy('agf_t1', '', [stamped], new Set(['someone'])).push_to).toBe('main');
+  });
+
   test('the task declares it; else a trusted convention; else the default', () => {
     const p = integrationPolicy('agf_t1', 'push_to: task\nintegrate: review', [conv('cv1', 'coord', 'integrate: push\nconflicts: rebase')], new Set(['coord']));
     expect(p).toMatchObject({ push_to: 'task/agf_t1', integrate: 'review', conflicts: 'rebase' });

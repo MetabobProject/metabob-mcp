@@ -155,6 +155,12 @@ test('an offset a concept-db pages returns the next page', async () => {
   expect(out).not.toContain('does not page');
 });
 
+test('concept_search shows the writing key the host stamped', async () => {
+  await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:pc_w', shape: 'project_convention', content: 'kind: policy', written_by: 'ops-key', written_by_key: 'key_O1' }]) });
+  const out = await ConceptSearch.handle(ConceptSearch.InputSchema.parse({ shape: 'project_convention' }), mockApiClient);
+  expect(out).toContain('written by: ops-key (the writing key, stamped by the host)');
+});
+
 test('concept_search discloses truncation of a long body and names the escape hatch', async () => {
   const long = `${STRUCTURED_AND_PROSE}\n${'filler prose line.\n'.repeat(120)}`;
   await installShapeStub({ conceptSearch: () => searchAnswer([{ id: 'concept:cd_long1', shape: 'gotcha', content: long }]) });

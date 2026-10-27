@@ -531,7 +531,7 @@ through a proxy) nothing is known about the key, and nothing is gated.
 
 ### task pull
 
-`metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <vesselId,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
+`metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
 
 It is Node-safe and runs in the runtime that launched it (§ Runtime), so a cell that runs `npx @metabob/mcp` needs no Bun for it; W7 runs the built CLI under Node.
 
@@ -563,7 +563,7 @@ A `ref:` must be a branch name `git check-ref-format --branch` accepts, must not
 - `integrate`: `push` or `review`; default `push`;
 - `conflicts`: `rebase`.
 
-A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder, in which case `task.json` records `trust.defaulted: true`. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied. Authors are declared, not verified (§ Client claim), so the trust list is a convention among cells, not a security boundary.
+A convention steers pushes, so it is untrusted input. It counts only from an author named by `--trust` or `METABOB_TASK_TRUST`, and by default only from the task's own recorder, in which case `task.json` records `trust.defaulted: true`. The author of a row is the key that wrote it, as the host stamps it (§ Written by): the list names keys, by name or id; a row from before the stamp is read by its declared `recorded_by:`. A value outside the allowed set is refused whatever its source. Every refusal is logged as a warning and never applied.
 
 **Exit codes:**
 - 0: a task was pulled.
@@ -598,6 +598,10 @@ The reply lists what each candidate's claim did.
 **Known limits:**
 - A fix that reaches the target without its `Fixes-Finding:` line (a cherry-pick that drops it) is not recognised; patch-id matching is not done.
 - A fix that was reverted and then re-applied still reports as reverted.
+
+## Written by
+
+The host stamps every concept-db row with the key that wrote it: `written_by` (the key's name) and `written_by_key` (its id), from the credential, so unlike the author lines a row declares (`recorded_by:`, `reviewed_by:`, `client_claim`), it cannot be written by an agent. Trust reads the stamp where a row carries it and the declared line only on a row from before the stamp (`src/tools/_concept-db.ts@stamped-writer`): `METABOB_CLAIM_RELEASERS` (§ claim_finding) and `METABOB_TASK_TRUST` (§ task pull) name keys. `concept_search` shows each row's `written by:` and `get_problems` each recalled finding's and task's, so a base prompt can apply the same rule. Each agent that must be trusted needs its own key.
 
 ## Client claim
 
@@ -970,7 +974,7 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
    A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
 4. Renewing a claim it does not hold is refused, and so is releasing one, except as below.
 
-**Releasing someone else's claim** (`src/tools/_claims.ts@parseClaim`). A worker that was killed leaves its claim live until it ends, and the task waits. An identity the fleet trusts can free it: `action: "release"` with a `reason`, on a claim someone else holds, writes `verdict: claim withdrawn` with `released_for: <the holder>`, `release_reason:` and the releaser as `reviewed_by:`. Trust is the reader's, since any server could name itself: a reader takes the release as the end of the holder's claim when its `METABOB_CLAIM_RELEASERS` (comma-separated vessel ids) names the releaser, and ignores it otherwise; no author is trusted by its form, a `dashboard:` one included. Every reader of the ledger needs the same list: readers with different lists disagree on who holds the task, so a holder that is still working and does not trust the releaser goes on, while a worker that trusts it takes the task, and the work is done twice. A released holder that trusts the releaser sees no claim of its own: its renew is refused, and it can claim again only while no one else has. The tool writes such a release only when its own `METABOB_CLAIM_RELEASERS` names its identity, and its reply says the task is free where readers name it too. A release without a `reason` is refused, so the shutdown release of a session's own claims never writes one. Authors are declared, not verified (§ Client claim): `concept_create` refuses the shape, but a key with write scope that writes concept-db by another client can still write a release naming a trusted releaser, so the list is a convention among a fleet, not a security boundary.
+**Releasing someone else's claim** (`src/tools/_claims.ts@parseClaim`). A worker that was killed leaves its claim live until it ends, and the task waits. An identity the fleet trusts can free it: `action: "release"` with a `reason`, on a claim someone else holds, writes `verdict: claim withdrawn` with `released_for: <the holder>`, `release_reason:` and the releaser as `reviewed_by:`. Trust is the reader's: a reader takes the release as the end of the holder's claim when its `METABOB_CLAIM_RELEASERS` (comma-separated) names the key that wrote it, as the host stamps it (§ Written by), by name or id, and ignores it otherwise. A row from before the stamp is read by its declared `reviewed_by:`. No author is trusted by its form, a `dashboard:` one included. Every reader of the ledger needs the same list: readers with different lists disagree on who holds the task, so a holder that is still working and does not trust the releaser goes on, while a worker that trusts it takes the task, and the work is done twice. A released holder that trusts the releaser sees no claim of its own: its renew is refused, and it can claim again only while no one else has. The reply says the task is free wherever readers name the key this server writes with (its id, from the org check, or its name in Access). A release without a `reason` is refused, so the shutdown release of a session's own claims never writes one. The stamped key is verified, so a release from a key the list does not name is ignored whatever its lines declare; `concept_create` also refuses the shape.
 
 **A session's claims end with it** (`src/tools/claim-finding.ts@session-claims`). The server keeps the claims it
 took through `claim_finding` and still holds. On a normal shutdown (stdin EOF, a closed stdout, SIGINT, SIGTERM,

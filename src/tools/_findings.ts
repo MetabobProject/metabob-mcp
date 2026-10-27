@@ -280,6 +280,8 @@ export interface AgentFinding {
   claim?: { by: string; until: number; here: boolean };
   /** A closed finding's outcome, from its verdict. */
   outcome?: string;
+  /** The key that wrote the finding, as the host stamped it (src/tools/_concept-db.ts@stamped-writer). */
+  writtenBy?: string;
 }
 
 export type AgentFindingsStatus = 'ok' | 'skipped' | 'unreachable' | 'refused';
@@ -689,6 +691,7 @@ export async function fetchAgentFindings(
       content,
       files: localFiles(content, repo, aliases),
       updated_at: row.updated_at,
+      ...(row.written_by ? { writtenBy: row.written_by } : {}),
     });
   }
 
@@ -834,7 +837,7 @@ export function renderTasksSection(localTasks: SeedRecord[], recall: AgentFindin
     const group = f.pending ? 3 : f.claim?.here ? 0 : f.claim ? 2 : 1;
     const note = f.pending ? `  ${pendingNote(f.pending)}` : f.claim ? `  ${f.claim.here ? `[yours: ${claimNote(f.claim).slice(1)}` : claimNote(f.claim)}` : '';
     const subject = headerLine(f.content, 'subject');
-    entries.push({ group, text: `  • ${findingSummaryText(f.summary) || f.id}${note}\n` + (files ? `    files: ${files}\n` : '') + (subject ? `    subject: ${subject}\n` : '') + `    id: ${f.id}\n` });
+    entries.push({ group, text: `  • ${findingSummaryText(f.summary) || f.id}${note}\n` + (files ? `    files: ${files}\n` : '') + (subject ? `    subject: ${subject}\n` : '') + (f.writtenBy ? `    written by: ${f.writtenBy}\n` : '') + `    id: ${f.id}\n` });
   }
   for (const s of localTasks) {
     const ref = conceptIdFromRefs(s.refs_json);
@@ -909,6 +912,7 @@ export function renderFindingsSection(
         if (fileLine) text += `    ${fileLine}\n`;
         const subjectLine = f.content.split('\n').find(l => l.startsWith('subject:'));
         if (subjectLine) text += `    ${subjectLine}\n`;
+        if (f.writtenBy) text += `    written by: ${f.writtenBy}\n`;
         text += `    concept: ${f.id}${f.updated_at ? `  (${f.updated_at})` : ''}\n`;
       }
     }

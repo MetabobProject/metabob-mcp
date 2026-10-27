@@ -20,12 +20,12 @@
  *
  * A release of someone else's claim (a manager freeing a stalled task) is a withdrawal written by the releaser with
  * `released_for: <holder>` and `release_reason:`. It ends the holder's claim only for a reader that trusts the
- * releaser, one named in that reader's METABOB_CLAIM_RELEASERS. Trust is the reader's, since any server could name
- * itself; and authors are declared, not verified, so it is a convention among a fleet, which only works when every
- * reader has the same list.
+ * releaser, one named in that reader's METABOB_CLAIM_RELEASERS. The releaser is the key that wrote the row, as the host
+ * stamped it (`written_by`), else, on a row from before the stamp, its declared `reviewed_by`. Trust is the reader's,
+ * since any server could name itself, and it only works when every reader has the same list.
  */
 
-import type { ConceptRow } from './_concept-db.js';
+import { stampedWriter, type ConceptRow } from './_concept-db.js';
 import { headerBlock, plainConceptId } from './_concept-content.js';
 
 /** Default and longest claim, in minutes: long enough for one task, short enough that a crashed claimer's claim lapses. */
@@ -67,7 +67,7 @@ function line(content: string, key: string): string {
 
 let releasersOverride: ReadonlySet<string> | null = null;
 
-/** The identities this reader trusts to release someone else's claim: METABOB_CLAIM_RELEASERS, comma-separated. */
+/** The writers (key names) this reader trusts to release someone else's claim: METABOB_CLAIM_RELEASERS, comma-separated. */
 export function claimReleasers(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
   if (releasersOverride) return releasersOverride;
   return new Set((env.METABOB_CLAIM_RELEASERS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
@@ -78,9 +78,9 @@ export function setClaimReleasersForTests(ids: Iterable<string> | null): void {
   releasersOverride = ids ? new Set(ids) : null;
 }
 
-/** Whether this reader takes a release by `by` of someone else's claim. */
-export function trustedReleaser(by: string, releasers: ReadonlySet<string> = claimReleasers()): boolean {
-  return releasers.has(by);
+/** Whether this reader takes a release by any of `writer` (a key's name or id, or a declared author) of someone else's claim. */
+export function trustedReleaser(writer: string | readonly string[], releasers: ReadonlySet<string> = claimReleasers()): boolean {
+  return (typeof writer === 'string' ? [writer] : writer).some((w) => !!w && releasers.has(w));
 }
 
 /**
@@ -98,8 +98,11 @@ export function parseClaim(row: ConceptRow, releasers: ReadonlySet<string> = cla
   if (!findingId || !kind || !by || !Number.isFinite(at)) return null;
   const releasedFor = kind === 'withdrawn' ? line(content, 'released_for') : '';
   if (releasedFor && releasedFor !== by) {
-    if (!trustedReleaser(by, releasers)) return null;
-    return { findingId, kind, by: releasedFor, releasedBy: by, at, conceptId: plainConceptId(row.id) };
+    const releaser = stampedWriter(row, by);
+    // A stamped row is trusted by its key, named by its name or its id; an older row by its declared author.
+    const writer = row.written_by ? [releaser, String(row.written_by_key ?? '')] : [by];
+    if (!trustedReleaser(writer, releasers)) return null;
+    return { findingId, kind, by: releasedFor, releasedBy: releaser, at, conceptId: plainConceptId(row.id) };
   }
   const record: ClaimRecord = { findingId, kind, by, at, conceptId: plainConceptId(row.id) };
   if (kind === 'claimed') {

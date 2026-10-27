@@ -42,6 +42,20 @@ export interface ConceptRow {
   created_at?: string;
   updated_at?: string;
   pointer?: { type?: string; metadata?: Record<string, unknown> };
+  /** The writing key's name, stamped by the host from the credential: verified, unlike the author lines a row declares. */
+  written_by?: string;
+  written_by_key?: string;
+}
+
+// @anchor stamped-writer
+/**
+ * Who wrote a row, for trust: the key's name the host stamped (`written_by`), else, on a row from before the stamp,
+ * the author line it declares (`declared`). Where the stamp is there, the declared line is never used, since any
+ * write key can write any line. SPEC §claim_finding, SPEC §task-pull
+ */
+export function stampedWriter(row: Pick<ConceptRow, 'written_by'>, declared: string): string {
+  const stamped = typeof row.written_by === 'string' ? row.written_by.trim() : '';
+  return stamped || declared;
 }
 
 export type Read<T> = { ok: true; value: T } | { ok: false; status?: number; error: string };
