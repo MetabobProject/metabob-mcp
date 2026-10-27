@@ -214,8 +214,8 @@
         "why": "40a891b changed which instructions text a METABOB_TOOLS list gets and added the unknown-name warning; CLAUDE.md's METABOB_TOOLS row (unset, all, a list) still holds"
       },
       "README.md": {
-        "at": "429bd89",
-        "why": "the rc.4 bump changes only the pinned version in the bundles; README names no version"
+        "at": "cb3b9ed",
+        "why": "the rc.5 bump changes only the pinned version in the bundles; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
