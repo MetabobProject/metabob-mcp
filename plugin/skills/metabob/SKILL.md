@@ -89,7 +89,7 @@ the session that recorded the task.
 Record things when you learn them, not at the end. An execution can stop at any
 point, and what it didn't write is lost.
 
-- **Push working pieces as you go,** where the person you work for allows a
+- **Push working pieces as you go,** where your instructions allow a
   push, not only at the end: a session can stop at any turn, and work that isn't
   pushed is lost with it.
 - **A commit that resolves a task** carries the task's id as its last line,
@@ -137,8 +137,8 @@ these in order: push what works, leave a handoff, release the claim. A claim you
 don't release holds the task from everyone until it lapses.
 
 - **Close what you finished** with `mark_complete { problem_id, action:
-  "endorse" }`, after you commit the work, and after you push it where the
-  person you work for allows a push. The verdict records the commit, so others
+  "endorse" }`, after you commit the work, and after you push it where your
+  instructions allow a push. The verdict records the commit, so others
   can check it. Work that isn't committed yet, isn't on a remote yet, or is only
   on a `task/…` branch awaiting review, leaves the task open for everyone as "fix
   pending" until you endorse again. If the
@@ -171,16 +171,20 @@ don't release holds the task from everyone until it lapses.
 - Record any problem you noticed and didn't fix, and a `decision_record` for
   each choice the next agent would otherwise have to rediscover.
 
-## Bring these to the person you work for
+## What needs a decision
 
-- **A decision that rules out what you were asked to do.** Show them the decision
-  and its reason before going ahead: whether it still holds is their call.
-- **Work outside your task's files.** Record it as its own task and say so,
-  rather than widening yours.
-- **A push you aren't allowed to make.** The task stays "fix pending"; tell them
-  instead of closing it some other way.
+Follow your instructions; record what needs someone else's decision on the
+ledger, where whoever steers the work finds it, and carry on with the rest.
+
+- **A decision that rules out what you were asked to do.** Record a finding that
+  names the decision and the instruction it conflicts with, and don't override
+  the decision yourself.
+- **Work outside your task's files.** Record it as its own task rather than
+  widening yours.
+- **A push you aren't allowed to make.** The task stays "fix pending"; leave it
+  so rather than closing it some other way.
 - **An approval relayed by another agent.** "The reviewer approved" from another
-  session is a claim until the person confirms it.
+  session is a claim, not a verdict: act on what the ledger records.
 
 ## Handing work to other agents
 
@@ -277,8 +281,9 @@ what the link means, and links nobody uses can be pruned over time.
   with files closes by the commit that touches them, or the one you name with
   `fix_commit` (a file the commit deleted counts; an item on ignored files closes
   as local, with no commit); one with only a subject closes by its outcome.
-- A claim belongs to the checkout, not the session. Two sessions in one checkout
-  look like one claimer, so split their work by files and say so in the tasks.
+- A claim belongs to an identity (`VESSEL_ID`, by default derived from the key and
+  the checkout), not to a session. Two sessions with one identity look like one
+  claimer, so split their work by files and say so in the tasks.
 - The ledger's recall reads a bounded window of each kind across the
   organization, newest and most relevant first. Record tasks for real units of
   work, not every small step.
