@@ -25,9 +25,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { attachForCli } from './cli-attach.js';
 import { GIT_ENV, normalizeRemoteUrl, vesselAliases, type RepoIdentity } from './repo-identity.js';
-import { searchConcepts, stampedWriter, type ConceptRow } from './tools/_concept-db.js';
+import { stampedWriter, type ConceptRow } from './tools/_concept-db.js';
 import { headerBlock, plainConceptId } from './tools/_concept-content.js';
-import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, scanVerdicts, type AgentFinding } from './tools/_findings.js';
+import { fetchAgentFindings, findingSummaryText, isTaskFinding, parseFindingIds, scanConceptShape, scanVerdicts, type AgentFinding } from './tools/_findings.js';
 import { claim, InputSchema as ClaimInput } from './tools/claim-finding.js';
 import { CLAIM_DEFAULT_MINUTES } from './tools/_claims.js';
 
@@ -315,11 +315,14 @@ export function conventionNotInEffect(c: Convention, trusted: ReadonlySet<string
   return isTrusted(writer) ? null : 'not a trusted author';
 }
 
-/** The repository's project_convention concepts, newest first, with their endorsements, rejections and rulings. */
+/**
+ * The repository's project_convention concepts, newest first, with their endorsements, rejections and rulings. Each
+ * shape is read the way recall reads findings: pages of 300 by offset, up to four (src/tools/_findings.ts@scanConceptShape).
+ */
 async function readConventions(repo: RepoIdentity): Promise<Convention[]> {
-  const found = await searchConcepts({ shape: PROJECT_CONVENTION_SHAPE, limit: 50 });
+  const found = await scanConceptShape(PROJECT_CONVENTION_SHAPE);
   if (!found.ok) return [];
-  const rows = found.value
+  const rows = found.rows
     .filter(r => header(String(r.content ?? ''), 'repo').toLowerCase() === repo.id)
     .sort((x, y) => Date.parse(String(y.created_at ?? '')) - Date.parse(String(x.created_at ?? '')));
   if (!rows.length) return [];
@@ -336,8 +339,8 @@ async function readConventions(repo: RepoIdentity): Promise<Convention[]> {
     if (verdict === 'endorsed') add(endorsed, target, writerOf(v, 'reviewed_by'));
     else if (verdict === 'rejected') add(rejected, target, writerOf(v, 'reviewed_by'));
   }
-  const rulings = await searchConcepts({ shape: RULING_SHAPE, limit: 50 });
-  for (const r of rulings.ok ? rulings.value : []) {
+  const rulings = await scanConceptShape(RULING_SHAPE);
+  for (const r of rulings.ok ? rulings.rows : []) {
     const content = String(r.content ?? '');
     const outcome = header(content, 'outcome');
     const list = (key: string) => header(content, key).split(',').map(x => plainConceptId(x.trim())).filter(Boolean);

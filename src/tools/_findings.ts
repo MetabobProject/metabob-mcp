@@ -370,7 +370,7 @@ export function resetOffsetProbeForTests(): void {
  * about how far back they look — a verdict the finding scan can see but the
  * verdict scan cannot would silently render a closed finding as open.
  */
-async function scanConceptShape(shape: string): Promise<ConceptScan> {
+export async function scanConceptShape(shape: string): Promise<ConceptScan> {
   const rows: ConceptRow[] = [];
   const seen = new Set<string>();
   let truncated = false;
