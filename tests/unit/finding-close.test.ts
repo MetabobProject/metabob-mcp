@@ -122,6 +122,7 @@ describe('closeFromCommits', () => {
     expect(verdicts(rows)[0]).toContain(`fix: commit ${squash}`);
   });
 
+  // The integrate: review case: the target is main and the fix is only on task/<id>, so it awaits the merge.
   test('pushed to a task branch and not merged: fix pending (awaiting merge), shown so in recall', async () => {
     const r = repo('awaiting');
     const rows = await ledger(r.repoId);

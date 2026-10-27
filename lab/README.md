@@ -153,7 +153,8 @@ API and the origin, and anywhere else. `run` records the network's driver and fl
 **The entrypoint** (`lab/cell/entrypoint.sh`):
 1. `task pull` with a claim of `CELL_CLAIM_MINUTES` (45), under the cell's one identity: `VESSEL_ID` is
    `CELL_VESSEL_ID`, else `metabob-cell-<container hostname>`, and the harness's MCP server gets the same, so the
-   agent reads the claim as its own. Any non-zero exit ends the cell with that code (1 a failure, 2 not attached or a
+   agent reads the claim as its own. `METABOB_CLAIM_RELEASERS`, passed through from `cell.sh`, reaches both, so a
+   release by a trusted identity counts for `task pull` and the server alike. Any non-zero exit ends the cell with that code (1 a failure, 2 not attached or a
    missing input, 3 no open task, 4 tasks held by others or a claim not settled).
 2. A `pin: <40-hex sha>` line in the task's details makes `/work` a one-commit fetch of that commit, so history
    after it (a reference fix) is not in the clone. The fixture, when given, is committed onto it, and the base
