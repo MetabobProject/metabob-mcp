@@ -10,7 +10,7 @@ that meets it), **partially met**, or **not yet met** (with the gap stated plain
 implements a requirement cites it as `CONFORMANCE §<section>`; the rules for those citations are in
 [DOCLINKS.md](DOCLINKS.md).
 
-The vessel has one configuration: an API key and an endpoint, from which the substrate URLs derive, and it proves the key against the substrate's
+The vessel has one configuration: an API key and an endpoint (from which discovery alone may derive, C4), and it proves the key against the substrate's
 identity before any other keyed call (C3). It is a client of the substrate: it makes no
 discovery registration, runs no libp2p node, and serves its HTTP resolver on loopback for local
 callers only.
@@ -104,7 +104,7 @@ accepted, and does not count as meeting C3.
   the missing input once, naming the config lookup order (`src/config.ts@unattachedMessage`), and
   runs with local tools only.
 - Met — no path-prefix derivation: `src/config.ts@deriveLocalDiscoveryEndpoint` derives discovery
-  only for a port-published endpoint and nothing for a remote one, and
+  only for an `http://` endpoint whose port ends in 80, and nothing for any other, and
   `src/config.ts@withoutEndpoints` keeps a config file's endpoints from mixing with an explicit
   `METABOB_ENDPOINT`.
 - Met — identity is learned from `/bootstrap`: `src/attachment.ts@attach` reads `identity_endpoint`
@@ -119,7 +119,7 @@ accepted, and does not count as meeting C3.
   `identity.source: "rehosted-h1"`; the org check (C3) still decides whether it is trusted. It goes
   when the substrate installer writes a host-visible identity endpoint, or `/bootstrap` answers per
   vantage.
-- Interim debt (census class H1) — discovery itself may still be derived from `metabob.endpoint` at
+- Interim debt (census class H1) — discovery itself may be derived from `metabob.endpoint` at
   the published-port offset (…080 → …100). The server logs a WARN once when it is
   (`src/config.ts@derivedDiscoveryWarning`) and the attachment state records `anchor.source:
   "derived-h1"`; `metabob.discoveryEndpoint` / `DISCOVERY_ENDPOINT` is the explicit form. It goes

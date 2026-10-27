@@ -20,18 +20,21 @@ version of these rules for that setup; read it if your harness does not load ski
    state, not a transient error: run `metabob-mcp attach --check`, and don't retry in a loop.
 2. **Check before you edit.** Before the first edit of an existing file, call `get_problems` for it and
    `path_activity` on it. An open finding may already describe the change; the substrate may be landing it.
-3. **Record what you notice.** A problem you notice and don't fix goes into `record_finding` (files, summary,
-   severity, category, details), not only into your reply. If it is already recorded you get its id back.
+3. **Record what you notice.** A problem you notice and don't fix goes into `record_finding` (files, or a
+   `subject` for work that changes no file; summary, severity, category, details), not only into your reply. If
+   it is already recorded you get its id back.
 4. **Close with evidence.** After the fix: commit; push where the person you work for allows it, or leave it
    unpushed and say so; then `mark_complete` endorse. An uncommitted fix, a commit on no remote branch in a
    checkout with a remote (`fix pending (unpushed)`), or one only on task branches leaves the finding open as "fix
    pending" until the fix is committed, pushed or merged. A commit counts when it postdates the finding and
    touches its files; name it with `fix_commit` when it touches other files (it must postdate the finding then),
-   or when it was made before the finding was recorded (it must touch the finding's files then). Use discard for a
-   false positive.
+   or when it was made before the finding was recorded (it must touch the finding's files then). A finding that
+   names no file closes on endorse: pass `outcome` (what was done or found) and `evidence` (where to check it).
+   Use discard for a false positive.
 5. **Claim shared work.** Before starting a finding another agent could also take, `claim_finding` it; one
-   someone else holds is theirs. Renew long work, release it if you stop. A claim names the working copy, not
-   the session: agents sharing a working copy need stated, disjoint ownership.
+   someone else holds is theirs. Renew long work, release it if you stop. A claim belongs to an identity
+   (`VESSEL_ID`, by default derived from the key and the checkout), not to a session: sessions sharing one
+   identity need stated, disjoint ownership. The server releases the claims it took when it shuts down normally.
 6. **Keep the reasoning.** Decisions and especially rejected approaches go into `concept_create` (source_type
    `memo`), linked to the repository's `repo_anchor` concept; credit a concept that helped or misled you with
    `concept_record_usage`.

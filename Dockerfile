@@ -29,6 +29,9 @@ FROM oven/bun:1-slim AS production
 
 WORKDIR /app
 
+# git: the ledger is keyed by the mounted repository's origin (else its first commit), and a close reads its commits
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Copy built application and dependencies from build stage
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
@@ -46,7 +49,7 @@ ENV MAX_REQUESTS_PER_MINUTE=60
 # The HTTP resolver binds 127.0.0.1 only, so the port is not exposed: the
 # healthcheck runs inside the container's own network namespace.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD bun run -e "fetch('http://127.0.0.1:18800/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+    CMD bun -e "fetch('http://127.0.0.1:18800/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-# Run MCP server (dist/cli.js produced by bun run build; dist/index.js fallback)
+# Run the MCP server (dist/cli.js, from bun run build)
 CMD ["bun", "run", "dist/cli.js"]

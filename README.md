@@ -45,31 +45,35 @@ No workspace content leaves the machine. `init_workspace` reads files into an in
 ## Tools
 
 **The default tool set.** With `METABOB_TOOLS` unset the server lists eleven tools, the shared task ledger and the
-shared memory: `get_analysis_context`, `get_problems`, `claim_finding`, `record_finding`, `mark_complete`,
-`concept_search`, `concept_neighbors`, `concept_create`, `concept_link`, `concept_record_usage` and
-`init_workspace`. It refuses a call to any other tool, saying how to list them. **`METABOB_TOOLS=all`** in the
-server's environment lists every tool (CLAUDE.md's tools table and [docs/SPEC.md](docs/SPEC.md) list them all; the
-table below shows the main ones); a comma-separated list lists exactly those. The `metabob`
-skill is written for the default set, `metabob-substrate` for `all`
-([the user guide](docs/USER-GUIDE.md) covers the default set, [docs/SUBSTRATE-GUIDE.md](docs/SUBSTRATE-GUIDE.md) every tool).
+shared memory, and refuses a call to any other tool, saying how to list them. The `metabob` skill is written for
+them, and [the user guide](docs/USER-GUIDE.md) covers them.
 
 | Tool | Tier | Description |
 |------|------|-------------|
-| `init_workspace` | **Local** | Build the local CPG index; sends nothing off the machine |
-| `get_problems` | Local + Substrate | Problems ranked by severity: the local store's findings (incl. agent-recorded `agf_*` findings) plus findings other agents recorded on this codebase, recalled from concept-db |
-| `search_codebase` | **Local** | Search components (CPG) and the local store's findings by keyword |
-| `predict_cochanges` | **Local** | The files that change together with yours, from git history, each with its confidence — no API call, no index needed |
-| `analyze_impact` | **Local** | CPG traversal showing what a change affects |
-| `annotate_component` | **Local** | Add structured why/how notes for a finding in the local store |
-| `mark_complete` | Local + Substrate | Endorse a fix or discard a false positive; a finding that names no file closes on endorse with its `outcome` and `evidence`. Accepts an `agf_*` finding id or the `concept_*` id it was recalled by (any other id is refused): endorse retires the local seed, discard removes it locally (the shared `code_finding` concept is not retracted); a verdict is best-effort written to concept-db |
-| `get_metrics` | **Local** | Open findings by severity and source, plus the local CPG size |
-| `assign_git_changes` | **Local** | Map changed files to CPG components + their git-history co-changes |
-| `get_analysis_context` | Local + Substrate | Current analysis state snapshot for agent decision-making |
-| `record_finding` | Local + Substrate | Attribute an issue you noticed to code, or a task to its files or, for work that changes no file, to a `subject` — surfaces immediately in `get_problems` and is shared with other agents on this codebase via concept-db |
+| `get_analysis_context` | Local + Substrate | Where the agent is: the attachment, the repository the ledger is keyed to, open findings and recent recall |
+| `get_problems` | Local + Substrate | The work queue: tasks with their claims, then problems ranked by severity, then what closed; the local store's findings plus those other agents recorded on this codebase |
+| `claim_finding` | Substrate | Take a task before starting, renew it, release it; a key named in `METABOB_CLAIM_RELEASERS` may release a stalled claim, with a reason |
+| `record_finding` | Local + Substrate | Record a problem or a task on its files, or, for work that changes no file, on a `subject`; shared with other agents on this codebase |
+| `mark_complete` | Local + Substrate | Close a finding: endorse with the fix's commit, or, for one that names no file, with its `outcome` and `evidence`; discard a false positive. Accepts an `agf_*` id or the `concept_*` id recall shows |
+| `concept_search` | Substrate | Find what earlier agents recorded, by topic or shape, or read one concept in full; each row shows the key that wrote it |
+| `concept_neighbors` | Substrate | Follow a concept's links: a task's handoffs, a repository's decisions, the next step |
+| `concept_create` | Substrate | Write a decision, a rejected approach, a handoff, a policy or a step; the author is stamped, and the ledger's own shapes are refused |
+| `concept_link` | Substrate | Attach a concept to what it is about |
+| `concept_record_usage` | Substrate | Credit what helped (`success`) and mark what misled (`failure`) |
+| `init_workspace` | **Local** | Name the project and build the local code index; sends nothing off the machine |
 
-**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls. The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
+**Every tool.** `METABOB_TOOLS=all` in the server's environment lists the rest as well: the local code tools
+(`search_codebase`, `predict_cochanges`, `analyze_impact`, `annotate_component`, `get_metrics`,
+`assign_git_changes`), the operator's cockpit (`path_activity`, `run_goal`, `run_goal_async`, `goal_status`,
+`goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`), two memory reads
+(`concept_sequence`, `concept_usage_stats`) and the agent-task queue (`pull_assigned_work`, `submit_resolution`).
+A comma-separated list lists exactly those tools. The `metabob-substrate` skill is written for `all`, and
+[docs/SUBSTRATE-GUIDE.md](docs/SUBSTRATE-GUIDE.md) covers it; [docs/SPEC.md](docs/SPEC.md) gives every tool's
+parameters.
 
-**Substrate-tier** tools need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and — `record_finding`, `claim_finding`, `concept_*` (incl. `concept_record_usage`), `path_activity`, `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution` reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
+**Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls (`analyze_impact` and `assign_git_changes` also show `path_activity`'s cached gaps when attached). The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
+
+**Substrate-tier** tools (`record_finding`, `claim_finding`, `concept_*` (incl. `concept_record_usage`), `path_activity`, `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution`) need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Configuration
 
@@ -78,8 +82,16 @@ skill is written for the default set, `metabob-substrate` for `all`
 | `METABOB_API_KEY` | — | API key, sent as `Authorization: ApiKey` on every substrate request (`SUBSTRATE_API_KEY` is accepted too) |
 | `METABOB_ENDPOINT` | — | Substrate endpoint. Env mirror of `metabob.endpoint` in the config file (`SUBSTRATE_ENDPOINT` is accepted too) |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | — | Corporate proxy, chosen per request; loopback always goes direct (§ Corporate proxies) |
-| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; set it with a remote endpoint |
-| `WORKSPACE_PATH` | _(the client's first root, else `$PWD`)_ | The workspace the ledger is keyed by; an `init_workspace` path wins over it, and it wins over the client's roots (docs/SPEC.md § Workspace) |
+| `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL; required with an endpoint that derives none (https, or a port not ending in 80) |
+| `IDENTITY_ENDPOINT` | _(from discovery's `/bootstrap`)_ | Identity vessel for the key check, overriding the one discovery advertises |
+| `SUBSTRATE_CONFIG_PATH`, `METABOB_CONFIG_PATH` | — | A config file to read, in that order, instead of the lookup below |
+| `WORKSPACE_PATH` | _(the client's first root, else `$PWD`)_ | The workspace. The ledger is keyed by its repository: the `origin` URL, else its first commit (`root:<sha>`), else this directory (`local:<hash>`). An `init_workspace` path wins over it, and it wins over the client's roots (docs/SPEC.md § Workspace) |
+| `VESSEL_ID` | `metabob-mcp-<hash(key + workspace)>` | The agent's identity: the claimer, and the author it declares on what it records |
+| `METABOB_CLAIM_RELEASERS` | — | Comma-separated key ids (or names) whose release of someone else's claim this server takes; the same list on every server of a fleet |
+| `METABOB_TASK_TRUST` | _(the task's own writing key)_ | `task pull`: comma-separated key ids (or names) whose conventions, endorsements and rulings set a task's integration policy |
+| `NODE_EXTRA_CA_CERTS` | — | Extra trusted root certificates (PEM), on top of the bundled roots and the OS store |
+| `METABOB_NO_SYSTEM_CA` | — | `1` skips the OS trust store |
+| `METABOB_CONNECT_TIMEOUT_MS` | `5000` | Connect budget: TCP connect, proxy `CONNECT`, TLS handshake |
 | `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists: unset, the eleven of the shared ledger and memory; `all`, every tool; a list, exactly those (§ Tools) |
 | `SESSION_ID` | random UUID | Session identifier |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver |
@@ -157,7 +169,7 @@ npm link
 claude mcp add metabob -- metabob-mcp
 ```
 
-`metabob-mcp` reads the API key and endpoint from that config, derives the discovery-vessel URL, and resolves registered substrate vessels from discovery. The substrate installer writes this config (`~/.substrate/config.json`, linked from `~/.metabob/config.json`).
+`metabob-mcp` reads the API key and endpoint from that config, derives the discovery-vessel URL, and resolves every substrate operation as a shape through discovery's `POST /resolve`. The substrate installer writes this config (`~/.substrate/config.json`, linked from `~/.metabob/config.json`).
 
 ### Claude Code
 
@@ -208,8 +220,8 @@ existing file in a session, the plugin holds that edit once and asks the agent t
 for the file, and `path_activity` on it when the server lists that tool, then retry: other agents may
 have recorded problems on the file, and the substrate may have work in flight there. A server with the
 default tool set does not list `path_activity` (it names its tools in its marker), so its holds ask for
-`get_problems` only. Instructions alone did not change what agents
-do on edit tasks; holding the first edit once did. It holds only where the metabob server is
+`get_problems` only. Holding the first edit once is what makes agents run the check; an instruction alone
+does not. It holds only where the metabob server is
 attached: while attached, the server keeps a marker for its workspace in the temp directory
 (`src/attached-marker.ts`), and the check holds an edit only when a live, recent marker of the current user's covers the
 session's directory (the marker is written 0600), so a plugin installed before a key is set, or with a rejected key, holds nothing.
@@ -338,7 +350,7 @@ git submodule update --init --recursive
 bun install
 bun run dev                         # start with watch mode
 bun run typecheck                   # tsc --noEmit
-bun test                            # run all tests
+bun run test                        # the full suite, as CI runs it
 bash scripts/git-hooks/install.sh   # install the pre-commit and pre-push hooks
 ```
 

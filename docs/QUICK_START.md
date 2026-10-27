@@ -84,4 +84,4 @@ setup, set `HTTPS_PROXY`), a block page (`blocked_by_portal`), or the key (`key_
 
 **"no_producer(conceptSearch)"** (or any shape) — discovery is reachable, but no vessel producing that shape is registered with it — or, when the endpoint is a spoke that forwards the shape to a peer, the peer's producer refused the request or has no such item: the forward relays both as the same answer. Check with `registry_query` (`mode: "vessels"`, `shape: "conceptSearch"`; it needs `METABOB_TOOLS=all`), or discovery's `/health` (local substrate: `http://localhost:18100`).
 
-**"producer_timeout(shape, ms)"** — discovery reached the producer but cut the request at the producer's advertised timeout. Reads are retried twice before this is reported; retry later, or narrow the query.
+**"producer_timeout(shape, ms)"** — discovery reached the producer but cut the request at the producer's advertised timeout. Reads are retried twice before this is reported (trace reads are not: the cut query keeps running in activity-api); retry later, or narrow the query.

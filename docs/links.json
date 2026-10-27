@@ -720,6 +720,7 @@
           "c11-attachment-model"
         ],
         "SPEC": [
+          "attachment",
           "resolve_impulse"
         ]
       },

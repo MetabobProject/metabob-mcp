@@ -12,12 +12,17 @@ The build reads the vendored CPG library, so check out the submodule first
 ```bash
 docker build -t metabob-mcp:latest .
 docker run --rm \
+  -v "$PWD:/workspace" -e WORKSPACE_PATH=/workspace \
   -e METABOB_API_KEY=mb_... \
   -e METABOB_ENDPOINT=http://substrate-host:18080 \
   -e DISCOVERY_ENDPOINT=http://substrate-host:18100 \
   -e METABOB_STDIO_KEEPALIVE=1 \
   metabob-mcp:latest
 ```
+
+Mount the repository the agents work on and name it with `WORKSPACE_PATH`: the ledger is keyed by that
+repository's `origin` (else its first commit), and a close reads its commits. Without it, every container keys
+its ledger by its own directory.
 
 `METABOB_STDIO_KEEPALIVE=1` is mandatory for any headless run. Without it the
 process treats stdin EOF as "the MCP client that owns my lifetime died" and
@@ -33,7 +38,7 @@ nothing; the image's healthcheck runs inside the container.
 | `METABOB_ENDPOINT` | — | Substrate endpoint. An `http://` endpoint on a port ending in 80 (`…:18080`) derives discovery at the block's …100; any other derives nothing. Absent ⇒ local tools only, and one startup message names it |
 | `DISCOVERY_ENDPOINT` | _(derived)_ | Discovery-vessel base URL for substrate routing; required with an endpoint that derives none |
 | `IDENTITY_ENDPOINT` | _(from `/bootstrap`)_ | Identity vessel for the org check; unset ⇒ the one discovery's `/bootstrap` advertises |
-| `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists and the resolver serves: unset, the shared ledger and memory; `all`, every tool (the `code:*` impulse shapes need it); a list, exactly those |
+| `METABOB_TOOLS` | _(the default set)_ | Which tools the server lists and the resolver serves: unset, the shared ledger and memory; `all`, every tool (`code:cochange_prediction`, `code:impact_analysis` and `code:git_change_assignment` need it); a list, exactly those |
 | `METABOB_STDIO_KEEPALIVE` | — | `1` keeps the process alive with stdin closed. Required for headless / container runs |
 | `SESSION_ID` | _(fresh UUID)_ | Session identifier, fresh for each container |
 | `HEALTH_PORT` | _(ephemeral)_ | Port of the loopback HTTP resolver (the Docker image pins `18800`, for its healthcheck) |
