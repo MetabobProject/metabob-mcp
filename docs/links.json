@@ -213,8 +213,8 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "a6d6050",
-        "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
+        "at": "adb6c22",
+        "why": "the 0.4.0 bump changes only the pinned version in the bundles; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
