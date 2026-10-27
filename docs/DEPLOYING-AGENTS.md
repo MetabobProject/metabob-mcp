@@ -428,8 +428,9 @@ Before ending, whatever happened, record a run_report with State: done, handed o
 ```
 
 A task whose claim is live but whose last `run_report` is older than a renewal is stalled, not slow. A worker that
-was killed leaves its claim live until it ends (§ 7.3), and no identity can release another's claim: the manager
-reports the stall and when the task frees, and the person decides.
+was killed leaves its claim live until it ends (§ 7.3). To free it sooner, set `METABOB_CLAIM_RELEASERS=<the
+manager's VESSEL_ID>` on every server of the fleet (workers, cells and the manager): the manager can then release a
+stalled claim with `claim_finding { action: "release", reason }`, and the next worker takes the task.
 
 **The base prompt** (`manager-prompt.md`):
 
@@ -446,7 +447,8 @@ not do the tasks.
    (a missing permission), and any decision_record or outcome that contradicts a policy in effect.
 4. Change behaviour only through the ledger. A policy the person asks for: record it with no status: line, in
    the form the workers read. A policy nobody asked for: record it with status: proposed and tell the person.
-   Never take or release a claim that is not yours.
+   Release a claim someone else holds only when its task is stalled (step 3), with the reason:
+   claim_finding { problem_id, action: "release", reason: "<no run_report since …>" }. Never take one.
 5. Report: one line per task (state, holder, last report), then what needs the person, then what you recorded.
 ```
 
@@ -723,8 +725,8 @@ every consumer from its next round.
 - Name the policies that count in the base prompt (endorsed from the dashboard, or recorded by people or by
   VESSEL_IDs you trust); the server reads a proposed or rejected policy like an endorsed one.
 - Give write-scope keys only to agents you trust: any write key can put `recorded_by: dashboard:` or `reviewed_by:
-  dashboard:` lines in what it writes, and the server shows agents no other sign of who wrote a concept, so those
-  lines can be imitated.
+  dashboard:` lines in what it writes, or name a trusted releaser in a claim release, and the server shows agents
+  no other sign of who wrote a concept, so those lines can be imitated.
 - Keep integration lines (`push_to:`, `integrate:`) in task details, not in policies.
 - For review, declare `push_to: task` with `integrate: review`, protect `main`, and push review work only to
   `task/<task id>` branches: an endorse closes a finding on any other remote branch.
@@ -809,7 +811,8 @@ claim, every reader picks the earliest live claim, the lower id on a tie (`src/t
 the later claimer withdraws. A verdict that closes the finding, by anyone, ends every claim on it (a pending endorse
 does not); an endorse of a task someone else holds goes ahead and names their claim. A server shutting down
 normally releases the claims its session took through `claim_finding`; a kill or crash leaves them to lapse;
-`task pull`'s claim outlives its process. One claimer is one server identity, `metabob-mcp-<hash(key +
+`task pull`'s claim outlives its process. An identity every reader names in `METABOB_CLAIM_RELEASERS` (and a
+person, from the dashboard) can release someone else's claim, with a `reason` (SPEC § claim_finding). One claimer is one server identity, `metabob-mcp-<hash(key +
 workspace)>` or `VESSEL_ID`: two sessions with one key in one working copy are one claimer.
 
 `mark_complete` records where the fix is (SPEC § mark_complete):

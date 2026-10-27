@@ -17,6 +17,11 @@
  * claim began with the first of its claims written while none of its earlier ones was live; of the claimers whose
  * claim is live now, the one whose claim began earliest holds it, the lower concept id breaking a tie. A claimer
  * that writes and then reads back someone else as the holder withdraws.
+ *
+ * A release of someone else's claim (a manager freeing a stalled task) is a withdrawal written by the releaser with
+ * `released_for: <holder>` and `release_reason:`. It ends the holder's claim only for a reader that trusts the
+ * releaser: one named in that reader's METABOB_CLAIM_RELEASERS, or a person (`dashboard:`). Trust is the reader's,
+ * since any server could name itself; and authors are declared, not verified, so it is a convention among a fleet.
  */
 
 import type { ConceptRow } from './_concept-db.js';
@@ -36,7 +41,10 @@ export const CLAIM_SKEW_MS = 2 * 60_000;
 export interface ClaimRecord {
   findingId: string;
   kind: 'claimed' | 'withdrawn';
+  /** The claimer whose claim this is: for a release of someone else's claim, the holder released. */
   by: string;
+  /** A release of someone else's claim: who released it. */
+  releasedBy?: string;
   /** When the concept was written (concept-db's created_at), ms. */
   at: number;
   /** Claims only: when it lapses, ms. */
@@ -56,8 +64,30 @@ function line(content: string, key: string): string {
   return new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(headerBlock(content))?.[1]?.trim() ?? '';
 }
 
-/** A claim or a withdrawal out of a `finding_verdict` row, or null for any other verdict. Unattributed claims are ignored: a holder must be nameable. */
-export function parseClaim(row: ConceptRow): ClaimRecord | null {
+let releasersOverride: ReadonlySet<string> | null = null;
+
+/** The identities this reader trusts to release someone else's claim: METABOB_CLAIM_RELEASERS, comma-separated. */
+export function claimReleasers(env: NodeJS.ProcessEnv = process.env): ReadonlySet<string> {
+  if (releasersOverride) return releasersOverride;
+  return new Set((env.METABOB_CLAIM_RELEASERS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+}
+
+/** Tests only: the trusted releasers, in place of the environment (null restores it). */
+export function setClaimReleasersForTests(ids: Iterable<string> | null): void {
+  releasersOverride = ids ? new Set(ids) : null;
+}
+
+/** Whether this reader takes a release by `by` of someone else's claim. */
+export function trustedReleaser(by: string, releasers: ReadonlySet<string> = claimReleasers()): boolean {
+  return by.startsWith('dashboard:') || releasers.has(by);
+}
+
+/**
+ * A claim or a withdrawal out of a `finding_verdict` row, or null for any other verdict. Unattributed claims are
+ * ignored: a holder must be nameable. A release of someone else's claim counts as that holder's withdrawal when
+ * this reader trusts the releaser, and is ignored otherwise.
+ */
+export function parseClaim(row: ConceptRow, releasers: ReadonlySet<string> = claimReleasers()): ClaimRecord | null {
   const content = String(row.content ?? '');
   const findingId = /^finding:\s*(agf_\S+)/m.exec(headerBlock(content))?.[1];
   const verdict = line(content, 'verdict');
@@ -65,6 +95,11 @@ export function parseClaim(row: ConceptRow): ClaimRecord | null {
   const by = line(content, 'reviewed_by');
   const at = Date.parse(String(row.created_at ?? ''));
   if (!findingId || !kind || !by || !Number.isFinite(at)) return null;
+  const releasedFor = kind === 'withdrawn' ? line(content, 'released_for') : '';
+  if (releasedFor && releasedFor !== by) {
+    if (!trustedReleaser(by, releasers)) return null;
+    return { findingId, kind, by: releasedFor, releasedBy: by, at, conceptId: plainConceptId(row.id) };
+  }
   const record: ClaimRecord = { findingId, kind, by, at, conceptId: plainConceptId(row.id) };
   if (kind === 'claimed') {
     const minutes = Number(line(content, 'claim_minutes'));
@@ -106,9 +141,8 @@ export function claimHolder(records: ClaimRecord[], now: number): ClaimHolder | 
   return best;
 }
 
-/** The content lines of a claim (`minutes` set) or a withdrawal. */
-export function claimLines(findingId: string, minutes: number | null, now = Date.now()): string[] {
-  return minutes
-    ? [`finding: ${findingId}`, 'verdict: claimed', `claim_minutes: ${minutes}`, `claim_until: ${new Date(now + minutes * 60_000).toISOString()}`]
-    : [`finding: ${findingId}`, 'verdict: claim withdrawn'];
+/** The content lines of a claim (`minutes` set), a withdrawal, or a release of someone else's claim. */
+export function claimLines(findingId: string, minutes: number | null, now = Date.now(), release?: { holder: string; reason: string }): string[] {
+  if (minutes) return [`finding: ${findingId}`, 'verdict: claimed', `claim_minutes: ${minutes}`, `claim_until: ${new Date(now + minutes * 60_000).toISOString()}`];
+  return [`finding: ${findingId}`, 'verdict: claim withdrawn', ...(release ? [`released_for: ${release.holder}`, `release_reason: ${release.reason.replace(/\s+/g, ' ')}`] : [])];
 }

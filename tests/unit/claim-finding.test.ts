@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import type { AnalysisAPIClient } from '../../src/api-client';
 import type { SeedRecord } from '../../src/local-store';
 import { setAttachment } from '../../src/attachment';
-import { CLAIM_SKEW_MS, claimHolder, parseClaim, type ClaimRecord } from '../../src/tools/_claims';
+import { CLAIM_SKEW_MS, claimHolder, parseClaim, setClaimReleasersForTests, type ClaimRecord } from '../../src/tools/_claims';
 import { fetchAgentFindings, renderFindingsSection, resolveAuthorVesselId } from '../../src/tools/_findings';
 import * as ClaimFinding from '../../src/tools/claim-finding';
 import * as MarkComplete from '../../src/tools/mark-complete';
@@ -23,6 +23,7 @@ afterEach(() => {
   cleanupTempStores();
   setAttachment(null);
   ClaimFinding.resetSessionClaimsForTests();
+  setClaimReleasersForTests(null);
 });
 
 const api = {} as AnalysisAPIClient;
@@ -69,6 +70,17 @@ describe('claimHolder', () => {
     expect(parseClaim(row('finding: agf_x\nverdict: endorsed (resolved)\nreviewed_by: v1'))).toBeNull();
     // A claim must name its holder.
     expect(parseClaim(row('finding: agf_x\nverdict: claimed\nclaim_until: 2026-10-21T13:00:00Z'))).toBeNull();
+  });
+
+  test("a release of someone else's claim counts only for a reader that trusts the releaser", () => {
+    const row = (by: string) => ({ id: 'concept:r1', created_at: '2026-10-21T12:30:00Z', content: `finding: agf_x\nverdict: claim withdrawn\nreleased_for: worker-1\nrelease_reason: no report since 12:05\nreviewed_by: ${by}` });
+    expect(parseClaim(row('manager-1'), new Set())).toBeNull();
+    expect(parseClaim(row('manager-1'), new Set(['manager-1']))).toMatchObject({ kind: 'withdrawn', by: 'worker-1', releasedBy: 'manager-1' });
+    expect(parseClaim(row('dashboard:person'), new Set())).toMatchObject({ kind: 'withdrawn', by: 'worker-1', releasedBy: 'dashboard:person' });
+    const held = [claim('worker-1', T, T + 60 * MIN)];
+    const released = parseClaim(row('manager-1'), new Set(['manager-1']))!;
+    expect(claimHolder(held, T + 40 * MIN)?.by).toBe('worker-1');
+    expect(claimHolder([...held, released], T + 40 * MIN)).toBeNull();
   });
 });
 
@@ -161,6 +173,33 @@ describe('claim_finding', () => {
     expect(await run(store, { action: 'renew', minutes: 90 })).toContain('Renewed your claim');
     expect(ClaimFinding.heldSessionClaims()).toEqual([]);
     expect((await ClaimFinding.releaseSessionClaims('s1', 5_000)).released).toEqual([]);
+  });
+
+  test("an identity the fleet trusts releases a stalled claim with a reason, and the task is free", async () => {
+    const { rows } = await db({ rows: [other('claimed', Date.now() - MIN, 'claim_minutes: 60\n')] });
+    const store = seeded();
+    // Without a reason, or untrusted, nothing is written.
+    expect(await run(store, { action: 'release' })).toContain('to release a stalled claim, pass a reason');
+    expect(await run(store, { action: 'release', reason: 'no run report since its claim' })).toContain('takes METABOB_CLAIM_RELEASERS naming you (metabob-mcp-thiscell)');
+    expect(rows).toHaveLength(1);
+    setClaimReleasersForTests(['metabob-mcp-thiscell']);
+    const out = await run(store, { action: 'release', reason: 'no run report since its claim' });
+    expect(out).toContain("Released metabob-mcp-other's claim on finding agf_task1 (no run report since its claim)");
+    expect(String(rows.at(-1)!.content)).toMatch(/^released_for: metabob-mcp-other$/m);
+    expect(String(rows.at(-1)!.content)).toMatch(/^reviewed_by: metabob-mcp-thiscell$/m);
+    expect(await run(store)).toContain('Claimed finding agf_task1');
+    expect(ClaimFinding.heldSessionClaims()).toEqual(['agf_task1']);
+  });
+
+  test("a reader that does not trust the releaser still sees the holder", async () => {
+    await db({ rows: [
+      other('claimed', Date.now() - 2 * MIN, 'claim_minutes: 60\n'),
+      { id: 'concept:rel1', shape: 'finding_verdict', created_at: new Date(Date.now() - MIN).toISOString(),
+        content: 'finding: agf_task1\nverdict: claim withdrawn\nreleased_for: metabob-mcp-other\nrelease_reason: stalled\nreviewed_by: metabob-mcp-manager' },
+    ] });
+    expect(await run(seeded())).toContain('is claimed by metabob-mcp-other until');
+    setClaimReleasersForTests(['metabob-mcp-manager']);
+    expect(await run(seeded())).toContain('Claimed finding agf_task1');
   });
 
   test('a finding another agent holds is reported with its holder and not claimed', async () => {

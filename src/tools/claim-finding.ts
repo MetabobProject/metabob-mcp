@@ -26,6 +26,7 @@ import {
   CLAIM_MAX_MINUTES,
   claimHolder,
   claimLines,
+  claimReleasers,
   parseClaim,
   type ClaimHolder,
 } from './_claims.js';
@@ -36,7 +37,8 @@ export const ClaimFindingTool = {
     'Say you are starting work on a finding, so other agents do not start the same work: claim it before you begin, renew while you work, release if you stop. '
     + 'get_problems shows a live claim as "claimed by … until …". A finding someone else holds is reported with its holder and is not claimed. '
     + 'Two agents claiming at once are settled the same way for every reader: the earlier claim holds it, and the later claimer withdraws. '
-    + 'A claim lapses at its end unless renewed; a mark_complete that closes the finding ends it (a pending endorse does not), and this session\'s claims are released when its server shuts down. Ids are agf_* or concept_*.',
+    + 'A claim lapses at its end unless renewed; a mark_complete that closes the finding ends it (a pending endorse does not), and this session\'s claims are released when its server shuts down. '
+    + 'An identity the fleet trusts (METABOB_CLAIM_RELEASERS) may release a claim someone else holds, with a reason, to free a stalled task. Ids are agf_* or concept_*.',
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -51,6 +53,10 @@ export const ClaimFindingTool = {
         type: 'number',
         description: `How long the claim lasts, from now (default ${CLAIM_DEFAULT_MINUTES}, at most ${CLAIM_MAX_MINUTES})`,
       },
+      reason: {
+        type: 'string',
+        description: 'Release only: why you release a claim someone else holds (a stalled worker). Needed for that, and honoured only by agents whose METABOB_CLAIM_RELEASERS names you',
+      },
     },
     required: ['problem_id'],
   },
@@ -60,6 +66,7 @@ export const InputSchema = z.object({
   problem_id: z.string().min(1),
   action: z.enum(['claim', 'renew', 'release']).default('claim'),
   minutes: z.number().int().positive().max(CLAIM_MAX_MINUTES).default(CLAIM_DEFAULT_MINUTES),
+  reason: z.string().trim().min(1).optional(),
 });
 
 export type ClaimFindingInput = z.infer<typeof InputSchema>;
@@ -229,9 +236,9 @@ export async function claim(
   const mine = before.holder?.by === me;
   const holder = before.holder ? { by: before.holder.by, until: before.holder.until } : undefined;
 
-  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn') => postConcept({
+  const write = async (minutes: number | null, tag: 'claimed' | 'withdrawn', release?: { holder: string; reason: string }) => postConcept({
     content: [
-      ...claimLines(key, minutes),
+      ...claimLines(key, minutes, Date.now(), release),
       ...repoLines(repo),
       `finding summary: ${found.summary}`,
       ...attributionLines('reviewed_by', me, sessionId),
@@ -250,7 +257,19 @@ export async function claim(
     : `Not claimed: concept-db refused the write (${error}).`, { key });
 
   if (input.action === 'release') {
-    if (!mine) return r('refused', `You hold no claim on finding ${key}, so there is nothing to release.${before.holder ? ` ${before.holder.by} holds it until ${when(before.holder.until)}.` : ''}`, { key, holder });
+    if (!mine && before.holder && input.reason) {
+      // Releasing someone else's claim: readers take it only from an identity they trust, so a server that does not
+      // trust itself to do this says so rather than writing a release nobody else would honour either.
+      if (!claimReleasers().has(me)) {
+        return r('refused', `${before.holder.by} holds finding ${key} until ${when(before.holder.until)}. Releasing another identity's claim takes METABOB_CLAIM_RELEASERS naming you (${me}), here and on the server of every agent that reads this ledger; nothing was written.`, { key, holder });
+      }
+      const posted = await write(null, 'withdrawn', { holder: before.holder.by, reason: input.reason });
+      if (posted.ok) await link(posted.id);
+      return posted.ok
+        ? r('released', `Released ${before.holder.by}'s claim on finding ${key} (${input.reason}). It is open for another agent wherever METABOB_CLAIM_RELEASERS names you (${me}); elsewhere it holds until ${when(before.holder.until)}.`, { key })
+        : failed(posted.error);
+    }
+    if (!mine) return r('refused', `You hold no claim on finding ${key}, so there is nothing to release.${before.holder ? ` ${before.holder.by} holds it until ${when(before.holder.until)}; to release a stalled claim, pass a reason (it takes METABOB_CLAIM_RELEASERS naming you).` : ''}`, { key, holder });
     const posted = await write(null, 'withdrawn');
     if (posted.ok) await link(posted.id);
     return posted.ok ? r('released', `Released your claim on finding ${key}; it is open for another agent.`, { key }) : failed(posted.error);

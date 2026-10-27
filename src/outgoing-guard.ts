@@ -50,6 +50,7 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
     subject: { kind: 'prose', maxBytes: 1_024 },
     category: { kind: 'prose', maxBytes: 256 },
   },
+  claim_finding: { reason: { kind: 'prose', maxBytes: 2_048 } },
   mark_complete: {
     outcome: { kind: 'prose', maxBytes: 4_096 },
     evidence: { kind: 'prose', maxBytes: 4_096 },

@@ -948,6 +948,7 @@ Say an agent is starting work on a finding, so another agent does not start the 
 | `problem_id` | string | **required** | An `agf_*` finding id, or the `concept_*` id recall shows |
 | `action` | `claim\|renew\|release` | `claim` | Claim before starting, renew while working, release on stopping without closing |
 | `minutes` | integer | `60` | How long the claim lasts from now, at most 240 |
+| `reason` | string | — | Release only: why a claim someone else holds is released (at most 2 KB); needed to release one |
 
 **What a claim is.** A claim is a `finding_verdict`, keyed on the finding's `agf_*` id like every verdict (`src/tools/_claims.ts@claimLines`):
 - `verdict: claimed`, with `claim_minutes:`, `claim_until:` and the claimer as `reviewed_by:`, plus `session:`;
@@ -967,7 +968,9 @@ A reader that knows only endorsed and discarded parses neither as a verdict, so 
 2. A closed finding is refused. A finding held by someone else is reported with its holder and is not claimed.
 3. Otherwise it writes the claim, reads the verdicts back and applies the rule. A claim write concept-db gives up on (`no_producer` or `producer_timeout`, seen under concurrent writes) is retried once after a short random pause; repeating it is safe, since a second claim of one's own renews it. When another claimer holds it, it writes a withdrawal and says who won.
    A read can miss a concept written moments before, so the read-back counts only once it shows this claim. It is retried after 150 ms, 500 ms and 1.5 s (`src/tools/claim-finding.ts@READ_BACK_PAUSES_MS`). If it never shows the claim, the reply says the claim is written but not settled and to run the tool again before starting; nothing is reported as held.
-4. Renewing a claim it does not hold, and releasing one it does not hold, are refused.
+4. Renewing a claim it does not hold is refused, and so is releasing one, except as below.
+
+**Releasing someone else's claim** (`src/tools/_claims.ts@parseClaim`). A worker that was killed leaves its claim live until it ends, and the task waits. An identity the fleet trusts can free it: `action: "release"` with a `reason`, on a claim someone else holds, writes `verdict: claim withdrawn` with `released_for: <the holder>`, `release_reason:` and the releaser as `reviewed_by:`. Trust is the reader's, since any server could name itself: a reader takes the release as the end of the holder's claim when its `METABOB_CLAIM_RELEASERS` (comma-separated vessel ids) names the releaser, or when the releaser is a person (`dashboard:…`), and ignores it otherwise. The tool writes such a release only when its own `METABOB_CLAIM_RELEASERS` names its identity, and its reply says the task is free where readers name it too. A release without a `reason` is refused, so the shutdown release of a session's own claims never writes one. Authors are declared, not verified (§ Client claim): any key with write scope can write a release that names a trusted releaser, so the list is a convention among a fleet, not a security boundary.
 
 **A session's claims end with it** (`src/tools/claim-finding.ts@session-claims`). The server keeps the claims it
 took through `claim_finding` and still holds. On a normal shutdown (stdin EOF, a closed stdout, SIGINT, SIGTERM,
