@@ -151,7 +151,6 @@
         "src/server-instructions.ts",
         "src/vessel-identity.ts",
         "scripts/claude-plugin/edit-check.mjs",
-        "lab/cell/entrypoint.sh",
         "skills/metabob-substrate/SKILL.md",
         "src/tools/_claims.ts",
         "src/tools/claim-finding.ts",
@@ -499,7 +498,9 @@
           "c11-attachment-model"
         ],
         "SPEC": [
-          "concept-graph-tools"
+          "claim_finding",
+          "concept-graph-tools",
+          "task-pull"
         ]
       },
       "src/tools/_findings.ts": {
@@ -1184,25 +1185,22 @@
         "docs/SPEC.md",
         "docs/USER-GUIDE.md",
         "lab/cell/entrypoint.sh",
-        "scripts/claude-plugin/edit-check.mjs",
-        "scripts/doclinks.mjs",
         "src/attachment.ts@DEFAULT_HEARTBEAT_MS",
         "src/call-log.ts@logCall",
+        "src/config.ts@applyConfigDefaults",
         "src/finding-close.ts@runFindingClose",
         "src/finding-close.ts@trailerIds",
-        "src/local-index.ts@lazy-native",
         "src/operator-id.ts@clientClaim",
         "src/outgoing-guard.ts@guard-tool-input",
         "src/repo-identity.ts@fix-location",
-        "src/server-instructions.ts@COCKPIT_TOOLS",
         "src/server-instructions.ts@serverInstructions",
         "src/task-pull.ts@candidateTasks",
         "src/task-pull.ts@integration-policy",
         "src/task-pull.ts@readConventions",
         "src/task-pull.ts@runTaskPull",
-        "src/task-pull.ts@validRef",
-        "src/tool-allowlist.ts@parseToolAllowlist",
         "src/tools/_claims.ts@claim-holder",
+        "src/tools/_claims.ts@parseClaim",
+        "src/tools/_findings.ts@findOpenDuplicate",
         "src/vessel-identity.ts@resolveVesselId"
       ],
       "docs/DOCLINKS.md": [
@@ -1317,6 +1315,7 @@
         "src/tools/_concept-content.ts@plainConceptId",
         "src/tools/_concept-content.ts@renderConceptContent",
         "src/tools/_concept-db.ts",
+        "src/tools/_concept-db.ts@stamped-writer",
         "src/tools/_findings.ts@attributionLines",
         "src/tools/_findings.ts@duplicate-finding",
         "src/tools/_findings.ts@fetchAgentFindings",
@@ -1530,7 +1529,7 @@
       "src/server-instructions.ts@serverInstructions": "e4da65e82021",
       "src/task-pull.ts@candidateTasks": "b837bf561ed5",
       "src/task-pull.ts@integration-policy": "8d64a30d9de1",
-      "src/task-pull.ts@readConventions": "b45c82161d62",
+      "src/task-pull.ts@readConventions": "746de6aa6f50",
       "src/task-pull.ts@runTaskPull": "459c7b911e07",
       "src/task-pull.ts@validRef": "c0cc3246557a",
       "src/tls-trust.ts@installSystemTrustStoreSync": "afde8e96d4a4",
@@ -1544,6 +1543,7 @@
       "src/tools/_concept-content.ts@header-block": "8d64a30d9de1",
       "src/tools/_concept-content.ts@plainConceptId": "1ca1fe8ca5a1",
       "src/tools/_concept-content.ts@renderConceptContent": "c3879dc6937c",
+      "src/tools/_concept-db.ts@stamped-writer": "8d64a30d9de1",
       "src/tools/_findings.ts@attributionLines": "42f2479c8abd",
       "src/tools/_findings.ts@conceptDbReachable": "1c46b7236612",
       "src/tools/_findings.ts@duplicate-finding": "8d64a30d9de1",
