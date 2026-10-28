@@ -58,6 +58,8 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
   concept_create: {
     content: { kind: 'prose', maxBytes: 16_384 },
     summary: { kind: 'prose', maxBytes: 2_048 },
+    files: { kind: 'prose', maxBytes: 8_192 },
+    subject: { kind: 'prose', maxBytes: 1_024 },
     pointer: { kind: 'acted', maxBytes: 16_384 },
   },
   concept_link: { description: { kind: 'prose', maxBytes: 2_048 } },

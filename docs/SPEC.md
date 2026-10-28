@@ -1303,6 +1303,8 @@ Handler: `src/tools/concept-create.ts@handle`
 | `pointer` | object | `{ type: <shape> }` | Pointer envelope |
 | `budget` | number | concept-db's default | Token budget for resolution snapshots |
 | `priority` | number | concept-db's default | Initial priority, 0..1 |
+| `files` | string[] | — | The files the concept is about, written as its `files:` line, workspace-relative |
+| `subject` | string | — | What it is about when that is not a file, written as its `subject:` line |
 
 **The author is stamped** (`src/tools/concept-create.ts@concept-author-stamp`), as `record_finding` stamps a finding's:
 `recorded_by: <vesselId>` and `session: <id>` become the content's first lines, so every reader's first match is the
@@ -1314,6 +1316,12 @@ identity resolves. With no vessel identity nothing is stamped: an author is omit
 from what the agent wrote. Readers follow the same rule (`src/tools/_concept-content.ts@header-block`): the author,
 session, repository, files, a verdict and finding ids are read only from the header block, so free text after the
 blank line never supplies them. That covers recall, claims, verdicts and `task pull`'s convention trust. Like every author line it is declared, not verified (§ Client claim); trust reads the host's `written_by` stamp where the row has one (§ Written by).
+
+**Where it applies is a header** (`src/tools/concept-create.ts@concept-location`), as on a `code_finding`: a
+`decision_record`, `task_handoff` or `run_report` gets the workspace's `repo:` and `repo_name:` lines when a repository
+resolves (§ Repository identity), and any shape gets `files:` from `files` and `subject:` from `subject`. They follow
+the author stamp; a line of the same key the agent wrote in the header block is removed, and the reply names the
+location it wrote. A memo with neither `files` nor `subject` applies to the whole repository.
 
 **The ledger's shapes are refused.** A `shape` of `code_finding` or `finding_verdict`, in any case, writes nothing and the reply names the tool that writes it (`record_finding` for findings and tasks, `claim_finding` for claims and releases, `mark_complete` for verdicts), so `concept_create` cannot forge a finding, a claim, a release or an endorsement.
 

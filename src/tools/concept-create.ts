@@ -39,7 +39,10 @@ import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { createConcept } from './_concept-db.js';
 import { plainConceptId } from './_concept-content.js';
-import { FINDING_SHAPE, VERDICT_SHAPE, attributionLines, resolveAuthorVesselId } from './_findings.js';
+import { FINDING_SHAPE, VERDICT_SHAPE, attributionLines, repoLines, resolveAuthorVesselId, workspaceRepo } from './_findings.js';
+import { activeWorkspacePath } from '../local-index.js';
+import { toWorkspaceRelative } from './record-finding.js';
+import type { RepoIdentity } from '../repo-identity.js';
 
 const SOURCE_TYPES = [
   'goal',
@@ -96,6 +99,15 @@ export const ConceptCreateTool = {
         type: 'number',
         description: 'Initial priority 0.0–1.0 (default: 0.5).',
       },
+      files: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'The files the concept is about, written as its files: line (workspace-relative). A decision_record, task_handoff or run_report also gets the repo: line of this workspace.',
+      },
+      subject: {
+        type: 'string',
+        description: 'What the concept is about when it is not a file (an issue, a document, a service, a topic), written as its subject: line.',
+      },
     },
     required: ['content', 'source_type', 'shape'],
   },
@@ -109,6 +121,8 @@ export const InputSchema = z.object({
   pointer: z.record(z.unknown()).optional(),
   budget: z.number().int().positive().optional(),
   priority: z.number().min(0).max(1).optional(),
+  files: z.array(z.string().min(1)).optional(),
+  subject: z.string().trim().min(1).optional(),
 });
 
 export type ConceptCreateInput = z.infer<typeof InputSchema>;
@@ -134,19 +148,51 @@ interface ConceptResponse {
  * is stamped: an author is omitted, never faked, and never taken from what the agent wrote. Declared, not verified,
  * like every author line until principals are stamped from the credential. SPEC §concept_create
  */
-export function stampAuthor(content: string, vesselId: string | undefined, sessionId: string | undefined): { content: string; replaced: string[] } {
+export function stampAuthor(
+  content: string,
+  vesselId: string | undefined,
+  sessionId: string | undefined,
+  location: string[] = [],
+): { content: string; replaced: string[] } {
   const lines = content.split('\n');
   const blank = lines.findIndex((l) => l.trim() === '');
   const headerEnd = blank < 0 ? lines.length : blank;
   const replaced: string[] = [];
+  // A location line the tool writes replaces the agent's line of the same key.
+  const stampedKeys = new Set(location.map((l) => l.slice(0, l.indexOf(':')).toLowerCase()));
   const header = lines.slice(0, headerEnd).filter((line) => {
-    const m = /^\s*(recorded_by|reviewed_by|session|origin)\s*:\s*(.*)$/i.exec(line);
-    if (!m) return true;
+    const m = /^\s*([a-z_]+)\s*:/i.exec(line);
+    const key = m?.[1]?.toLowerCase();
+    if (!key || !(AUTHOR_KEYS.has(key) || stampedKeys.has(key))) return true;
     replaced.push(line.trim());
     return false;
   });
   const stamp = vesselId ? attributionLines('recorded_by', vesselId, sessionId) : [];
-  return { content: [...stamp, ...header, ...lines.slice(headerEnd)].join('\n'), replaced };
+  return { content: [...stamp, ...location, ...header, ...lines.slice(headerEnd)].join('\n'), replaced };
+}
+
+const AUTHOR_KEYS: ReadonlySet<string> = new Set(['recorded_by', 'reviewed_by', 'session', 'origin']);
+
+// @anchor concept-location
+/**
+ * Where a concept applies, as header lines code_finding carries, so a reader places it without reading prose: the
+ * workspace's `repo:` / `repo_name:` on the memo shapes a run writes (decision_record, task_handoff, run_report), when a
+ * repository resolves; `files:` (workspace-relative) and `subject:` from the inputs, on any shape. SPEC §concept_create
+ */
+export const LOCATED_SHAPES: ReadonlySet<string> = new Set(['decision_record', 'task_handoff', 'run_report']);
+
+export function locationLines(
+  shape: string,
+  repo: RepoIdentity | null,
+  files: string[] | undefined,
+  subject: string | undefined,
+  workspacePath: string | null,
+): string[] {
+  const lines: string[] = [];
+  if (LOCATED_SHAPES.has(shape) && repo) lines.push(...repoLines(repo));
+  if (files?.length) lines.push(`files: ${files.map((f) => toWorkspaceRelative(f, workspacePath)).join(', ')}`);
+  if (subject?.trim()) lines.push(`subject: ${subject.trim().replace(/\s+/g, ' ')}`);
+  return lines;
 }
 
 /** The shapes only the ledger tools write. */
@@ -165,7 +211,8 @@ export async function handle(
     return `concept_create: refused: shape "${input.shape}" is the ledger's (${shape === FINDING_SHAPE ? 'record_finding writes findings and tasks' : 'claim_finding writes claims and releases, mark_complete verdicts'}), so nothing was written.`;
   }
   const vesselId = await resolveAuthorVesselId();
-  const stamped = stampAuthor(input.content, vesselId, sessionId);
+  const location = locationLines(shape, workspaceRepo(), input.files, input.subject, activeWorkspacePath());
+  const stamped = stampAuthor(input.content, vesselId, sessionId, location);
 
   // Pointer defaults: use the shape as pointer.type if caller didn't pass one.
   // concept-db's CreateConceptRequestSchema takes the pointer verbatim.
@@ -201,7 +248,8 @@ export async function handle(
   text += vesselId
     ? `  recorded_by: ${vesselId} (stamped first in the content)\n`
     : '  recorded_by: not stamped: no vessel identity resolves for this session\n';
-  if (stamped.replaced.length) text += `  removed:     ${stamped.replaced.join('; ')} (an author line is the tool's to write)\n`;
+  if (location.length) text += `  location:    ${location.filter((l) => !l.startsWith('repo_name:')).join('; ')}\n`;
+  if (stamped.replaced.length) text += `  removed:     ${stamped.replaced.join('; ')} (author and location lines are the tool's to write)\n`;
   text += '\nUse concept_link to wire this concept into the existing graph.';
   return text;
 }

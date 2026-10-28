@@ -399,7 +399,7 @@ close only when the brief's Done when: still holds."
 
 A run follows these from step 4 of the base prompt. The `run_report` concepts are read with `concept_neighbors {
 concept_id: "<the task>", direction: "incoming", edge_types: ["derived_from"], limit: 50 }`; the dashboard shows the outcome,
-the evidence and the findings, not the run reports. Change a process by superseding its policy; the next run follows
+the evidence and the findings. Change a process by superseding its policy; the next run follows
 the new one.
 
 ### What a task may touch
@@ -449,7 +449,8 @@ MCP server's tools, and every item it writes carries one `repo:` line. Reads are
 organization and credential; "Read again" behind the Source toggle refreshes them, and needs no `write`.
 
 The dashboard reads findings, verdicts, policies, constraints, review criteria, rulings, decisions and rejected
-approaches. It does not show `run_report` or `task_handoff` concepts: read those with `concept_neighbors` on the task, with `limit: 50`.
+approaches. Read a task's `run_report` and `task_handoff` concepts with `concept_neighbors` on the task, with `limit: 50`;
+`concept_create` writes each one's `repo:` line, and its `files:` or `subject:` line when given.
 It does not read a release's `released_for:` line, so after a release it shows the old holder until that claim ends;
 `get_problems` shows the task free. A policy with no `files:` line applies to the whole repository.
 

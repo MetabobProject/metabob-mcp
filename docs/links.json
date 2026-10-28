@@ -213,8 +213,8 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "adb6c22",
-        "why": "the 0.4.0 bump changes only the pinned version in the bundles; README names no version"
+        "at": "a0e4895",
+        "why": "skill templates pass files to concept_create; README describes no template fields"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
@@ -237,8 +237,8 @@
         "why": "it defers claim and trust rules to SPEC § claim_finding and § Written by"
       },
       "docs/USER-GUIDE.md": {
-        "at": "a6d6050",
-        "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
+        "at": "a0e4895",
+        "why": "skill templates pass files to concept_create; the guide describes no concept fields"
       },
       "lab/README.md": {
         "at": "e978c22",
@@ -825,6 +825,11 @@
           "concept_create"
         ]
       },
+      "tests/unit/concept-location.test.ts": {
+        "SPEC": [
+          "concept_create"
+        ]
+      },
       "tests/unit/concepts-by-shape.test.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
@@ -1367,6 +1372,7 @@
         "src/tools/claim-finding.ts@handle",
         "src/tools/claim-finding.ts@session-claims",
         "src/tools/concept-create.ts@concept-author-stamp",
+        "src/tools/concept-create.ts@concept-location",
         "src/tools/concept-create.ts@handle",
         "src/tools/concept-link.ts@handle",
         "src/tools/concept-neighbors.ts@handle",
@@ -1598,6 +1604,7 @@
       "src/tools/claim-finding.ts@handle": "4bdf740420c9",
       "src/tools/claim-finding.ts@session-claims": "8d64a30d9de1",
       "src/tools/concept-create.ts@concept-author-stamp": "8d64a30d9de1",
+      "src/tools/concept-create.ts@concept-location": "8d64a30d9de1",
       "src/tools/concept-create.ts@handle": "4bdf740420c9",
       "src/tools/concept-link.ts@handle": "4bdf740420c9",
       "src/tools/concept-neighbors.ts@handle": "4bdf740420c9",

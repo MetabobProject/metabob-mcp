@@ -112,13 +112,18 @@ point, and what it didn't write is lost.
   concept_create {
     shape: "decision_record", source_type: "memo",
     summary: "<repo>: <what was chosen>, not <what was rejected>",
+    files: ["<the files it applies to>"],
     content: "Decision: <what was chosen>
   Why: <the constraint or evidence that decided it>
   Rejected: <the alternative> — <why it fails; what it would break>
-  Applies to: <files, symbols or area>
+  Applies to: <symbols or area>
   Revisit when: <what would change the answer>"
   }
   ```
+
+  `files`, or `subject` when it is about something other than files, is written
+  on the concept's header with the repository, so readers place it; leave both
+  out for a decision about the whole repository.
 
   Then link it: `concept_link { from_concept_id: "<decision>", to_concept_id:
   "<anchor>", edge_type: "description_of" }`. If it settles a task or finding,
@@ -160,6 +165,7 @@ shuts down normally, which releases the claims it took.
   concept_create {
     shape: "task_handoff", source_type: "memo",
     summary: "<repo>: <task, in a few words> — <done | partly done | blocked>",
+    files: ["<the task's files>"],
     content: "Task: <task id or concept id>
   Done: <commits, and what each one does>
   Left: <the next concrete steps>

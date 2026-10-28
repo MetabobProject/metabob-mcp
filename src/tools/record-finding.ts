@@ -117,7 +117,7 @@ function generateFindingId(): string {
 }
 
 /** Normalize a file path to workspace-relative when possible. */
-function toWorkspaceRelative(filePath: string, workspacePath: string | null): string {
+export function toWorkspaceRelative(filePath: string, workspacePath: string | null): string {
   if (workspacePath && isAbsolute(filePath)) {
     const rel = relative(workspacePath, filePath);
     if (rel && !rel.startsWith('..')) return rel;
