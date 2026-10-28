@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface RepoIdentity {
   /**
@@ -253,7 +253,7 @@ const gitDidNotAnswer = (): FixLocation => ({ kind: 'rejected', reason: 'git did
  *   not taken as the fix — a pull of unrelated work would close every finding — but named (`newest`), so the agent
  *   can claim it when it is the fix.
  */
-export type FixLocation =
+export type FixLocation = (
   | { kind: 'commit'; sha: string; branch?: string; pushed: boolean; elsewhere?: boolean; claimed?: boolean; predates?: boolean; awaitingMerge?: string }
   | { kind: 'uncommitted'; branch?: string; base?: string; outside?: boolean }
   | { kind: 'none'; newest?: { sha: string; files: string[] } }
@@ -261,7 +261,12 @@ export type FixLocation =
   | { kind: 'rejected'; reason: string; claim?: boolean }
   | { kind: 'absent' }
   | { kind: 'untracked' }
-  | { kind: 'unknown' };
+  | { kind: 'unknown' }
+) & {
+  /** The finding's files are in a clone nested in the checkout (a submodule, or `repos/<vessel>/` in the
+   * super-repo): its path, relative to the checkout, where the fix was looked for. */
+  nested?: string;
+};
 
 /** Allowance for the recording machine's clock running ahead of the committing machine's. */
 export const FIX_SKEW_MS = 2 * 60_000;
@@ -275,6 +280,18 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   const top = fgitTry(cwd, ['rev-parse', '--show-toplevel']);
   if ('failure' in top) return top.failure === 'not_repo' || top.failure === 'missing' ? { kind: 'unknown' } : gitDidNotAnswer();
   const named = files.map(f => f.trim()).filter(Boolean);
+  // @anchor fix-location-nested
+  // Files inside a nested clone (a submodule, or a vessel's clone under the super-repo's repos/) are that clone's: its
+  // commits, its changes and its remote branches hold the fix, never the outer checkout's. SPEC §mark_complete
+  const nested = nestedClone(cwd, top.out, named);
+  if (nested) {
+    const inner = fixLocation(nested, named.map(f => relative(nested, resolve(cwd, f)).split(sep).join('/')), recordedAt, fixCommit, head);
+    const at = relative(cwd, nested).split(sep).join('/');
+    if (inner.kind === 'rejected' && /is not a commit in this checkout/.test(inner.reason)) {
+      return { ...inner, reason: `${fixCommit} is not a commit in the clone at ${at}; fetch there (git -C ${at} fetch) and endorse again`, nested: at };
+    }
+    return { ...inner, nested: at };
+  }
   // Known to git: tracked now, or in the history (a file the fix deleted).
   const known = named.filter(f => !!fgit(cwd, ['ls-files', '--', f]) || !!fgit(cwd, ['log', '-1', '--format=%H', '--', f]));
   const paths = named.filter(f => known.includes(f) || existsSync(resolve(cwd, f)));
@@ -330,6 +347,24 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   if (!newest) return { kind: 'none' };
   const changed = (fgit(cwd, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', newest]) ?? '').split('\n').filter(Boolean);
   return { kind: 'none', newest: { sha: newest, files: changed } };
+}
+
+/**
+ * The clone nested in the checkout (top-level `top`) that holds every one of `files`, or null when they are the
+ * checkout's own or spread over more than one repository. A file's repository is the top level git reports for the
+ * nearest existing directory on its path.
+ */
+function nestedClone(cwd: string, top: string, files: string[]): string | null {
+  if (!files.length) return null;
+  const tops = new Set<string>();
+  for (const f of files) {
+    let dir = dirname(resolve(cwd, f));
+    while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+    tops.add(fgit(dir, ['rev-parse', '--show-toplevel']) ?? '');
+  }
+  if (tops.size !== 1) return null;
+  const only = [...tops][0]!;
+  return only && resolve(only) !== resolve(top) ? only : null;
 }
 
 /** Whether commit `sha` is in the history of the checkout's HEAD; null when the workspace is not a git checkout. */

@@ -488,3 +488,35 @@ describe('recall', () => {
     expect(parseVerdictConcept(content, '')?.verdict).toBe('pending');
   });
 });
+
+describe('fixLocation in a nested clone', () => {
+  // A finding on repos/<vessel>/… endorsed from the super-repo: the vessel's clone holds the fix, and the super-repo's
+  // own dirty files say nothing about it.
+  test('the clone the files are in is checked, not the outer checkout', () => {
+    const outer = checkout('super');
+    const inner = checkout('super/repos/v');
+    writeFileSync(join(outer, 'util.ts'), 'unrelated work in progress\n');
+    const recorded = new Date();
+    expect(fixLocation(outer, ['repos/v/stats.ts'], recorded)).toEqual({ kind: 'none', nested: 'repos/v' });
+    writeFileSync(join(inner, 'stats.ts'), 'export const average = (xs: number[]) => 0;\n');
+    expect(fixLocation(outer, ['repos/v/stats.ts'], recorded)).toMatchObject({ kind: 'uncommitted', nested: 'repos/v' });
+    git(inner, 'commit', '-qam', 'fix');
+    const fix = git(inner, 'rev-parse', 'HEAD');
+    expect(fixLocation(outer, ['repos/v/stats.ts'], recorded)).toEqual({ kind: 'commit', sha: fix, branch: 'main', pushed: false, nested: 'repos/v' });
+    expect(fixLocation(outer, ['repos/v/stats.ts'], recorded, fix)).toMatchObject({ kind: 'commit', sha: fix, claimed: true, nested: 'repos/v' });
+  });
+
+  test('a named commit the clone has not fetched says where to fetch', () => {
+    const outer = checkout('super2');
+    checkout('super2/repos/v');
+    const loc = fixLocation(outer, ['repos/v/stats.ts'], new Date(), 'a'.repeat(40));
+    expect(loc.kind).toBe('rejected');
+    expect(loc.kind === 'rejected' && loc.reason).toContain('the clone at repos/v; fetch there (git -C repos/v fetch)');
+  });
+
+  test('files spread over the checkout and a nested clone are checked in the checkout', () => {
+    const outer = checkout('super3');
+    checkout('super3/repos/v');
+    expect(fixLocation(outer, ['stats.ts', 'repos/v/stats.ts'], new Date()).nested).toBeUndefined();
+  });
+});

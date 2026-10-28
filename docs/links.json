@@ -213,7 +213,7 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "a0e4895",
+        "at": "ddd133f",
         "why": "skill templates pass files to concept_create; README describes no template fields"
       },
       "docs/CONFORMANCE.md": {
@@ -237,7 +237,7 @@
         "why": "it defers claim and trust rules to SPEC § claim_finding and § Written by"
       },
       "docs/USER-GUIDE.md": {
-        "at": "a0e4895",
+        "at": "ddd133f",
         "why": "skill templates pass files to concept_create; the guide describes no concept fields"
       },
       "lab/README.md": {
@@ -1309,6 +1309,7 @@
         "src/outgoing-guard.ts@guarded-fields",
         "src/repo-identity.ts@commitInHead",
         "src/repo-identity.ts@fix-location",
+        "src/repo-identity.ts@fix-location-nested",
         "src/repo-identity.ts@normalizeRemoteUrl",
         "src/repo-identity.ts@repo-aliases",
         "src/repo-identity.ts@repoIdentity",
@@ -1541,6 +1542,7 @@
       "src/outgoing-guard.ts@guarded-fields": "0d93b0050521",
       "src/repo-identity.ts@commitInHead": "506aea0c1daa",
       "src/repo-identity.ts@fix-location": "8d64a30d9de1",
+      "src/repo-identity.ts@fix-location-nested": "3fae835612ad",
       "src/repo-identity.ts@normalizeRemoteUrl": "54b6b5099f3e",
       "src/repo-identity.ts@repo-aliases": "8d64a30d9de1",
       "src/repo-identity.ts@repoIdentity": "79745a878960",

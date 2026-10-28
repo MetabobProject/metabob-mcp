@@ -80,11 +80,12 @@ function pendingNote(loc: Extract<FixLocation, { kind: 'uncommitted' }>, claimed
     return `fix_commit ${claimed} was not applied: the finding's files have uncommitted changes, so the finding stays open for other agents (shown "fix pending"). `
       + 'Commit them and endorse again, or, if they are unrelated to the fix, commit or set them aside and endorse with fix_commit again.';
   }
+  const here = loc.nested ? `the clone at ${loc.nested}` : 'this checkout';
   return loc.outside
-    ? 'The finding\'s files are clean and no commit since the finding touches them, but this checkout has uncommitted changes '
+    ? `The finding's files are clean and no commit since the finding touches them, but ${here} has uncommitted changes `
       + 'in other files. If the fix is among them, commit it, then mark_complete endorse again; until then the finding stays '
       + 'open for other agents (shown "fix pending").'
-    : 'The fix is uncommitted in this checkout, so the finding stays open for other agents (shown "fix pending"). '
+    : `The fix is uncommitted in ${here}, so the finding stays open for other agents (shown "fix pending"). `
       + 'Commit it, then mark_complete endorse again to close the finding with its commit.';
 }
 
@@ -104,11 +105,12 @@ function noFixHere(id: string, loc: FixLocation, recordedAt: Date | undefined): 
       + `The newest commit since then is ${loc.newest.sha.slice(0, 10)}${shown ? `, touching ${shown}` : ''}, which is not taken as the fix on its own. No verdict was recorded.\n`
       + `  If that commit is the fix, endorse with fix_commit: "${loc.newest.sha.slice(0, 10)}". If the fix is elsewhere, endorse where it is. If it was never a bug, discard it.`;
   }
+  const here = loc.nested ? `the clone at ${loc.nested}` : 'this checkout';
   const why = loc.kind === 'absent'
     ? 'none of its files is in this checkout, so this is not the checkout the fix is in'
     : recordedAt
-    ? `nothing in this checkout changed since it was recorded (${recordedAt.toISOString()}) — no commit since then and no uncommitted change — so nothing here can be its fix`
-    : 'it has no recorded time, so no commit here can be shown to postdate it, and this checkout has no uncommitted change';
+    ? `nothing in ${here} changed since it was recorded (${recordedAt.toISOString()}) — no commit since then and no uncommitted change — so nothing here can be its fix`
+    : `it has no recorded time, so no commit here can be shown to postdate it, and ${here} has no uncommitted change`;
   return `Finding ${id} left open: ${why}. No verdict was recorded.\n`
     + '  If the fix is in another checkout, endorse it there, or pull it and endorse here. If it was never a bug, discard it.';
 }
@@ -123,7 +125,7 @@ function fixShown(loc: FixLocation): string {
       + (loc.elsewhere ? ' — it touches none of the finding\'s files' : '');
   }
   if (loc.kind === 'untracked') return 'local to this checkout: the finding\'s files are ignored, so no commit can hold the fix, and no other checkout can check it';
-  if (loc.kind === 'uncommitted') return `uncommitted in this checkout${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
+  if (loc.kind === 'uncommitted') return `uncommitted in ${loc.nested ? `the clone at ${loc.nested}` : 'this checkout'}${loc.branch ? ` on ${loc.branch}` : ''}${loc.outside ? ' (in files other than the finding\'s)' : ''}`;
   return 'unknown (not a git checkout), so the finding is closed without a commit';
 }
 
