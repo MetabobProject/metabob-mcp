@@ -233,8 +233,8 @@
         "why": "the guide rename changes no tool-set behaviour; SPEC names neither guide"
       },
       "docs/SUBSTRATE-GUIDE.md": {
-        "at": "af636e8",
-        "why": "it defers claim and trust rules to SPEC § claim_finding and § Written by"
+        "at": "04bf92f",
+        "why": "nested-clone fix checking: the guide states no fix-location rule and defers to SPEC § mark_complete"
       },
       "docs/USER-GUIDE.md": {
         "at": "ddd133f",
