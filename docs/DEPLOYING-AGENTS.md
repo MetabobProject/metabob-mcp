@@ -522,7 +522,8 @@ task_kinds: review
    id (the brief's subject: line, after task/):
    list="$(git rev-parse --git-dir)/commits"; git fetch origin main "task/$ID"
    git rev-list "origin/main..origin/task/$ID" > "$list"
-   git checkout main && git merge --ff-only origin/main && git merge --no-ff "origin/task/$ID" && git push origin main
+   g() { git -c core.hooksPath=/dev/null "$@"; }
+   g checkout main && g merge --ff-only origin/main && g merge --no-ff "origin/task/$ID" && g push origin main
    metabob-mcp finding close --commits-from "$list" --target main
 3. Close this review task with mark_complete endorse: the verdict as outcome; the merge commit, or the findings, as
    evidence."
@@ -530,6 +531,11 @@ task_kinds: review
 ```
 
 `finding close --target main` closes the reviewed task once merged.
+
+A reviewer on a `task pull` loop runs the branch's code (its `npm test`) in a clone that holds the credential that
+pushes `main`. Use one only where you trust every branch author with that credential; otherwise review in cells (§ 6,
+A container sandbox): test the branch in a phase with no push credential, then merge and push from a fresh clone
+with hooks off.
 
 ### Manage
 
@@ -868,7 +874,7 @@ origin into a work directory; `finding close` closes what the run's commits name
 loop pushes, not the agent: after the harness exits it rebases onto `main`, lists the run's own commits, pushes and
 runs `finding close`; a worker's instruction says not to push. Each round gets fresh directories. Save this as an
 executable `pull-loop`; it takes `ORIGIN`, `VESSEL_ID`, `METABOB_CONFIG_PATH` and `METABOB_TASK_KINDS` (`change` for
-workers, `review` for the reviewer, `manage` for the manager) from its environment, and `INSTRUCTION` when set:
+workers, `review` for the reviewer, `manage` for the manager) from its environment, and `INSTRUCTION`, added to the instruction, when set:
 
 ```bash
 #!/usr/bin/env bash
@@ -876,7 +882,7 @@ workers, `review` for the reviewer, `manage` for the manager) from its environme
 : "${ORIGIN:?}" "${VESSEL_ID:?}" "${METABOB_CONFIG_PATH:?}" "${METABOB_TASK_KINDS:?}"
 export VESSEL_ID METABOB_CONFIG_PATH METABOB_TASK_KINDS     # task pull takes only tasks of these kinds
 export METABOB_CLAIM_RELEASERS="<the manager's key id>"   # the same list on every server of the fleet
-export METABOB_TASK_TRUST="<the planner's key id>"         # keys whose conventions may set push_to and integrate
+export METABOB_TASK_TRUST="<the planner's and the people's key ids>"  # keys whose conventions may set push_to and integrate
 for i in $(seq 1 20); do
   round=$(mktemp -d)
   metabob-mcp task pull --origin "$ORIGIN" --task-dir "$round/task" --work-dir "$round/work" --json \
@@ -899,7 +905,7 @@ for i in $(seq 1 20); do
     *)      tools=(); say= ;;
   esac
   ( cd "$round/work" &&
-    run-agent "Work task $id. Read $task and $round/task/context.md first. ${INSTRUCTION:-$say}" \
+    run-agent "Work task $id. Read $task and $round/task/context.md first. $say ${INSTRUCTION:-}" \
       --add-dir "$round/task" --allowedTools "mcp__metabob" "${tools[@]}" || exit 1
     [ "$(jq '.files | length' "$task")" -gt 0 ] || exit 0          # a task with no file closed itself
     git fetch origin main && git rebase origin/main &&
@@ -1158,7 +1164,9 @@ a manager loop.
 
 4. **Branch protection.** A branch protection rule (or ruleset) on `main` in each repository lets only the
    reviewers' bot identity push. The workers' bot token can push `task/*` branches only. The worker's close (the
-   loop's `finding close`) leaves its task `fix pending (awaiting merge)`.
+   loop's `finding close`) leaves its task `fix pending (awaiting merge)`. The reviewer's loop runs each branch's
+   tests with that main-push credential: this fleet trusts every branch author with it; where that does not hold,
+   review in cells (§ 5, Review).
 5. **The loops**, one `pull-loop` (§ 6, A `task pull` loop) per role and repository, from cron. Each cron line runs
    as a Unix user whose `~/.git-credentials` (mode 0600, `git config --global credential.helper store`) holds that
    role's git token, and reads `ANTHROPIC_API_KEY` from `/srv/fleet/env`, mode 0600, owned by that user:
