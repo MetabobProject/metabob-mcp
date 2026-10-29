@@ -24,7 +24,7 @@ bun run typecheck                   # tsc --noEmit
 bun run test                        # run tests (preflight, then a 30 s per-test limit, as CI uses)
 bun run build                       # compile src/ → dist/cli.js (required for npm link)
 bun src/cli.ts attach --check       # attach once and print each hop: proxy, TLS, /bootstrap, identity, org check, one resolve
-bun src/cli.ts task pull --origin <url>  # a cell's entrypoint: claim a ledger task, write /task, clone /work (docs/SPEC.md § task pull)
+bun src/cli.ts task pull --origin <url> [--kinds <k,…>]  # a cell's entrypoint: claim a ledger task (of those kinds), write /task, clone /work (docs/SPEC.md § task pull)
 bun src/cli.ts finding close --commits-from <file>  # after a push: close findings the cell's own commits name (Fixes-Finding:) once merged (§ finding close)
 npm link                            # register metabob-mcp bin globally for local testing
 bash scripts/git-hooks/install.sh   # install pre-commit + pre-push hooks
@@ -169,6 +169,7 @@ wins over its derived value only when set explicitly.
 | `METABOB_CALL_LOG` | _(unset)_ | A file to append one JSON line per tool call to, on stdio and the loopback resolver (tool, argument names and sizes, outcome, the tool's result kind, duration; never a value), for scoring call order in any harness. Local only, mode 0600 (docs/SPEC.md § Call log) |
 | `METABOB_CLAIM_RELEASERS` | _(unset: none)_ | Comma-separated keys (by id, or name, as the host stamps `written_by_key` / `written_by`; a vessel id matches only rows from before the stamp) this server trusts to release a claim someone else holds (a manager freeing a stalled task). Set the same list on every server of a fleet: readers with different lists disagree on who holds a task (docs/SPEC.md § claim_finding) |
 | `METABOB_TASK_TRUST` | _(the task's recorder)_ | `task pull`: comma-separated keys (by id, or name, as the host stamps `written_by_key` / `written_by`; a vessel id matches only rows from before the stamp) whose `project_convention` concepts may set a task's integration policy; a row from before the stamp is read by its declared `recorded_by` (docs/SPEC.md § task pull, § Written by) |
+| `METABOB_TASK_KINDS` | _(every kind)_ | `task pull`: comma-separated kinds of task to take, by the first `Kind:` line among the brief's leading key lines (a brief with none is `change`); same as `--kinds` (docs/SPEC.md § task pull) |
 | `METABOB_CLIENT_CLAIM` | _(on)_ | `off` stops adding `client_claim { operator, session, client }` to every write's pointer (docs/SPEC.md § Client claim). Dispatch `operator:` / `session:` tags and feedback notes are always on |
 | `MB_OPERATOR_ID` | _(this workspace's vesselId)_ | Operator identity declared on goal dispatch (`operator:` tag), in `provide_feedback` label notes and on every write (`client_claim.operator`); unset, the stable `metabob-mcp-<hash>` vesselId, so sessions in different workspaces never share one default |
 | `VESSEL_ID` | _(derived)_ | The coordination identity: keys the local agent-task queue and is the `recorded_by` / `reviewed_by` author of findings and verdicts. Defaults to a stable `metabob-mcp-<hash(apiKey+workspace)>`. Never registered anywhere |

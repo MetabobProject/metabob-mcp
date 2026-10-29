@@ -66,10 +66,10 @@ Node with Bun 1.1 or later on PATH (SPEC § Runtime), on Linux, macOS or Windows
    for the agent and its work (`issue-triage`, `port-cell-1`, `reviewer`; at most 100 characters), the scopes
    (`read` and `write`; `admin` only for people who manage keys) and, if you want one, an expiry of 1 to 3650 days.
    The key is shown once. Copy it, and copy the key's id, shown in Access: trust lists name keys by id (§ 3).
-2. **Install the server**, pinned to a version you have run (0.4.0), here and in every `npx` entry:
+2. **Install the server**, pinned to a version you have run (0.4.1), here and in every `npx` entry:
 
    ```bash
-   npm i -g "@metabob/mcp@0.4.0"
+   npm i -g "@metabob/mcp@0.4.1"
    metabob-mcp --version
    ```
 
@@ -702,7 +702,7 @@ task_kinds: triage
 the agent's key as secrets. On each opened issue, the CI job sets up and runs:
 
 ```bash
-npm i -g "@metabob/mcp@0.4.0" "@anthropic-ai/claude-code@<version>"
+npm i -g "@metabob/mcp@0.4.1" "@anthropic-ai/claude-code@<version>"
 umask 077
 printf '{"metabob":{"apiKey":"%s","discoveryEndpoint":"https://ide.metabob.com","vesselId":"issue-triage"}}' \
   "$METABOB_KEY" > "$RUNNER_TEMP/metabob.json"

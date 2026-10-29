@@ -53,8 +53,8 @@ you set `METABOB_TOOLS=all`:
 
 - With a plugin, the server's version is the plugin's own (its `.mcp.json` pins it), so a plugin before 0.4.0
   lists no tools under `all`.
-- With a server you add yourself, name the version in the command: `@metabob/mcp@0.4.0`.
-  `npx -y @metabob/mcp@0.4.0 --version` prints the version a command starts.
+- With a server you add yourself, name the version in the command: `@metabob/mcp@0.4.1`.
+  `npx -y @metabob/mcp@0.4.1 --version` prints the version a command starts.
 
 ### Turning it on
 
@@ -64,18 +64,18 @@ you set `METABOB_TOOLS=all`:
   edit check, § 3). Set `{ "env": { "METABOB_TOOLS": "all" } }` in `~/.claude/settings.json`, or export
   `METABOB_TOOLS=all` in the shell that starts `claude`.
 - **Claude Code with a server you add yourself.**
-  `claude mcp add metabob -s user -e METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.0`, adding `-e` for the key and
+  `claude mcp add metabob -s user -e METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.1`, adding `-e` for the key and
   address when no config file supplies them.
 - **Codex.** The plugin's server takes no extra environment, so remove the plugin
   (`codex plugin remove metabob@metabob`), add the server yourself
-  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.0`, adding `--env` for the key and
+  (`codex mcp add metabob --env METABOB_TOOLS=all -- npx -y @metabob/mcp@0.4.1`, adding `--env` for the key and
   address when no config file supplies them), and install the skill by
   hand (below).
 - **Cursor, Continue and other clients.** In the server's `env` in the client's MCP configuration:
 
   ```json
   { "mcpServers": { "metabob": {
-      "command": "npx", "args": ["-y", "@metabob/mcp@0.4.0"],
+      "command": "npx", "args": ["-y", "@metabob/mcp@0.4.1"],
       "env": { "METABOB_TOOLS": "all" } } } }
   ```
 
@@ -271,7 +271,7 @@ The rows that apply to every tool set are in USER-GUIDE.md, § Troubleshooting. 
 
 | Symptom | Next step |
 |---|---|
-| No tools appear with `METABOB_TOOLS=all` | The server is before 0.4.0: name `@metabob/mcp@0.4.0`, or update the plugin (§ 2) |
+| No tools appear with `METABOB_TOOLS=all` | The server is before 0.4.0: name `@metabob/mcp@0.4.1`, or update the plugin (§ 2) |
 | Only eleven tools appear | `METABOB_TOOLS=all` did not reach the server's environment: check where it is set (§ 2) and reconnect |
 | `path_activity` says the repository may not be one the substrate mounts | Nothing is in flight there; check `get_problems` and edit |
 | `path_activity` says the substrate keeps no gap store | Nothing is in flight to check; edit |

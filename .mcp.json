@@ -2,7 +2,7 @@
   "mcpServers": {
     "metabob": {
       "command": "npx",
-      "args": ["-y", "--package=metabob-mcp-server@npm:@metabob/mcp@0.4.0", "metabob-mcp"],
+      "args": ["-y", "--package=metabob-mcp-server@npm:@metabob/mcp@0.4.1", "metabob-mcp"],
       "env": { "METABOB_TOOLS": "all" }
     }
   }

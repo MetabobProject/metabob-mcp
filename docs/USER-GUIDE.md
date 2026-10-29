@@ -45,7 +45,7 @@ Add this to the client's MCP configuration (Cursor `.cursor/mcp.json`, Claude De
 
 ```json
 { "mcpServers": { "metabob": {
-    "command": "npx", "args": ["-y", "@metabob/mcp@0.4.0"],
+    "command": "npx", "args": ["-y", "@metabob/mcp@0.4.1"],
     "env": { "METABOB_API_KEY": "<your key>", "DISCOVERY_ENDPOINT": "<https://…>" } } } }
 ```
 
@@ -158,7 +158,7 @@ Start with `npx @metabob/mcp attach --check`.
 | `get_analysis_context` says "attaching (first attempt in progress)" | Wait a few seconds; the next call tries again |
 | `workspace_undetermined` | Ask the agent to call `init_workspace` with the project's absolute path |
 | The tools don't appear | Check `git` and Node on PATH, then reconnect from `/mcp` |
-| More than eleven tools appear | Remove `METABOB_TOOLS` from the server's environment and reconnect; with a server you added yourself, name `@metabob/mcp@0.4.0` |
+| More than eleven tools appear | Remove `METABOB_TOOLS` from the server's environment and reconnect; with a server you added yourself, name `@metabob/mcp@0.4.1` |
 | A task you closed shows `fix pending` | Commit and push the fix, then ask the agent to close it again |
 | Two agents did the same work | Give each task its own files, and each agent its own clone |
 
