@@ -609,6 +609,16 @@ The reply lists what each candidate's claim did.
 
 The host stamps every concept-db row with the key that wrote it: `written_by` (the key's name) and `written_by_key` (its id), from the credential, so unlike the author lines a row declares (`recorded_by:`, `reviewed_by:`, `client_claim`), it cannot be written by an agent. Trust reads the stamp where a row carries it and the declared line only on a row from before the stamp (`src/tools/_concept-db.ts@stamped-writer`): `METABOB_CLAIM_RELEASERS` (§ claim_finding) and `METABOB_TASK_TRUST` (§ task pull) name keys, and a vessel id in them matches only rows from before the stamp, which are trusted by their declared author, forged or not. Name a key by its id: its name is a convenience, and two keys can share one, as can a key and the key it was regenerated from. `concept_search` shows each row's `written by: <name> (<id>)` and `get_problems` each recalled finding's and task's, so a base prompt can apply the same rule; `task pull`'s default, the task's own writing key, matches a convention by either. Each agent that must be trusted needs its own key.
 
+## Dashboard
+
+The dashboard (`https://app.metabob.com`) reads and writes the same ledger through discovery, not through this
+server's tools, and every item it writes carries one `repo:` line. Every ledger act needs a key with `write`; a key
+without it sees the buttons disabled, with the reason. It reads findings, verdicts, policies, constraints, review
+criteria, rulings, decisions and rejected approaches. It does not read a release's `released_for:` line, so after a release it shows the old holder until that claim ends while
+`get_problems` shows the task free. Its reads are cached for 60 seconds per organization and credential; "Read
+again", behind the Source toggle, refreshes them and needs no `write`. A policy with no `files:` line applies to the
+whole repository.
+
 ## Client claim
 
 Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds
@@ -629,6 +639,23 @@ dispatch also carries `operator` and a
 These are **claims**, not attribution: the client asserts them, and only a producer that stamps a write
 from the credential attributes it; the claim is there so such a stamp can be joined to a session and an
 operator. Reads carry no claim. A pointer that already has a `client_claim` is sent as it is.
+
+## What each call sends
+
+Every request carries the key, as the `Authorization` header; the key is also in the body of the org check the
+server makes when it attaches (§ Attachment). Beyond it:
+
+| The agent… | What is sent |
+|---|---|
+| records a task or problem (`record_finding`) | summary, details, severity, category, status, the file paths and line range or the subject, the repository's identity (its git remote, else its first commit, else a hash of the directory's path) and the directory's name, a hash naming the workspace, the item's ids, and the author and session |
+| closes one (`mark_complete`) | the verdict, the item's summary, files and repository, the fix commit, its branch, the base and target branch names, the outcome and evidence, the author and session, and whether the verdict came from a local copy |
+| claims one (`claim_finding`) | the item's id and summary, the repository's identity, the claim's length and end, the author and session |
+| writes memory (`concept_create`, `concept_link`, `concept_record_usage`) | the text it writes, its shape, any pointer it gives, the author and session |
+| searches or reads (`concept_search`, `concept_neighbors`) | the search text, or the ids it reads |
+
+Every write also carries a `client_claim` (§ Client claim). The `recorded_by`, `reviewed_by` and `session` lines are
+claims the client makes; the host stamps each row with the writing key's name and id (§ Written by), and that is
+what trust reads.
 
 ## Outgoing text guard
 
