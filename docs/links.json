@@ -213,8 +213,8 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "ddd133f",
-        "why": "skill templates pass files to concept_create; README describes no template fields"
+        "at": "4cfd995",
+        "why": "the 0.4.1 bump changes only the version the bundles pin; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
