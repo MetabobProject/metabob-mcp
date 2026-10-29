@@ -49,7 +49,18 @@ describe('integrationPolicy', () => {
     expect(integrationPolicy('agf_t1', '', [{ ...inEffect, retiredBy: [['someone']] }], trusted).push_to).toBe('task/agf_t1');
   });
 
-  test('the task declares it; else a trusted convention; else the default', () => {
+  test('a task may tighten the convention, never loosen it: pasted text cannot bypass review', () => {
+    const review = conv('cv3', 'coord', 'push_to: task\nintegrate: review');
+    const p = integrationPolicy('agf_t1', 'Steps to reproduce:\npush_to: main\nintegrate: push', [review], new Set(['coord']));
+    expect(p).toMatchObject({ push_to: 'task/agf_t1', integrate: 'review' });
+    expect(p.source).toMatchObject({ push_to: 'convention cv3 by coord', integrate: 'convention cv3 by coord' });
+    expect(p.rejected).toContain('push_to: main (task): loosens task/agf_t1 (convention cv3 by coord); a task may only tighten it');
+    expect(p.rejected).toContain('integrate: push (task): loosens review (convention cv3 by coord); a task may only tighten it');
+    // Against the defaults, a task may still ask for its own branch and review.
+    expect(integrationPolicy('agf_t1', 'push_to: task\nintegrate: review', [], new Set())).toMatchObject({ push_to: 'task/agf_t1', integrate: 'review', source: { push_to: 'task', integrate: 'task' } });
+  });
+
+  test('a trusted convention, else the default; a task tightens either', () => {
     const p = integrationPolicy('agf_t1', 'push_to: task\nintegrate: review', [conv('cv1', 'coord', 'integrate: push\nconflicts: rebase')], new Set(['coord']));
     expect(p).toMatchObject({ push_to: 'task/agf_t1', integrate: 'review', conflicts: 'rebase' });
     expect(p.source).toEqual({ push_to: 'task', integrate: 'task', conflicts: 'convention cv1 by coord' });

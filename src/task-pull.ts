@@ -63,8 +63,10 @@ function declared(text: string, key: string): string | null {
 
 // @anchor integration-policy
 /**
- * The task's integration policy (SPEC §task-pull): per value, the task's declaration, else a trusted convention's,
- * else the default. A value outside the allowed set is refused, whatever its source.
+ * The task's integration policy (SPEC §task-pull): per value, a trusted convention's in effect, else the default; the
+ * task's own declaration may only tighten it (`main` → `task`, `push` → `review`), since a brief carries text anyone
+ * with write scope, or an issue copied into it, wrote. A loosening declaration and a value outside the allowed set
+ * are refused, whatever their source.
  */
 export function integrationPolicy(
   taskKey: string,
@@ -85,18 +87,31 @@ export function integrationPolicy(
     policy.rejected.push(`convention ${c.id} by ${c.author || 'an unattributed author'}: ${why}`);
     return false;
   });
+  // How strict a value is: a task may move a value up this order, never down.
+  const strictness = (v: string) => (v === 'main' || v === 'push' ? 0 : 1);
   for (const key of ['push_to', 'integrate', 'conflicts'] as const) {
-    const candidates: Array<[string, string | null]> = [['task', declared(details, key)], ...usable.map(c => [`convention ${c.id} by ${c.author}`, declared(c.content, key)] as [string, string | null])];
-    for (const [source, value] of candidates) {
+    for (const c of usable) {
+      const value = declared(c.content, key);
       if (value === null) continue;
       const ok = allowed[key](value);
       if (!ok) {
-        policy.rejected.push(`${key}: ${value} (${source}): not an allowed value`);
+        policy.rejected.push(`${key}: ${value} (convention ${c.id} by ${c.author}): not an allowed value`);
         continue;
       }
       (policy as any)[key] = ok;
-      policy.source[key] = source;
+      policy.source[key] = `convention ${c.id} by ${c.author}`;
       break;
+    }
+    const value = declared(details, key);
+    if (value === null) continue;
+    const ok = allowed[key](value);
+    if (!ok) {
+      policy.rejected.push(`${key}: ${value} (task): not an allowed value`);
+    } else if (strictness(ok) < strictness(policy[key])) {
+      policy.rejected.push(`${key}: ${value} (task): loosens ${policy[key]} (${policy.source[key]}); a task may only tighten it`);
+    } else {
+      (policy as any)[key] = ok;
+      policy.source[key] = 'task';
     }
   }
   return policy;
