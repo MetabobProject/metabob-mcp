@@ -1209,6 +1209,8 @@
         "src/operator-id.ts@clientClaim",
         "src/outgoing-guard.ts@guard-tool-input",
         "src/repo-identity.ts@fix-location",
+        "src/repo-identity.ts@fix-location-nested",
+        "src/repo-identity.ts@repoIdentity",
         "src/server-instructions.ts@serverInstructions",
         "src/task-pull.ts@candidateTasks",
         "src/task-pull.ts@convention-in-effect",
@@ -1218,6 +1220,7 @@
         "src/tools/_claims.ts@claim-holder",
         "src/tools/_claims.ts@parseClaim",
         "src/tools/_findings.ts@findOpenDuplicate",
+        "src/tools/concept-create.ts@concept-location",
         "src/vessel-identity.ts@resolveVesselId"
       ],
       "docs/DOCLINKS.md": [

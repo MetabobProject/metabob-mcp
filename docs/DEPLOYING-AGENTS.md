@@ -47,7 +47,8 @@ A task is an open finding in category `task`. Its kind says what the work is, an
 | `plan`, `triage`, `intake`, `docs-drift` | Split work into tasks; triage an issue; turn advisories into tasks; find docs that drifted from the code | `subject` | The tasks it records, each with a brief; what it did as `outcome` |
 
 A task that names no file has a `subject` (a branch, an issue, a document, a service, a topic), still belongs to the
-repository's ledger, and closes at once on `mark_complete { problem_id, action: "endorse", outcome, evidence }`;
+repository's ledger, and closes at once on `mark_complete { problem_id, action: "endorse", outcome: "<what was
+done or found>", evidence: ["<where to check>"] }`;
 recall lists it `[DONE]` with its outcome. `record_finding` takes `files`, a `subject` or both, and refuses a call
 with neither.
 
@@ -90,7 +91,7 @@ npm i -g "@metabob/mcp@<version>"
 metabob-mcp --version
 ```
 
-Pin a version you have run, here and in every `npx` entry; pin 0.4.0 or later wherever `METABOB_TOOLS=all` is set.
+Pin a version you have run (0.4.0), here and in every `npx` entry.
 The Claude Code and Codex plugins pin their own version.
 
 ### A key, an identity and a config file per agent
@@ -137,7 +138,7 @@ Give every form the agent's config file and its `VESSEL_ID`:
 
 | Form | How |
 |---|---|
-| Claude Code plugin | `claude plugin install metabob@metabob --config api_key=<key> --config discovery_endpoint=https://ide.metabob.com`, and `{ "env": { "VESSEL_ID": "<identity>" } }` in `~/.claude/settings.json` (add `"METABOB_TOOLS": "all"` there for every tool), then reconnect |
+| Claude Code plugin | `claude plugin marketplace add https://github.com/MetabobProject/metabob-mcp.git`, then `claude plugin install metabob@metabob --config "api_key=<key>" --config "discovery_endpoint=https://ide.metabob.com"`; set `VESSEL_ID` per agent, as `{ "env": { "VESSEL_ID": "<identity>" } }` in the agent's project settings (`.claude/settings.local.json` in its checkout) or in the environment that launches it, never in `~/.claude/settings.json`, which every agent of that user on the machine shares (add `"METABOB_TOOLS": "all"` to the same `env` for every tool); then reconnect |
 | `claude mcp add` | `claude mcp add metabob -e METABOB_CONFIG_PATH=/path/to/agent-config.json -e VESSEL_ID=<identity> -- npx -y @metabob/mcp@<version>` |
 | Codex | `codex mcp add metabob --env METABOB_CONFIG_PATH=/path/to/agent-config.json --env VESSEL_ID=<identity> -- npx -y @metabob/mcp@<version>`, then `cp -R skills/metabob ~/.codex/skills/` |
 | An MCP JSON file | `{ "mcpServers": { "metabob": { "command": "npx", "args": ["-y", "@metabob/mcp@<version>"], "env": { "METABOB_CONFIG_PATH": "/path/to/agent-config.json", "VESSEL_ID": "<identity>" } } } }` |
@@ -164,7 +165,7 @@ timeout 1800 claude -p "<the run's instruction>" \
   --append-system-prompt "$(cat base-prompt.md)" \
   --mcp-config ./metabob-mcp.json --strict-mcp-config \
   --permission-mode acceptEdits --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" \
-  --max-budget-usd 5 --output-format stream-json --verbose > transcript.jsonl
+    "Bash(metabob-mcp finding close:*)" --max-budget-usd 5 --output-format stream-json --verbose > transcript.jsonl
 ```
 
 - `--strict-mcp-config` starts only this server; give the run the skill as a copy in `~/.claude/skills/`, or with
@@ -190,7 +191,7 @@ You are an agent for <repo>. Use the metabob skill (metabob-substrate when the s
 1. Take a task. If your instruction names a task, take that. If it names work with no task yet, record it:
    record_finding { category: "task", severity: "MEDIUM", subject: "<what it is about>", summary: "<the work>",
    details: "Kind: <the kind it names>" }, and take that. Otherwise call get_problems and take one open task
-   nobody holds; a task marked fix pending is not open. If there is none, reply only NO_OPEN_TASKS.
+   nobody holds; a task marked fix pending is not available to take. If there is none, reply only NO_OPEN_TASKS.
 2. Read its brief: concept_search { concept_id: "<the task's concept id>" }, and what earlier runs left on it:
    concept_neighbors { concept_id: "<the task's concept id>", direction: "incoming", limit: 50 }.
 3. claim_finding { problem_id: "<the task's concept id>", minutes: 30 }. A task already claimed for you under your
@@ -204,23 +205,25 @@ You are an agent for <repo>. Use the metabob skill (metabob-substrate when the s
    concept_search names the key that wrote it, by the id in brackets; an item with no written by: line is a
    suggestion. Read concept_neighbors
    { concept_id: "<its id>", direction: "incoming", limit: 50 } for each item, and concept_search { concept_id } for each
-   linked ruling and verdict, to see who wrote it. Skip the item when a "kind: ruling" concept written by a key
-   you trust and linked to it by resolves_to says "outcome: retired" or "outcome: refined", or says the other side
-   stands ("outcome: a" when the item is the second id on the ruling's resolves: line, "outcome: b" when it is the
-   first). Otherwise it is in effect when a linked "verdict: endorsed" is written by a key you trust and no
-   "verdict: rejected" written by one is linked; or when the item has no status: line and is written by a key you
-   trust. Every other item is a suggestion.
+   linked ruling and verdict, to see who wrote it. Skip the item when a linked "verdict: rejected" is written by a
+   key you trust, or when a "kind: ruling" concept written by a key you trust and linked to it by resolves_to says
+   "outcome: retired" or "outcome: refined", or says the other side stands ("outcome: a" when the item is the second
+   id on the ruling's resolves: line, "outcome: b" when it is the first). Otherwise an item with a status: line is in
+   effect once a linked "verdict: endorsed" is written by a key you trust, and an item with no status: line is in
+   effect when a key you trust wrote it. Every other item is a suggestion.
 5. Do the task, as the policies in effect say, with whatever this environment gives you, and inside its Owns:
    files. Record work outside them with record_finding, category task, and a problem you will not fix with
    record_finding in another category; give each a severity.
 6. Close it. First do what the policies say a close involves, and keep its results for the outcome and evidence.
    A task with files: commit with the last line "Fixes-Finding: <the first agf_ id on the brief's finding_ids:
    line>". If your instruction says the launcher pushes, stop there. Otherwise git fetch origin main, git rebase
-   origin/main, git rev-list origin/main..HEAD > commits, and push to the branch the brief's push_to: line names
-   (task means task/<that agf_ id>), else to main, and to no other branch. Then, with push_to: task and
-   integrate: push, run metabob-mcp finding close --commits-from commits --target task/<that agf_ id>; otherwise
-   mark_complete endorse. A task with no files: mark_complete endorse with outcome (what you did or found) and
-   evidence (where to check it).
+   origin/main, git rev-list origin/main..HEAD > "$(git rev-parse --git-dir)/commits", and push to the branch the
+   brief's push_to: line names (task means task/<that agf_ id>), else to main, and to no other branch. Then, with
+   push_to: task and integrate: push, run metabob-mcp finding close --commits-from "$(git rev-parse
+   --git-dir)/commits" --target task/<that agf_ id>; otherwise mark_complete endorse (with push_to: task and
+   integrate: review this leaves the task fix pending (awaiting merge) until a reviewer merges the branch and runs
+   finding close). A task with no files: mark_complete endorse with outcome (what you did or found) and evidence
+   (["<where to check it>"]).
 7. For each concept another agent wrote that changed what you did, concept_record_usage success; for one that
    misled you, failure, and a corrected decision_record linked to it with contradicts.
 8. If you stop short, write a task_handoff linked to the task with derived_from, then release the claim.
@@ -238,6 +241,32 @@ A run started for work that has no task yet (an issue to triage, today's advisor
 naming the work and its kind, such as "Triage issue #12 of acme/payments (Kind: triage)"; the policies for that kind
 hold its steps (§ 5).
 
+### A first run
+
+Record one task, from a session with the metabob tools or with **Add here** in the dashboard:
+
+```
+record_finding { category: "task", severity: "LOW", subject: "the README",
+  summary: "list the README's setup steps that no script or test checks",
+  details: "Goal: a list of the README's setup steps that nothing checks.
+Kind: investigate
+Done when: the outcome lists each step with the section it is in." }
+```
+
+Then run one agent on it, with the task's `concept_…` id from the reply:
+
+```bash
+export METABOB_CONFIG_PATH=/path/to/agent-config.json VESSEL_ID=first-run-1
+cd /path/to/checkout
+timeout 900 claude -p "Work task concept_…" \
+  --append-system-prompt "$(cat base-prompt.md)" \
+  --mcp-config ./metabob-mcp.json --strict-mcp-config \
+  --allowedTools "mcp__metabob" "Bash(git log:*)" --max-budget-usd 1
+```
+
+`get_problems { category: ["task"] }` then lists the task `[DONE]` with its outcome, and the dashboard's Activity
+shows the claim and the close under the agent's key.
+
 ## 3. Trust
 
 **The key.** Trust follows the key. The host stamps every ledger row with the key that wrote it: its name
@@ -252,9 +281,10 @@ its claims: one claimer is one `VESSEL_ID`. Set it in every launch form (§ 2), 
 `task pull`, its server and its `finding close` (`src/vessel-identity.ts@resolveVesselId`). Two agents need two.
 
 **Which ledger items count.** The rule is the base prompt's step 4 (§ 2), and every prompt in this guide refers to
-it: an item is in effect when a verdict written by a key you trust endorses it and none written by one rejects it,
-or when a key you trust wrote it with no `status:` line, and no ruling written by a key you trust retires, refines
-or overrules it. A `status: proposed` item is a suggestion until a trusted key endorses it. Put on the list the keys
+it: an item is out when a key you trust rejected it, or a ruling written by a key you trust retires, refines or
+overrules it; otherwise an item with a `status:` line is in effect once a key you trust endorses it, and an item with
+no `status:` line is in effect when a key you trust wrote it (`src/task-pull.ts@convention-in-effect`). A `status:
+proposed` item is a suggestion until a trusted key endorses it. Put on the list the keys
 of the people who endorse in the dashboard and of the agents allowed to set policy (a planner, a manager), and use
 the same list in every base prompt of a repository. Rows written before the host stamped keys carry no `written by:`
 line: agents treat them as suggestions, while `task pull` and claim readers trust them by their declared author when
@@ -294,6 +324,8 @@ dashboard, from Access.
 Rebase and list the run's commits against `origin/main` in every case, never with `<base>..HEAD`. A task's `ref:`
 line sets where the clone starts; the fix still integrates as the table says. For review, protect `main` and push
 review work only to `task/<task id>`: `mark_complete` closes a task whose commit is on any other remote branch.
+Protect it with a branch protection rule (or ruleset) on `main` that lets only the reviewer's identity push, so the
+workers' bot token lands work on `task/*` branches only.
 
 **Keep each trusted key to the one agent or person it names**, and give `write` only to the agents you run and the
 people who steer them.
@@ -308,9 +340,9 @@ A policy is a `project_convention` concept located by repository, paths and kind
 concept_create {
   shape: "project_convention", source_type: "memo",
   summary: "<repo>: <the policy, one line>",
+  files: ["<the paths it applies to; leave files out for the whole repository>"],
   content: "kind: policy
 repo: <the repository's identity: the value on get_analysis_context's ledger: line, before the comma>
-files: <the paths it applies to; leave the line out for the whole repository>
 task_kinds: <the kinds of task it applies to; leave the line out for every kind>
 status: proposed
 why: <the rationale a person reads before endorsing>
@@ -319,11 +351,22 @@ why: <the rationale a person reads before endorsing>
 }
 ```
 
-then `concept_link { from_concept_id: "<the policy>", to_concept_id: "<the repo_anchor>", edge_type:
-"description_of" }`. A constraint uses `shape: "constraint"` and `kind: constraint`; a review criterion
-`shape: "review_criterion"` and `kind: review_criterion`. Copy the `repo:` value exactly (for example
-`github.com/org/repo`). The `repo_anchor` is the concept that stands for the repository; the skill finds it with
-`concept_search { shape: "repo_anchor" }` and creates it when there is none. Read everything linked to it with
+`concept_create` writes the `files:` line from `files` (workspace-relative) and a `subject:` line from `subject`
+(`src/tools/concept-create.ts@concept-location`); it writes `repo:` itself only on a `decision_record`,
+`task_handoff` or `run_report`, so a policy keeps its hand-written `repo:` line. Then `concept_link {
+from_concept_id: "<the policy>", to_concept_id: "<the repo_anchor>", edge_type: "description_of" }`. A constraint
+uses `shape: "constraint"` and `kind: constraint`; a review criterion `shape: "review_criterion"` and `kind:
+review_criterion`. Copy the `repo:` value exactly (for example `github.com/org/repo`). The `repo_anchor` is the
+concept that stands for the repository. Find it with `concept_search { shape: "repo_anchor", query: "<repo name>",
+limit: 50 }`; anchors are shared across the organization, so pick the one that names this repository. If there is
+none, create it, as the `metabob` skill does:
+
+```
+concept_create { shape: "repo_anchor", source_type: "memo", content:
+  "<repo name>: <one-line purpose, primary language>\nrepo: <the value on get_analysis_context's ledger: line, before the comma>" }
+```
+
+Read everything linked to it with
 `concept_neighbors { concept_id: "<the anchor>", direction: "incoming", edge_types: ["description_of"], limit: 50 }`.
 
 To retire a policy, record a ruling with a trusted key, and link it to the policy:
@@ -349,8 +392,8 @@ and link the ruling to each with `resolves_to`. Both the base prompt's step 4 an
 To seed policies from your docs, give one run the task of going through the contributing guide, the architecture
 decisions and the style guide and recording each rule this way, as a proposal. A person opens *Needs you*, reads each proposal with its `why:` and scope, and endorses
 or rejects it; the endorsement is a separate `finding_verdict` (`verdict: endorsed`) written by the person's key and
-linked to the proposal, which is what the base prompt's step 4 checks. A policy a trusted key writes without
-`status: proposed`, in the dashboard or through an agent, is in effect as written.
+linked to the proposal, which is what the base prompt's step 4 checks. A policy a trusted key writes with no
+`status:` line, in the dashboard or through an agent, is in effect as written.
 
 ### A process as a policy
 
@@ -426,8 +469,15 @@ Give the harness the same limits (`--allowedTools`, `--disallowedTools`, the con
 - **Each repository has its own ledger**, keyed by its origin. An agent works one at a time: to record or read a
   task on another repository, `init_workspace { workspace_path: "<a checkout of it>" }`, then `get_problems` or
   `record_finding` there, then `init_workspace` back to its own checkout. Its identity stays the same.
+- **A workspace below the repository root** keys a ledger of its own, `<origin>/<subpath>` (for example
+  `github.com/acme/mono/packages/api`; `src/repo-identity.ts@repoIdentity`), while `task pull --origin` reads the
+  tasks and the conventions whose `repo:` is the bare origin. Record what `task pull` reads (tasks, conventions)
+  with the workspace at the repository root.
 - **Close a task from a checkout of its repository**: `mark_complete` reads that checkout's git, and `finding
-  close` runs in a clone of it. `task pull --origin` takes one repository per call; a loop over several repositories
+  close` runs in a clone of it. When every file of a finding is in one clone nested in the workspace (a submodule,
+  or a vessel clone under `repos/`), `mark_complete` checks the fix in that clone; a `fix_commit` the clone has not
+  fetched is refused with the fetch to run there (`src/repo-identity.ts@fix-location-nested`). `task pull
+  --origin` takes one repository per call; a loop over several repositories
   calls it once per origin.
 - **A policy for several repositories** is recorded once per repository, each copy with its own `repo:` line: the
   dashboard has no cross-repository policies, and `task pull` reads one `repo:` line per convention. An item with no
@@ -480,17 +530,41 @@ Done when: each breach of a review criterion is a finding on its file; the branc
 ```
 
 The policy for `task_kinds: review`: read the review criteria for the files; never review a task whose claim or
-verdict is written by your key; to merge, in a clone:
+verdict is written by your key; to merge, in a clone, with `ID` the reviewed task's `agf_…` id (the brief's
+`subject:` line, after `task/`):
 
 ```bash
+ID=agf_…                                                  # the reviewed task's id
+list="$(git rev-parse --git-dir)/commits"
 git fetch origin main "task/$ID"
-git rev-list "origin/main..origin/task/$ID" > commits     # the branch's own commits, listed before the merge
+git rev-list "origin/main..origin/task/$ID" > "$list"     # the branch's own commits, listed before the merge
 git checkout main && git merge --ff-only origin/main && git merge --no-ff "origin/task/$ID" && git push origin main
-metabob-mcp finding close --commits-from commits --target main
+metabob-mcp finding close --commits-from "$list" --target main
 ```
 
-A policy for `integrate: review` work (`task_kinds: change`) has the consumer record the review task for its branch
-before it ends.
+Run the reviewer with `"mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" "Bash(metabob-mcp finding close:*)"` in
+`--allowedTools`, and a git credential for the reviewer's own bot identity, the one identity `main`'s protection
+lets push (§ 3, Where a fix goes). The worker under `integrate: review` pushes only `task/<agf_ id>` and marks its
+task complete (or its launcher's `finding close` does, § 6), which leaves it `fix pending (awaiting merge)`; the reviewer's `finding close --target main` closes it
+once merged.
+
+The worker records the review task by a policy for `task_kinds: change`:
+
+```
+concept_create {
+  shape: "project_convention", source_type: "memo",
+  summary: "<repo>: a change under integrate: review records its review task",
+  content: "kind: policy
+repo: <the repository's identity>
+task_kinds: change
+
+When the brief has integrate: review, before you end, record the review task for its branch:
+record_finding { category: "task", severity: "MEDIUM", subject: "task/<your task's agf_ id>",
+summary: "review task/<agf_ id>: <the change>", details: the review brief (Goal, Kind: review, Owns: the files
+the branch changes, Done when) }. Record it once: an open review task with that subject and summary answers
+Already recorded (open)."
+}
+```
 
 ### Manage
 
@@ -515,7 +589,7 @@ Run the manager with a key on every base prompt's trusted list and in every serv
   ```
 
 - **Managing**, for `task_kinds: manage`: read each open task's `run_report` and `task_handoff` concepts
-  (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"], limit: 50 }`). A claimed task whose last
+  (`concept_neighbors { concept_id: "<the task>", direction: "incoming", edge_types: ["derived_from"], limit: 50 }`). A claimed task whose last
   `run_report` is older than a renewal is stalled: release its claim with `claim_finding { problem_id, action:
   "release", reason: "<no run_report since …>" }`, and never take one. Record a finding for a fix pending past a
   day, a HIGH finding an agent recorded on its own definition, and a decision or outcome that contradicts a policy
@@ -823,7 +897,8 @@ task_kinds: intake
    Advisory: <id, affected range, fixed range, url>
    push_to: task
    integrate: review" }
-4. For an advisory with no fix, record_finding { category: "security", severity: the advisory's, files:
+4. For an advisory with no fix, record_finding { category: "security", severity: the advisory's in upper case
+   (moderate as MEDIUM), files:
    ["package.json"], summary: "<package>: <advisory id> has no fixed version" }.
 5. Close the intake task with outcome: the tasks recorded and the advisories already covered.
 ```
@@ -859,7 +934,7 @@ for i in $(seq 1 20); do                               # the cap on rounds
     --append-system-prompt "$(cat base-prompt.md)" \
     --mcp-config ./metabob-mcp.json --strict-mcp-config --permission-mode acceptEdits \
     --allowedTools "mcp__metabob" "Bash(git:*)" "Bash(npm test:*)" "Bash(npm run:*)" \
-    --max-budget-usd 5) || break
+      "Bash(metabob-mcp finding close:*)" --max-budget-usd 5) || break
   case "$out" in *NO_OPEN_TASKS*) break ;; esac
 done
 ```
@@ -1047,6 +1122,9 @@ key:
 { "metabob": { "apiKey": "<this cell's key>", "discoveryEndpoint": "https://ide.metabob.com" } }
 ```
 
+The git tokens, `/srv/cells/secrets/git-read-token` and `/srv/cells/secrets/git-push-token`, are each owned by uid
+10001, mode 0400.
+
 The launcher, `cell <name>`, runs one round. It runs as root, for the `chown`; under rootless podman the uids map
 differently, so use `podman unshare chown` there.
 
@@ -1161,10 +1239,12 @@ two agents claim at once, every reader picks the earliest live claim, the lower 
 claim on it; a pending one does not. A server shutting down normally releases the claims its session took through
 `claim_finding`; `task pull`'s claim outlives its process. Full rules: SPEC § claim_finding.
 
-`mark_complete` endorse records where the fix is (SPEC § mark_complete): uncommitted, unpushed, or pushed only to
-`task/…` branches leaves the task open as `fix pending`; a commit on any other remote branch closes it
-(`src/repo-identity.ts@fix-location`). A commit counts when it postdates the task and touches its files, or is named
-with `fix_commit`. A task with no files closes at once with its `outcome`.
+`mark_complete` endorse records where the fix is (SPEC § mark_complete): uncommitted, committed on no remote branch
+(in a checkout with a remote), or pushed only to `task/…` branches leaves the task open as `fix pending`; a commit on
+any other remote branch closes it (`src/repo-identity.ts@fix-location`). A commit counts when it postdates the task
+and touches its files, or is named with `fix_commit`; a named commit older than the task counts only when it touches
+the task's files. When every file of the task is in one clone nested in the workspace, that clone's git is the one
+checked (§ 4, Several repositories). A task with no files closes at once with its `outcome`.
 
 ### 7.3 Measuring a loop
 
@@ -1173,7 +1253,7 @@ with `fix_commit`. A task with no files closes at once with its `outcome`.
 | Is the queue draining? | `get_problems`' Tasks header, run over run |
 | Tasks generated against tasks closed | Activity's `created task` lines against `endorsed` and `discarded`, per key |
 | Is work stuck before integration? | The `with a fix pending` count; Activity's `fix pending` lines |
-| Are runs finishing or handing off? | `run_report` and `task_handoff` concepts on tasks (`concept_neighbors { direction: "incoming", edge_types: ["derived_from"], limit: 50 }`); Activity's `released` lines |
+| Are runs finishing or handing off? | `run_report` and `task_handoff` concepts on tasks (`concept_neighbors { concept_id: "<the task>", direction: "incoming", edge_types: ["derived_from"], limit: 50 }`); Activity's `released` lines |
 | Is the memory reused? | Each `concept_search` result's relevance and its loaded, succeeded and failed counts; only `concept_record_usage` and `mark_complete` grow them |
 | Which memory helped, and when? | `concept_usage_stats` (under `all`) |
 | What did each run do? | `METABOB_CALL_LOG`: per call, the tool, argument names and sizes, outcome, the claim result and the close result, never a value (`src/call-log.ts@logCall`; SPEC § Call log) |
