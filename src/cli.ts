@@ -201,6 +201,8 @@ ENVIRONMENT VARIABLES:
                                this server takes; the same list fleet-wide
   METABOB_TASK_TRUST           task pull: key ids (or names) whose conventions,
                                endorsements and rulings set integration policy
+  METABOB_TASK_KINDS           task pull: the kinds of task to take (the brief's
+                               Kind: line; none is change); unset, every kind
 
   Network (from the environment and the OS, never from a config file):
   HTTPS_PROXY / HTTP_PROXY     HTTP CONNECT proxy, chosen per request; https uses
@@ -378,7 +380,7 @@ async function main() {
   // `task pull`: a cell's entrypoint step, before any harness starts (SPEC §task-pull).
   if (process.argv[2] === 'task') {
     if (process.argv[3] !== 'pull') {
-      console.error('usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]');
+      console.error('usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--kinds <kind,…>] [--json]');
       process.exit(1);
     }
     const { runTaskPull } = await import('./task-pull.js');

@@ -537,7 +537,7 @@ the runtime that launched them (§ Runtime).
 
 ### task pull
 
-`metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
+`metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--kinds <kind,…>] [--json]` (`src/task-pull.ts@runTaskPull`) is a cell's entrypoint step, run before any harness starts. It takes a task from the ledger, claims it, writes the task and its context into the task directory, and clones the work directory, so every harness gets its work the same way: already mounted and fresh. Both directories must be empty or missing; a task never reuses them.
 
 It is Node-safe and runs in the runtime that launched it (§ Runtime), so a cell that runs `npx @metabob/mcp` needs no Bun for it; W7 runs the built CLI under Node.
 
@@ -550,7 +550,7 @@ that derivation differs from the one the harness's server makes inside the clone
 - a task this cell already holds, so a restarted cell resumes it;
 - then unclaimed tasks, most severe first.
 
-A task someone else holds, a closed one and one with a fix pending are skipped. Each candidate is claimed with `claim_finding`'s rule (§ claim_finding). A held, lost, unsettled or refused claim moves on to the next candidate.
+With `--kinds` (or `METABOB_TASK_KINDS`), a comma list, only tasks of those kinds are candidates, a task this identity already holds included (`src/task-pull.ts@task-kind`). A task's kind is the first `Kind:` line among its brief's leading key lines (the header block, then the first block of its details, before a blank line), its first word in lower case; a brief with none is a `change`, and a `Kind:` line further down the details does not count. Open tasks only of other kinds exit 3, as no open task does; exit 4 counts only claims on tasks of these kinds. A task someone else holds, a closed one and one with a fix pending are skipped. Each candidate is claimed with `claim_finding`'s rule (§ claim_finding). A held, lost, unsettled or refused claim moves on to the next candidate.
 
 **What it writes.** On a claim it writes `task.json` into the task directory:
 - the task id, its concept id and finding ids, summary, severity, files, subject and details;

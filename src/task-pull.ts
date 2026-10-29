@@ -116,9 +116,24 @@ export function validRef(ref: string): boolean {
   }
 }
 
-/** Open tasks this cell can take, in the order it tries them: its own claims first, then unclaimed by severity. */
-export function candidateTasks(findings: AgentFinding[]): AgentFinding[] {
-  const open = findings.filter(f => isTaskFinding(f) && !f.verdict && !f.pending);
+// @anchor task-kind
+/**
+ * A task's kind: the first `Kind:` line among the brief's leading key lines (the header block, then the details' first
+ * block, before a blank line: Goal:, Kind:, Owns:, …), its first word, lower case; a brief with none is a `change`. An
+ * issue body or a log pasted further down cannot set it. SPEC §task-pull
+ */
+export function taskKind(f: AgentFinding): string {
+  const [header = '', lead = ''] = f.content.split(/\n\s*\n/);
+  const m = /^\s*kind:\s*([^\s,.;]+)/im.exec(`${header}\n${lead}`);
+  return m ? m[1]!.toLowerCase() : 'change';
+}
+
+/**
+ * Open tasks this cell can take, in the order it tries them: its own claims first, then unclaimed by severity; with
+ * `kinds`, only tasks of those kinds.
+ */
+export function candidateTasks(findings: AgentFinding[], kinds: string[] = []): AgentFinding[] {
+  const open = findings.filter(f => isTaskFinding(f) && !f.verdict && !f.pending && (!kinds.length || kinds.includes(taskKind(f))));
   const mine = open.filter(f => f.claim?.here);
   const free = open.filter(f => !f.claim).sort((a, b) => severityOf(a) - severityOf(b));
   return [...mine, ...free];
@@ -130,6 +145,8 @@ export interface PullArgs {
   workDir: string;
   minutes: number;
   trust: string[];
+  /** The kinds of task this cell takes; empty, every kind. */
+  kinds: string[];
   json: boolean;
 }
 
@@ -139,7 +156,7 @@ function parseArgs(args: string[]): PullArgs | string {
     return i >= 0 ? args[i + 1] : undefined;
   };
   const origin = value('--origin');
-  if (!origin) return 'usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--json]';
+  if (!origin) return 'usage: metabob-mcp task pull --origin <git url> [--task-dir /task] [--work-dir /work] [--minutes 60] [--trust <key,…>] [--kinds <kind,…>] [--json]';
   const minutes = Number(value('--minutes') ?? CLAIM_DEFAULT_MINUTES);
   return {
     origin,
@@ -147,6 +164,7 @@ function parseArgs(args: string[]): PullArgs | string {
     workDir: resolve(value('--work-dir') ?? '/work'),
     minutes: Number.isFinite(minutes) ? minutes : CLAIM_DEFAULT_MINUTES,
     trust: (value('--trust') ?? process.env.METABOB_TASK_TRUST ?? '').split(',').map(s => s.trim()).filter(Boolean),
+    kinds: (value('--kinds') ?? process.env.METABOB_TASK_KINDS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
     json: args.includes('--json'),
   };
 }
@@ -192,9 +210,12 @@ export async function pullTask(a: PullArgs, sessionId: string, vesselId?: string
   // files is found, with its paths mapped (SPEC §repository-identity).
   const recall = await fetchAgentFindings({} as never, { repo, workspace: tmpdir(), aliases: vesselAliases(repoId) });
   if (recall.status !== 'ok') return say(1, `the ledger could not be read (${recall.status}${recall.detail ? `: ${recall.detail}` : ''})`);
-  const candidates = candidateTasks(recall.findings);
+  const candidates = candidateTasks(recall.findings, a.kinds ?? []);
   const tried: string[] = [];
-  const heldUntil: number[] = recall.findings.filter(f => isTaskFinding(f) && !f.verdict && f.claim && !f.claim.here).map(f => f.claim!.until);
+  // Held by others among the tasks of this cell's kinds only: open tasks of other kinds are nothing for it (exit 3).
+  const heldUntil: number[] = recall.findings
+    .filter(f => isTaskFinding(f) && !f.verdict && f.claim && !f.claim.here && (!a.kinds?.length || a.kinds.includes(taskKind(f))))
+    .map(f => f.claim!.until);
   for (const task of candidates) {
     const result = await claim(ClaimInput.parse({ problem_id: task.id, action: 'claim', minutes: a.minutes }), sessionId, null, { repo, withdrawUnsettled: true, ...(pauses ? { pauses } : {}) });
     tried.push(`${task.id}: ${result.outcome}`);

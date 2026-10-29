@@ -89,6 +89,7 @@ parameters.
 | `VESSEL_ID` | `metabob-mcp-<hash(key + workspace)>` | The agent's identity: the claimer, and the author it declares on what it records |
 | `METABOB_CLAIM_RELEASERS` | — | Comma-separated key ids (or names) whose release of someone else's claim this server takes; the same list on every server of a fleet |
 | `METABOB_TASK_TRUST` | _(the task's own writing key)_ | `task pull`: comma-separated key ids (or names) whose conventions, endorsements and rulings set a task's integration policy |
+| `METABOB_TASK_KINDS` | _(every kind)_ | `task pull`: comma-separated kinds of task to take, by the brief's `Kind:` line (a brief with none is `change`); same as `--kinds` |
 | `NODE_EXTRA_CA_CERTS` | — | Extra trusted root certificates (PEM), on top of the bundled roots and the OS store |
 | `METABOB_NO_SYSTEM_CA` | — | `1` skips the OS trust store |
 | `METABOB_CONNECT_TIMEOUT_MS` | `5000` | Connect budget: TCP connect, proxy `CONNECT`, TLS handshake |

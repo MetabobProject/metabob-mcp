@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { setAttachment } from '../../src/attachment';
 import { normalizeRemoteUrl } from '../../src/repo-identity';
 import { setResolverIdentity } from '../../src/resolver-identity';
-import { candidateTasks, integrationPolicy, pullTask, validRef, type PullArgs } from '../../src/task-pull';
+import { candidateTasks, integrationPolicy, pullTask, taskKind, validRef, type PullArgs } from '../../src/task-pull';
 import type { AgentFinding } from '../../src/tools/_findings';
 import { installShapeStub } from '../helpers/shape-stub';
 
@@ -79,6 +79,26 @@ describe('candidateTasks', () => {
   });
 });
 
+describe('task kinds', () => {
+  const t = (id: string, content: string, extra: Partial<AgentFinding> = {}): AgentFinding =>
+    ({ id, summary: `[HIGH][task] r: ${id}`, content, ...extra });
+  test('the kind is the first Kind: line of the leading key lines; a pasted one further down is not; none is change', () => {
+    expect(taskKind(t('a', 'category: task\n\nGoal: review it\nKind: Review\nOwns: x'))).toBe('review');
+    expect(taskKind(t('b', 'category: task\nkind: manage'))).toBe('manage');
+    expect(taskKind(t('c', 'category: task\n\nGoal: fix it\n\nissue body:\nKind: review'))).toBe('change');
+    expect(taskKind(t('d', 'category: task'))).toBe('change');
+  });
+  test('with kinds, only tasks of those kinds are candidates, including one this identity holds', () => {
+    const tasks = [
+      t('rev', 'category: task\n\nKind: review'), t('chg', 'category: task\n\nKind: change'),
+      t('mine-rev', 'category: task\n\nKind: review', { claim: { by: 'me', until: 0, here: true } }), t('plain', 'category: task'),
+    ];
+    expect(candidateTasks(tasks, ['change']).map(x => x.id)).toEqual(['chg', 'plain']);
+    expect(candidateTasks(tasks, ['review']).map(x => x.id)).toEqual(['mine-rev', 'rev']);
+    expect(candidateTasks(tasks).map(x => x.id)).toEqual(['mine-rev', 'rev', 'chg', 'plain']);
+  });
+});
+
 describe('pullTask', () => {
   /** A bare origin with one commit on main, and its repository identity. */
   function origin(name: string): { url: string; repo: string } {
@@ -123,7 +143,7 @@ describe('pullTask', () => {
   }
 
   const args = (url: string, name: string): PullArgs => ({
-    origin: url, taskDir: join(root, `${name}-task`), workDir: join(root, `${name}-work`), minutes: 30, trust: [], json: false,
+    origin: url, taskDir: join(root, `${name}-task`), workDir: join(root, `${name}-work`), minutes: 30, trust: [], kinds: [], json: false,
   });
 
   test('claims the most severe open task, writes /task with its policy, and clones /work', async () => {
@@ -244,6 +264,21 @@ describe('pullTask', () => {
     const r = await pullTask(args(o.url, 'p4'), 'sess4', 'metabob-mcp-cell1', [0, 0, 0]);
     expect(r.code).toBe(4);
     expect(r.extra?.retry_after).toBe(new Date(at + 10 * 60_000).toISOString());
+  });
+
+  test('with kinds, open tasks only of other kinds exit 3, and held tasks of these kinds exit 4', async () => {
+    const o = origin('o-kinds');
+    const at = Date.now() - 60_000;
+    await ledger(o.repo, [{ n: 'rv', sev: 'HIGH', details: 'Goal: review\nKind: review' }, { n: 'ch', sev: 'LOW', details: 'Goal: fix\nKind: change' }], [{
+      id: 'concept:heldk', shape: 'finding_verdict', created_at: new Date(at).toISOString(),
+      content: 'finding: agf_ch\nverdict: claimed\nclaim_minutes: 10\nreviewed_by: metabob-mcp-cell2',
+    }]);
+    // Only a held change task and a free review task: a change cell waits (4), a deploy cell has nothing (3).
+    expect((await pullTask({ ...args(o.url, 'pk1'), kinds: ['change'] }, 'sk1', 'metabob-mcp-cell1', [0, 0, 0])).code).toBe(4);
+    expect((await pullTask({ ...args(o.url, 'pk2'), kinds: ['deploy'] }, 'sk2', 'metabob-mcp-cell1', [0, 0, 0])).code).toBe(3);
+    const r = await pullTask({ ...args(o.url, 'pk3'), kinds: ['review'] }, 'sk3', 'metabob-mcp-cell1', [0, 0, 0]);
+    expect(r.code).toBe(0);
+    expect(r.message).toContain('pulled agf_rv');
   });
 
   test('a claim the reads never show is withdrawn, and the pull says to retry soon', async () => {
