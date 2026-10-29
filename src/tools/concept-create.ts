@@ -43,6 +43,7 @@ import { FINDING_SHAPE, VERDICT_SHAPE, attributionLines, repoLines, resolveAutho
 import { activeWorkspacePath } from '../local-index.js';
 import { toWorkspaceRelative } from './record-finding.js';
 import type { RepoIdentity } from '../repo-identity.js';
+import { sep } from 'node:path';
 
 const SOURCE_TYPES = [
   'goal',
@@ -190,7 +191,7 @@ export function locationLines(
 ): string[] {
   const lines: string[] = [];
   if (LOCATED_SHAPES.has(shape) && repo) lines.push(...repoLines(repo));
-  if (files?.length) lines.push(`files: ${files.map((f) => toWorkspaceRelative(f, workspacePath)).join(', ')}`);
+  if (files?.length) lines.push(`files: ${files.map((f) => toWorkspaceRelative(f, workspacePath).split(sep).join('/')).join(', ')}`);
   if (subject?.trim()) lines.push(`subject: ${subject.trim().replace(/\s+/g, ' ')}`);
   return lines;
 }

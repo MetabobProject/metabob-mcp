@@ -285,8 +285,8 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
   // commits, its changes and its remote branches hold the fix, never the outer checkout's. SPEC §mark_complete
   const nested = nestedClone(cwd, top.out, named);
   if (nested) {
-    const inner = fixLocation(nested, named.map(f => relative(nested, resolve(cwd, f)).split(sep).join('/')), recordedAt, fixCommit, head);
-    const at = relative(cwd, nested).split(sep).join('/');
+    const inner = fixLocation(resolve(cwd, nested.at), nested.files, recordedAt, fixCommit, head);
+    const at = nested.at;
     if (inner.kind === 'rejected' && /is not a commit in this checkout/.test(inner.reason)) {
       return { ...inner, reason: `${fixCommit} is not a commit in the clone at ${at}; fetch there (git -C ${at} fetch) and endorse again`, nested: at };
     }
@@ -350,21 +350,32 @@ export function fixLocation(workspacePath: string, files: string[], recordedAt?:
 }
 
 /**
- * The clone nested in the checkout (top-level `top`) that holds every one of `files`, or null when they are the
- * checkout's own or spread over more than one repository. A file's repository is the top level git reports for the
- * nearest existing directory on its path.
+ * The clone nested in the checkout (top-level `top`) that holds every one of `files`: its path relative to `cwd`
+ * (`at`) and the files relative to it; null when they are the checkout's own or spread over more than one
+ * repository. A file's repository is the one git reports for the nearest existing directory on its path. Paths are
+ * worked out from git's `--show-prefix` and the file's own path, never by comparing absolute paths, which git
+ * reports resolved (symlinks, Windows short names) and the workspace may not be.
  */
-function nestedClone(cwd: string, top: string, files: string[]): string | null {
+function nestedClone(cwd: string, top: string, files: string[]): { at: string; files: string[] } | null {
   if (!files.length) return null;
-  const tops = new Set<string>();
+  let at: string | null = null;
+  const inner: string[] = [];
   for (const f of files) {
-    let dir = dirname(resolve(cwd, f));
-    while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
-    tops.add(fgit(dir, ['rev-parse', '--show-toplevel']) ?? '');
+    const rel = (isAbsolute(f) ? relative(cwd, f) : f).split(sep).join('/').replace(/^\.\//, '');
+    if (rel.startsWith('../')) return null;
+    let dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+    while (dir && !existsSync(resolve(cwd, dir))) dir = dir.includes('/') ? dir.slice(0, dir.lastIndexOf('/')) : '';
+    const dirTop = fgit(resolve(cwd, dir || '.'), ['rev-parse', '--show-toplevel']);
+    if (dirTop === null || dirTop === top) return null;
+    const prefix = fgit(resolve(cwd, dir || '.'), ['rev-parse', '--show-prefix']);
+    const dirSlash = dir ? `${dir}/` : '';
+    if (prefix === null || !dirSlash.endsWith(prefix)) return null;
+    const root = dirSlash.slice(0, dirSlash.length - prefix.length).replace(/\/$/, '');
+    if (!root || (at !== null && at !== root)) return null;
+    at = root;
+    inner.push(rel.slice(root.length + 1));
   }
-  if (tops.size !== 1) return null;
-  const only = [...tops][0]!;
-  return only && resolve(only) !== resolve(top) ? only : null;
+  return at ? { at, files: inner } : null;
 }
 
 /** Whether commit `sha` is in the history of the checkout's HEAD; null when the workspace is not a git checkout. */
