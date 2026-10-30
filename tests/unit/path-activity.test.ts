@@ -115,6 +115,34 @@ describe('matching and rendering', () => {
     expect(out).toMatch(/landing lease: held by compose2 \(the holder's own claim\), attempt 5435-x, until 2099-10-20 08:48Z \(in \d+ h\): the system is landing a change to this file\. An edit made before then is lost or conflicts when it lands\. Whether to edit it now is your user's decision/);
   });
 
+  // A test_writing compose may write only its check file: its lease is not a landing on the gap's src edit site.
+  const CHECK = 'repos/goal-host-vessel/test/checks/judge-only-reach.check.ts';
+  const leased = (lease: Record<string, unknown>) => ({ id: 'gap-leased', category: 'systematic_failure', updated_at: '2026-10-30T04:16:00Z',
+    classification_metadata: { edit_site: FILE, landing_lease: { holder: 'key-595289e706e5', attempt: '2851260-x', until: '2099-10-30T06:16:21Z', ...lease } } });
+
+  test('a test_writing lease is rendered against its check file, not as a landing on the src edit site', async () => {
+    const g = leased({ compose_mode: 'test_writing', writes: ['test/checks/judge-only-reach.check.ts'] });
+    const onSrc = renderGap(g, 'edit site', FILE).join('\n');
+    expect(onSrc).toContain(`test_writing (check file only): it writes ${CHECK}, not this file; queued for the system`);
+    expect(onSrc).not.toContain('the system is landing a change to this file');
+    await installShapeStub({ substrateGap: () => ({ body: { gaps: [g] } }) });
+    expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain(`${FILE} — 1 open gap: 0 being landed by the system now, 0 held, 1 queued`);
+    const onCheck = await pathActivity({ paths: [CHECK] }, apiClient);
+    expect(onCheck).toContain(`${CHECK} — 1 open gap: 1 being landed by the system now, 0 held, 0 queued`);
+    expect(onCheck).toContain('gap-leased  systematic_failure  lease writes');
+    expect(onCheck).toContain('test_writing (check file only): the system is landing a change to this file');
+  });
+
+  test('controls: a src lease, and a lease with no compose_mode, are landings on the edit site as before', async () => {
+    for (const lease of [{ compose_mode: 'src', writes: ['src/index.ts'] }, {}, { compose_mode: 'test_writing' }]) {
+      const g = leased(lease);
+      expect(renderGap(g, 'edit site', FILE).join('\n')).toMatch(/held by key-595289e706e5 \(the holder's own claim\), attempt 2851260-x, until 2099-10-30 06:16Z \(in \d+ h\): the system is landing a change to this file/);
+      clearGapReadCache();
+      await installShapeStub({ substrateGap: () => ({ body: { gaps: [g] } }) });
+      expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain(`${FILE} — 1 open gap: 1 being landed by the system now, 0 held, 0 queued`);
+    }
+  });
+
   test('a lapsed landing lease is not being landed: it is shown lapsed and counted as queued', async () => {
     const lapsed = { id: 'gap-lapsed', category: 'edit_intent_route', classification_metadata: { edit_site: FILE, landing_lease: { holder: 'compose2', attempt: 'x', until: '2026-10-20T12:05:00Z' } } };
     const out = renderGap(lapsed, 'edit site').join('\n');

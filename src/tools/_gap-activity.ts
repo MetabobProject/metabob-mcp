@@ -187,7 +187,7 @@ export function pathMapper(workspace: string): PathMapper {
   return { kind: 'none', root, toStorePath: given };
 }
 
-export type MatchKind = 'edit site' | 'in directory' | 'mentioned';
+export type MatchKind = 'edit site' | 'lease writes' | 'in directory' | 'mentioned';
 
 const PARKING = new Set(['needs_information', 'needs_info', 'awaiting_operator_review']);
 
@@ -213,14 +213,54 @@ export function holdOf(g: GapRow): { why: string; reviewBy?: string; lift?: stri
   return { why, reviewBy, lift };
 }
 
-export interface LandingLease { holder: string; attempt?: string; until?: string }
+export interface LandingLease {
+  holder: string;
+  attempt?: string;
+  until?: string;
+  /** What the compose may write: `test_writing` writes only `writes`; `src`, or none recorded, the gap's edit site. */
+  composeMode?: string;
+  /** The paths the compose may write, vessel-relative, as the producer records them. */
+  writes?: string[];
+}
 
 /** A gap's landing lease, exactly as stored, live or lapsed; the holder is the caller's own claim. */
 export function storedLandingLease(g: GapRow): LandingLease | null {
   const l = g.classification_metadata?.['landing_lease'] as Record<string, unknown> | undefined;
-  return l && typeof l['holder'] === 'string'
-    ? { holder: l['holder'] as string, attempt: l['attempt'] as string | undefined, until: l['until'] as string | undefined }
-    : null;
+  if (!l || typeof l['holder'] !== 'string') return null;
+  const writes = Array.isArray(l['writes']) ? (l['writes'] as unknown[]).filter((w): w is string => typeof w === 'string' && !!w.trim()) : [];
+  return {
+    holder: l['holder'] as string,
+    attempt: l['attempt'] as string | undefined,
+    until: l['until'] as string | undefined,
+    ...(typeof l['compose_mode'] === 'string' ? { composeMode: l['compose_mode'] as string } : {}),
+    ...(writes.length ? { writes } : {}),
+  };
+}
+
+// @anchor lease-writes
+/**
+ * The store paths (`repos/<vessel>/…`) a lease may write, or null when it may write the gap's edit site: a
+ * `test_writing` compose writes only the paths in its `writes`, made store paths with the gap's vessel. A lease with
+ * no `compose_mode`, any other mode, or a `test_writing` one with no `writes` or no vessel to place them is read as a
+ * `src` compose: the conservative reading, which never frees a file a compose may write. SPEC §path_activity
+ */
+export function leaseWrites(g: GapRow, l: LandingLease): string[] | null {
+  if (l.composeMode !== 'test_writing' || !l.writes?.length) return null;
+  const site = typeof g.classification_metadata?.['edit_site'] === 'string' ? (g.classification_metadata['edit_site'] as string) : '';
+  const supply = g.classification_metadata?.['check_supply'] as Record<string, unknown> | undefined;
+  const vessel = /^repos\/([^/]+)\//.exec(site)?.[1] ?? (typeof supply?.['vessel'] === 'string' ? (supply['vessel'] as string) : '');
+  if (!vessel) return null;
+  return l.writes.map((w) => (w.startsWith('repos/') ? w : `repos/${vessel}/${w.replace(/^\.?\/+/, '')}`));
+}
+
+/** A gap's live landing lease when it may write `storePath` (with no path, the edit site); else null. */
+export function landingLeaseOn(g: GapRow, storePath?: string, now = Date.now()): LandingLease | null {
+  const l = landingLeaseOf(g, now);
+  if (!l) return null;
+  const writes = leaseWrites(g, l);
+  if (!writes) return l;
+  const dir = (storePath ?? '').replace(/\/+$/, '');
+  return dir && writes.some((w) => w === dir || w.startsWith(`${dir}/`)) ? l : null;
 }
 
 /** Clock skew allowed in favour of a live lease: a slightly fast local clock never frees a landing early. */
@@ -257,12 +297,13 @@ function when(iso: string | undefined, now = Date.now()): string {
 /** The gaps naming `storePath`, strongest match first, then most recently updated. */
 export function gapsForPath(rows: GapRow[], storePath: string): Array<{ gap: GapRow; match: MatchKind }> {
   const dir = storePath.replace(/\/+$/, '');
-  const order: Record<MatchKind, number> = { 'edit site': 0, 'in directory': 1, mentioned: 2 };
+  const order: Record<MatchKind, number> = { 'edit site': 0, 'lease writes': 1, 'in directory': 2, mentioned: 3 };
   const out: Array<{ gap: GapRow; match: MatchKind }> = [];
   for (const g of rows) {
     const site = typeof g.classification_metadata?.['edit_site'] === 'string' ? (g.classification_metadata['edit_site'] as string).trim() : '';
     let match: MatchKind | null = null;
     if (site && site === dir) match = 'edit site';
+    else if (landingLeaseOn(g, dir) && leaseWrites(g, landingLeaseOf(g)!)) match = 'lease writes';
     else if (site && site.startsWith(`${dir}/`)) match = 'in directory';
     else if ((g.remedy?.goal ?? '').includes(dir) || (g.summary ?? '').includes(dir)) match = 'mentioned';
     if (match) out.push({ gap: g, match });
@@ -271,17 +312,22 @@ export function gapsForPath(rows: GapRow[], storePath: string): Array<{ gap: Gap
 }
 
 
-/** One gap as path_activity prints it. */
-export function renderGap(g: GapRow, match: MatchKind): string[] {
+/** One gap as path_activity prints it, for the path asked about (`storePath`; with none, the gap's edit site). */
+export function renderGap(g: GapRow, match: MatchKind, storePath?: string): string[] {
   const head = `  ${g.id}  ${g.category ?? '?'}${g.route ? `  route ${g.route}` : ''}  ${match}`;
   const hold = holdOf(g);
-  const lease = landingLeaseOf(g);
-  const stale = lease ? null : storedLandingLease(g);
+  const live = landingLeaseOf(g);
+  const writes = live ? leaseWrites(g, live) : null;
+  const lease = live && landingLeaseOn(g, storePath) ? live : null;
+  const stale = live ? null : storedLandingLease(g);
+  if (!hold && live && writes && !lease) {
+    return [`${head}`, `    landing lease: held by ${live.holder}${live.attempt ? `, attempt ${live.attempt}` : ''}, until ${when(live.until)}, test_writing (check file only): it writes ${writes.join(', ')}, not this file; queued for the system`];
+  }
   if (hold) {
     return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${when(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];
   }
   if (lease) {
-    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}: the system is landing a change to this file. An edit made before then is lost or conflicts when it lands. Whether to edit it now is your user's decision: tell them`];
+    return [`${head}`, `    landing lease: held by ${lease.holder} (the holder's own claim)${lease.attempt ? `, attempt ${lease.attempt}` : ''}, until ${when(lease.until)}${writes ? ', test_writing (check file only)' : ''}: the system is landing a change to this file. An edit made before then is lost or conflicts when it lands. Whether to edit it now is your user's decision: tell them`];
   }
   if (stale && leaseState(stale) === 'no_expiry') {
     return [`${head}`, `    landing lease held by ${stale.holder}, no expiry recorded (may be stale): not counted as being landed; check before editing`];
@@ -324,7 +370,7 @@ export async function gapSummaryLines(files: string[], workspace: string): Promi
     if (!p) continue;
     const hits = gapsForPath(read.rows, p);
     if (!hits.length) continue;
-    const leased = hits.filter((h) => !holdOf(h.gap) && landingLeaseOf(h.gap));
+    const leased = hits.filter((h) => !holdOf(h.gap) && landingLeaseOn(h.gap, p));
     const held = hits.filter((h) => holdOf(h.gap));
     lines.push(`  ${f}: ${read.truncated ? 'open gaps (the read may be truncated)' : `${hits.length} open gap(s)`}${leased.length ? `, ${leased.length} being landed by the system now` : ''}${held.length ? `, ${held.length} held` : ''}`);
   }

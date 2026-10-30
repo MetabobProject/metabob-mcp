@@ -10,7 +10,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { activeWorkspacePath } from '../local-index.js';
-import { gapsForPath, holdOf, landingLeaseOf, pathMapper, readGaps, renderGap, storeNamesPrefix, type GapRow } from './_gap-activity.js';
+import { gapsForPath, holdOf, landingLeaseOn, pathMapper, readGaps, renderGap, storeNamesPrefix, type GapRow } from './_gap-activity.js';
 
 export const PathActivityTool = {
   name: 'path_activity',
@@ -129,9 +129,9 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
       seen.add('none');
       if (mapper.kind !== 'none' && !unmounted) unmatched.add(vesselOf(storePath));
     } else {
-      const landing = hits.filter((h) => !holdOf(h.gap) && landingLeaseOf(h.gap));
+      const landing = hits.filter((h) => !holdOf(h.gap) && landingLeaseOn(h.gap, storePath));
       const held = hits.filter((h) => holdOf(h.gap));
-      const queued = hits.filter((h) => !holdOf(h.gap) && !landingLeaseOf(h.gap));
+      const queued = hits.filter((h) => !holdOf(h.gap) && !landingLeaseOn(h.gap, storePath));
       const count = open.truncated ? 'open gaps (the read may be truncated, so no count)' : `${hits.length} open gap${hits.length === 1 ? '' : 's'}`;
       lines.push(`${storePath} — ${count}: ${landing.length} being landed by the system now, ${held.length} held, ${queued.length} queued`);
       if (landing.length) seen.add('landing');
@@ -140,7 +140,7 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
       // Every gap being landed is listed: those are the ones not to race. Then held and queued, strongest match first.
       const limit = input.limit ?? 10;
       const rest = [...held.slice(0, Math.ceil(limit / 3)), ...queued].slice(0, limit);
-      for (const h of [...landing, ...rest]) lines.push(...renderGap(h.gap, h.match));
+      for (const h of [...landing, ...rest]) lines.push(...renderGap(h.gap, h.match, storePath));
       const shown = landing.length + rest.length;
       if (hits.length > shown) lines.push(`  … and ${hits.length - shown} more (limit raises this; a narrower path shows fewer)`);
     }
