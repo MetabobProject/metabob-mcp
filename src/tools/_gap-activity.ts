@@ -14,6 +14,7 @@
  * holder runs hot, and many agents checking on every edit must not each pull the store.
  */
 
+import { posix } from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -250,7 +251,11 @@ export function leaseWrites(g: GapRow, l: LandingLease): string[] | null {
   const supply = g.classification_metadata?.['check_supply'] as Record<string, unknown> | undefined;
   const vessel = /^repos\/([^/]+)\//.exec(site)?.[1] ?? (typeof supply?.['vessel'] === 'string' ? (supply['vessel'] as string) : '');
   if (!vessel) return null;
-  return l.writes.map((w) => (w.startsWith('repos/') ? w : `repos/${vessel}/${w.replace(/^\.?\/+/, '')}`));
+  // A write that leaves repos/<vessel>/ once normalised could not be matched to the files it really writes: the
+  // whole lease then reads as a src compose.
+  const root = `repos/${vessel}/`;
+  const paths = l.writes.map((w) => posix.normalize(w.startsWith('repos/') ? w : `${root}${w.replace(/^\/+/, '')}`));
+  return paths.every((p) => p.startsWith(root) && p.length > root.length) ? paths : null;
 }
 
 /** A gap's live landing lease when it may write `storePath` (with no path, the edit site); else null. */
@@ -321,7 +326,7 @@ export function renderGap(g: GapRow, match: MatchKind, storePath?: string): stri
   const lease = live && landingLeaseOn(g, storePath) ? live : null;
   const stale = live ? null : storedLandingLease(g);
   if (!hold && live && writes && !lease) {
-    return [`${head}`, `    landing lease: held by ${live.holder}${live.attempt ? `, attempt ${live.attempt}` : ''}, until ${when(live.until)}, test_writing (check file only): it writes ${writes.join(', ')}, not this file; queued for the system`];
+    return [`${head}`, `    landing lease: held by ${live.holder}${live.attempt ? `, attempt ${live.attempt}` : ''}, until ${when(live.until)}, test_writing (check file only): it writes ${writes.join(', ')}, not this file, and the check it lands tests this file; queued for the system`];
   }
   if (hold) {
     return [`${head}`, `    ${hold.why}${hold.reviewBy ? `; review by ${when(hold.reviewBy)}` : '; no review date recorded'}${hold.lift ? `; lift: ${hold.lift}` : ''}`];

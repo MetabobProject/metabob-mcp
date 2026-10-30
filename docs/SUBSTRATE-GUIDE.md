@@ -117,7 +117,9 @@ identified there, each one:
 - **being landed** under a **landing lease**: the system is applying a change to the file, with a holder and an
   expiry. An edit before the lease ends is lost or conflicts when the change lands, so the agent leaves the file
   until the lease ends, and records a finding naming the lease when its task needs the file sooner (§ 6). A lease
-  past its expiry is shown as lapsed, and its gap counts as queued.
+  past its expiry is shown as lapsed, and its gap counts as queued. A lease that writes only a check file (a
+  test-writing compose) is shown as being landed on that check file; on the file the check tests, its gap counts as
+  queued, and the line says the check it lands tests this file, since an edit now can fail that landing's checks.
 
 With nothing in flight, the agent makes the change and records it. The paths are matched on your machine and
 never sent. In a repository the substrate does not mount, `path_activity` says the repository may not be one the

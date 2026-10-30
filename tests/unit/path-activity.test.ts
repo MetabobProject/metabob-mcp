@@ -123,7 +123,7 @@ describe('matching and rendering', () => {
   test('a test_writing lease is rendered against its check file, not as a landing on the src edit site', async () => {
     const g = leased({ compose_mode: 'test_writing', writes: ['test/checks/judge-only-reach.check.ts'] });
     const onSrc = renderGap(g, 'edit site', FILE).join('\n');
-    expect(onSrc).toContain(`test_writing (check file only): it writes ${CHECK}, not this file; queued for the system`);
+    expect(onSrc).toContain(`test_writing (check file only): it writes ${CHECK}, not this file, and the check it lands tests this file; queued for the system`);
     expect(onSrc).not.toContain('the system is landing a change to this file');
     await installShapeStub({ substrateGap: () => ({ body: { gaps: [g] } }) });
     expect(await pathActivity({ paths: [FILE] }, apiClient)).toContain(`${FILE} — 1 open gap: 0 being landed by the system now, 0 held, 1 queued`);
@@ -134,7 +134,9 @@ describe('matching and rendering', () => {
   });
 
   test('controls: a src lease, and a lease with no compose_mode, are landings on the edit site as before', async () => {
-    for (const lease of [{ compose_mode: 'src', writes: ['src/index.ts'] }, {}, { compose_mode: 'test_writing' }]) {
+    // A write that escapes the vessel once normalised is the src reading too: it fails closed.
+    for (const lease of [{ compose_mode: 'src', writes: ['src/index.ts'] }, {}, { compose_mode: 'test_writing' },
+      { compose_mode: 'test_writing', writes: ['../other-vessel/test/x.check.ts'] }, { compose_mode: 'test_writing', writes: ['test/../../b/x.ts'] }]) {
       const g = leased(lease);
       expect(renderGap(g, 'edit site', FILE).join('\n')).toMatch(/held by key-595289e706e5 \(the holder's own claim\), attempt 2851260-x, until 2099-10-30 06:16Z \(in \d+ h\): the system is landing a change to this file/);
       clearGapReadCache();
