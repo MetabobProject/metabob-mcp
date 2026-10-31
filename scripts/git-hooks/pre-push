@@ -2,19 +2,19 @@
 #
 # metabob-mcp pre-push hook — branch policy guard.
 #
-# Enforces the repo's two-branch model:
+# Enforces the repo's two-branch model and its release order:
 #
 #   * dev  — the default/integration branch. All development lands here
 #            (via PRs). This is where day-to-day work goes.
-#   * main — release branch. It advances ONLY in lockstep with a version
-#            update, and only ever carries commits that already exist on dev.
-#            main must never receive direct feature work.
+#   * main — release branch. Plugin marketplaces clone it, and its bundles
+#            launch the exact version they pin, so main moves only after npm
+#            has that version: the release workflow
+#            (.github/workflows/release.yml) publishes a tagged release commit,
+#            then fast-forwards main to it.
 #
-# So a push that updates main is allowed only when BOTH hold:
-#   1. every pushed commit is already contained in origin/dev
-#      (main is a subset of dev — release checkpoints, not new work), and
-#   2. the pushed range bumps the "version" field in package.json
-#      (the "sequential version update").
+# So a push that adds commits to main is refused, and a push of a v<version>
+# tag is allowed only when the tag matches the tagged commit's package.json
+# version and the commit is already on origin/dev.
 #
 # Pushes to any other branch (dev, feature branches) are unaffected.
 #
@@ -36,17 +36,46 @@ ZERO="0000000000000000000000000000000000000000"
 fail() {
   echo "${RED}✗ pre-push: $1${NC}" >&2
   echo "" >&2
-  echo "${YELLOW}main is the release branch — it advances only via a version update,${NC}" >&2
-  echo "${YELLOW}and only with commits already on dev. Land this on dev instead:${NC}" >&2
+  echo "${YELLOW}main is the release branch: the release workflow fast-forwards it to a release commit once that${NC}" >&2
+  echo "${YELLOW}version is on npm. Land work on dev; to release, tag the release commit on dev:${NC}" >&2
   echo "    git push origin HEAD:dev            # or open a PR into dev" >&2
+  echo "    git tag v<version> <commit> && git push origin v<version>" >&2
   echo "" >&2
-  echo "If this genuinely IS a release checkpoint, bump package.json version first." >&2
+  echo "Emergency override:  METABOB_ALLOW_MAIN_PUSH=1 git push ..." >&2
+  exit 1
+}
+
+tag_fail() {
+  echo "${RED}✗ pre-push: $1${NC}" >&2
+  echo "" >&2
+  echo "${YELLOW}A v<version> tag starts the release workflow (.github/workflows/release.yml), which publishes${NC}" >&2
+  echo "${YELLOW}that version to npm. Tag the release commit on dev whose package.json has that version.${NC}" >&2
   echo "Emergency override:  METABOB_ALLOW_MAIN_PUSH=1 git push ..." >&2
   exit 1
 }
 
 while read -r local_ref local_sha remote_ref remote_sha; do
-  # Only police pushes that update main.
+  # A release tag: it publishes its commit, so the commit must be a release checkpoint on dev.
+  case "$remote_ref" in
+    refs/tags/v*)
+      [ "$local_sha" = "$ZERO" ] && continue
+      [ "${METABOB_ALLOW_MAIN_PUSH:-}" = "1" ] && continue
+      tag="${remote_ref#refs/tags/}"
+      commit="$(git rev-parse "${local_sha}^{commit}")"
+      version="$(git show "${commit}:package.json" 2>/dev/null | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+      [ "$tag" = "v${version}" ] || tag_fail "tag ${tag} names a commit whose package.json version is ${version:-missing}."
+      if git rev-parse --verify --quiet origin/dev >/dev/null; then
+        git merge-base --is-ancestor "$commit" origin/dev \
+          || tag_fail "tag ${tag} names $(git rev-parse --short "$commit"), which is not on dev. Push the release commit to dev first."
+      else
+        echo "${YELLOW}pre-push: origin/dev not found locally (fetch it) — skipping the 'on dev' check for ${tag}.${NC}" >&2
+      fi
+      echo "${GREEN}pre-push: ${tag} names a release commit on dev; the release workflow publishes it, then moves main.${NC}" >&2
+      continue
+      ;;
+  esac
+
+  # Otherwise, only police pushes that update main.
   case "$remote_ref" in
     refs/heads/main|refs/heads/master) ;;
     *) continue ;;
@@ -60,44 +89,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     continue
   fi
 
-  # Establish the range of commits this push would add to main.
-  if [ "$remote_sha" = "$ZERO" ]; then
-    # Creating main from scratch — compare against whatever main tracks, else dev.
-    base="$(git rev-parse --verify --quiet origin/main || git rev-parse --verify --quiet origin/dev || true)"
-  else
-    base="$remote_sha"
+  # Nothing new (main already contains this commit) — allow.
+  if [ "$remote_sha" != "$ZERO" ] && git merge-base --is-ancestor "$local_sha" "$remote_sha" 2>/dev/null; then
+    continue
   fi
 
-  if [ -z "${base:-}" ]; then
-    fail "cannot determine the base commit for main; refusing to push blindly."
-  fi
-
-  range="${base}..${local_sha}"
-  new_commits="$(git rev-list "$range")"
-
-  # Nothing new (fast-forward to an equal/ancestor tip) — allow.
-  [ -z "$new_commits" ] && continue
-
-  # (1) every new commit must already live on dev.
-  if git rev-parse --verify --quiet origin/dev >/dev/null; then
-    while read -r c; do
-      [ -z "$c" ] && continue
-      if ! git merge-base --is-ancestor "$c" origin/dev; then
-        short="$(git rev-parse --short "$c")"
-        subj="$(git log -1 --format='%s' "$c")"
-        fail "commit ${short} (\"${subj}\") is not on dev. main takes only release checkpoints already merged to dev."
-      fi
-    done <<< "$new_commits"
-  else
-    echo "${YELLOW}pre-push: origin/dev not found locally (fetch it) — skipping the 'subset of dev' check.${NC}" >&2
-  fi
-
-  # (2) the pushed range must bump package.json "version".
-  if ! git diff "$range" -- package.json | grep -Eq '^\+\s*"version"\s*:'; then
-    fail "this push to main does not bump package.json \"version\". main advances only with a version update."
-  fi
-
-  echo "${GREEN}pre-push: main policy OK — version-bumped release checkpoint from dev.${NC}" >&2
+  fail "main moves only by the release workflow, after npm has the version main's bundles pin."
 done
 
 exit 0

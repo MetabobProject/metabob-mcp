@@ -37,12 +37,12 @@ The pre-commit hook rejects new cruft at commit time. Existing files are grandfa
 metabob-mcp runs a **two-branch model**:
 
 - **`dev`** — the default/integration branch. All development lands here, via PRs. This is the branch you clone, branch off, and open PRs against.
-- **`main`** — the release branch. It advances **only in lockstep with a version update**, and only ever carries commits that already exist on `dev`. `main` never receives direct feature work — it is a sequence of release checkpoints.
+- **`main`** — the release branch. Plugin marketplaces clone it, and its bundles launch the exact npm version they pin, so `main` moves only after npm has that version: the release workflow (`.github/workflows/release.yml`) publishes a tagged release commit, then fast-forwards `main` to it (`docs/PUBLISHING.md` § Workflow).
 
-The `pre-push` hook enforces this. A push that updates `main` is allowed only when **both**:
+The `pre-push` hook enforces the order:
 
-1. every pushed commit is already contained in `origin/dev` (main is a subset of dev — release checkpoints, not new work), **and**
-2. the pushed range bumps the `"version"` field in `package.json` (the sequential version update).
+1. a push that adds commits to `main` is refused (pushing a commit `main` already contains is allowed);
+2. a push of a `v<version>` tag is allowed only when `<version>` is the tagged commit's `package.json` version and the commit is already on `origin/dev`.
 
 Pushes to `dev` and feature branches are unaffected.
 

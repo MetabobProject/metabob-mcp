@@ -101,9 +101,10 @@
         "scripts/doclinks.mjs"
       ],
       "scripts/git-hooks/README.md": [
+        ".github/workflows/release.yml",
+        "scripts/git-hooks/install.sh",
         "scripts/git-hooks/pre-commit",
-        "scripts/git-hooks/pre-push",
-        "scripts/git-hooks/install.sh"
+        "scripts/git-hooks/pre-push"
       ],
       "docs/CONFORMANCE.md": [
         "src/index.ts",
@@ -193,6 +194,10 @@
         "src/tools/concept-usage-stats.ts",
         "src/tools/pull-assigned-work.ts",
         "src/tools/submit-resolution.ts"
+      ],
+      "docs/PUBLISHING.md": [
+        ".github/workflows/release.yml",
+        "scripts/git-hooks/pre-push"
       ]
     },
     "retired": {},

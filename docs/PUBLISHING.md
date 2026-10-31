@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- npm account with publish access to `@metabob` org
-- `npm login` completed
+The release workflow publishes (§ Workflow); nobody publishes from a machine. A release needs push access to `dev`
+and permission to push a `v*` tag.
 
 ## About the build
 
@@ -27,20 +27,20 @@ resolution involved — it is source that gets bundled into `dist/`.
 
 - The repository's default branch on GitHub is `main`, the branch plugin marketplaces clone
   (`gh repo view --json defaultBranchRef`); `dev`'s bundles pin the next version, published or not
-- `bun run typecheck` passes
-- `bun run build` succeeds (`dist/cli.js` and `dist/doctor-cli.js` present)
-- `npm link && metabob-mcp --version` works from a different directory
-- `npm publish --dry-run` shows no warnings
+- npm accepts the release workflow's publish: `@metabob/mcp` lists this repository's
+  `.github/workflows/release.yml` as a trusted publisher on npmjs.com, or the repository has an `NPM_TOKEN` secret
+  with publish access
 - `README.md`'s tool table is the default set (`src/tool-allowlist.ts@default-tool-set`), its "Every tool" paragraph
   names every other tool in `src/tools/index.ts`, and its configuration table lists the variables `src/cli.ts`
   and `src/config.ts` read
 
 ## Workflow
 
-The plugins pin the server to the package's exact version (README § Agent plugins), so a version bump regenerates
-them in the same commit, and the package is published before `main` moves: plugin marketplaces clone the repository's default branch,
-which is `main`, and a
-pinned version that is not on npm yet cannot start.
+The plugins pin the server to the package's exact version (README § Agent plugins), and plugin marketplaces clone
+the repository's default branch, `main`: a pinned version that is not on npm cannot start. So `main` moves only
+after npm has the version its bundles pin. The release workflow, `.github/workflows/release.yml`, publishes a
+tagged release commit and then fast-forwards `main` to it; the `pre-push` hook refuses a push that adds commits to
+`main` (scripts/git-hooks/README.md § Branch policy).
 
 ```bash
 # 1. Bump the version and regenerate the plugin bundles, which pin it
@@ -59,28 +59,34 @@ npm pack --dry-run                   # dist/, skills/, README.md, LICENSE; no ot
 git commit -am "chore(release): <x.y.z>"
 git push origin HEAD:dev             # CI and Package smoke run at this head: both green on every job
 
-# 3. Publish, then verify the published package
-npm publish --dry-run
-npm publish
-npm dist-tag add @metabob/mcp@<x.y.z> next   # so next is never older than latest
-npm view @metabob/mcp dist-tags              # latest and next: <x.y.z>
-# The alias form, as the plugins launch it: in this checkout, whose package.json has the package's name and
-# version, `npx -y @metabob/mcp@<x.y.z>` would take the checkout for the package and fail (`mcp: not found`).
-npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z> metabob-mcp --version
-
-# 4. Tag, and fast-forward main to the release commit
+# 3. Tag the release commit: the tag starts the release workflow
 git tag v<x.y.z> && git push origin v<x.y.z>
-git push origin HEAD:main            # allowed: version bumped, and the commit is already on dev
+gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
 ```
+
+The workflow, for a tag `v<x.y.z>`:
+
+1. refuses a tag that does not match `package.json`'s version, a commit not on `dev`, a `main` that cannot
+   fast-forward to the commit, and bundles (`mcp.json`, `plugin/.mcp.json`, `.mcp.json`) that pin another version;
+2. installs, typechecks, checks the doc links and the generated bundles, builds, runs the tests, and packs;
+3. publishes `@metabob/mcp@<x.y.z>` with provenance, as `latest`, and adds `next` to it, so `next` is never older
+   than `latest`;
+4. waits until npm serves the version, then starts it as the plugins launch it
+   (`npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z> metabob-mcp --version`);
+5. fast-forwards `main` to the tagged commit.
+
+Each step is idempotent: a version already on npm is not published again, and a `main` that already contains the
+commit is left alone. A run that failed is re-run from the Actions page, or for a tag that is already pushed:
+`gh workflow run release.yml -f tag=v<x.y.z>`. With `-f dry_run=true` the workflow checks, builds, tests and runs
+`npm publish --dry-run`, and publishes nothing and leaves `main` alone.
 
 ### A pre-release
 
-A release candidate (`<x.y.z>-rc.<n>`) is published under the `next` tag, so `latest` and `npx -y @metabob/mcp`
-keep the last release, and `main` stays where it is: plugin marketplaces clone the default branch, `main`, whose
-bundles pin the last release.
+A release candidate (`<x.y.z>-rc.<n>`) takes the same steps, with the candidate's version. The workflow publishes
+it under the `next` tag, so `latest` and `npx -y @metabob/mcp` keep the last release, and leaves `main` where it
+is: plugin marketplaces clone `main`, whose bundles pin the last release.
 
 ```bash
-# 1. Bump to the candidate and regenerate the bundles, which pin it, and the repository's own .mcp.json; commit on dev
 npm version --no-git-tag-version <x.y.z>-rc.<n>
 node scripts/build-plugins.mjs && node scripts/build-plugins.mjs --check
 git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>-rc.<n>"#' > "${TMPDIR:-/tmp}/mcp.json" \
@@ -88,21 +94,20 @@ git show :.mcp.json | sed 's#@metabob/mcp@[^"]*"#@metabob/mcp@<x.y.z>-rc.<n>"#' 
   && git update-index --skip-worktree .mcp.json
 bun run typecheck && bun run build && bun run test
 git commit -am "chore(release): <x.y.z>-rc.<n>"
-git push origin HEAD:dev             # CI and Package smoke green on every job before publishing
-
-# 2. Publish under next, and check that latest did not move
-npm publish --tag next
-npm view @metabob/mcp dist-tags      # latest: the last release; next: the candidate
-npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp --version
+git push origin HEAD:dev             # CI and Package smoke green on every job before tagging
+git tag v<x.y.z>-rc.<n> && git push origin v<x.y.z>-rc.<n>
 ```
 
 A client tries the candidate by pinning it, in the form the plugins use, which also works inside a checkout of
-this repository (`npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp`). The release itself is the
-workflow above, from a version bump to `<x.y.z>`; the candidate is never tagged and never reaches `main`.
+this repository (`npx -y --package=metabob-mcp-server@npm:@metabob/mcp@<x.y.z>-rc.<n> metabob-mcp`).
 
 ## Troubleshooting
 
-**Authentication** — `npm logout && npm login`
+**The workflow cannot publish** (`E401`, `E403`, `ENEEDAUTH`) — the trusted publisher on npmjs.com names another
+repository or workflow file, or `NPM_TOKEN` has expired. Fix it, then re-run the failed run.
+
+**main cannot fast-forward** — the first step refuses before anything is published: `main` has commits `dev` lacks
+(`git log origin/dev..origin/main`). Bring them onto `dev`, then release from a new commit there.
 
 **Build too large** — the `files` allowlist in `package.json` is authoritative and wins over `.npmignore`; nothing outside `dist/`, `skills/`, `README.md`, and `LICENSE` ships. Confirm with `npm pack --dry-run`.
 

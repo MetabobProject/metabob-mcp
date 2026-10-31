@@ -35,7 +35,7 @@ node scripts/build-plugins.mjs      # regenerate both plugin bundles from their 
 
 ## Branching
 
-Branch off `dev` and open PRs into `dev`; `main` advances only by a version-bumped checkpoint whose commits are already on `dev`, never by direct feature work. The `pre-push` hook enforces both conditions — see `scripts/git-hooks/README.md` § Branch policy for the exact rules and the emergency override. Run `bash scripts/git-hooks/install.sh` once per clone to activate.
+Branch off `dev` and open PRs into `dev`; `main` advances only by the release workflow (`.github/workflows/release.yml`), which publishes a tagged release commit already on `dev` and then fast-forwards `main` to it, so `main` never pins a version npm lacks (docs/PUBLISHING.md § Workflow). The `pre-push` hook refuses pushes that add commits to `main` and checks `v*` tags — see `scripts/git-hooks/README.md` § Branch policy for the exact rules and the emergency override. Run `bash scripts/git-hooks/install.sh` once per clone to activate.
 
 ## Key files
 

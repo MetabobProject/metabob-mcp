@@ -1,0 +1,146 @@
+name: Release
+
+# Publishes a version from its tag, then moves main to it: main never pins a version npm does not have, because
+# plugin marketplaces clone main and its bundles launch the exact version they pin (docs/PUBLISHING.md § Workflow).
+#
+#   v<x.y.z>         publish as latest, add next, fast-forward main to the tagged commit
+#   v<x.y.z>-<pre>   publish under next; main stays where it is
+#
+# Every step is idempotent: a version already on npm is not published again, and a main already at the tagged
+# commit is left alone, so a failed run is re-run from the Actions page or with workflow_dispatch.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to release, e.g. v0.4.1'
+        required: true
+      dry_run:
+        description: 'Check, build, test and npm publish --dry-run; publish nothing and leave main alone'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # fast-forward main
+      id-token: write   # npm trusted publishing and provenance
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+      PACKAGE: '@metabob/mcp'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+          # The submodule is public over https (.gitmodules), so the default token fetches it.
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          # npm 11.5.1 or later publishes through trusted publishing (OIDC).
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: The tag names a releasable commit
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [ "$TAG" = "v$version" ] || { echo "::error::tag $TAG does not match package.json version $version"; exit 1; }
+          case "$version" in *-*) kind=prerelease ;; *) kind=release ;; esac
+          git fetch --no-tags origin dev main
+          git merge-base --is-ancestor HEAD origin/dev \
+            || { echo "::error::$TAG is not on dev: a release is a commit already on dev"; exit 1; }
+          if [ "$kind" = release ] && ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::error::main is not an ancestor of $TAG, so main cannot fast-forward to it"; exit 1
+          fi
+          for f in mcp.json plugin/.mcp.json .mcp.json; do
+            grep -qF "@metabob/mcp@$version\"" "$f" || { echo "::error::$f does not pin $version"; exit 1; }
+          done
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "KIND=$kind" >> "$GITHUB_ENV"
+          echo "$TAG: $kind $version at $(git rev-parse --short HEAD)"
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: |
+          bun run typecheck
+          bun scripts/doclinks.mjs check
+          node scripts/build-plugins.mjs --check
+
+      - name: Build
+        run: bun run build
+
+      - name: Test
+        run: bun run test
+        env:
+          SESSION_ID: release-test-session
+          LOG_LEVEL: error
+          MCP_UNDER_TEST: dist
+
+      - name: Pack
+        run: npm pack --dry-run
+
+      - name: Publish
+        env:
+          # Unset, npm publishes through trusted publishing; NPM_TOKEN, when the repository has one, is used instead.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "npm $(npm --version)"
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE@$VERSION is already on npm; not publishing it again"
+            exit 0
+          fi
+          tag=latest
+          [ "$KIND" = prerelease ] && tag=next
+          if [ "$DRY_RUN" = true ]; then
+            npm publish --dry-run --tag "$tag"
+          else
+            npm publish --provenance --access public --tag "$tag"
+          fi
+
+      - name: next is never older than latest
+        if: env.KIND == 'release' && env.DRY_RUN != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag add "$PACKAGE@$VERSION" next
+
+      - name: The published version starts as the plugins launch it
+        if: env.DRY_RUN != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          for i in $(seq 1 30); do
+            npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1 && break
+            [ "$i" = 30 ] && { echo "::error::$PACKAGE@$VERSION is not visible on npm after 5 minutes"; exit 1; }
+            sleep 10
+          done
+          npm view "$PACKAGE" dist-tags
+          out=$(npx -y --package="metabob-mcp-server@npm:$PACKAGE@$VERSION" metabob-mcp --version)
+          echo "$out"
+          [ "$out" = "metabob-mcp v$VERSION" ] || { echo "::error::expected metabob-mcp v$VERSION"; exit 1; }
+
+      - name: Fast-forward main
+        if: env.KIND == 'release' && env.DRY_RUN != 'true'
+        run: |
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "main already contains $TAG"
+            exit 0
+          fi
+          git push origin "HEAD:refs/heads/main"
