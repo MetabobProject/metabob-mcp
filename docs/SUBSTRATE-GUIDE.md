@@ -220,7 +220,9 @@ These replace host access (`docker exec`, `journalctl`, a raw `curl`) for readin
 
 - **`execution_trace`.** With no id, the most recent runs of your organization: execution id, status, duration,
   template and time. With an `execution_id`, that run's trace: status, template, tags (`reached:`,
-  `state_signature:`, `operator:`), failure mode and each task in order. A run reached by a satisfier keeps no
+  `state_signature:`, `operator:`), failure mode and each task in order. A goal-host walk's trace also shows the
+  walk itself: its target, the producers it routed around and why, what it recalled, what it still lacked, and
+  what it produced. A run reached by a satisfier keeps no
   task trace; its walk is in the dispatch record, which `goal_reasoning` reads.
 - **`registry_query`.** `mode: "shapes"` lists the shapes the substrate advertises (filtered by a `shape`
   substring); `mode: "vessels"` with a `shape` lists the vessels that serve it. The vocabulary is that of the node

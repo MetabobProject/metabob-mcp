@@ -61,13 +61,18 @@ function capped(items: string[], max: number): string {
   return items.length > max ? `${items.slice(0, max).join(', ')}, … (${items.length - max} more)` : items.join(', ');
 }
 
+/** A reason cut to one short phrase. */
+function clip(text: string, max = 120): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** An item of the walk's lists as one short phrase: a string, or an object's shape/id/name. */
 function walkItem(v: unknown): string {
   if (v && typeof v === 'object') {
     const o = v as Record<string, unknown>;
     const name = o.shape ?? o.producer ?? o.name ?? o.id ?? o.type;
     const why = o.reason ?? o.error;
-    if (name !== undefined) return why !== undefined ? `${String(name)}: ${String(why)}` : String(name);
+    if (name !== undefined) return why !== undefined ? `${String(name)}: ${clip(String(why))}` : String(name);
     return JSON.stringify(v).slice(0, 80);
   }
   return String(v);
@@ -78,14 +83,14 @@ function failedProducers(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(walkItem);
   if (v && typeof v === 'object') {
     return Object.entries(v as Record<string, unknown>).map(([producer, why]) =>
-      `${producer}: ${why && typeof why === 'object' ? walkItem(why) : String(why)}`);
+      `${producer}: ${why && typeof why === 'object' ? walkItem(why) : clip(String(why))}`);
   }
   return [];
 }
 
 /**
- * A goal-host walk's own record, `metadata.walk` on its trace: target, the producers
- * it routed around, recalled concepts, unmet inputs, bound demands, outputs. Each
+ * A goal-host walk's own record, `metadata.walk` on its trace: target, the route-around
+ * kind and the producers it routed around, recalled concepts, unmet inputs, bound demands, outputs. Each
  * list is capped, so a long walk stays a few lines. SPEC §execution_trace
  */
 // @anchor render-walk
@@ -97,6 +102,7 @@ export function renderWalk(walk: Record<string, any>): string[] {
   if (typeof walk.attempts === 'number') lines.push(`  attempts:        ${walk.attempts}`);
   const route = walk.route_around;
   if (route && typeof route === 'object') {
+    if (route.kind) lines.push(`  route-around:    ${String(route.kind)}`);
     const failed = failedProducers(route.failed_producers);
     if (failed.length) lines.push(`  routed around:   ${capped(failed, MAX)}`);
     const missing = route.missing_producer;

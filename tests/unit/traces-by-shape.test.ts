@@ -96,11 +96,29 @@ describe('activityExecutionTrace', () => {
     expect(lines).toContain('  routed around:   vessel-0: producer_timeout, ');
     expect(lines).toContain('… (2 more)');
     expect(lines).toContain('  missing producer: conceptSearch');
+    expect(lines).not.toContain('route-around:');
     expect(lines).toContain('  unmet inputs:    repoPath');
     expect(lines).toContain('  bound demands:   gitDiff');
     expect(lines).toContain('  outputs:         none');
-    expect(renderWalk({ route_around: { failed_producers: [{ producer: 'p1', reason: 'down' }] } }).join('\n'))
-      .toContain('  routed around:   p1: down');
+  });
+
+  test("route_around as goal-host writes it (node1 walk exec_e4bg9fu5): a list of {producer, reason}, kind beside it", () => {
+    const lines = renderWalk({
+      target: ['capabilityGapAuditReport'],
+      route_around: {
+        kind: 'stall',
+        missing_producer: ['capability_gap_audit'],
+        failed_producers: [
+          { producer: 'lookup:learned-pathway', reason: 'learned-pathway lookup: no producer (no shape advertised)' },
+          { producer: 'pin:activity:⟨compose-development-vessel:capability-gap-audit-tick-to-x⟩', reason: `ECONNREFUSED: Unable to connect. ${'x'.repeat(300)}` },
+        ],
+      },
+    }).join('\n');
+    expect(lines).toContain('  route-around:    stall');
+    expect(lines).toContain('  routed around:   lookup:learned-pathway: learned-pathway lookup: no producer (no shape advertised), pin:activity:⟨compose-development-vessel:capability-gap-audit-tick-to-x⟩: ECONNREFUSED: Unable to connect. ');
+    expect(lines).toContain('  missing producer: capability_gap_audit');
+    // A long reason is cut to one phrase.
+    expect(lines).not.toContain('x'.repeat(200));
   });
 
   test('a trace with no metadata.walk has no Walk section', async () => {
