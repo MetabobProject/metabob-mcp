@@ -10,7 +10,8 @@
  * (src/tools/_traces.ts). Renders: overall status, activity_template_id,
  * composition_chain, the load-bearing tags (state_signature:, reached:,
  * completion_shapes:, operator:), and the per-task sequence (#N ✓/✗
- * resolver/tier inShapes → outShapes + any per-task failure_mode).
+ * resolver/tier inShapes → outShapes + any per-task failure_mode), and for a
+ * goal-host walk trace its own record, `metadata.walk` (renderWalk).
  *
  * With no execution_id it lists the most recent traces (`executionTraceList`), so
  * an agent holding no id can find one to read.
@@ -26,7 +27,7 @@ import { isSatisfierExecution, listExecutionTraces, readExecutionTrace } from '.
 export const ExecutionTraceTool = {
   name: 'execution_trace',
   description:
-    "Read a durable execution trace by executionId through the activityExecutionTrace shape (activity-api's resolver, reached through discovery), or — called with no execution_id — list the caller's org's most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), and the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
+    "Read a durable execution trace by executionId through the activityExecutionTrace shape (activity-api's resolver, reached through discovery), or — called with no execution_id — list the caller's org's most recent traces (id, template, status, duration, time) to find one to read. Renders overall status, activity_template_id, composition_chain, the load-bearing tags (state_signature:, reached:, completion_shapes:, operator:), the per-task walk sequence (#N ✓/✗ resolver/tier inShapes → outShapes + per-task failure_mode), and for a goal-host walk its own record (target, producers routed around, recalled concepts, unmet inputs, bound demands, output shapes). This is the general trace reader that goal_reasoning specialises. Satisfier-only reaches persist no trace — a 404 says so and points at goal_reasoning's walkLog.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -53,6 +54,65 @@ export type ExecutionTraceInput = z.infer<typeof InputSchema>;
 
 function shapeList(v: unknown): string[] {
   return Array.isArray(v) ? v.map(String) : [];
+}
+
+/** At most `max` items, then how many more. */
+function capped(items: string[], max: number): string {
+  return items.length > max ? `${items.slice(0, max).join(', ')}, … (${items.length - max} more)` : items.join(', ');
+}
+
+/** An item of the walk's lists as one short phrase: a string, or an object's shape/id/name. */
+function walkItem(v: unknown): string {
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    const name = o.shape ?? o.producer ?? o.name ?? o.id ?? o.type;
+    const why = o.reason ?? o.error;
+    if (name !== undefined) return why !== undefined ? `${String(name)}: ${String(why)}` : String(name);
+    return JSON.stringify(v).slice(0, 80);
+  }
+  return String(v);
+}
+
+/** `route_around.failed_producers` as `producer: reason`, whether goal-host sends a list or a map. */
+function failedProducers(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(walkItem);
+  if (v && typeof v === 'object') {
+    return Object.entries(v as Record<string, unknown>).map(([producer, why]) =>
+      `${producer}: ${why && typeof why === 'object' ? walkItem(why) : String(why)}`);
+  }
+  return [];
+}
+
+/**
+ * A goal-host walk's own record, `metadata.walk` on its trace: target, the producers
+ * it routed around, recalled concepts, unmet inputs, bound demands, outputs. Each
+ * list is capped, so a long walk stays a few lines. SPEC §execution_trace
+ */
+// @anchor render-walk
+export function renderWalk(walk: Record<string, any>): string[] {
+  const MAX = 8;
+  const lines = ['', 'Walk:'];
+  const target = shapeList(walk.target);
+  if (target.length) lines.push(`  target:          ${target.join(' + ')}`);
+  if (typeof walk.attempts === 'number') lines.push(`  attempts:        ${walk.attempts}`);
+  const route = walk.route_around;
+  if (route && typeof route === 'object') {
+    const failed = failedProducers(route.failed_producers);
+    if (failed.length) lines.push(`  routed around:   ${capped(failed, MAX)}`);
+    const missing = route.missing_producer;
+    if (missing !== undefined && missing !== null && missing !== false) {
+      lines.push(`  missing producer: ${Array.isArray(missing) ? capped(missing.map(walkItem), MAX) : walkItem(missing)}`);
+    }
+  }
+  if (Array.isArray(walk.recalled_concept_ids)) lines.push(`  recalled concepts: ${walk.recalled_concept_ids.length}`);
+  const unmet = Array.isArray(walk.unmet_inputs) ? walk.unmet_inputs.map(walkItem) : [];
+  lines.push(`  unmet inputs:    ${unmet.length ? capped(unmet, MAX) : 'none'}`);
+  const bound = Array.isArray(walk.bound_demands) ? walk.bound_demands.map(walkItem) : [];
+  lines.push(`  bound demands:   ${bound.length ? capped(bound, MAX) : 'none'}`);
+  const outputs = Array.isArray(walk.outputs) ? walk.outputs : [];
+  const outShapes = outputs.map((o: any) => String(o && typeof o === 'object' ? o.shape ?? o.type ?? '?' : o));
+  lines.push(`  outputs:         ${outShapes.length ? capped(outShapes, MAX) : 'none'}`);
+  return lines;
 }
 
 async function listRecent(limit: number): Promise<string> {
@@ -107,7 +167,7 @@ export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPI
   const lines: string[] = [
     `Execution trace ${t.execution_id ?? t.id ?? input.execution_id}`,
     `  status:               ${t.status ?? '(unset)'}`,
-    `  activity_template_id: ${t.activity_template_id ?? t.activity_id ?? '(none)'}`,
+    `  activity_template_id: ${t.activity_template_id ?? t.template_id ?? t.activity_id ?? '(none)'}`,
   ];
   if (t.vessel_id) lines.push(`  vessel_id:            ${t.vessel_id}`);
   if (compositionChain.length) {
@@ -124,6 +184,9 @@ export async function handle(input: ExecutionTraceInput, _apiClient: AnalysisAPI
     const fmReason = typeof overallFm === 'object' ? overallFm.reason : undefined;
     lines.push(`  failure_mode:         ${fmType}${fmReason ? ` — ${fmReason}` : ''}`);
   }
+
+  const walk = t.metadata?.walk;
+  if (walk && typeof walk === 'object') lines.push(...renderWalk(walk));
 
   const tasks = Array.isArray(t.tasks) ? t.tasks : [];
   if (tasks.length) {

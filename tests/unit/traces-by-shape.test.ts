@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { setAttachment } from '../../src/attachment';
 import { readExecutionTrace } from '../../src/tools/_traces';
-import { handle as executionTrace } from '../../src/tools/execution-trace';
+import { handle as executionTrace, renderWalk } from '../../src/tools/execution-trace';
 import { installShapeStub } from '../helpers/shape-stub';
 import type { AnalysisAPIClient } from '../../src/api-client';
 
@@ -53,6 +53,61 @@ describe('activityExecutionTrace', () => {
     expect(out).toContain('  operator:operator-a');
     expect(out).toContain('Tasks (1):');
     expect(out).toContain('  #1 ✓ cost_expectation_scan/deterministic  ∅ → costExpectationReport');
+  });
+
+  test("a goal-host walk trace renders its metadata.walk (live node1 form)", async () => {
+    const walkRow = {
+      activity_id: 'goal-host-vessel:walk', template_id: 'goal-host-vessel:walk', execution_id: 'exec_12ss8892',
+      status: 'failure', tags: ['insert_graded:true'],
+      metadata: { walk: {
+        attempts: 1, bound_demands: [], unmet_inputs: [], target: ['shellResult'],
+        outputs: [{ id: 'walk-yzaom9-0n9cd43-shellResult-3', shape: 'shellResult' }],
+        recalled_concept_ids: ['⟨concept_uy6-Q_oAiBmQ⟩', 'concept_7Zr5NWK8jxry', 'concept_lRrf9Lg51ItR', 'concept_Px0MkIWTyhPr'],
+        route_around: null,
+      } },
+      execution_trace: { tasks: [{ resolver_id: 'satisfier:shellResult', success: true, output_shapes: ['shellResult'], task_id: 'send-1' }] },
+    };
+    await installShapeStub({
+      activityExecutionTrace: () => ({ body: { success: true, content: JSON.stringify(walkRow) } }),
+    });
+    const out = await executionTrace({ execution_id: 'exec_12ss8892' }, apiClient);
+    expect(out).toContain('  activity_template_id: goal-host-vessel:walk');
+    expect(out).toContain([
+      'Walk:',
+      '  target:          shellResult',
+      '  attempts:        1',
+      '  recalled concepts: 4',
+      '  unmet inputs:    none',
+      '  bound demands:   none',
+      '  outputs:         shellResult',
+    ].join('\n'));
+    expect(out).not.toContain('routed around');
+    expect(out).toContain('  #1 ✓ satisfier:shellResult  ∅ → shellResult');
+  });
+
+  test('a walk that routed around producers names each with its reason, capped', () => {
+    const many = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`vessel-${i}`, 'producer_timeout']));
+    const lines = renderWalk({
+      target: ['a', 'b'],
+      route_around: { failed_producers: many, missing_producer: 'conceptSearch' },
+      unmet_inputs: [{ shape: 'repoPath' }], bound_demands: ['gitDiff'], outputs: [],
+    }).join('\n');
+    expect(lines).toContain('  target:          a + b');
+    expect(lines).toContain('  routed around:   vessel-0: producer_timeout, ');
+    expect(lines).toContain('… (2 more)');
+    expect(lines).toContain('  missing producer: conceptSearch');
+    expect(lines).toContain('  unmet inputs:    repoPath');
+    expect(lines).toContain('  bound demands:   gitDiff');
+    expect(lines).toContain('  outputs:         none');
+    expect(renderWalk({ route_around: { failed_producers: [{ producer: 'p1', reason: 'down' }] } }).join('\n'))
+      .toContain('  routed around:   p1: down');
+  });
+
+  test('a trace with no metadata.walk has no Walk section', async () => {
+    await installShapeStub({
+      activityExecutionTrace: () => ({ body: { success: true, content: JSON.stringify(ROW) } }),
+    });
+    expect(await executionTrace({ execution_id: 'exec_978a4b53-8a0' }, apiClient)).not.toContain('Walk:');
   });
 
   test("a producer 404 is the satisfier-only message", async () => {
