@@ -218,16 +218,16 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "4cfd995",
-        "why": "the 0.4.1 bump changes only the version the bundles pin; README names no version"
+        "at": "23f3046",
+        "why": "README names resolve_impulse only in tool lists; the skill's resolve_impulse wording changes nothing it states"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
         "why": "index.ts's shutdown releases this session's claims before detaching; no participation requirement or its evidence changes"
       },
       "docs/DEPLOYING-AGENTS.md": {
-        "at": "f039c1b",
-        "why": "f039c1b: files: lines use / on Windows; the guide's description of concept_create's files input is unchanged"
+        "at": "23f3046",
+        "why": "DEPLOYING-AGENTS does not describe resolve_impulse's refusals; the skill change affects nothing it states"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
@@ -238,8 +238,8 @@
         "why": "f039c1b changes how the nested clone's path is computed and the files: separator on Windows; the behaviour SPEC states is unchanged"
       },
       "docs/SUBSTRATE-GUIDE.md": {
-        "at": "04bf92f",
-        "why": "nested-clone fix checking: the guide states no fix-location rule and defers to SPEC § mark_complete"
+        "at": "23f3046",
+        "why": "§ 8 already says a walk's trace shows what it lacked; an empty missing list printing nothing changes nothing it states"
       },
       "docs/USER-GUIDE.md": {
         "at": "ddd133f",
