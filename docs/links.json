@@ -218,8 +218,8 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "23f3046",
-        "why": "README names resolve_impulse only in tool lists; the skill's resolve_impulse wording changes nothing it states"
+        "at": "22a4902",
+        "why": "the 0.4.2 bump changes only the version the bundles pin; README names no version"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
