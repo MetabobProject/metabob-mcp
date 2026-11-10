@@ -106,9 +106,9 @@ export function renderWalk(walk: Record<string, any>): string[] {
     const failed = failedProducers(route.failed_producers);
     if (failed.length) lines.push(`  routed around:   ${capped(failed, MAX)}`);
     const missing = route.missing_producer;
-    if (missing !== undefined && missing !== null && missing !== false) {
-      lines.push(`  missing producer: ${Array.isArray(missing) ? capped(missing.map(walkItem), MAX) : walkItem(missing)}`);
-    }
+    const missingNames = Array.isArray(missing) ? missing.map(walkItem)
+      : missing === undefined || missing === null || missing === false || missing === '' ? [] : [walkItem(missing)];
+    if (missingNames.length) lines.push(`  missing:         ${capped(missingNames, MAX)}`);
   }
   if (Array.isArray(walk.recalled_concept_ids)) lines.push(`  recalled concepts: ${walk.recalled_concept_ids.length}`);
   const unmet = Array.isArray(walk.unmet_inputs) ? walk.unmet_inputs.map(walkItem) : [];

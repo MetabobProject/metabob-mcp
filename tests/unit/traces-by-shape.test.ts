@@ -95,7 +95,7 @@ describe('activityExecutionTrace', () => {
     expect(lines).toContain('  target:          a + b');
     expect(lines).toContain('  routed around:   vessel-0: producer_timeout, ');
     expect(lines).toContain('… (2 more)');
-    expect(lines).toContain('  missing producer: conceptSearch');
+    expect(lines).toContain('  missing:         conceptSearch');
     expect(lines).not.toContain('route-around:');
     expect(lines).toContain('  unmet inputs:    repoPath');
     expect(lines).toContain('  bound demands:   gitDiff');
@@ -116,7 +116,11 @@ describe('activityExecutionTrace', () => {
     }).join('\n');
     expect(lines).toContain('  route-around:    stall');
     expect(lines).toContain('  routed around:   lookup:learned-pathway: learned-pathway lookup: no producer (no shape advertised), pin:activity:⟨compose-development-vessel:capability-gap-audit-tick-to-x⟩: ECONNREFUSED: Unable to connect. ');
-    expect(lines).toContain('  missing producer: capability_gap_audit');
+    expect(lines).toContain('  missing:         capability_gap_audit');
+    // An empty missing_producer list prints no line.
+    const none = renderWalk({ route_around: { kind: 'failed_producer', missing_producer: [], failed_producers: [{ producer: 'p', reason: 'x' }] } }).join('\n');
+    expect(none).not.toContain('missing');
+    expect(none).toContain('  routed around:   p: x');
     // A long reason is cut to one phrase.
     expect(lines).not.toContain('x'.repeat(200));
   });
