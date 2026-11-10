@@ -179,9 +179,10 @@ The substrate develops itself on the same code, so share it the way a careful co
   held by something other than the system is a finding: record its holder, name and
   expiry.
 - **Never write the system's record by hand.** Traces, gaps, walk input and policy are
-  the system's; `resolve_impulse` resolves only the substrate's plain reads and one memory
-  write, and refuses everything that runs or changes something. Dispatch a goal, record a finding,
-  or give your verdict with `provide_feedback`.
+  the system's. `resolve_impulse` forwards any shape with your key, so the restraint is
+  yours: use it for reads and for input you were asked to add (such as a person's request
+  as a `record_write`). Otherwise dispatch a goal, record a finding, or give your verdict
+  with `provide_feedback`.
 - **Check before you dispatch.** An open gap or a recent dispatch may already cover the
   goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.
 - **Don't restart or deploy nodes.** When maintenance is needed, it runs as a dispatched

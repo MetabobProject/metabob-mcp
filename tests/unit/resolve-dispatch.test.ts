@@ -234,81 +234,51 @@ describe('resolve_impulse', () => {
     expect(await resolveImpulse({ shape: 'memoryNote_write', pointer: { note: 'n' } }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(memoryNote_write, \d+ms\)/);
     expect(stub.calls('memoryNote_write')).toHaveLength(1);
   });
-  // An agent reads the system's leases; it never takes or releases them. SPEC §resolve_impulse
-  test('refuses the substrate\'s own lease writes before any request, by shape or by pointer.type', async () => {
-    const stub = await installShapeStub({
-      maintenanceLease_write: () => ({ body: { acquired: true } }),
-      substrateGapLease_write: () => ({ body: { granted: true } }),
-      memoryNote: () => ({ body: { success: true } }),
-    });
-    const lease = await resolveImpulse({ shape: 'maintenanceLease_write', pointer: { op: 'acquire', name: 'autonomous_pick', holder: 'x' } }, apiClient);
-    expect(lease).toStartWith('resolve_impulse: refused: maintenanceLease_write is the substrate\'s own coordination');
-    expect(lease).toContain('record a finding with its holder, name and expiry');
-    const gap = await resolveImpulse({ shape: 'substrateGapLease_write', pointer: { action: 'acquire', gap_id: 'g', holder: 'x' } }, apiClient);
-    expect(gap).toStartWith('resolve_impulse: refused: substrateGapLease_write');
-    // pointer.type overrides shape, so the refusal reads the effective type.
-    const smuggled = await resolveImpulse({ shape: 'memoryNote', pointer: { type: 'maintenanceLease_write', op: 'release', token: 't' } }, apiClient);
-    expect(smuggled).toStartWith('resolve_impulse: refused: maintenanceLease_write');
-    expect(stub.calls('maintenanceLease_write')).toHaveLength(0);
-    expect(stub.calls('substrateGapLease_write')).toHaveLength(0);
-    expect(stub.calls('memoryNote')).toHaveLength(0);
-  });
-
-  test('refuses every write an agent does not make, by shape and by pointer.type', async () => {
-    const { COORDINATION_WRITES } = await import('../../src/tools/resolve-impulse');
-    const shapes = Object.keys(COORDINATION_WRITES);
-    expect(shapes).toEqual(expect.arrayContaining([
-      'activityExecutionTrace_write', 'execution_write', 'goal_verification_label_write', 'poolImpulse_write',
-      'substrateGap_write', 'pushPolicy_write', 'llmModelPolicy_write', 'docFixPolicy_write', 'renderPolicy_write',
-    ]));
-    const stub = await installShapeStub(Object.fromEntries([...shapes, 'memoryNote'].map((s) => [s, () => ({ body: { ok: true } })])));
-    for (const shape of shapes) {
-      expect(await resolveImpulse({ shape, pointer: {} }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
-      expect(await resolveImpulse({ shape: 'memoryNote', pointer: { type: shape } }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
-      expect(stub.calls(shape)).toHaveLength(0);
-    }
-    expect(stub.calls('memoryNote')).toHaveLength(0);
-    // A self-graded trace is the case this exists for.
-    const graded = await resolveImpulse({ shape: 'activityExecutionTrace_write', pointer: { traceData: { tags: ['reached:true'] } } }, apiClient);
-    expect(graded).toContain('an agent never writes a trace');
-  });
-
-  test('a shape named like an Object.prototype member gets the ordinary refusal, not a listed reason', async () => {
-    const stub = await installShapeStub({ constructor: () => ({ body: { ok: true } }) });
-    expect(await resolveImpulse({ shape: 'constructor' }, apiClient)).toStartWith('resolve_impulse: refused: constructor is not one of the reads this escape hatch allows');
-    expect(stub.calls('constructor')).toHaveLength(0);
-  });
-
-  test('every shape of a live vocabulary is decided, and the code\'s allowlist matches the decisions', async () => {
-    const { READS_THROUGH_ESCAPE_HATCH, WRITES_THROUGH_ESCAPE_HATCH, escapeHatchRefusal } = await import('../../src/tools/resolve-impulse');
-    const { allowed, refused } = (await import('../fixtures/registry-vocabulary.json')).default as { allowed: string[]; refused: string[] };
-    const code = [...READS_THROUGH_ESCAPE_HATCH, ...Object.keys(WRITES_THROUGH_ESCAPE_HATCH)].sort();
-    expect(code).toEqual([...allowed].sort());
-    expect(allowed.filter((s) => refused.includes(s))).toEqual([]);
-    for (const s of allowed) expect(escapeHatchRefusal(s)).toBeNull();
-    for (const s of refused) expect(escapeHatchRefusal(s)).not.toBeNull();
-  });
-
-  // State-changing shapes whose names do not end in _write.
-  test.each(['shell', 'bash', 'bounded_shell', 'fs_edit', 'git_push', 'gh_pr_merge', 'systemd_restart', 'vessel_mitosis_cutover',
-    'activityExecutionTrace_delete', 'credit_vessel_shapes', 'posteriorCompensation', 'feature_compose', 'dispatch_goal',
-    'goal_execution', 'code_replace_lines', 'surrealdb_import', 'llm_completion', 'http_fetch', 'variant_promote', 'goalDispatchAsync'])(
-    '%s is refused through the escape hatch', async (shape) => {
+  // The cockpit refuses no shape; each producer decides what a key may do. SPEC §resolve_impulse
+  test.each(['maintenanceLease_write', 'activityExecutionTrace_write', 'shell', 'git_push', 'brandNew_write', 'brandNewRead', 'constructor'])(
+    '%s is forwarded through discovery, once', async (shape) => {
       const stub = await installShapeStub({ [shape]: () => ({ body: { ok: true } }) });
-      expect(await resolveImpulse({ shape, pointer: {} }, apiClient)).toStartWith(`resolve_impulse: refused: ${shape} `);
-      expect(stub.calls(shape)).toHaveLength(0);
+      expect(await resolveImpulse({ shape, pointer: { a: 1 } }, apiClient)).toStartWith(`resolve_impulse ${shape} → discovery /resolve [200]`);
+      expect(stub.calls(shape)).toHaveLength(1);
     });
 
-  test('an unlisted write is refused by default; a listed memory write and any read pass', async () => {
-    const stub = await installShapeStub({
-      brandNew_write: () => ({ body: { ok: true } }),
-      memoryNote_write: () => ({ status: 201, body: { ok: true } }),
-      brandNewRead: () => ({ body: { ok: true } }),
+  test('pointer.type overrides shape', async () => {
+    const stub = await installShapeStub({ memoryNote: () => ({ body: { ok: true } }), record_read: () => ({ body: { rows: [] } }) });
+    await resolveImpulse({ shape: 'memoryNote', pointer: { type: 'record_read', shape: 'world_changed' } }, apiClient);
+    expect(stub.calls('record_read')).toEqual([{ type: 'record_read', shape: 'world_changed' }]);
+    expect(stub.calls('memoryNote')).toHaveLength(0);
+  });
+
+  // A second record_write is a second request row, which starts a second walk episode.
+  test('record_write passes its pointer through and is never retried, on a timeout or a 5xx', async () => {
+    const row = { shape: 'world_changed', body: { text: 'please' }, writer: 'x', role: 'node' };
+    const ok = await installShapeStub({ record_write: () => ({ status: 201, body: { ok: true, seq: 7 } }) }, { scopes: ['read', 'write'] });
+    expect(await resolveImpulse({ shape: 'record_write', pointer: { row } }, apiClient)).toStartWith('resolve_impulse record_write → discovery /resolve [201]');
+    expect(ok.calls('record_write')).toEqual([{ type: 'record_write', row }]);
+
+    const cut = await installShapeStub({
+      record_write: () => ({ status: 502, body: { error: 'forward_failed', shape: 'record_write', detail: 'The operation timed out.' } }),
     });
-    expect(await resolveImpulse({ shape: 'brandNew_write' }, apiClient)).toStartWith('resolve_impulse: refused: brandNew_write is a write this cockpit does not make through the escape hatch');
-    expect(stub.calls('brandNew_write')).toHaveLength(0);
-    expect(await resolveImpulse({ shape: 'memoryNote_write', pointer: { note: 'n' } }, apiClient)).toStartWith('resolve_impulse memoryNote_write → discovery /resolve [201]');
-    expect(await resolveImpulse({ shape: 'brandNewRead' }, apiClient)).toStartWith('resolve_impulse: refused: brandNewRead is not one of the reads this escape hatch allows');
+    expect(await resolveImpulse({ shape: 'record_write', pointer: { row } }, apiClient)).toMatch(/^resolve_impulse: producer_timeout\(record_write, \d+ms\)/);
+    expect(cut.calls('record_write')).toHaveLength(1);
+
+    for (const status of [500, 503]) {
+      const failed = await installShapeStub({ record_write: () => ({ status, body: { error: 'boom' } }) });
+      await resolveImpulse({ shape: 'record_write', pointer: { row } }, apiClient);
+      expect(failed.calls('record_write')).toHaveLength(1);
+    }
+  });
+
+  test('record_read is a known read: sent as a read with a read-only key', async () => {
+    const stub = await installShapeStub({ record_read: () => ({ body: { rows: [] } }) }, { scopes: ['read'] });
+    expect(await resolveImpulse({ shape: 'record_read', pointer: { shape: 'world_changed' } }, apiClient)).toStartWith('resolve_impulse record_read → discovery /resolve [200]');
+    expect(stub.calls('record_read')).toHaveLength(1);
+  });
+
+  test('a shape that is not a known read is not sent with a read-only key', async () => {
+    const stub = await installShapeStub({ record_write: () => ({ body: { ok: true } }) }, { scopes: ['read'] });
+    expect(await resolveImpulse({ shape: 'record_write', pointer: { row: {} } }, apiClient)).toContain('key_read_only');
+    expect(stub.calls('record_write')).toHaveLength(0);
   });
 
   test('the lease reads pass through', async () => {

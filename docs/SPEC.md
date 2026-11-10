@@ -1217,32 +1217,18 @@ With an `execution_id`, resolves `activityExecutionTrace { executionId, format: 
 
 Handler: `src/tools/resolve-impulse.ts@handle`
 
-The advanced escape hatch: resolve one of the substrate's plain reads (`memoryNote`, `traceAggregateReport`, `llmSpendSummary`, …) or the memory write `memoryNote_write`. Prefer a dedicated tool when one fits.
+The advanced escape hatch: resolve any shape by name, a read (`memoryNote`, `traceAggregateReport`, `record_read`, …) or a write (`record_write`, `memoryNote_write`, …). Prefer a dedicated tool when one fits.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `shape` | string | **required** | `pointer.type` to resolve |
 | `pointer` | object | — | Extra pointer fields, merged after `type` (so `pointer.type` overrides `shape`) |
 
-For an allowed shape, the attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it to the shape's producer (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). An allowlisted read is a read: cut at its producer's timeout it is retried, as every read is (§ Attachment), except the trace reads (`activityExecutionTrace`, `executionTraceList`, `executionTraces`), which are not retried after a timeout, since the cut query keeps running in activity-api. The memory write is sent once. Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
+The attachment's `resolve()` (§ Attachment): `{ pointer }` to discovery `POST /resolve`, which forwards it with the key to the shape's producer (cap `RESOLVE_IMPULSE_TIMEOUT_MS`, default 30 s, never above 60 s). The pointer passes through as given, plus the `client_claim` every write carries (§ Client claim). Returns the HTTP status and the producer's response body (pretty-printed JSON, truncated at 2048 characters) for any status; a discovery failure is one named line. It adds no `operator` field.
 
-**It is an allowlist.** A shape, named by `shape` or by `pointer.type`, resolves only when it is one of the plain reads in `src/tools/resolve-impulse.ts@escape-hatch-reads` (records, reports, statistics, summaries and policies) or the memory write with no dedicated tool, `memoryNote_write` (`src/tools/resolve-impulse.ts@escape-hatch-writes`). A shape's name does not tell a read from an action (`bash`, `code_replace_lines`, `surrealdb_import` and `llm_completion` read like reads), so everything else is refused before any request, unlisted reads included: a shell, file edits, git and GitHub, restarts, cutovers, composes, dispatch, credit, trace deletion. The refusal says to dispatch the work as a goal, so goal-host routes it and its judge grades it, or to use a dedicated tool. The known writes carry their own reason and alternative (`src/tools/resolve-impulse.ts@coordination-writes`):
+**It refuses no shape.** What a key may do is each producer's decision: records-vessel, for one, stamps a row written with any key other than the node's own as written by that key with the role `person`, whatever the pointer says, so a `record_write` adds a person's request and cannot stand in for the system's rows. Whether an agent should make a write (a lease, a trace, policy) is its instructions' concern (the `metabob-substrate` skill), not this tool's.
 
-| Writes | Why an agent does not make them | Instead |
-|---|---|---|
-| `maintenanceLease_write`, `substrateGapLease_write` | the system's own coordination: maintenance windows, the auto-pick lane, a gap's landing | dispatch the work as a goal, or let the system land the gap; record a finding for a lease that looks stuck or foreign |
-| `activityExecutionTrace_write`, `execution_write` | the graded record: a trace's tags set its reach | dispatch the work as a goal, so goal-host traces it and its judge grades it |
-| activity templates, variants, compositions and feedback; impulse relevance, shape scores, execution and concept sequences, attributions, tool usage, and the system's other learned state | the system learns these from its own graded work; an agent writing them hand-feeds it | dispatch a goal, or record a finding with what was observed |
-| `test_report_write`, `test_audit_report_write`, `test_registration_write` | gate evidence, which the gates write themselves | run the check, or dispatch it |
-| `interactor*_write`, `ui*_write` | the human surface's own records | the person uses that surface as themselves |
-| `fs_write` | writes files on a vessel | a dispatched goal or a reviewed commit |
-| `pushPolicy_write`, `llmModelPolicy_write`, `docFixPolicy_write`, `renderPolicy_write` | system policy is an operator's decision; this key carries no operator authority | ask the person, or record a finding proposing the change |
-| `goal_verification_label_write`, `poolImpulse_write`, `substrateGap_write` | the oracle corpus; walk input with no stamped principal; gaps, which the system's detectors file | `provide_feedback`; dispatch a goal; `record_finding` |
-| `concept_create_write`, `conceptLink_write`, `conceptUsage_write`, `solicitationResponse_write` | each has a dedicated tool that checks its input and records provenance | `concept_create`, `concept_link`, `concept_record_usage`, `submit_resolution` |
-| `concept_write`, `concept_delete_write`, `concept_retire_write` | overwriting, deleting or retiring the system's memory | `concept_create` the corrected concept and `concept_link` it `derived_from` the wrong one, which keeps the history |
-| `concept_supersede_write` | advertised by concept-db but not implemented there (it throws) | as above |
-
-`tests/fixtures/registry-vocabulary.json` decides every shape of a live vocabulary, allowed or refused, and a unit test holds the code's allowlist to it, so a refreshed snapshot with a new shape fails the build until someone decides it; at run time an undecided shape is refused. There is no override: sanctioned maintenance runs as a dispatched activity that takes the lease as its own steps. The refusals keep this cockpit from being the convenient route to these writes; they are not a security boundary, which belongs to each producer.
+**Reads and writes.** A shape's name does not tell a read from an action (`bash`, `code_replace_lines` and `llm_completion` read like reads), so the tool keeps a list of the shapes known to be plain reads (`src/tools/resolve-impulse.ts@known-reads`: records, reports, statistics, summaries and policies, reviewed by name and by a source check of their producers). A known read is sent as a read: cut at its producer's timeout it is retried, as every read is (§ Attachment), except the trace reads (`activityExecutionTrace`, `executionTraceList`, `executionTraces`), whose cut query keeps running in activity-api; and a read-only key may send it. Any other shape may be a write, so it is sent once and never retried, on a timeout or an error status: a second `record_write` would be a second request row, and a second walk episode. A read-only key does not send it (`key_read_only`).
 
 ---
 

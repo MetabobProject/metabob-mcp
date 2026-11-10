@@ -33,7 +33,7 @@ Beyond the eleven tools of the default set, `METABOB_TOOLS=all` lists the tools 
 | `analyze_impact`, `predict_cochanges`, `search_codebase`, `assign_git_changes` | The local code tools: blast radius, files that change together, code search, which components a change touches | § 4 |
 | `get_metrics`, `annotate_component` | The local store's open findings by severity and category; notes on a local finding | § 4 |
 | `run_goal_async`, `run_goal`, `goal_status`, `goal_reasoning`, `provide_feedback` | Handing a goal to the substrate, following it, reading why it reached or fell short, and recording a verdict | § 7 |
-| `execution_trace`, `registry_query`, `resolve_impulse` | Inspecting the substrate's runs, its advertised shapes, and its plain reads | § 8 |
+| `execution_trace`, `registry_query`, `resolve_impulse` | Inspecting the substrate's runs and its advertised shapes, and resolving any shape by name | § 8 |
 | `concept_sequence`, `concept_usage_stats` | Concepts observed to follow one another in successful work; a concept's usage history | § 9 |
 | `pull_assigned_work`, `submit_resolution` | Questions queued on this machine for the agent, and its answers | § 9 |
 
@@ -183,7 +183,8 @@ that contradicts its instructions) goes on the ledger. The `metabob-substrate` s
   substrate's human surface. The agent does not represent your view as its own.
 - **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
   never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
-  `resolve_impulse` refuses those writes.
+  `resolve_impulse` would forward such a write, so this rests on the agent's instructions and on what each
+  producer lets your key do.
 - **Restarts and deployments.** The agent does not restart or deploy the substrate's nodes. Maintenance runs as
   a dispatched activity, when you ask for it.
 - **Load tests.** A load test runs capped, in a window you clear, and stops when you ask.
@@ -227,10 +228,10 @@ These replace host access (`docker exec`, `journalctl`, a raw `curl`) for readin
 - **`registry_query`.** `mode: "shapes"` lists the shapes the substrate advertises (filtered by a `shape`
   substring); `mode: "vessels"` with a `shape` lists the vessels that serve it. The vocabulary is that of the node
   the server attaches to; a shape a peer node serves is asked for by name in `vessels` mode.
-- **`resolve_impulse`.** The advanced escape hatch for the substrate's plain reads (records, reports, statistics,
-  summaries, policies) and one memory write, `memoryNote_write`, when no dedicated tool shows what you need. Every
-  other shape is refused before any request, with what to do instead: anything that runs or changes something is
-  dispatched as a goal or made through its dedicated tool.
+- **`resolve_impulse`.** The advanced escape hatch: any shape, read or write, sent through discovery with your key,
+  when no dedicated tool does what you need: reads such as `memoryNote` or `record_read`, and writes such as
+  `record_write`, which adds a person's request to the substrate's records. It refuses nothing; what your key may
+  do is each producer's decision. A shape that is not a known read is sent once and never retried.
 
 ## 9. The ledger and memory under `all`
 
@@ -262,7 +263,7 @@ passes and the `client_claim` every write carries. Beyond your key, the tools `a
 | dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, and any the agent adds) |
 | gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
 | answers a queued task (`submit_resolution`) | the answer text |
-| writes a memory note (`resolve_impulse`'s `memoryNote_write`) | the note's content |
+| writes through `resolve_impulse` (`record_write`, `memoryNote_write`, any other write) | the pointer: the row or note and its content |
 | reads the substrate (`goal_status`, `goal_reasoning`, `execution_trace`, `registry_query`, `resolve_impulse`, `concept_sequence`, `concept_usage_stats`) | the ids or shape names it reads |
 
 `concept_usage_stats`' recent usage rows are the one read that goes straight to concept-db's advertised address
@@ -284,7 +285,6 @@ The rows that apply to every tool set are in USER-GUIDE.md, § Troubleshooting. 
 | `goal_status` shows `completed` and `reached: no` | The goal was not reached; read `goal_reasoning` |
 | `execution_trace` finds no trace for a reach | A satisfier reach keeps no task trace; `goal_reasoning` shows its walk |
 | `provide_feedback` writes nothing | The dispatch has no execution or activity to label; the reply says where the assessment goes instead (`record_finding`) |
-| `resolve_impulse` refuses a shape | Only plain reads and `memoryNote_write` resolve: dispatch the work as a goal, or use the tool the refusal names |
 
 ## 12. References
 

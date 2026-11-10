@@ -3,7 +3,7 @@
  * system"), through a real server process against the fake substrate:
  *   path_activity reads the whole gap store once and serves later calls from its cache;
  *   analyze_impact adds the in-flight line only from that cache, never starting the read;
- *   resolve_impulse refuses the system's own writes before any request reaches a producer;
+ *   resolve_impulse forwards any shape through discovery, once, and leaves the decision to its producer;
  *   a detached server's local tools make no substrate request at all.
  * SPEC §path_activity, SPEC §resolve_impulse
  */
@@ -84,14 +84,16 @@ describe('W6 working alongside the system', () => {
     expect(gapReads()).toHaveLength(1);
   });
 
-  test('resolve_impulse refuses the system\'s writes before any request, and passes a plain read', async () => {
-    const before = fake.requests.length;
-    for (const shape of ['maintenanceLease_write', 'substrateGapLease_write', 'activityExecutionTrace_write', 'shell', 'git_push']) {
-      expect(await server.text('resolve_impulse', { shape, pointer: {} })).toStartWith(`resolve_impulse: refused: ${shape} `);
+  test('resolve_impulse forwards any shape through discovery, and pointer.type overrides shape', async () => {
+    for (const shape of ['maintenanceLease_write', 'shell']) {
+      const before = fake.requests.length;
+      expect(await server.text('resolve_impulse', { shape, pointer: {} })).toStartWith(`resolve_impulse: no_producer(${shape})`);
+      const sent = fake.requests.slice(before).filter(r => r.service === 'discovery' && r.path === '/resolve');
+      expect(sent).toHaveLength(1);
     }
-    // pointer.type overrides shape: a read's name cannot carry an action past the allowlist.
-    expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { type: 'shell' } })).toStartWith('resolve_impulse: refused: shell ');
-    expect(fake.requests.length).toBe(before);
+    const before = fake.requests.length;
+    expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { type: 'shell' } })).toStartWith('resolve_impulse: no_producer(shell)');
+    expect(fake.requests.slice(before).some(r => r.rawBody.includes('"shell"'))).toBe(true);
     expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { status: 'open', limit: 1 } })).toStartWith('resolve_impulse substrateGap → discovery /resolve [200]');
   });
 
