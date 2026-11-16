@@ -1116,7 +1116,7 @@ Handler: `src/tools/run-goal-async.ts@handle`
 
 An ask, without waiting. Same parameter as `run_goal`.
 
-Writes `record_write { row: { shape: "world_changed", what: <goal> } }` once, under the operator gate above, and returns the stored row's id as the `dispatchId`, its role and a `goal_status` hint. A role other than `operator` gets a warning line: records keeps the row, but the walk does not take it as an ask. The goal text is sent unchanged (the outgoing guard checks it, § Outgoing text guard).
+Writes `record_write { row: { shape: "world_changed", what: <goal> } }` once, under the operator gate above, and returns the stored row's id as the `dispatchId`, its role, a line saying what the ask costs the USER (`src/tools/run-goal-async.ts@ask-cost`: only a person's grade on the human surface closes it, and an ungraded deadline lapses and counts as failed against the walk's moves on it; `run_goal`'s reply carries it too) and a `goal_status` hint. A role other than `operator` gets a warning line: records keeps the row, but the walk does not take it as an ask. The goal text is sent unchanged (the outgoing guard checks it, § Outgoing text guard).
 
 ### goal_status
 
@@ -1381,10 +1381,10 @@ goal or queue tools; `skills/metabob/SKILL.md` is its routine).
 7. mark_complete(agf_* | concept_*, action="endorse")
    → verdict; on findings it also folds relevance into concept-db
 
-8. run_goal_async(goal, learning_mode?) → goal_status(dispatch_id) → goal_reasoning(dispatch_id)
+8. run_goal_async(goal) → goal_status(dispatch_id) → goal_reasoning(dispatch_id)
    → provide_feedback(dispatch_id, verdict, rationale)
-   → delegate to the substrate when it mounts the repo; read `reached` and `learning:`,
-     check the walk, then record your verdict (an `automated` label)
+   → delegate to the substrate when it mounts the repo; each ask costs the USER a grade.
+     Read the answer and the walk, then leave an operator's note: it is no verdict
 
 9. init_workspace(recently_changed_files=[...files changed since...])
    → parses files added since the last call; files already parsed are not re-read

@@ -137,6 +137,7 @@ describe('run_goal_async / run_goal', () => {
     expect(out).toContain(`dispatchId: ${ASK_ID}`);
     expect(out).toContain('role:       operator');
     expect(out).not.toContain('⚠');
+    expect(out).toContain("each ask costs the USER a grade on the human surface; left ungraded, its deadline lapses and counts as failed");
   });
 
   test('a row records stamped as anything but an operator\'s is said to be no ask', async () => {
@@ -183,6 +184,7 @@ describe('run_goal_async / run_goal', () => {
       await installShapeStub(handlers, { ownerKind: 'operator' });
       const out = await runGoal({ goal: 'make the change' }, apiClient);
       expect(out).toContain('Ask recorded and answered.');
+      expect(out).toContain('each ask costs the USER a grade on the human surface');
       expect(out).toContain('state:    open');
       expect(out).toContain(`answer ${ANSWER.id}`);
     } finally {

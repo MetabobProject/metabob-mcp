@@ -17,7 +17,7 @@ import { OPERATOR, operatorGate, recordWrite, type Row } from './_records.js';
 export const RunGoalAsyncTool = {
   name: 'run_goal_async',
   description:
-    "Ask the substrate's walk for something, without waiting: writes the goal as an operator's ask (a records world_changed row) and returns its row id as the dispatchId at once; read its state with goal_status. The walk takes the ask as a root and works it; a person's grade of an answer on the human surface closes it, or its deadline lapsing does. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so.",
+    "Ask the substrate's walk for something, without waiting: writes the goal as an operator's ask (a records world_changed row) and returns its row id as the dispatchId at once; read its state with goal_status. The walk takes the ask as a root and works it; a person's grade of an answer on the human surface closes it, or its deadline lapsing does, which counts as failed: each ask costs the USER a grade. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -46,6 +46,11 @@ export async function writeAsk(tool: string, goal: string): Promise<{ kind: 'ok'
   return { kind: 'ok', row: w.row };
 }
 
+// @anchor ask-cost
+/** What every ask costs the USER: only a person's grade closes it, and an ungraded deadline counts as failed. */
+export const ASK_COST =
+  "  cost:       each ask costs the USER a grade on the human surface; left ungraded, its deadline lapses and counts as failed against the walk's moves on it";
+
 /** The line saying the row is not an ask, when records stamped it as anything but an operator's. */
 export function roleWarning(row: Row): string | null {
   return row.role === OPERATOR
@@ -64,6 +69,7 @@ export async function handle(
     `  dispatchId: ${w.row.id}`,
     `  role:       ${w.row.role ?? '(not given)'}`,
     roleWarning(w.row),
+    ASK_COST,
     '',
     `Read its state with: goal_status { "dispatch_id": "${w.row.id}" }`,
   ].filter((l) => l !== null).join('\n');

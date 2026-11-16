@@ -182,8 +182,8 @@ The substrate develops itself on the same code, so share it the way a careful co
 - **Never write the system's record by hand.** Traces, gaps, walk input and policy are
   the system's. `resolve_impulse` forwards any shape with your key, so the restraint is
   yours: use it for reads and for input you were asked to add (such as a person's request
-  as a `record_write`). Otherwise dispatch a goal, record a finding, or give your verdict
-  with `provide_feedback`.
+  as a `record_write`). Otherwise dispatch a goal, record a finding, or leave an operator's
+  note with `provide_feedback`.
 - **Check before you dispatch.** An open gap or an open ask may already cover the
   goal (`execution_trace` lists the walk's recent moves and the asks they worked).
 - **Don't restart or deploy nodes.** When maintenance is needed, it runs as a dispatched

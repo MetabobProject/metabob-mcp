@@ -32,7 +32,7 @@ Beyond the eleven tools of the default set, `METABOB_TOOLS=all` lists the tools 
 | `path_activity` | What the substrate has in flight on a file before an edit: gaps queued, held, or being landed | § 3 |
 | `analyze_impact`, `predict_cochanges`, `search_codebase`, `assign_git_changes` | The local code tools: blast radius, files that change together, code search, which components a change touches | § 4 |
 | `get_metrics`, `annotate_component` | The local store's open findings by severity and category; notes on a local finding | § 4 |
-| `run_goal_async`, `run_goal`, `goal_status`, `goal_reasoning`, `provide_feedback` | Handing a goal to the substrate, following it, reading why it reached or fell short, and recording a verdict | § 7 |
+| `run_goal_async`, `run_goal`, `goal_status`, `goal_reasoning`, `provide_feedback` | Handing a goal to the substrate, following it, reading why it reached or fell short, and leaving an operator's note | § 7 |
 | `execution_trace`, `registry_query`, `resolve_impulse` | Inspecting the substrate's runs and its advertised shapes, and resolving any shape by name | § 8 |
 | `concept_sequence`, `concept_usage_stats` | Concepts observed to follow one another in successful work; a concept's usage history | § 9 |
 
@@ -177,9 +177,10 @@ that contradicts its instructions) goes on the ledger. The `metabob-substrate` s
   lease ends is lost or conflicts. The agent leaves the file until the lease ends; when its task needs the file
   sooner, it records a finding naming the lease, and whether to edit is your decision.
 - **A held gap.** It names the operator ruling and its review date and says what lifts it; it is not open work.
-- **Your judgment of an outcome.** An agent's verdict on a goal (`provide_feedback`) is stored as an
-  `automated` observation; it never overrides the substrate's own verdict. A person's verdict goes through the
-  substrate's human surface. The agent does not represent your view as its own.
+- **Your judgment of an outcome.** An agent's note on a goal's answer (`provide_feedback`) is kept as an
+  operator's row and is no verdict: it closes nothing and moves no posterior. Only your grade on the human
+  surface closes an ask, so each ask an agent makes costs you a grade; left ungraded, its deadline lapses and
+  counts as failed. The agent does not represent your view as its own.
 - **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
   never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
   `resolve_impulse` would forward such a write, so this rests on the agent's instructions and on what each
@@ -255,8 +256,8 @@ passes and the `client_claim` every write carries. Beyond your key, the tools `a
 
 | The agent… | What is sent |
 |---|---|
-| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, and any the agent adds) |
-| gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
+| dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, as a records row |
+| leaves a note on a goal's answer (`provide_feedback`) | the grade it notes (r 1, 0 or 0.5) and the rationale, as a records row citing the answer |
 | writes through `resolve_impulse` (`record_write`, `memoryNote_write`, any other write) | the pointer: the row or note and its content |
 | reads the substrate (`goal_status`, `goal_reasoning`, `execution_trace`, `registry_query`, `resolve_impulse`, `concept_sequence`, `concept_usage_stats`) | the ids or shape names it reads |
 

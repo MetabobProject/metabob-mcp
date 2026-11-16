@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { isAnswer, readRows, rootStatus } from './_records.js';
-import { roleWarning, writeAsk } from './run-goal-async.js';
+import { ASK_COST, roleWarning, writeAsk } from './run-goal-async.js';
 
 // @anchor run-goal-deadline
 /** The polling deadline: how long run_goal waits for an answer before handing back the dispatchId. */
@@ -45,7 +45,7 @@ export function runGoalPollDelayMs(n: number, baseMs = runGoalPollMs(), maxMs = 
 export const RunGoalTool = {
   name: 'run_goal',
   description:
-    "Ask the substrate's walk for something and wait up to ~290s for its first answer: writes the goal as an operator's ask (a records world_changed row), then reads the rows that cite it until an answer appears, and returns the ask's state as goal_status gives it. An ask closes only when a person grades an answer on the human surface or its deadline lapses, so it usually comes back open with an answer to read; keep reading it with goal_status. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so. Prefer run_goal_async when you do not need to wait.",
+    "Ask the substrate's walk for something and wait up to ~290s for its first answer: writes the goal as an operator's ask (a records world_changed row), then reads the rows that cite it until an answer appears, and returns the ask's state as goal_status gives it. An ask closes only when a person grades an answer on the human surface or its deadline lapses (which counts as failed), so each ask costs the USER a grade, and it usually comes back open with an answer to read; keep reading it with goal_status. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so. Prefer run_goal_async when you do not need to wait.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -76,7 +76,7 @@ export async function handle(
   const id = w.row.id;
   const pollHint = `Read on with: goal_status { "dispatch_id": "${id}" }`;
   const warning = roleWarning(w.row);
-  if (warning) return ['Ask recorded, not waited on.', `  dispatchId: ${id}`, warning].join('\n');
+  if (warning) return ['Ask recorded, not waited on.', `  dispatchId: ${id}`, warning, ASK_COST].join('\n');
 
   // @anchor run-goal-poll
   let answered = false;
@@ -100,6 +100,7 @@ export async function handle(
       ? 'Ask recorded and answered.'
       : `Ask recorded, with no answer by the ${runGoalDeadlineMs()}ms deadline (RUN_GOAL_TIMEOUT_MS); the walk keeps working it.`,
     `  dispatchId: ${id}`,
+    ASK_COST,
     ...(status.kind === 'ok' ? status.body.lines : [`  state:    could not be read: ${status.message}`]),
     `  duration:   ${Date.now() - start}ms`,
     '',
