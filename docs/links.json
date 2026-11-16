@@ -210,16 +210,16 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "0f9a454",
-        "why": "the substrate skill's goal-loop text changed; README names the goal tools only, with no behaviour that changed"
+        "at": "f5b1e69",
+        "why": "the skill's change (no queue, operator's note) is reflected in README's tool list; nothing else it says changed"
       },
       "docs/CONFORMANCE.md": {
-        "at": "256cc8e",
-        "why": "attachment.ts gained the 15-min owner re-check; CONFORMANCE states no re-check cadence"
+        "at": "f5b1e69",
+        "why": "run_goal still writes its ask once and polls under 60 s; the cost line changes no requirement"
       },
       "docs/DEPLOYING-AGENTS.md": {
-        "at": "11a84fa",
-        "why": "server-instructions' goals line changed; DEPLOYING-AGENTS quotes no goal-tool wording"
+        "at": "f5b1e69",
+        "why": "its verdicts are the ledger's finding_verdict, unchanged; no agent-task queue or vesselId role it states changed"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",
@@ -234,8 +234,8 @@
         "why": "§ 8 already says a walk's trace shows what it lacked; an empty missing list printing nothing changes nothing it states"
       },
       "docs/USER-GUIDE.md": {
-        "at": "ddd133f",
-        "why": "skill templates pass files to concept_create; the guide describes no concept fields"
+        "at": "f5b1e69",
+        "why": "no tool it names was retired; the default set is unchanged"
       },
       "lab/README.md": {
         "at": "e978c22",
