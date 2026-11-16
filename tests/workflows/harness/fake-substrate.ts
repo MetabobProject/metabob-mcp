@@ -23,9 +23,9 @@
  * discovery forwarded is recorded on the producer with `forwarded: true`.
  */
 
-export type Service = 'discovery' | 'identity' | 'goalHost' | 'activity' | 'records' | 'conceptDb' | 'devVessel';
+export type Service = 'discovery' | 'identity' | 'activity' | 'records' | 'conceptDb' | 'devVessel';
 
-const SERVICES: readonly Service[] = ['discovery', 'identity', 'goalHost', 'activity', 'records', 'conceptDb', 'devVessel'];
+const SERVICES: readonly Service[] = ['discovery', 'identity', 'activity', 'records', 'conceptDb', 'devVessel'];
 
 export interface RecordedRequest {
   service: Service;
@@ -88,7 +88,6 @@ export interface SubstrateState {
   registrations: unknown[];
   /** development-vessel's gap store, as `substrateGap` answers it. */
   gaps: Array<Record<string, any>>;
-  solicitationResponses: unknown[];
 }
 
 type Handler = (state: SubstrateState, req: OpRequest, fake: FakeSubstrate) => OpResult | Promise<OpResult>;
@@ -175,12 +174,6 @@ export const OPERATIONS: Record<string, Handler> = {
     return {
       body: { valid: true, org_id: fake.orgId, user_id: 'user_fake', key_id: 'key_fake', role: 'member' },
     };
-  },
-
-  // ── goal-host ─────────────────────────────────────────────────────────────
-  solicitationResponseWrite(s, req) {
-    s.solicitationResponses.push(req.body);
-    return { body: { resolved: true } };
   },
 
   // ── activity-api ──────────────────────────────────────────────────────────
@@ -295,7 +288,6 @@ export const OPERATIONS: Record<string, Handler> = {
 const RESOLVE_PATHS: Record<Service, string> = {
   discovery: '/resolve',
   identity: '/v1/impulses/resolve',
-  goalHost: '/resolve',
   activity: '/v2/impulses/resolve',
   records: '/v2/impulses/resolve',
   conceptDb: '/v2/impulses/resolve',
@@ -340,12 +332,6 @@ export const ROUTES: Route[] = [
 
   { service: 'identity', method: 'GET', path: '/health', operation: 'identityHealth' },
   { service: 'identity', method: 'POST', path: '/v1/auth/resolve', operation: 'authResolve' },
-
-  {
-    service: 'goalHost', method: 'POST', path: '/resolve', operation: {
-      solicitationResponse_write: { operation: 'solicitationResponseWrite' },
-    },
-  },
 
   {
     service: 'devVessel', method: 'POST', path: '/v2/impulses/resolve', operation: {
@@ -454,7 +440,6 @@ function emptyState(): SubstrateState {
     edges: [],
     registrations: [],
     gaps: [],
-    solicitationResponses: [],
   };
 }
 
@@ -465,7 +450,6 @@ export class FakeSubstrate {
   readonly requests: RecordedRequest[] = [];
   /** Which service owns (produces) each shape: discovery forwards it there, `vesselCapability` reports it. */
   readonly shapeOwners: Record<string, Service> = {
-    goal_execution: 'goalHost',
     conceptGraph: 'conceptDb',
     conceptSearch: 'conceptDb',
     concept_create_write: 'conceptDb',
@@ -473,7 +457,6 @@ export class FakeSubstrate {
     conceptUsage_write: 'conceptDb',
     record_write: 'records',
     record_read: 'records',
-    solicitationResponse_write: 'goalHost',
     substrateGap: 'devVessel',
   };
   /** The class identity marks the accepted key with (`operator`, `person`, …); unset → the flat answer, with none. */

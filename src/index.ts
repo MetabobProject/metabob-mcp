@@ -45,7 +45,6 @@ import {
 } from './vessel-server.js';
 import { resolveVesselId, VESSEL_BASE_NAME, VESSEL_VERSION } from './vessel-identity.js';
 import { setResolverIdentity } from './resolver-identity.js';
-import { reconcileUndelivered } from './agent-delivery.js';
 import { AuthService } from './auth-service.js';
 import { pickMonitoredHosts, probeHostFingerprint } from './cert-fingerprint.js';
 import { getLastTrustSummary } from './tls-trust.js';
@@ -492,9 +491,8 @@ async function main() {
     log('warn', 'HEALTH_PORT is in 8000–8999, which collides with substrate container ports', { port: HEALTH_PORT });
   }
 
-  // The stable coordination identity: keys the local agent-task queue and the
-  // authorship of recorded findings. It is never registered anywhere. It is
-  // derived once, from the workspace as first decided (SPEC §workspace), and
+  // The stable coordination identity: the author of recorded findings and
+  // verdicts. It is never registered anywhere. It is derived once, from the workspace as first decided (SPEC §workspace), and
   // kept for the life of the process: a later change of the client's roots moves
   // the repository and the store's scope, never the author, so a session's own
   // claims stay its own.
@@ -508,21 +506,6 @@ async function main() {
     setResolverIdentity({ vesselId });
     // The operator a write declares: this workspace's stable id unless MB_OPERATOR_ID names one.
     setWorkspaceOperator(vesselId);
-
-    // Resume: deliver any answers this workspace produced in a prior session
-    // that never reached the substrate (cross-session "provide info back").
-    // Keyed, so it waits for the org check and runs only once the key is proven.
-    if (vesselId && localStore && !notAttached && attachment) {
-      const store = localStore;
-      void attachment.settled()
-        .then((state) => (state.cause === null ? reconcileUndelivered(apiClient, store, vesselId) : null))
-        .then((r) => {
-          if (r && (r.delivered || r.abandoned || r.pending)) {
-            log('info', 'Reconciled prior-session resolutions', r);
-          }
-        })
-        .catch((err) => log('warn', 'Resolution reconcile failed (will retry next session)', { error: err }));
-    }
   } catch (error) {
     log('warn', 'Could not derive the coordination identity', { error });
   } };

@@ -287,10 +287,10 @@ test('get_analysis_context: handler returns non-empty string', async () => {
 
 // ===== Tool registry =====
 
-test('TOOL_REGISTRY contains all 30 tools', async () => {
+test('TOOL_REGISTRY contains all 28 tools, and none of the retired agent-task queue', async () => {
   const { TOOL_REGISTRY } = await import('../../src/tools/index');
   const names = Object.keys(TOOL_REGISTRY);
-  expect(names.length).toBe(30);
+  expect(names.length).toBe(28);
   const expected = [
     'init_workspace', 'get_problems', 'search_codebase', 'predict_cochanges',
     'analyze_impact', 'annotate_component', 'mark_complete', 'get_metrics',
@@ -299,11 +299,14 @@ test('TOOL_REGISTRY contains all 30 tools', async () => {
     'concept_sequence', 'concept_link', 'concept_create', 'concept_record_usage',
     'run_goal', 'run_goal_async', 'goal_status', 'goal_reasoning',
     'provide_feedback', 'registry_query', 'execution_trace', 'path_activity', 'resolve_impulse',
-    'pull_assigned_work', 'submit_resolution', 'claim_finding',
+    'claim_finding',
   ];
   for (const name of expected) {
     expect(names).toContain(name);
   }
+  // Their answers went to goal-host, which is retired; nothing dispatches to a client-only session.
+  expect(names).not.toContain('pull_assigned_work');
+  expect(names).not.toContain('submit_resolution');
 });
 
 // ===== run_goal / run_goal_async =====

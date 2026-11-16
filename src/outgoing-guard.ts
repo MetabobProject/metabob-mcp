@@ -66,14 +66,13 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
   provide_feedback: { rationale: { kind: 'prose', maxBytes: 8_192 } },
   run_goal: { goal: { kind: 'acted', maxBytes: 4_096 } },
   run_goal_async: { goal: { kind: 'acted', maxBytes: 4_096 } },
-  submit_resolution: { answer: { kind: 'prose', maxBytes: 16_384 } },
   resolve_impulse: { pointer: { kind: 'acted', maxBytes: 16_384 } },
 };
 
 /** Tools that send nothing to the substrate: their inputs stay on this machine. */
 export const LOCAL_TOOLS: ReadonlySet<string> = new Set([
   'init_workspace', 'analyze_impact', 'predict_cochanges', 'search_codebase', 'annotate_component',
-  'get_metrics', 'assign_git_changes', 'get_problems', 'get_analysis_context', 'pull_assigned_work',
+  'get_metrics', 'assign_git_changes', 'get_problems', 'get_analysis_context',
   // Its paths are matched locally; only the gap-store read leaves.
   'path_activity',
 ]);

@@ -195,7 +195,7 @@ All keys are optional.
 |-----|---------|
 | `metabob.apiKey` | API key (also accepted at `instance.apiKey`) |
 | `metabob.endpoint` | Substrate endpoint — a local one derives discovery (above) |
-| `metabob.vesselId` | Pins `VESSEL_ID` (the agent-task queue key and finding author) |
+| `metabob.vesselId` | Pins `VESSEL_ID` (the author of findings and verdicts) |
 | `metabob.discoveryEndpoint` | The anchor, explicitly: discovery-vessel's URL. Preferred over deriving it from `endpoint` |
 | `metabob.identityEndpoint` | Advanced: pin the identity endpoint, overriding the one `/bootstrap` advertises |
 
@@ -306,9 +306,8 @@ stdio (`src/index.ts`) and the loopback resolver (`src/vessel-server.ts@resolveI
 tool run when authenticated and otherwise returns the cause as one line (`isError: true`), for example
 `key_rejected: the substrate's identity (http://127.0.0.1:18101) rejected the API key (HTTP 401);
 substrate tools are unavailable; local tools still work.` The substrate half of the mixed tools
-(`get_problems`, `get_analysis_context`, `record_finding`, `mark_complete`) and answer delivery
-(`submit_resolution`) check the same attachment and report the cause in place of their concept-db or
-goal-host output; their local half runs regardless.
+(`get_problems`, `get_analysis_context`, `record_finding`, `mark_complete`) check the same attachment
+and report the cause in place of their concept-db output; their local half runs regardless.
 
 **The one ingress.** `resolve(pointer)` on the attachment (`src/attachment.ts@attachment-resolve`) is
 the path substrate tools take to the substrate: it posts `{ pointer }` to discovery `POST /resolve` with
@@ -661,7 +660,7 @@ what trust reads.
 Every string a substrate tool sends passes one guard before the tool runs, on stdio and on the
 loopback resolver alike (`src/outgoing-guard.ts@guard-tool-input`). The tools that send nothing
 (`init_workspace`, `analyze_impact`, `predict_cochanges`, `search_codebase`, `annotate_component`,
-`get_metrics`, `assign_git_changes`, `get_problems`, `get_analysis_context`, `pull_assigned_work`, and
+`get_metrics`, `assign_git_changes`, `get_problems`, `get_analysis_context`, and
 `path_activity`, whose paths are matched locally) are exempt; every other tool's string fields are guarded, nested strings included. A field's kind and size
 cap come from `src/outgoing-guard.ts@guarded-fields` (for example a finding's summary is prose with a
 2 KB cap, a goal is acted on with 4 KB); a field the table does not list is treated as acted on with a
@@ -1354,46 +1353,6 @@ Writes `conceptUsage_write { usageData: { concept_id, trace_id, outcome, activit
 
 ---
 
-## Agent-resolver tools
-
-A `human_input` impulse that reaches the loopback resolver (§ Impulse shapes) is durably enqueued
-for the agent, and these two tools drain and answer that queue. The session is a client of the
-substrate and advertises no shape, so the substrate has no inbound offer to dispatch a task to it
-(CONFORMANCE §c11-attachment-model): the queue fills only from a local caller of the resolver.
-`goal_reasoning` reads the substrate's walk; these two tools answer a solicitation.
-
-Tasks and answers persist in `~/.metabob/sidecar.db`,
-keyed by the vesselId — `VESSEL_ID`, else `metabob-mcp-<hash(apiKey+workspace)>`
-(`src/resolver-identity.ts@getResolverVesselId`). A later session in the same
-workspace with the same key derives the same id and resumes: it sees
-still-pending tasks and, at startup, re-delivers answers a prior session
-recorded but could not send (`src/agent-delivery.ts@reconcileUndelivered`).
-Loop: a solicitation is queued → `pull_assigned_work` → reason → `submit_resolution`.
-
-### pull_assigned_work
-
-Handler: `src/tools/pull-assigned-work.ts@handle`
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `limit` | number | `10` | Max tasks (max 100) |
-
-Expires tasks past their deadline, then lists pending and claimed tasks (oldest first) and marks each claimed by this session. Returns each `task_id`, its `dispatch_id`, the time left to respond, and the question. A claim records the session; it is not exclusive — a claimed task still lists on later pulls until it is resolved or expires. With nothing queued, it says that no task can arrive — the session advertises nothing, so the substrate has no inbound offer to dispatch to (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`) — rather than reporting an empty queue an agent would keep polling.
-
-### submit_resolution
-
-Handler: `src/tools/submit-resolution.ts@handle`
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `task_id` | string | **required** | A task from `pull_assigned_work` |
-| `outcome` | `answered\|declined\|insufficient_context` | **required** | The resolution |
-| `answer` | string | — | Required (non-blank) when `outcome` is `answered` |
-
-An unknown `task_id` is reported as such, adding that the substrate dispatches no task to this session. For a known task it records the answer durably first and marks the task resolved, then delivers it to goal-host as the `solicitationResponse_write` shape through the attachment (20 s cap; `src/agent-delivery.ts@deliverResolution`). goal-host's 404 means the solicitation timed out: the answer is marked delivered and never retried. Discovery having no producer for the shape (`no_producer`) is not terminal; through a spoke a peer goal-host's 404 also arrives as `no_producer`, so that answer stays queued and is re-sent each session. Any other failure leaves it queued for the next session's startup reconcile; nothing retries within a session.
-
----
-
 ## Typical agent workflow
 
 With `METABOB_TOOLS=all` (the default tool set has no `predict_cochanges`, `analyze_impact`, `annotate_component`,
@@ -1427,11 +1386,7 @@ goal or queue tools; `skills/metabob/SKILL.md` is its routine).
    → delegate to the substrate when it mounts the repo; read `reached` and `learning:`,
      check the walk, then record your verdict (an `automated` label)
 
-9. pull_assigned_work() / submit_resolution(task_id, outcome, answer)
-   → answer a decision queued on this machine; the substrate dispatches
-     nothing to a client-only session, so the queue is usually empty
-
-10. init_workspace(recently_changed_files=[...files changed since...])
+9. init_workspace(recently_changed_files=[...files changed since...])
    → parses files added since the last call; files already parsed are not re-read
 ```
 
@@ -1448,6 +1403,7 @@ The vessel accepts `POST /v2/impulses/resolve` from local callers: the server bi
 | `code:impact_analysis` | `analyze_impact` | `changed_files`, `diff`, `direction`, `max_depth`, `include_tests` |
 | `code:git_change_assignment` | `assign_git_changes` | `changed_files`, `diff`, `include_cochange_predictions`, `prediction_limit` |
 | `code:analysis_context` | `get_analysis_context` | `recently_changed_files`, `problem_limit`, `scope` |
-| `human_input` | queued, not resolved inline (`src/vessel-server.ts@QUEUED_SHAPES`) | `question_markdown` (required), `solicitation_id` or `id`, `timeout_ms` (default 300 000) — durably enqueued for `pull_assigned_work` / `submit_resolution`; the POST ACKs `{ accepted, solicitation_id, will_respond_via }` |
+
+Any other shape, `human_input` included, is refused as unknown: nothing is queued for the agent, since nothing is dispatched to a client-only session.
 
 Auth: `Authorization: ApiKey <key>` (a `Bearer <key>` or bare key is also accepted), matched against `METABOB_API_KEY` or the identity API key; with no key configured the endpoint fails closed with 401. Per-impulse errors return `loaded: false` inside an HTTP 200.

@@ -69,8 +69,8 @@ the vessel's own network namespace.
   explicit, advertised, or rehosted (C4) — the check runs against that address; selection only picks
   it. Until the check passes, every substrate tool passes one gate on both dispatch planes
   (`src/tools/index.ts@substrateToolRefusal`) and answers with the named cause in one line, the
-  substrate half of the mixed tools and answer delivery check the same attachment
-  (`src/tools/_findings.ts@conceptDbReachable`, `src/agent-delivery.ts@deliverResolution`), and the
+  substrate half of the mixed tools checks the same attachment
+  (`src/tools/_findings.ts@conceptDbReachable`), and the
   local tools work. Evidence: `tests/unit/attachment.test.ts` (a rehosted address that rejects the key
   → `key_rejected`, with the org check the only keyed call); `tests/workflows/w3-attachment.test.ts`
   (a foreign key: discovery sees only `GET /bootstrap`, identity only `/health` and the org check, and
@@ -258,8 +258,8 @@ bind registers, and the others run client-only. Rows are never per session.
 
 **Status: met.** No instance registers, so there is never more than one registrant, and no row is
 per session. `src/vessel-identity.ts@resolveVesselId` still derives one stable id from the key and
-the workspace; it keys the local agent-task queue and the authorship of recorded findings, and is
-never written to discovery.
+the workspace; it is the author of recorded findings and verdicts, and is never written to
+discovery.
 
 ## C11 — Attachment model
 
@@ -275,16 +275,15 @@ never written to discovery.
 
 **Status: partially met.**
 - Met — inbound: the vessel is client-only. It offers no shape and makes no registration under any
-  configuration (`src/index.ts@main`; `tests/workflows/w3-attachment.test.ts`), and
-  `pull_assigned_work` / `submit_resolution` say that the substrate dispatches nothing to it
-  (`src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER`).
+  configuration (`src/index.ts@main`; `tests/workflows/w3-attachment.test.ts`), and it keeps no queue
+  for dispatched work: its loopback resolver refuses `human_input` as an unknown shape
+  (`src/vessel-server.ts@resolvePointerToTool`).
 - Met — the attachment resolves a pointer through discovery `POST /resolve` and nothing else
   (`src/attachment.ts@attachment-resolve`), naming discovery's own failures and capping every request
   below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it, and
   the goal tools (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`,
   `execution_trace`) read and write records through it as `record_read` and `record_write`
-  (`src/tools/_records.ts@operator-gate`), and answer delivery reaches goal-host through it as
-  `solicitationResponse_write` (`src/agent-delivery.ts@deliverResolution`).
+  (`src/tools/_records.ts@operator-gate`).
 - Met — every call ends within 60 s: `run_goal` writes its ask once and polls with short
   `record_read` reads until its deadline (`src/tools/run-goal.ts@run-goal-poll`); no request is held
   open for a goal.

@@ -1,39 +1,25 @@
 /**
- * Resolver identity — the stable keys under which this process participates as
- * an agent-resolver, set once at boot and read at use time.
+ * Resolver identity — this process's vesselId, set once at boot and read at use
+ * time.
  *
- * The vesselId (metabob-mcp-<hash(apiKey+workspace)>) is the cross-session
- * partition key for the durable coordination store: a later session in the same
- * workspace+key re-derives the identical id and reattaches to prior tasks. The
- * operatorId is the task owner. Both are process-wide constants, so a tiny
- * module-level holder avoids threading them through the shared resolve handler.
+ * The vesselId (metabob-mcp-<hash(apiKey+workspace)>) is the author of the
+ * findings and verdicts this process writes: a later session in the same
+ * workspace+key re-derives the identical id. It is a process-wide constant, so a
+ * tiny module-level holder avoids threading it through every tool.
  */
 
-import { operatorId } from './operator-id.js';
-
-interface ResolverIdentity {
-  vesselId?: string;
-  /** An explicit owner set at boot; otherwise operatorId() at use time. */
-  operatorId?: string;
-}
-
-const identity: ResolverIdentity = { vesselId: undefined };
+const identity: { vesselId?: string } = { vesselId: undefined };
 
 /**
  * Set once from boot after the vesselId is resolved. A present `vesselId` key is
  * applied verbatim (including an explicit `undefined` to clear it, e.g. when no
  * key was configured); an absent key leaves the current value untouched.
  */
-export function setResolverIdentity(next: { vesselId?: string; operatorId?: string }): void {
+export function setResolverIdentity(next: { vesselId?: string }): void {
   if ('vesselId' in next) identity.vesselId = next.vesselId;
-  if (next.operatorId !== undefined) identity.operatorId = next.operatorId;
 }
 
-/** The cross-session partition key, or undefined when there is no key and no VESSEL_ID. */
+/** The author id, or undefined when there is no key and no VESSEL_ID. */
 export function getResolverVesselId(): string | undefined {
   return identity.vesselId;
-}
-
-export function getResolverOperatorId(): string {
-  return identity.operatorId ?? operatorId();
 }

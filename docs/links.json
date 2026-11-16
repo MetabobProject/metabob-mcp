@@ -33,7 +33,6 @@
     ],
     "covers": {
       "docs/SPEC.md": [
-        "src/agent-delivery.ts",
         "src/attach-check.ts",
         "src/attachment.ts",
         "src/auth-service.ts",
@@ -71,14 +70,12 @@
         "src/tools/_claims.ts",
         "src/tools/predict-cochanges.ts",
         "src/tools/provide-feedback.ts",
-        "src/tools/pull-assigned-work.ts",
         "src/tools/record-finding.ts",
         "src/tools/registry-query.ts",
         "src/tools/resolve-impulse.ts",
         "src/tools/run-goal-async.ts",
         "src/tools/run-goal.ts",
         "src/tools/search-codebase.ts",
-        "src/tools/submit-resolution.ts",
         "src/vessel-server.ts"
       ],
       "CLAUDE.md": [
@@ -115,8 +112,6 @@
         "src/auth-service.ts",
         "src/tools/run-goal.ts",
         "src/doctor.ts",
-        "src/tools/pull-assigned-work.ts",
-        "src/tools/submit-resolution.ts",
         "src/attachment.ts",
         "src/net.ts",
         "src/os-proxy.ts",
@@ -190,9 +185,7 @@
         "src/tools/annotate-component.ts",
         "src/tools/assign-git-changes.ts",
         "src/tools/concept-sequence.ts",
-        "src/tools/concept-usage-stats.ts",
-        "src/tools/pull-assigned-work.ts",
-        "src/tools/submit-resolution.ts"
+        "src/tools/concept-usage-stats.ts"
       ],
       "docs/PUBLISHING.md": [
         ".github/workflows/release.yml",
@@ -290,15 +283,6 @@
         ],
         "SPEC": [
           "tool-sets"
-        ]
-      },
-      "src/agent-delivery.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model",
-          "c3-identity"
-        ],
-        "SPEC": [
-          "submit_resolution"
         ]
       },
       "src/api-client.ts": {
@@ -681,14 +665,6 @@
           "provide_feedback"
         ]
       },
-      "src/tools/pull-assigned-work.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
-        "SPEC": [
-          "pull_assigned_work"
-        ]
-      },
       "src/tools/record-finding.ts": {
         "SPEC": [
           "record_finding",
@@ -730,14 +706,6 @@
           "search_codebase"
         ]
       },
-      "src/tools/submit-resolution.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
-        "SPEC": [
-          "submit_resolution"
-        ]
-      },
       "src/vessel-identity.ts": {
         "CONFORMANCE": [
           "c10-one-registrant-per-key-and-workspace",
@@ -768,11 +736,6 @@
       "tests/helpers/no-git.ts": {
         "SPEC": [
           "mark_complete"
-        ]
-      },
-      "tests/unit/agent-delivery.test.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
         ]
       },
       "tests/unit/agent-instructions.test.ts": {
@@ -1128,7 +1091,6 @@
       "docs/CONFORMANCE.md": [
         "docs/DOCLINKS.md",
         "docs/SPEC.md",
-        "src/agent-delivery.ts@deliverResolution",
         "src/attach-check.ts@attachCheck",
         "src/attachment.ts@AttachmentState",
         "src/attachment.ts@attach",
@@ -1161,13 +1123,13 @@
         "src/tools/_records.ts@operator-gate",
         "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/index.ts@substrateToolRefusal",
-        "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
         "src/tools/run-goal.ts@run-goal-poll",
         "src/vessel-identity.ts@SERVED_SHAPES",
         "src/vessel-identity.ts@resolveVesselId",
         "src/vessel-server.ts@VesselServer",
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
+        "src/vessel-server.ts@resolvePointerToTool",
         "tests/unit/attachment.test.ts",
         "tests/unit/net.test.ts",
         "tests/unit/substrate-tools-name-cause.test.ts",
@@ -1209,8 +1171,6 @@
         "lab/cell/entrypoint.sh",
         "scripts/ci/smoke-mcp.mjs",
         "scripts/ci/smoke-registry.mjs",
-        "src/agent-delivery.ts@deliverResolution",
-        "src/agent-delivery.ts@reconcileUndelivered",
         "src/attach-check.ts@attachCheck",
         "src/attached-marker.ts",
         "src/attachment.ts@AttachmentState",
@@ -1274,7 +1234,6 @@
         "src/repo-identity.ts@repo-aliases",
         "src/repo-identity.ts@repoIdentity",
         "src/repo-identity.ts@vesselAliases",
-        "src/resolver-identity.ts@getResolverVesselId",
         "src/server-instructions.ts@COCKPIT_TOOLS",
         "src/server-instructions.ts@DEFAULT_INSTRUCTIONS",
         "src/server-instructions.ts@FULL_INSTRUCTIONS",
@@ -1357,8 +1316,6 @@
         "src/tools/path-activity.ts@unplaced-gaps",
         "src/tools/predict-cochanges.ts@handle",
         "src/tools/provide-feedback.ts@handle",
-        "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
-        "src/tools/pull-assigned-work.ts@handle",
         "src/tools/record-finding.ts@handle",
         "src/tools/registry-query.ts@fetchShapeVocabulary",
         "src/tools/registry-query.ts@handle",
@@ -1369,9 +1326,7 @@
         "src/tools/run-goal.ts@run-goal-poll",
         "src/tools/run-goal.ts@runGoalPollDelayMs",
         "src/tools/search-codebase.ts@handle",
-        "src/tools/submit-resolution.ts@handle",
         "src/vessel-identity.ts@resolveVesselId",
-        "src/vessel-server.ts@QUEUED_SHAPES",
         "src/vessel-server.ts@health-attachment",
         "src/vessel-server.ts@loopback-bind",
         "src/vessel-server.ts@resolveImpulseContent",
@@ -1435,8 +1390,6 @@
     "anchors": {
       "scripts/doclinks.mjs@slug": "42eb2e2b8920",
       "scripts/doclinks.mjs@symbolRegions": "57ce027154cc",
-      "src/agent-delivery.ts@deliverResolution": "a2dcf977e189",
-      "src/agent-delivery.ts@reconcileUndelivered": "0075b6ea4be0",
       "src/attach-check.ts@attachCheck": "92725a3de110",
       "src/attachment.ts@AttachmentState": "932e31e10472",
       "src/attachment.ts@attach": "ba8daa75d093",
@@ -1501,7 +1454,6 @@
       "src/repo-identity.ts@repo-aliases": "8d64a30d9de1",
       "src/repo-identity.ts@repoIdentity": "79745a878960",
       "src/repo-identity.ts@vesselAliases": "835a5162d346",
-      "src/resolver-identity.ts@getResolverVesselId": "b2d84d581d74",
       "src/server-instructions.ts@COCKPIT_TOOLS": "20792e23fc25",
       "src/server-instructions.ts@DEFAULT_INSTRUCTIONS": "042b6b803ad8",
       "src/server-instructions.ts@FULL_INSTRUCTIONS": "b41ead278ce5",
@@ -1581,8 +1533,6 @@
       "src/tools/path-activity.ts@unplaced-gaps": "8d64a30d9de1",
       "src/tools/predict-cochanges.ts@handle": "4bdf740420c9",
       "src/tools/provide-feedback.ts@handle": "73fbe202d3b1",
-      "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER": "d379a2d71e1b",
-      "src/tools/pull-assigned-work.ts@handle": "4bdf740420c9",
       "src/tools/record-finding.ts@handle": "4bdf740420c9",
       "src/tools/registry-query.ts@fetchShapeVocabulary": "1e475956530a",
       "src/tools/registry-query.ts@handle": "1b0d833303dc",
@@ -1593,10 +1543,8 @@
       "src/tools/run-goal.ts@run-goal-poll": "032aa560ee12",
       "src/tools/run-goal.ts@runGoalPollDelayMs": "ab14d9401a7a",
       "src/tools/search-codebase.ts@handle": "4bdf740420c9",
-      "src/tools/submit-resolution.ts@handle": "4bdf740420c9",
       "src/vessel-identity.ts@SERVED_SHAPES": "0d7dddfff5e9",
       "src/vessel-identity.ts@resolveVesselId": "e0980371a921",
-      "src/vessel-server.ts@QUEUED_SHAPES": "6db48f2ed6c0",
       "src/vessel-server.ts@VesselServer": "52e392baadee",
       "src/vessel-server.ts@health-attachment": "b4b6670aa58e",
       "src/vessel-server.ts@loopback-bind": "ef89ff76c40c",

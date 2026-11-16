@@ -35,7 +35,6 @@ Beyond the eleven tools of the default set, `METABOB_TOOLS=all` lists the tools 
 | `run_goal_async`, `run_goal`, `goal_status`, `goal_reasoning`, `provide_feedback` | Handing a goal to the substrate, following it, reading why it reached or fell short, and recording a verdict | § 7 |
 | `execution_trace`, `registry_query`, `resolve_impulse` | Inspecting the substrate's runs and its advertised shapes, and resolving any shape by name | § 8 |
 | `concept_sequence`, `concept_usage_stats` | Concepts observed to follow one another in successful work; a concept's usage history | § 9 |
-| `pull_assigned_work`, `submit_resolution` | Questions queued on this machine for the agent, and its answers | § 9 |
 
 The skill for this set, `metabob-substrate`, brings the default set's routine (check before editing, record what
 you do not fix, close what you fixed) plus the substrate's roles: operator of goals, verifier of their outcome,
@@ -246,9 +245,8 @@ the brief's `finding_ids:` line.
 - **Two memory reads.** `concept_sequence` lists the concepts observed to follow (or precede) a concept in
   successful work; `concept_usage_stats` shows a concept's uses, its success and failure rates, and its recent
   usage.
-- **The agent-task queue.** A question a local program puts to the server's loopback resolver is queued on this
-  machine, and the agent answers it with `pull_assigned_work` and `submit_resolution`. The substrate itself
-  dispatches no work to a session: with the queue empty, `pull_assigned_work` says that no task can arrive.
+
+The substrate dispatches no work to a session, and the walk never waits on one.
 
 ## 10. What else leaves your machine
 
@@ -259,7 +257,6 @@ passes and the `client_claim` every write carries. Beyond your key, the tools `a
 |---|---|
 | dispatches a goal (`run_goal_async`, `run_goal`) | the goal text, the learning mode, and its tags (`operator:`, `session:`, and any the agent adds) |
 | gives a verdict on a goal (`provide_feedback`) | the verdict, rationale and confidence, with the operator and session in the notes |
-| answers a queued task (`submit_resolution`) | the answer text |
 | writes through `resolve_impulse` (`record_write`, `memoryNote_write`, any other write) | the pointer: the row or note and its content |
 | reads the substrate (`goal_status`, `goal_reasoning`, `execution_trace`, `registry_query`, `resolve_impulse`, `concept_sequence`, `concept_usage_stats`) | the ids or shape names it reads |
 

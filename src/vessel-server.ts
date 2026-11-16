@@ -10,9 +10,8 @@ import { isToolPermitted, parseToolAllowlist, toolSetKind } from './tool-allowli
 // The allowlist rule lives in a module that imports no tool, so any tool may ask it (SPEC §tool-sets).
 export { DEFAULT_TOOL_SET, __resetToolAllowlistForTests, isToolPermitted, parseToolAllowlist, toolAllowlistActive, toolSetKind, type ToolSetKind } from './tool-allowlist.js';
 import type { AuthService } from './auth-service.js';
-import type { LocalStore, AgentTaskRecord } from './local-store.js';
+import type { LocalStore } from './local-store.js';
 import { VESSEL_VERSION, VESSEL_BASE_NAME, SERVED_SHAPES } from './vessel-identity.js';
-import { getResolverVesselId, getResolverOperatorId } from './resolver-identity.js';
 import { unattachedMessage } from './config.js';
 import { getAttachment } from './attachment.js';
 import { proxySummary } from './net.js';
@@ -20,19 +19,6 @@ import { ZodError } from 'zod';
 import { guardToolInput } from './outgoing-guard.js';
 import { workspaceGateRefusal } from './local-index.js';
 import { logCall, withResult, type CallOutcome } from './call-log.js';
-
-/**
- * Shapes the substrate DISPATCHES TO the agent (solicited decisions) rather than
- * shapes the vessel resolves synchronously. An impulse of one of these is
- * durably enqueued for the agent to pull, and ACKed immediately (goal-host's
- * accept-then-callback contract). Kept out of resolvePointerToTool so the
- * synchronous "unknown shape → throw" invariant is untouched. SPEC §impulse-shapes.
- */
-export const QUEUED_SHAPES = new Set(['human_input']);
-
-export function isAgentTaskShape(shape?: string): boolean {
-  return !!shape && QUEUED_SHAPES.has(shape);
-}
 
 /** Names in a METABOB_TOOLS list that are no registered tool (a typo, or `all` mixed into a list). */
 export function unknownToolNames(raw: string | undefined = process.env['METABOB_TOOLS']): string[] {
@@ -49,56 +35,6 @@ export function toolNotEnabledMessage(name: string): string {
   return `Tool "${name}" is not enabled for this vessel (METABOB_TOOLS allowlist).`;
 }
 
-
-/**
- * Accept a dispatched agent task: durably enqueue it (keyed by the stable
- * vesselId so a later session resumes it) and return the synchronous ACK.
- * goal-host only checks the POST is 2xx and reads the answer later via
- * solicitationResponse_write, so the ACK content is informational. Throws on a
- * non-decision-ready payload or when coordination is unavailable, which surfaces
- * as a loaded:false result (still HTTP 200) — goal-host then times out and
- * proceeds to honest failure rather than parking on a task we never queued.
- */
-function acceptAgentTask(
-  pointer: Record<string, unknown>,
-  shape: string,
-  sessionId: string,
-  localStore?: LocalStore | null,
-): string {
-  const vesselId = getResolverVesselId();
-  if (!localStore || !vesselId) {
-    throw new Error('insufficient_context: agent-resolver coordination unavailable');
-  }
-  const question = typeof pointer['question_markdown'] === 'string' ? pointer['question_markdown'].trim() : '';
-  if (!question) {
-    throw new Error('insufficient_context: question_markdown is required and must be decision-ready');
-  }
-  const taskId = (typeof pointer['solicitation_id'] === 'string' && pointer['solicitation_id'])
-    || (typeof pointer['id'] === 'string' && pointer['id'])
-    || crypto.randomUUID();
-  const timeoutMs = typeof pointer['timeout_ms'] === 'number' && pointer['timeout_ms'] > 0
-    ? pointer['timeout_ms'] : 300_000;
-  const rec: AgentTaskRecord = {
-    task_id: taskId,
-    vessel_id: vesselId,
-    operator_id: getResolverOperatorId(),
-    session_id: sessionId,
-    shape,
-    dispatch_id: typeof pointer['dispatch_id'] === 'string' ? pointer['dispatch_id'] : null,
-    question_markdown: question,
-    respond_via_json: JSON.stringify(pointer['respond_via'] ?? { shape: 'solicitationResponse_write' }),
-    deadline_ms: Date.now() + timeoutMs,
-    status: 'pending',
-    enqueued_at: Date.now(),
-    claimed_at: null,
-  };
-  localStore.enqueueAgentTask(rec);
-  return JSON.stringify({
-    accepted: true,
-    solicitation_id: taskId,
-    will_respond_via: 'solicitationResponse_write',
-  });
-}
 
 export interface VesselServerConfig {
   port: number;
@@ -284,8 +220,7 @@ export class VesselServer {
         return c.json({ error: 'Invalid JSON body' }, 400);
       }
 
-      // Accept either the batch envelope {impulses:[{pointer}]} or the single
-      // {type, pointer} envelope goal-host uses for solicitations (human_input).
+      // Accept either the batch envelope {impulses:[{pointer}]} or a single {type, pointer} envelope.
       const impulses: unknown[] = Array.isArray(body.impulses)
         ? body.impulses
         : body.pointer
@@ -346,13 +281,6 @@ export async function resolveImpulseContent(
   sessionId: string,
   localStore?: LocalStore | null,
 ): Promise<{ toolName: string; content: unknown }> {
-  // Agent-task shapes (e.g. human_input) are DISPATCHED to the agent: enqueue
-  // durably + ACK, instead of resolving synchronously.
-  const shape = typeof pointer['type'] === 'string' ? (pointer['type'] as string) : undefined;
-  if (isAgentTaskShape(shape)) {
-    return { toolName: shape!, content: acceptAgentTask(pointer, shape!, sessionId, localStore) };
-  }
-
   const { toolName, toolInput } = resolvePointerToTool(pointer);
   // The call log covers this path too, marked as the loopback's (SPEC §call-log).
   const started = Date.now();
@@ -404,8 +332,7 @@ export async function resolveImpulseContent(
 
 /**
  * Map an impulse pointer to a tool name and input. The shape → tool table and
- * the pointer fields each shape forwards are SPEC §impulse-shapes; queued
- * shapes (QUEUED_SHAPES) never reach this function.
+ * the pointer fields each shape forwards are SPEC §impulse-shapes.
  */
 function resolvePointerToTool(pointer: Record<string, unknown>): {
   toolName: string;

@@ -117,14 +117,17 @@ describe('workspace scoping (audit finding 8)', () => {
     expect(store.getAllCachedSeeds().map(s => s.id)).toEqual([mine]);
   });
 
-  test('init drops a file-index and send-queue table, so no queued workspace paths stay on disk', () => {
+  test('init drops a file-index, send-queue and agent-task-queue table, so no queued workspace paths or questions stay on disk', () => {
     const { store, dbPath } = makeTempStore('mcp-ws-drop-');
     store.close();
     const { Database } = require('bun:sqlite') as typeof import('bun:sqlite');
     const raw = new Database(dbPath);
     raw.exec(`CREATE TABLE schedule_queue (id TEXT PRIMARY KEY, file_path TEXT);
               INSERT INTO schedule_queue VALUES ('q1', '/work/src/secret.ts');
-              CREATE TABLE files (path TEXT, workspace_id TEXT);`);
+              CREATE TABLE files (path TEXT, workspace_id TEXT);
+              CREATE TABLE agent_tasks (task_id TEXT, question_markdown TEXT);
+              INSERT INTO agent_tasks VALUES ('t1', '## Ship it?');
+              CREATE TABLE agent_resolutions (task_id TEXT, answer TEXT);`);
     raw.close();
 
     const reopened = trackStore(new LocalStore(dbPath));
@@ -137,6 +140,8 @@ describe('workspace scoping (audit finding 8)', () => {
     check.close();
     expect(tables).not.toContain('schedule_queue');
     expect(tables).not.toContain('files');
+    expect(tables).not.toContain('agent_tasks');
+    expect(tables).not.toContain('agent_resolutions');
     expect(tables).toContain('seeds');
   });
 

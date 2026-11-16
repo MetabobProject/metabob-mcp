@@ -133,19 +133,15 @@ describe('W4 skill contract', () => {
   });
 
   test('what this session does not do — nothing is dispatched to a client-only session', async () => {
-    const step = stepMentioning(SKILL, '`pull_assigned_work`');
+    const step = stepMentioning(SKILL, 'receives no assigned work');
     expect(step).toContain('advertises nothing');
-    expect(step).not.toContain('METABOB_AGENT_RESOLVER');
-
-    // Nothing can ever be dispatched here, so the tool says why instead of
-    // reporting an empty queue an agent would keep polling.
-    const pulled = await server.text('pull_assigned_work');
-    expect(pulled).toContain('none can arrive');
-    expect(pulled).not.toContain('METABOB_AGENT_RESOLVER');
-
-    const submitted = await server.text('submit_resolution', { task_id: 'no-such-task', outcome: 'declined' });
-    expect(submitted).toContain('advertises nothing to the substrate');
-    expect(submitted).not.toContain('METABOB_AGENT_RESOLVER');
+    expect(step).toContain('the walk never\n  waits on it');
+    // No tool offers a queue an agent would keep polling.
+    expect(SKILL).not.toContain('pull_assigned_work');
+    expect(SKILL).not.toContain('submit_resolution');
+    const listed = (await server.listTools()).map((t) => t.name);
+    expect(listed).not.toContain('pull_assigned_work');
+    expect(listed).not.toContain('submit_resolution');
   });
 
   test('start of session — index the workspace', async () => {

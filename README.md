@@ -65,15 +65,15 @@ them, and [the user guide](docs/USER-GUIDE.md) covers them.
 **Every tool.** `METABOB_TOOLS=all` in the server's environment lists the rest as well: the local code tools
 (`search_codebase`, `predict_cochanges`, `analyze_impact`, `annotate_component`, `get_metrics`,
 `assign_git_changes`), the operator's cockpit (`path_activity`, `run_goal`, `run_goal_async`, `goal_status`,
-`goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`), two memory reads
-(`concept_sequence`, `concept_usage_stats`) and the agent-task queue (`pull_assigned_work`, `submit_resolution`).
+`goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`), and two memory reads
+(`concept_sequence`, `concept_usage_stats`).
 A comma-separated list lists exactly those tools. The `metabob-substrate` skill is written for `all`, and
 [docs/SUBSTRATE-GUIDE.md](docs/SUBSTRATE-GUIDE.md) covers it; [docs/SPEC.md](docs/SPEC.md) gives every tool's
 parameters.
 
 **Local-tier** tools run entirely in-process via the vendored CPG implementation in `vendor/cpg-inference` (Tree-sitter parse → code property graph), git history and the local store, and make no network calls (`analyze_impact` and `assign_git_changes` also show `path_activity`'s cached gaps when attached). The CPG-backed ones require `init_workspace` to have run first; `predict_cochanges` reads git history and needs no index.
 
-**Substrate-tier** tools (`record_finding`, `claim_finding`, `concept_*` (incl. `concept_record_usage`), `path_activity`, `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`, `pull_assigned_work`, `submit_resolution`) need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
+**Substrate-tier** tools (`record_finding`, `claim_finding`, `concept_*` (incl. `concept_record_usage`), `path_activity`, `run_goal` / `run_goal_async`, `goal_status`, `goal_reasoning`, `provide_feedback`, `registry_query`, `execution_trace`, `resolve_impulse`) need the attachment — an API key and an endpoint, from the environment or a config file (§ Configuration) — and reach the substrate through one ingress: each operation is a shape resolved through discovery's `POST /resolve`, which forwards it to the shape's producer. The server is a client of the substrate: it makes no discovery registration, runs no overlay node, and serves its HTTP resolver on `127.0.0.1` only. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Configuration
 

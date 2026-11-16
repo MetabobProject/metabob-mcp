@@ -12,9 +12,8 @@
  *     handlers, so the HTTP resolver — which dispatches through
  *     resolveImpulseContent — accepted any tool in the registry. Old code: resolved and returned the tool's content.
  *
- * The keyed-mode and human_input cases pass before AND after; they are here so a
- * later "simplification" cannot over-tighten the gate into breaking real callers
- * or into gating dispatched-to-agent coordination.
+ * The keyed-mode cases pass before AND after; they are here so a later
+ * "simplification" cannot over-tighten the gate into breaking real callers.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 
@@ -27,7 +26,6 @@ import {
 } from '../../src/vessel-server';
 import { DEFAULT_TOOL_SET } from '../../src/tools/index';
 import { CircuitState } from '../../src/circuit-breaker';
-import { setResolverIdentity } from '../../src/resolver-identity';
 import { cleanupTempStores, makeTempStore } from '../helpers/temp-store';
 
 const ENV_KEY = 'METABOB_TOOLS';
@@ -177,20 +175,19 @@ describe('allowlist enforcement on the resolve plane (finding D)', () => {
     expect(message).not.toMatch(/METABOB_TOOLS allowlist/);
   });
 
-  test('human_input stays exempt — it is dispatched-to-agent work, not a registry tool', async () => {
-    setAllowlist('record_finding');
+  test('human_input is no shape the resolver serves: refused as unknown, and nothing is queued', async () => {
     const { store } = makeTempStore('mcp-allowlist-');
-    setResolverIdentity({ vesselId: 'metabob-mcp-test', operatorId: 'op' });
-
-    const { toolName, content } = await resolveImpulseContent(
-      { type: 'human_input', solicitation_id: 'sid-7', question_markdown: '## Ship it?' },
-      {} as any,
-      'sess',
-      store,
-    );
-
-    expect(toolName).toBe('human_input');
-    expect(JSON.parse(content as string).accepted).toBe(true);
-    expect(store.listPendingAgentTasks('metabob-mcp-test').length).toBe(1);
+    let message = '';
+    try {
+      await resolveImpulseContent(
+        { type: 'human_input', solicitation_id: 'sid-7', question_markdown: '## Ship it?' },
+        {} as any,
+        'sess',
+        store,
+      );
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toMatch(/^Unknown impulse shape: human_input\./);
   });
 });

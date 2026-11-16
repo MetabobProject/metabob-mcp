@@ -66,7 +66,7 @@ mark_complete         # endorse the fix, or discard a false positive
 init_workspace        # parse files added since the last call
 ```
 
-Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, `provide_feedback` for an operator's note on a goal's answer, and `submit_resolution` for a task queued on this machine (the substrate dispatches nothing to a client-only session). See [SPEC.md](SPEC.md).
+Every read has a write half: `record_finding` + `mark_complete` for findings, `concept_create` / `concept_link` / `concept_record_usage` for design memory and relevance, and `provide_feedback` for an operator's note on a goal's answer. See [SPEC.md](SPEC.md).
 
 ## Common issues
 

@@ -196,8 +196,8 @@ The substrate develops itself on the same code, so share it the way a careful co
 ## What this session does not do
 
 - **It receives no assigned work.** The session is a client of the substrate and
-  advertises nothing, so the substrate dispatches no tasks to it; `pull_assigned_work`
-  says so, and `submit_resolution` answers only a task already in the local queue.
+  advertises nothing, so the substrate dispatches no tasks to it, and the walk never
+  waits on it.
 - **It does not feed running walks or author traces.** Your work reaches the
   substrate's grading through the goals you dispatch, the ledger you close and the
   concepts you credit. `resolve_impulse` is an advanced escape hatch for reading what no

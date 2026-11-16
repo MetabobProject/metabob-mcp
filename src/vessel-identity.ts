@@ -68,9 +68,8 @@ export interface VesselIdInputs {
 }
 
 /**
- * Resolve this instance's vesselId: the key of its local agent-task queue and
- * the `recorded_by` / `reviewed_by` author of the findings and verdicts it
- * writes. It is never registered with discovery. CONFORMANCE §c10-one-registrant-per-key-and-workspace
+ * Resolve this instance's vesselId: the `recorded_by` / `reviewed_by` author of
+ * the findings and verdicts it writes. It is never registered with discovery. CONFORMANCE §c10-one-registrant-per-key-and-workspace
  *
  * With only the key an instance still gets a STABLE, UNIQUE id, so multiple
  * concurrent instances disambiguate without a third required input:
