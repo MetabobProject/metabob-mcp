@@ -60,9 +60,17 @@ export async function operatorGate(tool: string): Promise<string | null> {
 }
 
 /** The failure records answered, as one line. */
+/** records' own refusal (`{ failure: { status, body } }`): its reason, or undefined when records did not answer. */
+function recordsSaid(body: unknown): string | undefined {
+  const f = (body as { failure?: { body?: unknown } } | undefined)?.failure;
+  return f && typeof f.body === 'string' && f.body ? f.body : undefined;
+}
+
+/** A failure line: records' reason, else discovery's own `error` and `detail` as given, else the body. */
 function failureLine(shape: string, status: number, body: unknown): string {
-  const f = (body as { failure?: { status?: unknown; body?: unknown } } | undefined)?.failure;
-  const said = f && typeof f.body === 'string' && f.body ? f.body : JSON.stringify(body ?? null).slice(0, 200);
+  const d = (body ?? {}) as { error?: unknown; detail?: unknown };
+  const said = recordsSaid(body)
+    ?? (typeof d.error === 'string' ? `${d.error}${typeof d.detail === 'string' && d.detail ? `: ${d.detail}` : ''}` : JSON.stringify(body ?? null).slice(0, 200));
   return `${shape} answered ${status}: ${said}`;
 }
 
@@ -108,10 +116,11 @@ export async function recordWrite(row: Record<string, unknown>): Promise<Written
   }
   const body = res.body as Row | { failure?: { body?: unknown } } | undefined;
   if (res.status === 200 && body && typeof (body as Row).id === 'string') return { kind: 'ok', row: body as Row };
-  const said = String((body as { failure?: { body?: unknown } } | undefined)?.failure?.body ?? '');
   // The cockpit writes only world_changed and outcome rows, under an operator's key: records refuses those with 403 only
-  // when they were forwarded from another node (crossNode), so the status says it; records' reason is quoted as given.
-  if (res.status === 403) {
+  // when they were forwarded from another node (crossNode), and records' reason is quoted as given. A 403 records did
+  // not give (discovery's own, such as caller_lacks_write_scope) is quoted as discovery gave it.
+  const said = recordsSaid(body);
+  if (res.status === 403 && said !== undefined) {
     return {
       kind: 'error',
       message: `this cockpit is attached to a node that doesn't hold the walk's records; attach to the walk's node (records: ${said})`,

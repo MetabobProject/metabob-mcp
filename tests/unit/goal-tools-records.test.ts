@@ -159,6 +159,15 @@ describe('run_goal_async / run_goal', () => {
     });
   }
 
+  test("discovery's own 403 is quoted as discovery gave it, never read as records' cross-node refusal", async () => {
+    await installShapeStub(records({
+      write: () => ({ status: 403, body: { error: 'caller_lacks_write_scope', shape: 'record_write', detail: 'the key may not write' } }),
+    }), { ownerKind: 'operator' });
+    const out = await runGoalAsync({ goal: 'x' }, apiClient);
+    expect(out).not.toContain("attach to the walk's node");
+    expect(out).toContain('record_write answered 403: caller_lacks_write_scope: the key may not write');
+  });
+
   test('run_goal reads the rows citing the ask until an answer appears, then gives its state', async () => {
     let reads = 0;
     const handlers = records({ calls: CALLS.map((c) => ({ ...c, open: true })) });
