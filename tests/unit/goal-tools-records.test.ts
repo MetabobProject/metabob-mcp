@@ -11,7 +11,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { setAttachment } from '../../src/attachment';
+import { OWNER_RECHECK_MS, setAttachment } from '../../src/attachment';
 import { handle as runGoal } from '../../src/tools/run-goal';
 import { handle as runGoalAsync } from '../../src/tools/run-goal-async';
 import { handle as goalStatus } from '../../src/tools/goal-status';
@@ -111,6 +111,21 @@ describe('the operator gate: nothing is read or written under a key identity doe
     kind = 'operator';
     expect(await runGoalAsync({ goal: 'x' }, apiClient)).toContain('Ask recorded.');
     expect(stub.calls('record_write')).toHaveLength(1);
+  });
+
+  test('by default the mark is re-checked at most every 15 min, and the reply says so', async () => {
+    let kind: string | undefined;
+    let checks = 0;
+    const stub = await installShapeStub(records(), { ownerKind: () => (checks++, kind) });
+    const first = await runGoalAsync({ goal: 'x' }, apiClient);
+    expect(first).toContain('re-checked at most every 15 min');
+    const after = checks;
+    kind = 'operator';
+    // Within 15 min of the last check no org check runs: the earlier answer stands and nothing is sent.
+    expect(await runGoalAsync({ goal: 'x' }, apiClient)).toContain(WAITING_ON_SIGN_IN);
+    expect(checks).toBe(after);
+    expect(OWNER_RECHECK_MS).toBe(15 * 60_000);
+    expect(stub.pointers).toEqual([]);
   });
 });
 

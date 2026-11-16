@@ -20,7 +20,7 @@
  *     `{ head: true }` answers `{ at_seq }`.
  */
 
-import { RESOLVE_TIMEOUT_MS, attachedOwnerKind, describeResolveFailure, resolveShape, substrateRefusal } from '../attachment.js';
+import { OWNER_RECHECK_MS, RESOLVE_TIMEOUT_MS, attachedOwnerKind, describeResolveFailure, resolveShape, substrateRefusal } from '../attachment.js';
 
 /** The class identity gives the key records takes the cockpit's asks and reads from. */
 export const OPERATOR = 'operator';
@@ -56,7 +56,7 @@ export async function operatorGate(tool: string): Promise<string | null> {
   if (refused) return `${tool}: ${refused}`;
   const kind = await attachedOwnerKind(OPERATOR);
   if (kind === OPERATOR) return null;
-  return `${tool}: ${WAITING_ON_SIGN_IN}. Identity marks this server's key ${kind ? `as ${kind}` : 'as nothing'}, not operator, so nothing was sent to records.`;
+  return `${tool}: ${WAITING_ON_SIGN_IN}. Identity marks this server's key ${kind ? `as ${kind}` : 'as nothing'}, not operator, so nothing was sent to records; the mark is re-checked at most every ${OWNER_RECHECK_MS / 60_000} min.`;
 }
 
 /** The failure records answered, as one line. */

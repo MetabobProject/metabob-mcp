@@ -12,6 +12,7 @@ import {
   FOREIGN_KEY, SERVER_NAME, buildPluginDir, check, idsIn, labEnv, makeWorkspace, metabobCalls, runSession, skipped,
   tempDir, type Check, type Target, type Transcript,
 } from './harness';
+import { seedWalk } from '../workflows/harness/records-walk';
 
 export interface Ctx {
   target: Target;
@@ -343,22 +344,18 @@ const GOAL = 'edit repos/demo-vessel/src/greet.ts: make greet() return "hello, w
 
 async function s4(ctx: Ctx): Promise<ScenarioResult> {
   const fake = ctx.target.fake;
+  let answerId: string | undefined;
   if (fake) {
-    // An operator's key; the walk answers an ask at once, with one move and an answer citing it.
+    // An operator's key; the walk answers an ask at once, with installed records' own rows (harness/records-walk.ts).
     fake.ownerKind = 'operator';
     fake.onRecordWrite = (row) => {
-      if (row.shape !== 'world_changed') return;
-      const s = fake.state;
-      s.openRoots.add(row.id);
-      const at = () => ({ seq: s.rows.length + 1, t: new Date().toISOString(), writer: 'walk-fake' });
-      s.rows.push({ ...at(), id: `row_sel_${row.id}`, shape: 'selection', role: 'walk', input_refs: [row.id], root: row.id, a: 'call/feature_compose', cands: [{ id: 'call/feature_compose', kind: 'call' }], posts: [{ alpha: 4, beta: 1, from: 'cell' }] });
-      s.rows.push({ ...at(), id: `row_ans_${row.id}`, shape: 'answer', role: 'described', input_refs: [row.id], selection_ref: `row_sel_${row.id}`, text: 'landed commit 1a2b3c4: greet() returns "hello, world"; typecheck passed' });
+      if (row.shape === 'world_changed') answerId = String(seedWalk(fake.state, row.id).answer.id);
     };
   }
   const m = mark(ctx);
   const t = await runSession({
     label: 'S4',
-    prompt: `Dispatch this goal on the substrate asynchronously: "${GOAL}". Track it until it has an answer, decide whether the answer does what was asked and why, and leave your note on it as feedback.`,
+    prompt: `Dispatch this goal on the substrate asynchronously: "${GOAL}". Track it until it has an answer or is closed, decide whether the answer does what was asked and why, and leave your note on it as feedback.`,
     workspace: workspace('goal-ws'),
     pluginDir: plugin(ctx, 'S4'),
     maxTurns: ctx.target.fake ? 14 : 10,
@@ -385,10 +382,11 @@ async function s4(ctx: Ctx): Promise<ScenarioResult> {
     ...(isFake(ctx)
       ? [
         check('run_goal_async returns a dispatch id', !!dispatchId, dispatch?.result?.slice(0, 160) ?? 'not called'),
-        check('goal_status read until the ask has an answer', /answer row_ans_/.test(lastPoll), `${polls.length} read(s); last: ${lastPoll.split('\n').slice(0, 3).join(' / ')}`),
+        check('goal_status read until the ask has an answer', !!answerId && lastPoll.includes(`answer ${answerId}`), `${polls.length} read(s); last: ${lastPoll.split('\n').slice(0, 3).join(' / ')}`),
         check("provide_feedback on that ask, without error, says it is not a verdict", feedback.length > 0 && feedback.every((c) => !c.isError && /not a verdict/.test(c.result ?? '')),
           feedback.map((c) => `${c.input?.verdict}: ${c.result?.replace(/\s+/g, ' ').slice(0, 140)}`).join(' | ') || 'not called'),
-        check('the agent notes the answer reached', feedback.some((c) => c.input?.verdict === 'reached'), feedback.map((c) => c.input?.verdict).join(', ')),
+        // The fixture's answer is placeholder text, closed by a counted lapse: no evidence the goal was reached.
+        check('the agent does not note the answer reached', feedback.every((c) => c.input?.verdict !== 'reached'), feedback.map((c) => c.input?.verdict).join(', ')),
       ]
       : [
         // The lab's key is not an operator's: every goal tool waits on the cockpit's own sign-in.
@@ -400,9 +398,9 @@ async function s4(ctx: Ctx): Promise<ScenarioResult> {
       return [ask?.shape === 'world_changed' && ask.what === GOAL && ask.role === 'operator', JSON.stringify(ask && { shape: ask.shape, role: ask.role })];
     }),
     substrate(ctx, "substrate: one operator's outcome row on the answer, and no other write", () => {
-      const notes = ctx.target.fake!.state.rows.filter((r) => r.shape === 'outcome');
+      const notes = ctx.target.fake!.state.rows.filter((r) => r.shape === 'outcome' && r.role === 'operator');
       const writes = reqs.filter((r) => r.operation === 'recordWrite');
-      return [notes.length === 1 && notes[0]!.role === 'operator' && notes[0]!.input_refs[0] === `row_ans_${dispatchId}` && writes.length === 2,
+      return [notes.length === 1 && notes[0]!.role === 'operator' && notes[0]!.input_refs[0] === answerId && writes.length === 2,
         `${JSON.stringify(notes.map((n) => ({ r: n.r, role: n.role, refs: n.input_refs })))}; record_write ×${writes.length}`];
     }),
   ];

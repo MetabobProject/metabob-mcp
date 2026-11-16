@@ -1,7 +1,8 @@
 /**
  * W1 — the operator loop over records (SPEC §substrate-goal-tools), through the
  * server's stdio and the fake substrate's discovery: ask, read the state, read the
- * moves and calls, leave a note.
+ * moves and calls, leave a note. The walk's rows are installed records' own read answers
+ * (tests/fixtures/records-rows.json, through harness/records-walk.ts).
  *
  *   - Under a key identity does not mark `operator` (the shared key), every goal
  *     tool answers that it waits on the cockpit's own sign-in, and no records
@@ -12,7 +13,8 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test, setDefaultTimeout } from 'bun:test';
-import { FakeSubstrate, type RecordRow } from './harness/fake-substrate';
+import { FakeSubstrate } from './harness/fake-substrate';
+import { seedWalk } from './harness/records-walk';
 import { McpServer, cleanupTempDirs, makeWorkspace } from './harness/mcp-client';
 
 // Each server boot is a process spawn; slow CI runners need more than the 5 s default.
@@ -29,13 +31,6 @@ afterAll(async () => {
   await fake?.stop();
   cleanupTempDirs();
 }, BOOT_TIMEOUT_MS);
-
-/** A row the walk wrote, as records stores it. */
-function walkRow(row: Record<string, unknown>, role = 'described'): RecordRow {
-  const r = { input_refs: [], ...row, seq: fake.state.rows.length + 1, t: new Date().toISOString(), writer: 'walk-fake', role, id: `row_walk_${fake.state.rows.length + 1}` } as RecordRow;
-  fake.state.rows.push(r);
-  return r;
-}
 
 describe('W1 operator loop: the shared key', () => {
   beforeAll(async () => {
@@ -69,36 +64,35 @@ describe("W1 operator loop: an operator's key", () => {
   }, BOOT_TIMEOUT_MS);
   beforeEach(() => fake.resetState());
 
-  test('ask → open with an answer → moves and calls → an operator\'s note that is no verdict', async () => {
+  test('ask → its state, answer and deadline → moves and calls → an operator\'s note that is no verdict', async () => {
     const asked = await server.text('run_goal_async', { goal: 'edit repos/x/src/a.ts: rename foo' });
     const id = /dispatchId:\s*(\S+)/.exec(asked)?.[1];
     expect(id, asked).toBeDefined();
     const ask = fake.state.rows.find((r) => r.id === id)!;
     expect(ask).toMatchObject({ shape: 'world_changed', what: 'edit repos/x/src/a.ts: rename foo', role: 'operator' });
-    fake.state.openRoots.add(id!);
 
-    // The walk works it: a move, a call, an answer and its deadline.
-    const sel = walkRow({ shape: 'selection', root: id, a: 'call/git_commit', cell: 'call/git_commit|ctx', cands: [{ id: 'call/git_commit', kind: 'call' }], posts: [{ alpha: 2, beta: 3, from: 'cell' }], pool_refs: [id] }, 'walk');
-    walkRow({ shape: 'hop', call_id: 'c1', phase: 'started', kind: 'call', pointer_type: 'git_commit', selection_ref: sel.id, input_refs: [sel.id] }, 'walk');
-    walkRow({ shape: 'hop', call_id: 'c1', phase: 'ended', kind: 'call', output: { sha: 'abc' }, selection_ref: sel.id, input_refs: [sel.id] }, 'walk');
-    const answer = walkRow({ shape: 'answer', text: 'renamed foo', selection_ref: sel.id, input_refs: [id!] });
-    walkRow({ shape: 'due', within_ms: 86_400_000, at: Date.parse('2026-12-01T00:00:00.000Z'), selection_ref: sel.id, input_refs: [id!] });
+    // The walk's rows on it, from installed records' own read answers.
+    const walk = seedWalk(fake.state, id!);
 
     const status = await server.text('goal_status', { dispatch_id: id! });
-    expect(status).toContain('state:    open');
-    expect(status).toContain('due:      2026-12-01T00:00:00.000Z (as stored)');
-    expect(status).toContain(`answer ${answer.id}`);
+    // The walk's counted r 0 on its deadline row: records' lapse, read as records gives it.
+    expect(status).toContain(`state:    closed: failed (a counted lapse on its deadline ${walk.due.id})`);
+    expect(status).toContain(`due:      ${new Date(Number(walk.due.at)).toISOString()} (as stored)`);
+    expect(status).toContain(`answer ${walk.answer.id}`);
 
     const reasoning = await server.text('goal_reasoning', { dispatch_id: id! });
-    expect(reasoning).toContain('chose call/git_commit');
-    expect(reasoning).toContain('call/git_commit  α 2 β 3 (cell)');
-    expect(reasoning).toContain('git_commit ended  call_id c1');
+    expect(reasoning).toContain(`chose ${walk.selection.a}`);
+    expect(reasoning).toContain(`from ${(walk.selection.cands as unknown[]).length} candidates`);
+    for (const c of walk.calls) expect(reasoning).toContain(`${c.type} ${c.state}  call_id ${c.call_id}`);
 
-    expect(await server.text('execution_trace', { execution_id: 'c1' })).toContain('output: {"sha":"abc"}');
+    const call = await server.text('execution_trace', { execution_id: String(walk.readCall.call_id) });
+    expect(call).toContain(`ask:    ${id} (closed)`);
+    expect(call).toContain(`"id":"${(walk.readCall.output as { id: string }).id}"`);
+    expect(await server.text('execution_trace', {})).toContain(`ask ${id}  chose ${walk.selection.a}`);
 
     const note = await server.text('provide_feedback', { dispatch_id: id!, verdict: 'reached', rationale: 'diff does what was asked' });
-    expect(note).toContain("It is not a verdict: it closes nothing and moves no posterior.");
-    expect(fake.state.rows.at(-1)).toMatchObject({ shape: 'outcome', r: 1, why: 'diff does what was asked', input_refs: [answer.id], role: 'operator' });
+    expect(note).toContain('It is not a verdict: it closes nothing and moves no posterior.');
+    expect(fake.state.rows.at(-1)).toMatchObject({ shape: 'outcome', r: 1, why: 'diff does what was asked', input_refs: [walk.answer.id], role: 'operator' });
   });
 
   test('records is reached only through discovery /resolve', () => {

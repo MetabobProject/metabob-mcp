@@ -80,6 +80,8 @@ export interface SubstrateState {
   rows: RecordRow[];
   /** The ids of the roots records lists as open (its closing rules are records' own, so a scenario states them). */
   openRoots: Set<string>;
+  /** The calls records answers for `{ root, calls: "all" }` and `{ call_id }`, in records' own call form. */
+  calls: Array<Record<string, unknown>>;
   concepts: Concept[];
   usage: Array<{ conceptId: string; outcome: string; trace_id?: string }>;
   edges: Array<{ id: string; from: string; to: string; edge_type: string }>;
@@ -90,6 +92,9 @@ export interface SubstrateState {
 }
 
 type Handler = (state: SubstrateState, req: OpRequest, fake: FakeSubstrate) => OpResult | Promise<OpResult>;
+
+/** The newest seq records holds. */
+const headSeq = (s: SubstrateState) => s.rows.reduce((m, r) => Math.max(m, r.seq), 0);
 
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}${Date.now().toString(36)}${(++seq).toString(36)}`;
@@ -188,23 +193,18 @@ export const OPERATIONS: Record<string, Handler> = {
   recordWrite(s, req, fake) {
     const row = req.body?.row ?? {};
     const role = fake.ownerKind === 'operator' || fake.ownerKind === 'person' ? fake.ownerKind : 'unmarked';
-    const stored: RecordRow = { input_refs: [], ...row, seq: s.rows.length + 1, t: new Date().toISOString(), writer: 'key_fake', role, id: nextId('row_') };
+    const stored: RecordRow = { input_refs: [], ...row, seq: headSeq(s) + 1, t: new Date().toISOString(), writer: 'key_fake', role, id: nextId('row_') };
     s.rows.push(stored);
     fake.onRecordWrite?.(stored);
     return { body: stored };
   },
   recordRead(s, req) {
     const p = req.body ?? {};
-    if (p.head === true) return { body: { at_seq: s.rows.length } };
-    const calls = s.rows.filter((r) => r.shape === 'hop' && r.phase === 'started');
-    const callOf = (h: RecordRow) => {
-      const sel = s.rows.find((r) => r.id === h.selection_ref);
-      const ended = s.rows.find((r) => r.shape === 'hop' && r.phase === 'ended' && r.call_id === h.call_id);
-      const root = String(sel?.root ?? '');
-      return { call_id: h.call_id, type: h.pointer_type, selection_ref: h.selection_ref, root, open: s.openRoots.has(root), state: ended ? 'ended' : 'started', seq: h.seq, t: h.t, ...(ended && p.output !== false ? { output: ended.output } : {}) };
-    };
-    if (typeof p.root === 'string' && p.calls === 'all') return { body: calls.map(callOf).filter((c) => c.root === p.root) };
-    if (typeof p.call_id === 'string') return { body: calls.filter((h) => h.call_id === p.call_id).map(callOf) };
+    if (p.head === true) return { body: { at_seq: headSeq(s) } };
+    if (typeof p.root === 'string' && p.calls === 'all') {
+      return { body: s.calls.filter((c) => c.root === p.root).map(({ output, ...c }) => (p.output === false ? c : { ...c, output })) };
+    }
+    if (typeof p.call_id === 'string') return { body: s.calls.filter((c) => c.call_id === p.call_id) };
     if (p.episode !== undefined) {
       return { body: { shared: [], roots: s.rows.filter((r) => s.openRoots.has(r.id)).map((root) => ({ root, rows: [root], awaits: true })) } };
     }
@@ -448,6 +448,7 @@ function emptyState(): SubstrateState {
   return {
     rows: [],
     openRoots: new Set(),
+    calls: [],
     concepts: [],
     usage: [],
     edges: [],

@@ -265,8 +265,11 @@ const DEFAULT_HEARTBEAT_MS = 5 * 60_000;
  */
 export const REATTACH_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 const REATTACH_ON_DEMAND_MS = 10_000;
-/** Least time between two org checks asked for by Attachment.ownerKind. */
-const OWNER_RECHECK_MS = 60_000;
+/**
+ * Least time between two org checks asked for by Attachment.ownerKind: each writes a key-session row on identity under
+ * the key, so a key waiting for its mark is re-checked rarely (SPEC §substrate-goal-tools).
+ */
+export const OWNER_RECHECK_MS = 15 * 60_000;
 // A captive portal clears by itself once the user signs in; a proxy's refusal and a non-substrate answer do not.
 const TRANSIENT_CAUSES: ReadonlySet<string> = new Set(['anchor_unreachable', 'identity_unreachable', 'blocked_by_portal']);
 

@@ -334,7 +334,8 @@
         ],
         "SPEC": [
           "attachment",
-          "client-claim"
+          "client-claim",
+          "substrate-goal-tools"
         ]
       },
       "src/auth-service.ts": {
