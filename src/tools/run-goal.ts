@@ -1,47 +1,41 @@
 // Contract (input schema, behaviour): SPEC §run_goal
 /**
- * run_goal — dispatch a goal to the substrate's goal-host-vessel and wait for
- * its outcome, for short, one-shot goals.
+ * run_goal — ask the walk for something and wait a while for its first answer.
  *
- * No request is held open for the goal (CONFORMANCE §c11-attachment-model):
- * the goal is dispatched as `goalDispatchAsync`, then its dispatch record is
- * polled as `goalWalkState` — each a short resolve through discovery
- * `POST /resolve` (src/tools/_goal-host.ts) — until it leaves `running` or the
- * polling deadline passes (`RUN_GOAL_TIMEOUT_MS`, default 290 s). Past the
- * deadline the goal keeps running on goal-host, and the tool answers with its
- * dispatchId for goal_status.
- *
- * The dispatch carries `operator: <MB_OPERATOR_ID>`, which goal-host stamps
- * into the trace's `operator:` tag.
+ * Writes the ask as run_goal_async does (src/tools/run-goal-async.ts@writeAsk),
+ * then reads the rows that cite it (`record_read { refs_to }`) with short pauses
+ * until an answer row appears or the polling deadline passes
+ * (`RUN_GOAL_TIMEOUT_MS`, default 290 s), and answers with the root's state as
+ * goal_status gives it (src/tools/_records.ts@root-status). An ask closes only by
+ * a person's grade or its deadline lapsing, so the reply usually shows it open:
+ * it keeps being worked, and its dispatchId reads on with goal_status.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { describeResolveFailure } from '../attachment.js';
-import { operatorId, sessionId } from '../operator-id.js';
-import { dispatchFailure, dispatchGoal, learningLines, principalLines, readWalkState, requestedLearningModeLine, type WalkState } from './_goal-host.js';
+import { isAnswer, readRows, rootStatus } from './_records.js';
+import { roleWarning, writeAsk } from './run-goal-async.js';
 
 // @anchor run-goal-deadline
-/** The polling deadline: how long run_goal waits for the goal before handing back its dispatchId. */
+/** The polling deadline: how long run_goal waits for an answer before handing back the dispatchId. */
 export function runGoalDeadlineMs(): number {
   return parseInt(process.env.RUN_GOAL_TIMEOUT_MS || '290000', 10);
 }
 
-/** The pause before the first goalWalkState polls. */
+/** The pause before the first reads. */
 export function runGoalPollMs(): number {
   return parseInt(process.env.RUN_GOAL_POLL_MS || '2000', 10);
 }
 
-/** The longest pause between two goalWalkState polls. */
+/** The longest pause between two reads. */
 export function runGoalPollMaxMs(): number {
   return parseInt(process.env.RUN_GOAL_POLL_MAX_MS || '15000', 10);
 }
 
 /**
- * The pause before poll `n` (0-based): the base pause for the first three polls,
- * then doubling up to the ceiling. Every goalWalkState read makes goal-host
- * re-read the execution's oracle labels from the trace store, so a long walk is
- * polled gently rather than every few seconds for its whole life.
+ * The pause before read `n` (0-based): the base pause for the first three reads,
+ * then doubling up to the ceiling, so a long walk is read gently rather than
+ * every few seconds for its whole life.
  */
 export function runGoalPollDelayMs(n: number, baseMs = runGoalPollMs(), maxMs = runGoalPollMaxMs()): number {
   if (n < 3) return baseMs;
@@ -51,89 +45,25 @@ export function runGoalPollDelayMs(n: number, baseMs = runGoalPollMs(), maxMs = 
 export const RunGoalTool = {
   name: 'run_goal',
   description:
-    "Dispatch a goal to the substrate's goal-host-vessel and wait for it (shape goalDispatchAsync, then polled with goalWalkState). The vessel selects a template via Thompson Sampling, executes it through ias-executor-ts, and this returns the executionId, the reach verdict and the final status. Waits up to ~290s; a goal still running then keeps running, and the reply carries its dispatchId for goal_status. For long-running goals prefer run_goal_async. Provide either goal (natural-language) or target_template_id (skip selection). Optional variables seed the execution pool; parent_execution_id + composition_chain thread cross-vessel provenance.",
+    "Ask the substrate's walk for something and wait up to ~290s for its first answer: writes the goal as an operator's ask (a records world_changed row), then reads the rows that cite it until an answer appears, and returns the ask's state as goal_status gives it. An ask closes only when a person grades an answer on the human surface or its deadline lapses, so it usually comes back open with an answer to read; keep reading it with goal_status. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so. Prefer run_goal_async when you do not need to wait.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       goal: {
         type: 'string',
         description:
-          "Natural-language goal description. The goal runs on the substrate, not in this workspace: a code-change goal names its file as repos/<vessel>/src/<path> in the substrate's repositories, which need not exist locally — dispatch it as given rather than looking for the file here. Either this or target_template_id is required.",
-      },
-      target_template_id: {
-        type: 'string',
-        description:
-          'Specific activity template id to execute, bypassing Thompson selection.',
-      },
-      variables: {
-        type: 'object',
-        description:
-          'Seed variables injected into the execution pool. Templates reference these as {{var}} placeholders.',
-        additionalProperties: true,
-      },
-      parent_execution_id: {
-        type: 'string',
-        description:
-          'Parent execution id for cross-vessel provenance (composition tracking).',
-      },
-      composition_chain: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Ancestor execution ids, root-first. Threads through to the trace for credit propagation.',
-      },
-      learning_mode: {
-        type: 'string',
-        enum: ['observe', 'learn'],
-        description:
-          "goal-host's learning mode. `learn` is goal-host's default: the substrate learns from the walk. `observe` traces the walk tagged `learning_mode:observe` and asks goal-host not to learn from it; goal_status's `learning:` line says what goal-host recorded all the same (a goal path can be). Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
-      },
-      tags: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Tags carried onto the dispatch and its trace, beside the operator: and session: tags the server adds.',
+          "What you want done, in plain words. It runs on the substrate, not in this workspace: a code change names its file as repos/<vessel>/src/<path> in the substrate's repositories, which need not exist locally.",
       },
     },
+    required: ['goal'],
   },
 };
 
-export const InputSchema = z
-  .object({
-    goal: z.string().optional(),
-    target_template_id: z.string().optional(),
-    variables: z.record(z.unknown()).optional(),
-    parent_execution_id: z.string().optional(),
-    composition_chain: z.array(z.string()).optional(),
-    learning_mode: z.enum(['observe', 'learn']).optional(),
-    tags: z.array(z.string()).optional(),
-  })
-  .refine((v) => Boolean(v.goal || v.target_template_id), {
-    message: 'goal or target_template_id is required',
-  });
+export const InputSchema = z.object({
+  goal: z.string().min(1, 'goal is required'),
+});
 
 export type RunGoalInput = z.infer<typeof InputSchema>;
-
-function reachedText(reached: boolean | null | undefined): string {
-  if (reached === true) return 'yes';
-  if (reached === false) return 'no';
-  return '(unknown — goal-host reported no reach verdict)';
-}
-
-function finished(dispatchId: string, record: WalkState, duration: number, requested?: 'observe' | 'learn'): string {
-  return [
-    'Goal dispatched via goalDispatchAsync, completed per goalWalkState.',
-    `  dispatchId:         ${dispatchId}`,
-    `  executionId:        ${record.executionId ?? '(unset)'}`,
-    `  reached:            ${reachedText(record.reached)}`,
-    `  status:             ${record.status ?? '(unset)'}`,
-    record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
-    record.error ? `  error:              ${record.error}` : null,
-    ...principalLines(record),
-    requestedLearningModeLine(requested),
-    ...learningLines(record.learning, requested),
-    `  duration:           ${duration}ms`,
-  ].filter(Boolean).join('\n');
-}
 
 export async function handle(
   input: RunGoalInput,
@@ -141,58 +71,38 @@ export async function handle(
 ): Promise<string> {
   const start = Date.now();
   const deadline = start + runGoalDeadlineMs();
-
-  let answer;
-  try {
-    answer = await dispatchGoal({
-      goal: input.goal,
-      targetTemplateId: input.target_template_id,
-      variables: input.variables,
-      parent_execution_id: input.parent_execution_id,
-      composition_chain: input.composition_chain,
-      learning_mode: input.learning_mode,
-      // The session this dispatch came from, as a tag goal-host stamps into the trace (a claim). SPEC §client-claim
-      tags: [...(input.tags ?? []), `session:${sessionId()}`],
-      operator: operatorId(),
-    });
-  } catch (err) {
-    return `run_goal: ${describeResolveFailure(err)}`;
-  }
-  if ((answer.status !== 202 && answer.status !== 200) || !answer.dispatchId) {
-    return `${dispatchFailure('run_goal', answer)}\n  duration: ${Date.now() - start}ms`;
-  }
-  const dispatchId = answer.dispatchId;
-  const pollHint = `Poll with: goal_status { "dispatch_id": "${dispatchId}" }`;
+  const w = await writeAsk('run_goal', input.goal);
+  if (w.kind !== 'ok') return w.line;
+  const id = w.row.id;
+  const pollHint = `Read on with: goal_status { "dispatch_id": "${id}" }`;
+  const warning = roleWarning(w.row);
+  if (warning) return ['Ask recorded, not waited on.', `  dispatchId: ${id}`, warning].join('\n');
 
   // @anchor run-goal-poll
+  let answered = false;
   for (let poll = 0; ; poll++) {
     const pollMs = runGoalPollDelayMs(poll);
-    const read = await readWalkState(dispatchId);
-    if (read.kind === 'error') {
-      return [
-        `run_goal: dispatched ${dispatchId}, then could not read its state: ${read.message}`,
-        pollHint,
-      ].join('\n');
+    const citing = await readRows({ refs_to: id });
+    if (citing.kind !== 'ok') {
+      return [`run_goal: recorded ${id}, then could not read the rows citing it: ${citing.message}`, pollHint].join('\n');
     }
-    if (read.kind === 'not_found') {
-      return [
-        `run_goal: dispatched ${dispatchId}, but goal-host no longer holds its record (dispatch records are in-memory and capped).`,
-        `  duration: ${Date.now() - start}ms`,
-      ].join('\n');
+    if (citing.body.some(isAnswer)) {
+      answered = true;
+      break;
     }
-    if (read.record.status !== 'running') {
-      return finished(dispatchId, read.record, Date.now() - start, input.learning_mode);
-    }
-    if (Date.now() + pollMs >= deadline) {
-      return [
-        `Goal dispatched via goalDispatchAsync, still running at the ${runGoalDeadlineMs()}ms deadline (RUN_GOAL_TIMEOUT_MS); it keeps running on goal-host.`,
-        `  dispatchId:         ${dispatchId}`,
-        `  status:             running`,
-        `  duration:           ${Date.now() - start}ms`,
-        '',
-        pollHint,
-      ].join('\n');
-    }
+    if (Date.now() + pollMs >= deadline) break;
     await new Promise((r) => setTimeout(r, pollMs));
   }
+
+  const status = await rootStatus(id);
+  return [
+    answered
+      ? 'Ask recorded and answered.'
+      : `Ask recorded, with no answer by the ${runGoalDeadlineMs()}ms deadline (RUN_GOAL_TIMEOUT_MS); the walk keeps working it.`,
+    `  dispatchId: ${id}`,
+    ...(status.kind === 'ok' ? status.body.lines : [`  state:    could not be read: ${status.message}`]),
+    `  duration:   ${Date.now() - start}ms`,
+    '',
+    pollHint,
+  ].join('\n');
 }

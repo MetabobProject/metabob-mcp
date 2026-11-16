@@ -191,26 +191,26 @@ that contradicts its instructions) goes on the ledger. The `metabob-substrate` s
 
 ## 7. Goals on the substrate
 
-For repositories the substrate itself mounts, an agent can hand it a goal instead of doing the work:
+For repositories the substrate itself mounts, an agent can hand it a goal instead of doing the work. The goal
+tools wait on the cockpit's own operator sign-in, issued by the USER on the human surface: under any other key
+each answers that it is waiting and sends nothing.
 
-1. `run_goal_async` with the goal in plain language ("edit `repos/<vessel>/src/<file>`: <the change>") returns
-   a `dispatchId`. A goal that names a file in a mounted repository is drafted, typechecked and landed by the
-   substrate as a traced commit. `run_goal` dispatches the same way and waits, for short goals.
-2. `goal_status` until the dispatch is no longer running. Read **`reached`**, not `status`: `completed` with
-   `reached: no` is common, and so is `failed` with `reached: yes`.
-3. `goal_reasoning` for the walk's decision log: what it tried, and why it reached or fell short.
-4. The actual result (the landed diff, the answer, the tests) is checked against what was asked: a change can
-   pass the reach check and still not do what was meant.
-5. The agent may record its verdict (`provide_feedback`: `reached`, `not_reached` or `partial`, with the
-   evidence it checked as the rationale). It is stored as an `automated` label beside the substrate's own
-   verdict, for audit; it does not change `reached`.
+1. `run_goal_async` with the goal in plain language ("edit `repos/<vessel>/src/<file>`: <the change>") records
+   it as an operator's ask, which the walk takes up, and returns its `dispatchId`. `run_goal` asks the same way
+   and waits a while for the first answer.
+2. `goal_status` shows the ask open, or closed: reached when a person grades an answer on the human surface,
+   failed when its deadline lapses. It lists each answer with its grades and the deadline as stored.
+3. `goal_reasoning` shows how the walk worked it: each move (what it chose, from which candidates, with what
+   posteriors), the failures on those moves, and its calls.
+4. The actual result (the landed diff, the answer, the tests) is checked against what was asked: an answer can
+   arrive and still not do what was meant.
+5. The agent may leave a note on the answer (`provide_feedback`: `reached`, `not_reached` or `partial`, with
+   the evidence it checked as the rationale). It is kept as an operator's note: it is not a verdict, closes
+   nothing and moves no posterior.
 
-A dispatch in the default learn mode teaches the substrate: the `learning:` line of `goal_status` says what the
-walk recorded (a goal path, changed template scores, gaps filed, a label), or `none recorded`. A dispatch with
-`learning_mode: "observe"` asks the substrate to trace the walk without learning from it. After a miss, the agent's
-instructions decide whether it retries, rephrases or does the work itself. Before dispatching it checks that an
-open gap or a recent dispatch does not already cover the goal; a 429 from goal-host is its spend-rate cap, not
-something to retry.
+The substrate learns from the person's grade. After a miss, the agent's instructions decide whether it asks
+again, rephrases or does the work itself. Before asking it checks that an open gap or an open ask does not
+already cover the goal.
 
 On any other repository the substrate has no copy of your code, so the agent does the work, and the ledger and
 memory remain its coordination.
@@ -219,12 +219,9 @@ memory remain its coordination.
 
 These replace host access (`docker exec`, `journalctl`, a raw `curl`) for reading the running substrate:
 
-- **`execution_trace`.** With no id, the most recent runs of your organization: execution id, status, duration,
-  template and time. With an `execution_id`, that run's trace: status, template, tags (`reached:`,
-  `state_signature:`, `operator:`), failure mode and each task in order. A goal-host walk's trace also shows the
-  walk itself: its target, the producers it routed around and why, what it recalled, what it still lacked, and
-  what it produced. A run reached by a satisfier keeps no
-  task trace; its walk is in the dispatch record, which `goal_reasoning` reads.
+- **`execution_trace`.** With no id, the walk's most recent moves: the ask each worked and what it chose. With
+  an `execution_id`, that call (from `goal_reasoning`): its type, how it ended, the ask it served and its
+  output; or else the row with that id. It waits on the same operator sign-in as the goal tools.
 - **`registry_query`.** `mode: "shapes"` lists the shapes the substrate advertises (filtered by a `shape`
   substring); `mode: "vessels"` with a `shape` lists the vessels that serve it. The vocabulary is that of the node
   the server attaches to; a shape a peer node serves is asked for by name in `vessels` mode.
@@ -280,11 +277,10 @@ The rows that apply to every tool set are in USER-GUIDE.md, § Troubleshooting. 
 | Only eleven tools appear | `METABOB_TOOLS=all` did not reach the server's environment: check where it is set (§ 2) and reconnect |
 | `path_activity` says the repository may not be one the substrate mounts | Nothing is in flight there; check `get_problems` and edit |
 | `path_activity` says the substrate keeps no gap store | Nothing is in flight to check; edit |
-| `goal_status` says the dispatch was not found | Dispatch records are kept in memory, about the last 100; with its `executionId`, read the trace with `execution_trace` |
-| A dispatch answers 429 | goal-host's spend-rate cap: wait, do not retry in a loop |
-| `goal_status` shows `completed` and `reached: no` | The goal was not reached; read `goal_reasoning` |
-| `execution_trace` finds no trace for a reach | A satisfier reach keeps no task trace; `goal_reasoning` shows its walk |
-| `provide_feedback` writes nothing | The dispatch has no execution or activity to label; the reply says where the assessment goes instead (`record_finding`) |
+| A goal tool says it is waiting on the cockpit's own sign-in | The server's key is not an operator's: the USER issues the cockpit's operator sign-in on the human surface |
+| `run_goal_async` says to attach to the walk's node | An operator's key writes on its own node: attach the server to the node that holds the walk's records |
+| `goal_status` shows the ask open with an answer | It stays open until a person grades the answer on the human surface, or its deadline lapses |
+| `provide_feedback` writes nothing | The ask has no answer yet, or several: name one with `answer_id` |
 
 ## 12. References
 

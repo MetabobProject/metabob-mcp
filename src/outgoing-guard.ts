@@ -63,20 +63,9 @@ export const GUARDED_FIELDS: Readonly<Record<string, Readonly<Record<string, Fie
     pointer: { kind: 'acted', maxBytes: 16_384 },
   },
   concept_link: { description: { kind: 'prose', maxBytes: 2_048 } },
-  provide_feedback: {
-    rationale: { kind: 'prose', maxBytes: 8_192 },
-    goal: { kind: 'prose', maxBytes: 4_096 },
-  },
-  run_goal: {
-    goal: { kind: 'acted', maxBytes: 4_096 },
-    variables: { kind: 'acted', maxBytes: 16_384 },
-    tags: { kind: 'acted', maxBytes: 2_048 },
-  },
-  run_goal_async: {
-    goal: { kind: 'acted', maxBytes: 4_096 },
-    variables: { kind: 'acted', maxBytes: 16_384 },
-    tags: { kind: 'acted', maxBytes: 2_048 },
-  },
+  provide_feedback: { rationale: { kind: 'prose', maxBytes: 8_192 } },
+  run_goal: { goal: { kind: 'acted', maxBytes: 4_096 } },
+  run_goal_async: { goal: { kind: 'acted', maxBytes: 4_096 } },
   submit_resolution: { answer: { kind: 'prose', maxBytes: 16_384 } },
   resolve_impulse: { pointer: { kind: 'acted', maxBytes: 16_384 } },
 };

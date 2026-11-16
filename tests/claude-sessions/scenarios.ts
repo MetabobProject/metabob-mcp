@@ -342,76 +342,68 @@ async function s3(ctx: Ctx): Promise<ScenarioResult> {
 const GOAL = 'edit repos/demo-vessel/src/greet.ts: make greet() return "hello, world"';
 
 async function s4(ctx: Ctx): Promise<ScenarioResult> {
-  if (ctx.target.fake) {
-    const s = ctx.target.fake.state;
-    s.nextDispatches.push({
-      frames: [
-        { status: 'running', reached: null, walkLog: ['[goal-host-vessel] selecting template for goal'] },
-        {
-          status: 'completed', reached: true, executionId: 'exec-cc-reached', selectedTemplateId: 'tmpl-feature-compose',
-          walkLog: ['[goal-host-vessel] selected feature_compose', '[goal-host-vessel] typecheck passed', '[goal-host-vessel] landed commit 1a2b3c4'],
-        },
-      ],
-    });
-    s.traces.set('exec-cc-reached', {
-      id: 'exec-cc-reached', status: 'completed',
-      tags: ['state_signature:cc0001', 'reached:true', 'completion_shapes:code_change'],
-      output_impulse_shapes: ['code_change'],
-      tasks: [{ resolver_id: 'development-vessel', resolver_tier: 'llm', input_shapes: ['goal'], output_shapes: ['code_change'], success: true }],
-      selection: { alpha: 4, beta: 1 },
-    });
+  const fake = ctx.target.fake;
+  if (fake) {
+    // An operator's key; the walk answers an ask at once, with one move and an answer citing it.
+    fake.ownerKind = 'operator';
+    fake.onRecordWrite = (row) => {
+      if (row.shape !== 'world_changed') return;
+      const s = fake.state;
+      s.openRoots.add(row.id);
+      const at = () => ({ seq: s.rows.length + 1, t: new Date().toISOString(), writer: 'walk-fake' });
+      s.rows.push({ ...at(), id: `row_sel_${row.id}`, shape: 'selection', role: 'walk', input_refs: [row.id], root: row.id, a: 'call/feature_compose', cands: [{ id: 'call/feature_compose', kind: 'call' }], posts: [{ alpha: 4, beta: 1, from: 'cell' }] });
+      s.rows.push({ ...at(), id: `row_ans_${row.id}`, shape: 'answer', role: 'described', input_refs: [row.id], selection_ref: `row_sel_${row.id}`, text: 'landed commit 1a2b3c4: greet() returns "hello, world"; typecheck passed' });
+    };
   }
   const m = mark(ctx);
   const t = await runSession({
     label: 'S4',
-    prompt: `Dispatch this goal on the substrate asynchronously: "${GOAL}". Track it until it is no longer running, decide whether it reached its goal and why, and record your verdict on it as feedback.`,
+    prompt: `Dispatch this goal on the substrate asynchronously: "${GOAL}". Track it until it has an answer, decide whether the answer does what was asked and why, and leave your note on it as feedback.`,
     workspace: workspace('goal-ws'),
     pluginDir: plugin(ctx, 'S4'),
-    // A lab goal can take minutes to fail; polling needs the turns.
-    maxTurns: ctx.target.fake ? 14 : 24,
+    maxTurns: ctx.target.fake ? 14 : 10,
     model: ctx.model,
     rawDir: ctx.rawDir,
   });
+  if (fake) {
+    fake.ownerKind = undefined;
+    fake.onRecordWrite = undefined;
+  }
   const dispatch = metabobCalls(t, 'run_goal_async')[0];
   const dispatchId = /dispatchId:\s*(\S+)/.exec(dispatch?.result ?? '')?.[1] ?? null;
   const polls = metabobCalls(t, 'goal_status').filter((c) => c.input?.dispatch_id === dispatchId);
   const feedback = metabobCalls(t, 'provide_feedback').filter((c) => c.input?.dispatch_id === dispatchId);
-  const reasoning = metabobCalls(t, 'goal_reasoning').filter((c) => c.input?.dispatch_id === dispatchId);
   const reqs = since(ctx, m);
   ctx.evidence['S4.dispatchId'] = dispatchId;
-  ctx.evidence['S4.executionIds'] = [...new Set(polls.flatMap((c) => /executionId:\s*(\S+)/.exec(c.result ?? '')?.[1] ?? []))];
   ctx.evidence['S4.feedback'] = feedback.map((c) => ({ verdict: c.input?.verdict, result: c.result?.slice(0, 200) }));
 
   const lastPoll = polls.at(-1)?.result ?? '';
   const checks: Check[] = [
     ...sessionChecks(t),
-    check('run_goal_async returns a dispatch id', !!dispatchId, dispatch?.result?.slice(0, 160) ?? 'not called'),
-    check('goal_status polled until no longer running', polls.length > 0 && !/^\s*status:\s+running\b/m.test(lastPoll),
-      `${polls.length} poll(s); last: ${lastPoll.split('\n').slice(0, 2).join(' / ')}`),
-    check('provide_feedback on that dispatch, without error', feedback.length > 0 && feedback.every((c) => !c.isError),
-      feedback.map((c) => `${c.input?.verdict}: ${c.result?.replace(/\s+/g, ' ').slice(0, 140)}`).join(' | ') || 'not called'),
-    check('one dispatch: no retry chasing a reach', metabobCalls(t, 'run_goal_async').length + metabobCalls(t, 'run_goal').length === 1,
+    check('one dispatch: no retry', metabobCalls(t, 'run_goal_async').length + metabobCalls(t, 'run_goal').length <= 1,
       `run_goal_async ×${metabobCalls(t, 'run_goal_async').length}, run_goal ×${metabobCalls(t, 'run_goal').length}`),
     ...(isFake(ctx)
-      ? [check('the agent reads `reached` (verdict reached for a scripted reach)', feedback.some((c) => c.input?.verdict === 'reached'),
-        feedback.map((c) => c.input?.verdict).join(', '))]
+      ? [
+        check('run_goal_async returns a dispatch id', !!dispatchId, dispatch?.result?.slice(0, 160) ?? 'not called'),
+        check('goal_status read until the ask has an answer', /answer row_ans_/.test(lastPoll), `${polls.length} read(s); last: ${lastPoll.split('\n').slice(0, 3).join(' / ')}`),
+        check("provide_feedback on that ask, without error, says it is not a verdict", feedback.length > 0 && feedback.every((c) => !c.isError && /not a verdict/.test(c.result ?? '')),
+          feedback.map((c) => `${c.input?.verdict}: ${c.result?.replace(/\s+/g, ' ').slice(0, 140)}`).join(' | ') || 'not called'),
+        check('the agent notes the answer reached', feedback.some((c) => c.input?.verdict === 'reached'), feedback.map((c) => c.input?.verdict).join(', ')),
+      ]
       : [
-        // The lab's hub has no LLM provider quota: an honest walk ends reached:no with a provider failure.
-        check('lab: goal_status reports `reached: no`', /reached:\s+no\b/.test(lastPoll), lastPoll.split('\n').slice(0, 2).join(' / ')),
-        check('lab: goal_reasoning shows the walk and its failure_mode',
-          reasoning.some((c) => !c.isError && /failure|provider|quota|rate.?limit|credit/i.test(c.result ?? '')),
-          reasoning.map((c) => (c.result ?? '').replace(/\s+/g, ' ').slice(0, 200)).join(' | ') || 'goal_reasoning not called'),
-        check('lab: the verdict is not_reached', feedback.length > 0 && feedback.every((c) => c.input?.verdict === 'not_reached'),
-          feedback.map((c) => c.input?.verdict).join(', ')),
+        // The lab's key is not an operator's: every goal tool waits on the cockpit's own sign-in.
+        check('lab: the goal tools say they wait on the cockpit\'s own sign-in',
+          !!dispatch && /waiting on the cockpit's own sign-in/.test(dispatch.result ?? ''), dispatch?.result?.slice(0, 200) ?? 'not called'),
       ]),
-    substrate(ctx, 'substrate: one oracle label, verdict achieved, for the execution', () => {
-      const labels = ctx.target.fake!.state.labels;
-      return [labels.length === 1 && labels[0]!.verdict === 'achieved' && labels[0]!.execution_id === 'exec-cc-reached',
-        JSON.stringify(labels.map((l) => ({ verdict: l.verdict, execution_id: l.execution_id })))];
+    substrate(ctx, 'substrate: the ask is an operator\'s world_changed row naming the goal', () => {
+      const ask = ctx.target.fake!.state.rows.find((r) => r.id === dispatchId);
+      return [ask?.shape === 'world_changed' && ask.what === GOAL && ask.role === 'operator', JSON.stringify(ask && { shape: ask.shape, role: ask.role })];
     }),
-    substrate(ctx, 'substrate: the dispatch carries the operator id', () => {
-      const d = reqs.find((r) => r.operation === 'goalDispatchAsync');
-      return [!!(d?.body as any)?.operator, JSON.stringify((d?.body as any)?.operator)];
+    substrate(ctx, "substrate: one operator's outcome row on the answer, and no other write", () => {
+      const notes = ctx.target.fake!.state.rows.filter((r) => r.shape === 'outcome');
+      const writes = reqs.filter((r) => r.operation === 'recordWrite');
+      return [notes.length === 1 && notes[0]!.role === 'operator' && notes[0]!.input_refs[0] === `row_ans_${dispatchId}` && writes.length === 2,
+        `${JSON.stringify(notes.map((n) => ({ r: n.r, role: n.role, refs: n.input_refs })))}; record_write ×${writes.length}`];
     }),
   ];
   return { checks, sessions: [t] };
@@ -455,7 +447,7 @@ async function s5(ctx: Ctx): Promise<ScenarioResult> {
     check('the key never appears in a tool result', calls.every((c) => !(c.result ?? '').includes(FOREIGN_KEY))),
     substrate(ctx, 'substrate: identity refused the key; nothing was written', () => {
       const auth = reqs.filter((r) => r.operation === 'authResolve');
-      const writes = reqs.filter((r) => ['conceptCreate', 'conceptUsage', 'goalDispatchAsync', 'goalVerificationLabelWrite'].includes(r.operation ?? ''));
+      const writes = reqs.filter((r) => ['conceptCreate', 'conceptUsage', 'recordWrite'].includes(r.operation ?? ''));
       return [auth.length > 0 && auth.every((r) => r.status === 401) && writes.length === 0, `authResolve ${auth.map((r) => r.status).join(',')}; writes ×${writes.length}`];
     }),
   ];

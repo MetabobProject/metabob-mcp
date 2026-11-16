@@ -98,6 +98,8 @@ export interface AttachmentState {
     accountId?: string;
     /** The key's scopes, as identity validated them; absent when identity reported none. */
     scopes?: string[];
+    /** The key's class as identity marks it (`person`, `operator`, …); absent when identity gave none. */
+    ownerKind?: string;
     detail?: string;
   };
   /** Why keyed calls are refused, or null when they may proceed (or the attachment is still pending). */
@@ -136,6 +138,8 @@ export interface AttachOptions {
   reattachDelaysMs?: readonly number[];
   /** Least time between an on-demand re-attach and the previous attempt (tests); 10 s by default. */
   reattachOnDemandMs?: number;
+  /** Least time between two org checks Attachment.ownerKind asks for (tests); OWNER_RECHECK_MS by default. */
+  ownerRecheckMs?: number;
   /** The request path; default the one outbound path, src/net.ts, reading proxy and trust from `env`. */
   fetchImpl?: typeof fetch;
   /** Where proxy and trust settings are read; default process.env. */
@@ -152,6 +156,12 @@ export interface Attachment {
   settled(): Promise<AttachmentState>;
   /** The one-line refusal for a keyed call, after the attachment settles; null when authenticated. */
   refusal(): Promise<string | null>;
+  /**
+   * The key's class as identity marks it, after the attachment settles. When the last org check is older than
+   * OWNER_RECHECK_MS and did not give `want`, the org check runs again first, so a mark identity gives later counts
+   * without a restart (each check writes a key-session row on identity, so it is not run on every call).
+   */
+  ownerKind(want: string): Promise<string | undefined>;
   /**
    * Resolve a pointer through discovery `POST /resolve` with `Authorization: ApiKey` —
    * the one ingress every substrate call takes (CONFORMANCE §c11-attachment-model).
@@ -255,6 +265,8 @@ const DEFAULT_HEARTBEAT_MS = 5 * 60_000;
  */
 export const REATTACH_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
 const REATTACH_ON_DEMAND_MS = 10_000;
+/** Least time between two org checks asked for by Attachment.ownerKind. */
+const OWNER_RECHECK_MS = 60_000;
 // A captive portal clears by itself once the user signs in; a proxy's refusal and a non-substrate answer do not.
 const TRANSIENT_CAUSES: ReadonlySet<string> = new Set(['anchor_unreachable', 'identity_unreachable', 'blocked_by_portal']);
 
@@ -457,6 +469,7 @@ function authenticatedState(r: TenantIdentity & { orgId: string }): AttachmentSt
     ...(r.keyId ? { keyId: r.keyId } : {}),
     ...(r.accountId ? { accountId: r.accountId } : {}),
     ...(r.scopes ? { scopes: r.scopes } : {}),
+    ...(r.ownerKind ? { ownerKind: r.ownerKind } : {}),
   };
 }
 
@@ -785,6 +798,25 @@ export function attach(options: AttachOptions): Attachment {
     state: () => structuredClone(view),
     settled: () => done.then(() => structuredClone(view)),
     refusal: () => current().then(() => currentMessage()),
+    async ownerKind(want) {
+      await current();
+      if (view.cause || view.auth.status !== 'authenticated' || !view.identity.endpoint || !key) return undefined;
+      const last = view.lastCheckedAt ? Date.parse(view.lastCheckedAt) : 0;
+      if (view.auth.ownerKind !== want && !inFlight && Date.now() - last >= (options.ownerRecheckMs ?? OWNER_RECHECK_MS)) {
+        const endpoint = view.identity.endpoint;
+        const r = await (options.authService ? options.authService.resolveTenant(endpoint, key, fetchImpl) : resolveTenant(endpoint, key, fetchImpl));
+        if (r.kind === 'authenticated') {
+          state.lastCheckedAt = new Date().toISOString();
+          state.auth = authenticatedState(r);
+        } else if (r.kind === 'key_rejected') {
+          applyResolution(r);
+          settle('key_rejected');
+        } else {
+          state.lastCheckedAt = new Date().toISOString();
+        }
+      }
+      return view.auth.status === 'authenticated' ? view.auth.ownerKind : undefined;
+    },
     // CONFORMANCE §c11-attachment-model
     // @anchor attachment-resolve
     async resolve(pointer, opts) {
@@ -910,4 +942,9 @@ export async function resolveShape(pointer: Record<string, unknown>, options?: R
  */
 export async function substrateRefusal(): Promise<string | null> {
   return current ? current.refusal() : null;
+}
+
+/** The process attachment's key class as identity marks it (Attachment.ownerKind); undefined with none installed. */
+export async function attachedOwnerKind(want: string): Promise<string | undefined> {
+  return current ? current.ownerKind(want) : undefined;
 }

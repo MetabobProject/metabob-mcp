@@ -6,7 +6,7 @@ the workflows work end to end, not that each function is correct in isolation.
 
 | file | workflow | source |
 |---|---|---|
-| `w1-operator-loop.test.ts` | dispatch, poll, read `reached` (not `status`), read the reasoning, label — for a reached, a hollow (`completed` + `reached:false`) and a satisfier (`failed` + `reached:true`) goal | `docs/SPEC.md` § Substrate goal tools |
+| `w1-operator-loop.test.ts` | under the shared key, every goal tool waits on the cockpit's own sign-in and sends nothing to records; under an operator's key: ask, its state with an answer and deadline, the moves and calls, a call's output, and an operator's note that is no verdict | `docs/SPEC.md` § Substrate goal tools |
 | `w2-ledger.test.ts` | session A records a finding; session B (another process, another home directory) recalls it and closes it by concept id; A then sees it closed and not offered as open work | `skills/metabob/SKILL.md` |
 | `w3-attachment.test.ts` | starting and using the server never registers with discovery (under any configuration), offers `human_input` or sends workspace content; the HTTP server answers on loopback only and reports its attachment state; a foreign key is refused at the org check, after which substrate tools answer `key_rejected` in one line and local tools still work; an undialable `/bootstrap` identity is rehosted (H1), warned about, and proven | `docs/CONFORMANCE.md` |
 | `w4-skill-contract.test.ts` | every tool the skill names exists, and every step it prescribes works under the default configuration | `skills/metabob/SKILL.md` |
@@ -38,8 +38,7 @@ machine. The suite needs no network and no containers.
 and identity accepts only the keys in `validKeys`. It is split in two:
 
 - **Operations** (`OPERATIONS`) — one handler per substrate operation, keyed by name
-  (`vesselCapability`, `bootstrap`, `authResolve`, `register`, `goalDispatchAsync`, `goalWalkState`, `executionTrace`,
-  `goalVerificationLabelWrite`, `conceptCreate`, `conceptSearch`, `conceptGet`, `conceptUsage`,
+  (`vesselCapability`, `bootstrap`, `authResolve`, `register`, `recordWrite`, `recordRead`, `conceptCreate`, `conceptSearch`, `conceptGet`, `conceptUsage`,
   `conceptLink`, …). Handlers read and write one shared state object, which scenarios script and
   inspect directly.
 - **Routes** (`ROUTES`) — how the server under test reaches each operation: a service, a method and a

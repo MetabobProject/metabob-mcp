@@ -49,8 +49,7 @@
         "src/tools/_concept-content.ts",
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts",
-        "src/tools/_goal-host.ts",
-        "src/tools/_traces.ts",
+        "src/tools/_records.ts",
         "src/tools/analyze-impact.ts",
         "src/tools/annotate-component.ts",
         "src/tools/assign-git-changes.ts",
@@ -525,21 +524,13 @@
           "path_activity"
         ]
       },
-      "src/tools/_goal-host.ts": {
+      "src/tools/_records.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
         ],
         "SPEC": [
           "goal_status",
           "substrate-goal-tools"
-        ]
-      },
-      "src/tools/_traces.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
-        "SPEC": [
-          "execution_trace"
         ]
       },
       "src/tools/analyze-impact.ts": {
@@ -643,17 +634,11 @@
         ]
       },
       "src/tools/goal-reasoning.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
         "SPEC": [
           "goal_reasoning"
         ]
       },
       "src/tools/goal-status.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
         "SPEC": [
           "goal_status"
         ]
@@ -691,9 +676,6 @@
         ]
       },
       "src/tools/provide-feedback.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
         "SPEC": [
           "provide_feedback"
         ]
@@ -730,18 +712,15 @@
         ]
       },
       "src/tools/run-goal-async.ts": {
-        "CONFORMANCE": [],
-        "SPEC": [
-          "client-claim",
-          "run_goal_async"
-        ]
-      },
-      "src/tools/run-goal.ts": {
         "CONFORMANCE": [
           "c11-attachment-model"
         ],
         "SPEC": [
-          "client-claim",
+          "run_goal_async"
+        ]
+      },
+      "src/tools/run-goal.ts": {
+        "SPEC": [
           "run_goal"
         ]
       },
@@ -853,12 +832,8 @@
           "finding-close"
         ]
       },
-      "tests/unit/goal-tools-by-shape.test.ts": {
-        "CONFORMANCE": [
-          "c11-attachment-model"
-        ],
+      "tests/unit/goal-tools-records.test.ts": {
         "SPEC": [
-          "client-claim",
           "substrate-goal-tools"
         ]
       },
@@ -984,11 +959,6 @@
       "tests/unit/tool-sets.test.ts": {
         "SPEC": [
           "tool-sets"
-        ]
-      },
-      "tests/unit/traces-by-shape.test.ts": {
-        "SPEC": [
-          "execution_trace"
         ]
       },
       "tests/unit/workspace-root.test.ts": {
@@ -1133,6 +1103,8 @@
         "src/tools/_claims.ts",
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts",
+        "src/tools/_records.ts",
+        "src/tools/_records.ts@operator-gate",
         "src/tools/claim-finding.ts@session-claims",
         "src/tools/index.ts",
         "src/tools/resolve-impulse.ts@known-reads",
@@ -1185,8 +1157,7 @@
         "src/tls-trust.ts@systemCaAdditions",
         "src/tools/_concept-db.ts",
         "src/tools/_findings.ts@conceptDbReachable",
-        "src/tools/_goal-host.ts@readWalkState",
-        "src/tools/_traces.ts@readExecutionTrace",
+        "src/tools/_records.ts@operator-gate",
         "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/index.ts@substrateToolRefusal",
         "src/tools/pull-assigned-work.ts@NO_INBOUND_OFFER",
@@ -1347,14 +1318,9 @@
         "src/tools/_gap-activity.ts@openGapsOnFilesLines",
         "src/tools/_gap-activity.ts@pathMapper",
         "src/tools/_gap-activity.ts@readGaps",
-        "src/tools/_goal-host.ts@dispatchGoal",
-        "src/tools/_goal-host.ts@learningLines",
-        "src/tools/_goal-host.ts@principalLines",
-        "src/tools/_goal-host.ts@readWalkState",
-        "src/tools/_traces.ts@bareExecutionId",
-        "src/tools/_traces.ts@isSatisfierExecution",
-        "src/tools/_traces.ts@listExecutionTraces",
-        "src/tools/_traces.ts@readExecutionTrace",
+        "src/tools/_records.ts",
+        "src/tools/_records.ts@operator-gate",
+        "src/tools/_records.ts@root-status",
         "src/tools/analyze-impact.ts@handle",
         "src/tools/annotate-component.ts@handle",
         "src/tools/assign-git-changes.ts@handle",
@@ -1373,7 +1339,6 @@
         "src/tools/concept-usage-stats.ts@handle",
         "src/tools/concept-usage-stats.ts@usage-history-direct-edge",
         "src/tools/execution-trace.ts@handle",
-        "src/tools/execution-trace.ts@render-walk",
         "src/tools/get-analysis-context.ts@attachment-line",
         "src/tools/get-analysis-context.ts@handle",
         "src/tools/get-metrics.ts@handle",
@@ -1579,14 +1544,8 @@
       "src/tools/_gap-activity.ts@openGapsOnFilesLines": "b007cd77f4bd",
       "src/tools/_gap-activity.ts@pathMapper": "68351f924e85",
       "src/tools/_gap-activity.ts@readGaps": "e47446d8f610",
-      "src/tools/_goal-host.ts@dispatchGoal": "996354463c1e",
-      "src/tools/_goal-host.ts@learningLines": "e3b354491325",
-      "src/tools/_goal-host.ts@principalLines": "5933404860fc",
-      "src/tools/_goal-host.ts@readWalkState": "387c097b2d0f",
-      "src/tools/_traces.ts@bareExecutionId": "c9f249dfcdc8",
-      "src/tools/_traces.ts@isSatisfierExecution": "bb6f370b92cc",
-      "src/tools/_traces.ts@listExecutionTraces": "0a4756b4b21c",
-      "src/tools/_traces.ts@readExecutionTrace": "a1783a16e202",
+      "src/tools/_records.ts@operator-gate": "8d64a30d9de1",
+      "src/tools/_records.ts@root-status": "8d64a30d9de1",
       "src/tools/analyze-impact.ts@handle": "4bdf740420c9",
       "src/tools/annotate-component.ts@handle": "4bdf740420c9",
       "src/tools/assign-git-changes.ts@handle": "4bdf740420c9",
@@ -1605,13 +1564,12 @@
       "src/tools/concept-usage-stats.ts@handle": "4bdf740420c9",
       "src/tools/concept-usage-stats.ts@usage-history-direct-edge": "8d64a30d9de1",
       "src/tools/execution-trace.ts@handle": "7339be11146a",
-      "src/tools/execution-trace.ts@render-walk": "8318d2a2b009",
       "src/tools/get-analysis-context.ts@attachment-line": "8d64a30d9de1",
       "src/tools/get-analysis-context.ts@handle": "4bdf740420c9",
       "src/tools/get-metrics.ts@handle": "4bdf740420c9",
       "src/tools/get-problems.ts@handle": "4bdf740420c9",
       "src/tools/goal-reasoning.ts@handle": "c64a718133c6",
-      "src/tools/goal-status.ts@handle": "4bdf740420c9",
+      "src/tools/goal-status.ts@handle": "5c7821202930",
       "src/tools/index.ts@TOOL_REGISTRY": "c2ebce7570f5",
       "src/tools/index.ts@substrateToolRefusal": "33e28bf195bc",
       "src/tools/init-workspace.ts@handle": "4bdf740420c9",
@@ -1631,7 +1589,7 @@
       "src/tools/resolve-impulse.ts@known-reads": "625f0331eadb",
       "src/tools/run-goal-async.ts@handle": "4bdf740420c9",
       "src/tools/run-goal.ts@handle": "4bdf740420c9",
-      "src/tools/run-goal.ts@run-goal-poll": "44a1bb8ebfd2",
+      "src/tools/run-goal.ts@run-goal-poll": "032aa560ee12",
       "src/tools/run-goal.ts@runGoalPollDelayMs": "ab14d9401a7a",
       "src/tools/search-codebase.ts@handle": "4bdf740420c9",
       "src/tools/submit-resolution.ts@handle": "4bdf740420c9",

@@ -111,11 +111,13 @@ describe('W4 skill contract', () => {
     expect(SKILL).toContain('Never grade your own work');
     // Dispatches teach the substrate: the skill does not steer agents to observe mode.
     expect(SKILL).not.toContain('learning_mode');
-    expect(SKILL).toContain('`automated`');
+    // An operator's note is no verdict: it closes nothing and moves no posterior.
+    expect(SKILL).toContain('it is not a verdict, it closes nothing and moves no posterior');
+    // The goal tools wait on the cockpit's own sign-in; the skill never sends the agent after another key.
+    expect(SKILL).toContain("wait on the cockpit's own operator sign-in, issued by the USER on the human surface");
+    expect(SKILL).toContain('Do not look for\nanother key');
     // Paths the substrate does not yet stamp with a principal are never taught as capabilities.
     expect(SKILL).not.toMatch(/poolImpulse_write|execution-traces/);
-    // goal-host's goalPathRecorded is set without a write; the skill must not present the line as ground truth.
-    expect(SKILL).not.toContain('exactly what was recorded');
   });
 
   test('every tool the skill names exists in tools/list', () => {

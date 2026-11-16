@@ -5,7 +5,8 @@
  * both of identity-vessel's forms, the nested body `{ impulse: { type: "authentication",
  * pointer: { type: "apiKey", apiKey } } }` and the flat `Authorization: ApiKey <key>`
  * header. An identity that serves the nested form answers `{ success, data: { orgId,
- * userId, accountId?, keyId, scopes, jwt?, jwt_expires_at? } }`, with the key's scopes; one
+ * userId, accountId?, keyId, scopes, ownerKind?, jwt?, jwt_expires_at? } }`, with the key's
+ * scopes and its class (`ownerKind`, the mark records stamps a row's role from); one
  * that serves only the flat form reads the header and answers `{ valid, org_id, user_id,
  * account_id?, key_id, jwt, jwt_expires_at }`, without scopes. Either answers 401 for a key
  * outside its namespace. Each call writes a key-session row on identity, so it runs once
@@ -39,6 +40,8 @@ export interface TenantIdentity {
   accountId?: string;
   /** The key's scopes, as identity validated them; absent when identity reported none (the flat form). */
   scopes?: string[];
+  /** The key's class as identity marks it (`person`, `operator`, `peer`, …); absent when identity gave none (the flat form). */
+  ownerKind?: string;
   /** Inline JWT from identity-vessel for vessel-to-vessel Bearer auth. */
   bearerToken?: string;
   bearerExpiresAt?: number;
@@ -125,6 +128,7 @@ export async function resolveTenant(
     keyId: str(nested ? nested.keyId : payload.key_id),
     accountId: str(nested ? nested.accountId : payload.account_id),
     ...(scopes ? { scopes } : {}),
+    ...(nested && str(nested.ownerKind) ? { ownerKind: str(nested.ownerKind) } : {}),
     bearerToken,
     bearerExpiresAt,
   };

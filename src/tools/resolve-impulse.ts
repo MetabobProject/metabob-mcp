@@ -5,8 +5,8 @@
  * POSTs.
  *
  * ADVANCED / ESCAPE HATCH: prefer the dedicated tools when they fit — run_goal /
- * run_goal_async for goals, goal_reasoning for walk inspection, provide_feedback
- * for oracle-corpus verdicts. Reach for resolve_impulse only when no dedicated
+ * run_goal_async for asks to the walk, goal_status and goal_reasoning for its
+ * state and moves, provide_feedback for an operator's note. Reach for resolve_impulse only when no dedicated
  * tool covers the shape.
  *
  * A thin passthrough of the attachment's resolve() (src/attachment.ts@attachment-resolve):
@@ -65,7 +65,7 @@ function timeoutMs(): number {
 export const ResolveImpulseTool = {
   name: 'resolve_impulse',
   description:
-    "ADVANCED escape hatch: resolve any substrate shape via MCP instead of raw `curl /resolve` POSTs — reads (e.g. memoryNote, traceAggregateReport, record_read) and writes (e.g. record_write, memoryNote_write). The pointer goes to discovery's /resolve, which forwards it with your key to the shape's producer; what your key may do is the producer's decision. Prefer the dedicated tools when they fit — run_goal / run_goal_async (goals), goal_reasoning (walk inspection), provide_feedback (oracle verdicts), concept_create / record_finding (memory and the ledger). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. A shape that is not a known read is sent once and never retried, since it may be a write.",
+    "ADVANCED escape hatch: resolve any substrate shape via MCP instead of raw `curl /resolve` POSTs — reads (e.g. memoryNote, traceAggregateReport, record_read) and writes (e.g. record_write, memoryNote_write). The pointer goes to discovery's /resolve, which forwards it with your key to the shape's producer; what your key may do is the producer's decision. Prefer the dedicated tools when they fit — run_goal / run_goal_async (asks to the walk), goal_status / goal_reasoning (their state and moves), provide_feedback (an operator's note), concept_create / record_finding (memory and the ledger). pointer merges into { type: shape, ... }. Returns the producer's HTTP status and raw JSON response. A shape that is not a known read is sent once and never retried, since it may be a write.",
   inputSchema: {
     type: 'object' as const,
     properties: {

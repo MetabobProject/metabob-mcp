@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { runGoalPollDelayMs } from '../../src/tools/run-goal.js';
 
-describe('run_goal polls goalWalkState gently', () => {
+describe('run_goal reads the rows citing its ask gently', () => {
   test('three quick polls, then doubling to the ceiling', () => {
     const delays = Array.from({ length: 8 }, (_, n) => runGoalPollDelayMs(n, 2_000, 15_000));
     expect(delays).toEqual([2_000, 2_000, 2_000, 4_000, 8_000, 15_000, 15_000, 15_000]);

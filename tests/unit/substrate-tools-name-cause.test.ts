@@ -45,7 +45,8 @@ describe('every substrate tool reports the named network cause (CONFORMANCE §c8
         const url = new URL(String(input instanceof Request ? input.url : input));
         if (url.pathname === '/bootstrap') return Response.json({ identity_endpoint: 'http://identity.stub' });
         if (url.pathname === '/health') return Response.json({ status: 'ok' });
-        if (url.pathname === '/v1/auth/resolve') return Response.json({ valid: true, org_id: 'org' });
+        // The key's class is operator, so the goal tools' operator gate lets their reads and writes through to meet the proxy.
+        if (url.pathname === '/v1/auth/resolve') return Response.json({ success: true, data: { orgId: 'org', ownerKind: 'operator' } });
         throw new NetError('tls_intercepted', 'tls_intercepted(Corp Inspection CA)',
           'tls_intercepted(Corp Inspection CA): TLS_INTERCEPTED — the certificate chain for discovery.stub:443 is signed by "Corp Inspection CA", which this process does not trust',
           { url: url.toString(), via: 'http://proxy.corp:3128', issuer: 'Corp Inspection CA', elapsedMs: 1, transient: false });

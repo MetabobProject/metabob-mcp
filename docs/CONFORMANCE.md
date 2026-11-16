@@ -281,13 +281,12 @@ never written to discovery.
 - Met — the attachment resolves a pointer through discovery `POST /resolve` and nothing else
   (`src/attachment.ts@attachment-resolve`), naming discovery's own failures and capping every request
   below 60 s ([SPEC.md](SPEC.md) § Attachment); `registry_query` reads the registry through it, and
-  `execution_trace`, `goal_status` and `goal_reasoning` read traces through it
-  (`src/tools/_traces.ts@readExecutionTrace`). The goal tools and answer delivery reach goal-host
-  through it as `goalDispatchAsync`, `goalWalkState` and `solicitationResponse_write`
-  (`src/tools/_goal-host.ts@readWalkState`, `src/agent-delivery.ts@deliverResolution`), and
-  `provide_feedback` writes its label as `goal_verification_label_write`.
-- Met — every call ends within 60 s: `run_goal` dispatches asynchronously and polls with short
-  `goalWalkState` reads until its deadline (`src/tools/run-goal.ts@run-goal-poll`); no request is held
+  the goal tools (`run_goal*`, `goal_status`, `goal_reasoning`, `provide_feedback`,
+  `execution_trace`) read and write records through it as `record_read` and `record_write`
+  (`src/tools/_records.ts@operator-gate`), and answer delivery reaches goal-host through it as
+  `solicitationResponse_write` (`src/agent-delivery.ts@deliverResolution`).
+- Met — every call ends within 60 s: `run_goal` writes its ask once and polls with short
+  `record_read` reads until its deadline (`src/tools/run-goal.ts@run-goal-poll`); no request is held
   open for a goal.
 - Met — the concept tools and the concept-db half of the mixed tools (`record_finding`,
   `get_problems` / `get_analysis_context` recall, `mark_complete` verdicts and relevance signals) reach

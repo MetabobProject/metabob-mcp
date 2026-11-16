@@ -240,7 +240,8 @@ once:
    the nested body `{ impulse: { type: "authentication", pointer: { type: "apiKey", apiKey } } }` and
    the flat `Authorization: ApiKey <key>` header (`src/auth-service.ts@org-check`). An identity that
    serves the nested form answers the tenant with the key's validated scopes (`orgId`, `userId`,
-   `keyId`, `accountId` when the user has a membership, `scopes`); one that serves only the flat form
+   `keyId`, `accountId` when the user has a membership, `scopes`, and `ownerKind`, the class identity
+   marks the key with: `operator`, `person`, …); one that serves only the flat form
    reads the header and answers `org_id`, `key_id` without scopes, which are then "not reported". The
    nested body goes only on a direct hop: an inspecting proxy's data-loss scanning logs request bodies
    where it masks the `Authorization` header, so through a proxy the check sends the header alone and
@@ -282,7 +283,7 @@ the missing input, or `attaching` while pending). Neither carries the key. Befor
 | `anchor` | `{ discovery, source }` — `explicit`, `derived-h1`, or `none` |
 | `bootstrap` | `{ status, identityEndpoint?, detail? }` — `ok`, `unreachable`, `not_substrate` (non-JSON or HTML; when the request went through a proxy and was refused, the detail names the proxy as what may have refused it), or `skipped` (no anchor) |
 | `identity` | `{ endpoint, source, advertised, tried }` — source `explicit`, `bootstrap`, `rehosted-h1`, or `none`; `tried` lists every address contacted, in order |
-| `auth` | `{ status, orgId?, keyId?, accountId?, scopes?, detail? }` (never the identity's jwt) — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
+| `auth` | `{ status, orgId?, keyId?, accountId?, scopes?, ownerKind?, detail? }` (never the identity's jwt) — `pending`, `authenticated`, `key_rejected`, `identity_unreachable`, or `not_configured` |
 | `cause` | the named cause keyed calls are refused with, or `null` |
 | `message` | that cause as the one line a substrate tool returns |
 | `advertised` | `none (client-only)` |
@@ -624,11 +625,9 @@ whole repository.
 Every write the server makes declares who sends it (`src/operator-id.ts@clientClaim`): the attachment adds
 `client_claim: { operator, session, client }` to the pointer of every resolve that is not a read
 (`src/attachment.ts@attachment-resolve`), unless `METABOB_CLIENT_CLAIM=off`. Some substrate tables are
-schemafull, so a live write smoke checked that every implemented write shape accepts the field. A goal
-dispatch also carries `operator` and a
-`session:<session>` tag, which goal-host stamps into the trace's tags; `provide_feedback` folds
-`[operator: …] [session: …]` into its label notes, and findings and verdicts already carry
-`recorded_by` / `reviewed_by` and `session` in their content.
+schemafull, so a live write smoke checked that every implemented write shape accepts the field. Findings
+and verdicts also carry `recorded_by` / `reviewed_by` and `session` in their content. A records row's role
+is never this claim: records stamps it from the key (§ Substrate goal tools).
 
 | Field | Value |
 |---|---|
@@ -1078,13 +1077,17 @@ The current analysis state in one snapshot, designed to feed an LLM deciding wha
 
 ## Substrate goal tools
 
-The MCP surface drives the running substrate end-to-end — **dispatch work, understand it, verify it, inspect it** — through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). Targets resolve as follows:
+The MCP surface drives the running substrate end-to-end (**ask the walk, track the ask, see how it was worked, leave a note, inspect**) through tools rather than host access (`docker exec`, `journalctl`, raw `curl`). The goal loop is records-vessel's rows, resolved through the attachment (§ Attachment) as `record_write` and `record_read` (`src/tools/_records.ts`):
 
-- **goal-host-vessel** — its shapes `goalDispatchAsync` (dispatch), `goalWalkState` (the dispatch record) and `solicitationResponse_write` (an answer), resolved through the attachment (§ Attachment; `src/tools/_goal-host.ts@readWalkState`, `src/tools/_goal-host.ts@dispatchGoal`). goal-host keeps dispatch records in memory, about the last 100, and `goalWalkState` carries the last 60 `walkLog` lines. A `goalWalkState` read is capped at 15 s, since the record is in memory; a dispatch at goal-host's 60 s.
-- **activity-api** — traces are read through the attachment as `activityExecutionTrace` (§ execution_trace), and oracle labels written as `goal_verification_label_write` (§ provide_feedback).
-- **discovery** — `registry_query` resolves discovery's own shapes through the attachment (§ Attachment).
+- **An ask** is a `world_changed` row `{ what }`. records stamps a row's role from the class identity marks the writing key with, never from the writer: a key marked `operator` writes an operator's row, which the walk takes as a root and works. The stored row's id is the dispatch id the tools take.
+- **Its state** is the rows that cite it: the walk's answers (`answer`), its deadline (a described row with `within_ms`, to which records adds the `at` it falls due), the grades on those (`outcome` rows, each with the `standing` records gives it: counted, or not and why) and whether records lists it among the open roots. It closes when a person's counted r 1 grades an answer (on the human surface: the surface lists an operator's ask with its answer) or when its deadline lapses with a counted r 0; an operator's own grade closes nothing.
+- **How it was worked** is the walk's `selection` rows for it (each move: what it chose, from which candidates, with the posteriors drawn), the `failure` rows on those moves with the `blames` records decided, and the calls made for it.
 
-Every request goes to discovery `POST /resolve` with `Authorization: ApiKey <METABOB_API_KEY>`, which discovery forwards to the producer; none is held open past 60 s. Planes:
+**The cockpit's own operator sign-in** (`src/tools/_records.ts@operator-gate`). Every goal tool reads and writes only under a key identity marks `operator` (the org check's `ownerKind`, § Attachment). Under any other key, the shared key included, nothing is sent to records: a row written or read under a key several holders share cannot be told apart from theirs. The tool answers `<tool>: waiting on the cockpit's own sign-in, issued by the USER on the human surface`, naming the class identity gave the key (never the key). That key is issued by the USER through the human surface; the server neither creates nor requests one. When the last org check gave no `operator` mark and is a minute old or more, a gated call runs the org check again first (`src/attachment.ts@attach`, `ownerKind`), so a key identity marks later counts without a restart.
+
+**Node.** An operator's key writes on its own node only: records refuses an operator's row forwarded from another node (403). Discovery places each call; when records refuses a write that way, the tool says that this cockpit is attached to a node that doesn't hold the walk's records, and to attach to the walk's node. Reads may cross nodes.
+
+Every request goes to discovery `POST /resolve` with `Authorization: ApiKey <METABOB_API_KEY>`, which discovery forwards to the producer; none is held open past 60 s. A write is sent once and never retried; a read is retried when cut at its timeout. Planes:
 
 | Tool | Plane |
 |------|-------|
@@ -1094,35 +1097,27 @@ Every request goes to discovery `POST /resolve` with `Authorization: ApiKey <MET
 | `provide_feedback` | FEEDBACK |
 | `registry_query`, `execution_trace`, `resolve_impulse` | INSPECT |
 
-**`reached`, not `status`.** `status` (`running|completed|failed`) is only the template *exit status*. **`reached`** (`yes|no`) is the goal-reach verdict and the load-bearing signal — printed first by `goal_status` and `goal_reasoning`. `completed`+`reached:false` (hollow) and `failed`+`reached:true` (e.g. a satisfier reach) are both normal; trusting `status` mis-judges the outcome. For high-stakes work also read the actual diff/output: a change can typecheck and pass the reach-gate yet not do what was asked.
-
-**Canonical loop:** `run_goal_async` → `goal_status` → `goal_reasoning` → `provide_feedback`.
+**Canonical loop:** `run_goal_async` → `goal_status` → `goal_reasoning` → `provide_feedback`. Read an answer before noting it: an answer can be given without doing what was asked.
 
 ### run_goal
 
 Handler: `src/tools/run-goal.ts@handle`
 
-Goal dispatch that waits for the outcome, for short, one-shot goals.
+An ask that waits a while for the walk's first answer.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `goal` | string | — | Natural-language goal. `goal` or `target_template_id` is required |
-| `target_template_id` | string | — | Activity template to execute, bypassing Thompson selection |
-| `variables` | object | — | Seed variables for the execution pool (`{{var}}` placeholders) |
-| `parent_execution_id` | string | — | Parent execution id for cross-vessel provenance |
-| `composition_chain` | string[] | — | Ancestor execution ids, root-first |
-| `learning_mode` | `observe` \| `learn` | goal-host's (learn) | `observe` traces the walk tagged `learning_mode:observe` and asks goal-host not to learn from it; `goal_status`'s `learning:` line says what goal-host recorded all the same (a goal path can be) |
-| `tags` | string[] | — | Tags carried onto the dispatch and its trace |
+| `goal` | string | **required** | What is wanted, in plain words. A code change names its file as `repos/<vessel>/src/<path>` |
 
-Dispatches as `run_goal_async` does (`goalDispatchAsync`), then polls `goalWalkState` (`src/tools/run-goal.ts@runGoalPollDelayMs`) — three polls `RUN_GOAL_POLL_MS` apart (default 2 s), then pauses doubling to `RUN_GOAL_POLL_MAX_MS` (default 15 s), because every read makes goal-host re-read the execution's oracle labels from the trace store; each poll is a short request — until the dispatch leaves `running` or the polling deadline `RUN_GOAL_TIMEOUT_MS` (default 290 s) passes (`src/tools/run-goal.ts@run-goal-poll`). No request is held open for the goal. `operator` is the declared operator (§ Client claim): `MB_OPERATOR_ID`, else this workspace's stable vesselId; goal-host turns it into the trace's `operator:` tag, and the dispatch's tags also carry `session:<SESSION_ID>`. Returns `dispatchId`, `executionId`, `reached`, `status`, `selectedTemplateId`, any `error` and the duration. Past the deadline the goal keeps running on goal-host, and the reply carries its `dispatchId` and a `goal_status` hint. A refused dispatch (a 429 from goal-host's spend-rate breaker, a 503 while it drains) returns its status and error.
+Writes the ask as `run_goal_async` does, then reads the rows citing it (`record_read { refs_to }`, `src/tools/run-goal.ts@runGoalPollDelayMs`): three reads `RUN_GOAL_POLL_MS` apart (default 2 s), then pauses doubling to `RUN_GOAL_POLL_MAX_MS` (default 15 s), until an `answer` row cites it or the polling deadline `RUN_GOAL_TIMEOUT_MS` (default 290 s) passes (`src/tools/run-goal.ts@run-goal-poll`). It then answers with the dispatch id and the ask's state as `goal_status` gives it. An ask closes only by a person's grade or its deadline, so the reply usually shows it open; the walk keeps working it, and the reply ends with a `goal_status` hint. When records stamped the row anything but `operator`, it is stored but is no ask, and the tool says so without waiting.
 
 ### run_goal_async
 
 Handler: `src/tools/run-goal-async.ts@handle`
 
-Asynchronous goal dispatch — the default for non-trivial goals. Same parameters as `run_goal`.
+An ask, without waiting. Same parameter as `run_goal`.
 
-Resolves `goalDispatchAsync { operator, goal?, targetTemplateId?, variables?, parent_execution_id?, composition_chain?, learning_mode?, tags? }` — goal-host enqueues it as `POST /run-goal` does and answers `202 { dispatchId, status }` at once — and returns the `dispatchId` with a `goal_status` hint. A dispatch is a write and is never retried; a 429 or 503 from goal-host returns its status and error. `learning_mode: "observe"` asks goal-host to run the walk without learning from it: the walk is still traced, for audit — activity-api stores a trace tagged `learning_mode:observe` / `reach_observe:true` and its learning writers skip it — and goal-host can still record the goal path (a `goal_finding` concept); goal-host's default is a learning run. The effective mode is in `goal_reasoning`'s walk log (`recordGoalPath PRECONDITIONS … learningMode=`); goal-host reads a top-level `learning_mode` on `/run-goal`, and its `goalDispatchAsync` path forwards it (goal-host `e07f883` and later); an older goal-host drops it on that path and runs the walk as a learning run. The reply states a passed `learning_mode` as requested, never as applied. What a walk actually taught is reported, not inferred: `run_goal`, and `goal_status` / `goal_reasoning` for a finished dispatch, print a `learning:` line from the dispatch record's `learning` consequences (`src/tools/_goal-host.ts@learningLines`) — goal path recorded, posterior (α/β) changes (a template goal-host lists with Δ0 is not a change), gaps filed, oracle label written — or `none recorded`, or `not reported by goal-host` when the record carries none. When `observe` was requested and the walk recorded a posterior change, a gap or a label anyway, `run_goal` adds a warning line. A reported goal path alone does not trigger it: goal-host sets `goalPathRecorded` on its trace branch whether or not it wrote the path, so under observe the flag is not evidence of a write, and `run_goal` says so. The goal text is forwarded unchanged; goal-host decides the route — a goal naming a real `repos/<vessel>/src/…` file routes to `feature_compose`, which drafts, typecheck-verifies and lands a traced commit.
+Writes `record_write { row: { shape: "world_changed", what: <goal> } }` once, under the operator gate above, and returns the stored row's id as the `dispatchId`, its role and a `goal_status` hint. A role other than `operator` gets a warning line: records keeps the row, but the walk does not take it as an ask. The goal text is sent unchanged (the outgoing guard checks it, § Outgoing text guard).
 
 ### goal_status
 
@@ -1130,21 +1125,23 @@ Handler: `src/tools/goal-status.ts@handle`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal` or `run_goal_async` (the ask row's id) |
 
-Resolves `goalWalkState { dispatchId }` and reads the dispatch record goal-host wraps in it. Prints `reached` (`yes`/`no`/`(running)`/`unknown`) first, then `status`, `executionId`, `operator`, `selectedTemplateId` and `error`. While the dispatch runs it shows the last 6 entries of the live goal-host `walkLog`. Once it has finished with an `executionId`, it hydrates the durable trace through `activityExecutionTrace` (as `execution_trace` reads it), except for a satisfier reach, which persists none: then it says so and points at `goal_reasoning` without a trace read. The trace gives: state-space signature, produced shapes, `completion_shapes:`/`reached:` tags, failure mode, Thompson α/β. goal-host keeps dispatch records in memory (about the last 100), so goal-host's 404 means the record was pruned or never existed; through a spoke that 404 arrives as `no_producer(goalWalkState)`, whose line says that either no producer answered or goal-host has no such dispatch. Any other failure is one named line (§ Attachment).
+The ask's state as records gives it (`src/tools/_records.ts@root-status`). Reads the ask (`{ ids }`), the rows citing it (`{ refs_to }`), the `outcome` rows on each answer and on the deadline row (`{ refs_to, shape: "outcome" }`), and whether records lists it among the open roots: the `open` its calls carry (`{ root, calls: "all", output: false }`), else, with no call yet, whether the walker's episode read (`{ episode, roots: "all" }`) lists it, the walker being the writer of a walk row citing the ask, else the newest owner `arm` row's `vessel_id`. It prints:
 
+- `state`: `open`; `closed: reached` with the answer, when a person's r 1 on an answer has `standing.counted`; `closed: failed` with the deadline row, when an r 0 on the deadline row has `standing.counted` (records' counted lapse); `closed` with neither; or not known, when no walker has worked it and no walk is armed.
+- `due`: the deadline row's `at` as stored, as a date, with no lapse drawn from it here; a `lapsed` field on the row is shown as records gives it, with each grade on the row.
+- each answer with its text and every grade on it: `r`, the grader's role and its standing (`counted`, `not counted (<why>)`, or `standing not given by records`, never read as counted).
 
-**Who dispatched** (`src/tools/_goal-host.ts@principalLines`, shared by `goal_status`, `goal_reasoning` and `run_goal`). goal-host validates the caller and reports it as `principal: { kind, operator, tag }`: `kind` is `key` or `node_self`, `operator` is true only for a credential carrying `operator:direct` or `admin`, and `tag` is a non-reversible tag (a key id's hash prefix, or a literal for node-self). The tools print `principal: <kind> (<tag>)`, `operator authority: yes (validated)` when it holds, the request's claimed `operator_label` as `(claimed, unverified)`, and, when `principal.operator` is false, one line: *ran without operator authority: an ordinary keyed caller; directed edits and operator priority do not apply* for a key, or *ran without operator authority (node self-call)* for `node_self`, whose own key never carries operator authority. A record without a principal (an older goal-host, or a record from before goal-host validated callers) prints `principal: not reported` and is never read as non-operator; its `operator` is the old claimed value and is marked so. A raw key id is never displayed: a pre-amendment `principal.label` of the form `key:<id>` prints as `key id withheld`.
 ### goal_reasoning
 
 Handler: `src/tools/goal-reasoning.ts@handle`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal` or `run_goal_async` (the ask row's id) |
 
-The walk's decision-log for a finished dispatch: the same header as `goal_status`, then the dispatch record's `walkLog` whenever it has one (numbered, verbatim; `goalWalkState` carries its last 60 lines), then — when an `executionId` exists — the per-task trace sequence (`#N ✓/✗ resolver/tier inShapes → outShapes`, failure mode) and a reach-verdict block (state-space, produced shapes, reach tags, α/β). With neither a `walkLog` nor trace tasks it says the decision-log is unavailable (typically a direct vessel resolve). While the dispatch runs it returns "still running" and nothing else.
+How the walk worked the ask, in three reads: the moves, `{ shape: "selection", where: { root } }`, oldest first (the last 20 shown), each with its time, what it chose (`a`), its cell, and its candidates (`cands`, the first 8) each with the posterior drawn for it (`posts`, index for index: α, β and where it came from); the failures on those moves, `{ shape: "failure", after_seq }` from the first move kept to rows whose `selection_ref` is one of them, each with its kind, refusal or status, `blames` and body; and the calls, `{ root, calls: "all", output: false }`, in order with their type, state and `call_id`, without outputs. A call's output reads with `execution_trace`.
 
 ### provide_feedback
 
@@ -1152,13 +1149,12 @@ Handler: `src/tools/provide-feedback.ts@handle`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal_async` |
-| `verdict` | `reached\|not_reached\|partial` | **required** | Operator verdict on whether the goal was achieved |
-| `rationale` | string | **required** | The evidence behind the verdict; stored as the label notes |
-| `confidence` | number | `0.9` | Operator confidence, 0..1 |
-| `goal` | string | — | Goal text, when the dispatch record does not carry it |
+| `dispatch_id` | string | **required** | The `dispatchId` from `run_goal` or `run_goal_async` (the ask row's id) |
+| `verdict` | `reached\|not_reached\|partial` | **required** | Whether the answer did what was asked: r 1, 0 or 0.5 |
+| `rationale` | string | **required** | The evidence behind the note; stored as `why` |
+| `answer_id` | string | — | The answer to note, when the ask has more than one |
 
-Reads the dispatch record as `goalWalkState`, refusing a 404 and a dispatch still running. Takes the goal (or the `goal` input), `executionId` and `selectedTemplateId` from that record. A misrouted or failed walk records no selected template, but its row in the trace listing names the activity that closed it (`satisfier:goal-host-walk-failed`), so with no template the activity is taken from `executionTraceList` (the newest 50), and the reply says so; with no activity either way, or no execution, it writes nothing and says where the assessment goes instead (`record_finding`, category `goal-routing`). With all three it and resolves `goal_verification_label_write` (activity-api's resolver) through the attachment, once — a write is never retried: verdict `achieved`/`not_achieved`/`partial`, `labeler: "automated"`, notes `<rationale> [operator: <operator>] [session: <session>]` (§ Client claim). The tool is driven by an agent's key, so its verdict is never labelled `human`: goal-host treats a `human` label as ground truth (it overwrites `reached` and files a human-reported gap), and a person's verdict comes through the human surface. Until labels carry provenance derived from the writing credential, the principal travels only in notes. The label lands in the oracle corpus (`goal_verification_labels`), consumed by offline audit rather than by an automated reach-gate. Through a spoke a producer's refusal of the label (a 400 naming missing fields) arrives as `no_producer(goal_verification_label_write)`; the line says that either no producer answered or the producer refused the label, and that no label was written.
+An operator's note on an answer. Reads the ask's answers (`{ refs_to }`); with none it writes nothing, and with several and no `answer_id` it lists them and writes nothing. Otherwise it writes `record_write { row: { shape: "outcome", r, why, input_refs: [<answer>] } }` once, and replies: *Recorded as an operator's note on <answer>. It is not a verdict: it closes nothing and moves no posterior. A verdict that counts is a person's, on the surface.* records keeps the row; its fold takes no grade from an operator's role.
 
 ### path_activity
 
@@ -1206,12 +1202,10 @@ Handler: `src/tools/execution-trace.ts@handle`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `execution_id` | string | — | The durable trace's execution id. Omitted: list recent traces |
-| `limit` | number | `10` | With no `execution_id`: how many recent traces to list (1–50) |
+| `execution_id` | string | — | A `call_id` (from `goal_reasoning`) or a row id. Omitted: list the walk's recent moves |
+| `limit` | number | `10` | With no `execution_id`: how many recent moves to list (1–50) |
 
-With no `execution_id`, resolves `executionTraceList { limit }` (`src/tools/_traces.ts@listExecutionTraces`) and lists the most recent traces of the caller's org, newest first — execution id, status, duration, template and time, with the page's success and failure counts — ending with how to read one, so an agent holding no id can find a trace. It is a read, and like the trace read it is not retried after a timeout; an empty list says that no trace is recorded. activity-api scopes the listing to the key's account and org; every key on one substrate sees the same set. activity-api's rows carry the stored record id (`v_paradigm_execution_traces:⟨exec_…⟩`); the listing shows the bare `exec_…` id, which is the form `activityExecutionTrace` answers, and a record id passed as `execution_id` is read by its bare id (`src/tools/_traces.ts@bareExecutionId`).
-
-With an `execution_id`, resolves `activityExecutionTrace { executionId, format: "json" }` through the attachment (§ Attachment) — activity-api's resolver, which answers the stored execution row (`src/tools/_traces.ts@readExecutionTrace`; its per-task sequence is lifted from `execution_trace.tasks`). It is a read: cut at activity-api's 10 s, it answers one `producer_timeout` line and is not retried, since the cut query keeps running in activity-api. A satisfier reach (`walk-satisfier-…`, or a `satisfier:` template) persists no task trace — activity-api answers 404 for it, a successful one included — so the listing marks such rows, and reading one answers at once, from the id alone and saying that activity-api was not asked, that its walk is in the dispatch record (`goal_reasoning`) (`src/tools/_traces.ts@isSatisfierExecution`). Otherwise it renders status, `activity_template_id`, `vessel_id`, `composition_chain`, the first `state_signature:` / `reached:` / `completion_shapes:` / `operator:` tags, failure mode, and the per-task sequence. The template is `activity_template_id`, else the row's `template_id`. A goal-host walk trace (`goal-host-vessel:walk`) carries the walk's own record in `metadata.walk`, and any trace that has one gets a **Walk** section before its tasks (`src/tools/execution-trace.ts@render-walk`): the target shapes, attempts, the route-around kind (`route_around.kind`, e.g. `stall`), the producers the walk routed around with each one's reason (`route_around.failed_producers`, a list of `{producer, reason}`; a producer → reason map reads the same; a reason is cut at 120 characters) and the missing producers (a line only when there are some), the number of recalled concepts, the unmet inputs, the bound demands and the outputs' shapes. Each list shows at most 8 items and then how many more; goal-host redacts the fields before it writes them. A 404 is reported as expected for a satisfier-only reach, pointing at `goal_reasoning`. Through a spoke a missing trace arrives as `no_producer(activityExecutionTrace)`, and the line says that either no producer answered or the trace does not exist (a satisfier-only reach persists no trace); `goal_status` and `goal_reasoning` use the same line for their trace read. `goal_reasoning` renders the same trace for a dispatch.
+The walk's work from records, under the operator gate (§ Substrate goal tools). With no `execution_id`, reads the store's head (`record_read { head: true }`), then the `selection` rows after the newest 2000 rows (`{ shape: "selection", after_seq }`), and lists the newest `limit`: time, the ask each worked (`root`), what it chose and its id. With an id, reads it as a call first (`{ call_id }`: type, state, the ask and whether it is open, the move, and its output, cut to 2000 characters), else as a row (`{ ids }`; a selection renders as `goal_reasoning` renders a move). An id that is neither says that records holds no such call or row.
 
 ### resolve_impulse
 

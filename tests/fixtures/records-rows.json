@@ -1,0 +1,1566 @@
+{
+ "note": "ROW LITERALS from records' own read()/store functions over a copy of the rows file (installed records dd877aa259), redacted. NOT captured through discovery: database may not call record_read/discovery resolve, so the transport envelope is not here.",
+ "ask_role": "person",
+ "1_record_read_shape_world_changed_ids": [
+  {
+   "input_refs": [],
+   "shape": "world_changed",
+   "what": "lorem ipsum xxxxxx",
+   "seq": 1001,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "person",
+   "id": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ],
+ "2_record_read_refs_to_ask__one_of_each_shape": [
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "request_acts",
+   "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "acts": [
+    {
+     "tool": "git_worktree",
+     "at_seq": 1002,
+     "ok": true,
+     "repo": "lorem ipsum xx"
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1003,
+     "ok": true,
+     "repo": "lorem ipsum xx"
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1004,
+     "ok": true,
+     "repo": "lorem ipsum xx"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1005,
+     "ok": false,
+     "status": 200
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1006,
+     "ok": true,
+     "repo": "lorem ipsum xx"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1007,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "git_commit",
+     "at_seq": 1008,
+     "ok": true,
+     "sha": "00000002ffffffffffffffffffffffffffffffff"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1009,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1010,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1011,
+     "ok": false,
+     "status": 200
+    },
+    {
+     "tool": "git_commit",
+     "at_seq": 1012,
+     "ok": true,
+     "sha": "00000003ffffffffffffffffffffffffffffffff"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1013,
+     "ok": false,
+     "status": 200
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1014,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "git_commit",
+     "at_seq": 1015,
+     "ok": true,
+     "sha": "00000004ffffffffffffffffffffffffffffffff"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1016,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "git_commit",
+     "at_seq": 1017,
+     "ok": true,
+     "sha": "00000005ffffffffffffffffffffffffffffffff"
+    },
+    {
+     "tool": "fs_edit",
+     "at_seq": 1018,
+     "ok": true,
+     "path": "/redacted/path"
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1019,
+     "ok": true,
+     "repo": "lorem ipsum xx"
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1020,
+     "ok": true,
+     "repo": "super"
+    },
+    {
+     "tool": "git_worktree",
+     "at_seq": 1021,
+     "ok": true,
+     "repo": "super"
+    }
+   ],
+   "not_called": [
+    "code_add_import",
+    "00000006ffffffffffffff",
+    "code_replace_lines",
+    "fs_write",
+    "git_land"
+   ],
+   "repeats": [
+    {
+     "call": "fs_read",
+     "on": "lorem ipsum xx",
+     "outcome": "lorem ipsum xxx",
+     "n": 3,
+     "since_seq": 1022
+    },
+    {
+     "call": "fs_edit",
+     "on": "lorem ipsum xx",
+     "outcome": "lorem ipsum xxxxx",
+     "n": 3,
+     "since_seq": 1023
+    },
+    {
+     "call": "git_diff",
+     "on": "lorem ipsum xx",
+     "outcome": "lorem ipsum xxxxxx",
+     "n": 2,
+     "since_seq": 1024
+    },
+    {
+     "call": "git_worktree",
+     "on": "lorem ipsum xxxxxxx",
+     "outcome": "lorem ipsum xxxxxxx",
+     "n": 2,
+     "since_seq": 1025
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum ",
+     "n": 2,
+     "since_seq": 1026
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxx",
+     "n": 2,
+     "since_seq": 1027
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxx",
+     "n": 2,
+     "since_seq": 1028
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum ",
+     "n": 2,
+     "since_seq": 1029
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxx",
+     "n": 2,
+     "since_seq": 1030
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxxxxxx",
+     "n": 2,
+     "since_seq": 1031
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxxxxxx",
+     "n": 2,
+     "since_seq": 1032
+    },
+    {
+     "produce": "outcome",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxx",
+     "n": 2,
+     "since_seq": 1033
+    },
+    {
+     "produce": "answer",
+     "on": "refused",
+     "outcome": "lorem ipsum xxxx",
+     "n": 2,
+     "since_seq": 1034
+    },
+    {
+     "produce": "land_verdict",
+     "on": "lorem ipsum ",
+     "outcome": "lorem ipsum xxx",
+     "n": 3,
+     "since_seq": 1035
+    }
+   ],
+   "selection_ref": "00000007ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "seq": 1036,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000008ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000009ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000010ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000011ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000012ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000013ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000014ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000015ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000016ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000017ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000018ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000019ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000021ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000022ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000023ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000024ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000025ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000026ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000027ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000028ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000029ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000030ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000031ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000032ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000033ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000034ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000035ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000036ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000037ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000038ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000039ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000040ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000041ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000042ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000043ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000044ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000045ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000046ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000047ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000048ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000049ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000008ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000050ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000051ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "text": "lorem ipsum x",
+   "uses": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000008ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000052ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "next_act": {
+    "tool": "lorem ipsum xxxxxxx",
+    "target": "lorem ipsum xx"
+   },
+   "shape": "answer",
+   "context_omitted": 2109,
+   "oldest_shown_seq": 1037,
+   "selection_ref": "00000053ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000054ffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxxx",
+   "seq": 1038,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "00000055ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "at": 1700000000000,
+   "within_ms": 86400000,
+   "shape": "due",
+   "context_omitted": 0,
+   "selection_ref": "00000056ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000057ffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxx",
+   "seq": 1039,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "00000058ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000059ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000005fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000060ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000061ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000062ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000063ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000064ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000065ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000066ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000067ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000068ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000069ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000006fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000070ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000071ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000072ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000073ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000074ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000075ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000076ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000077ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000078ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000079ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000007fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000080ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000081ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000082ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000083ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000084ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000085ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000086ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000087ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000088ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000089ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000008fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000090ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000091ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000092ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000093ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000094ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000095ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000096ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000097ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000098ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000099ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000009fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000a9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000aaffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000abffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000acffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000adffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000aeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000afffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000b9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000baffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000bbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000bcffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000bdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000beffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000bfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000caffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ccffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ceffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "wanted": false,
+   "what": "lorem ipsum xxxxxx",
+   "shape": "change_wanted",
+   "context_omitted": 0,
+   "oldest_shown_seq": 1040,
+   "selection_ref": "000000d5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "000000d6ffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxx",
+   "seq": 1041,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "000000d7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000daffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000dbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000dcffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ddffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000deffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000dfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000c9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000caffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ccffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000e9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000eaffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ebffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ecffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000edffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000eeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000efffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ceffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000cfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000f9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000faffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000fbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000058ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000fcffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000fdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000feffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000100ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000101ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000102ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000103ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000104ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000008ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000055ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "event_ref": "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "r": 0,
+   "evidence_refs": [
+    "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "outcome",
+   "context_omitted": 454,
+   "oldest_shown_seq": 1042,
+   "selection_ref": "00000106ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000107ffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxx",
+   "seq": 1043,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "00000108ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "standing": {
+    "counted": true
+   }
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000109ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000010ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000011ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000012ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000014ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000016ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000017ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000018ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000019ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000001fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000021ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000022ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000023ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000024ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000025ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000026ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000027ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000028ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000029ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000002fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000030ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000031ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000010fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000032ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000033ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000034ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000035ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000036ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000110ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000037ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000038ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000102ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000039ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000111ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000112ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000113ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000103ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000003fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000114ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000040ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000041ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000042ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000104ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000043ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000044ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000045ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000046ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000047ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000048ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000115ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000049ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000116ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004affffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000004cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "000000d4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "pointer": {
+    "type": "git_diff",
+    "cwd": "/redacted/path"
+   },
+   "uses": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000103ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000104ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "request",
+   "context_omitted": 3229,
+   "oldest_shown_seq": 1044,
+   "selection_ref": "00000117ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000118ffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxx",
+   "seq": 1045,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "00000052ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "cwd": "/redacted/path",
+   "repo": "lorem ipsum xx",
+   "branch": "dev",
+   "base": "00000119ffffffffffffffffffffffffffffffff",
+   "super_base": "0000011affffffffffffffffffffffffffffffff",
+   "origin_url": "lorem ipsum xxxxxxx",
+   "refreshed_from": "0000011bffffffffffffffffffffffffffffffff",
+   "shape": "lorem ipsum xx",
+   "selection_ref": "0000011cffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "0000011dffffffffffffffffffffffffffff",
+   "seq": 1046,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000113ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "stdout": "/redacted/path",
+   "stderr": "lorem ipsum ",
+   "exit_code": 0,
+   "shape": "lorem ipsum ",
+   "selection_ref": "0000011effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "0000011fffffffffffffffffffffffffffff",
+   "seq": 1047,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000120ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "path": "/redacted/path",
+   "content": "/redacted/path",
+   "bytes": 32282,
+   "shape": "lorem ipsum xx",
+   "selection_ref": "00000121ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000122ffffffffffffffffffffffffffff",
+   "seq": 1048,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000123ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "path": "/redacted/path",
+   "ok": true,
+   "shape": "lorem ipsum xxxxx",
+   "selection_ref": "00000124ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000125ffffffffffffffffffffffffffff",
+   "seq": 1049,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000126ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "sha": "00000005ffffffffffffffffffffffffffffffff",
+   "tree": "00000127ffffffffffffffffffffffffffffffff",
+   "base": "00000128ffffffffffffffffffffffffffffffff",
+   "changed": [
+    "lorem ipsum xxxxxxxx"
+   ],
+   "needs_person": [],
+   "scan": "ran",
+   "shape": "lorem ipsum xxxxxx",
+   "selection_ref": "00000129ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "0000012affffffffffffffffffffffffffff",
+   "seq": 1044,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000109ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "cwd": "/redacted/path",
+   "repo": "lorem ipsum xx",
+   "base": "00000128ffffffffffffffffffffffffffffffff",
+   "head": "00000005ffffffffffffffffffffffffffffffff",
+   "tree": "00000127ffffffffffffffffffffffffffffffff",
+   "diff": "lorem ipsum xxxxxx",
+   "truncated": false,
+   "fast_forward": true,
+   "typecheck": {
+    "ran": true,
+    "passed": false,
+    "exit_code": 2,
+    "out": "lorem ipsum xxxxx",
+    "truncated": false
+   },
+   "uncommitted": [],
+   "shape": "lorem ipsum xxxxxxx",
+   "selection_ref": "0000012bffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "0000012cffffffffffffffffffffffffffff",
+   "seq": 1050,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "0000012dffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000012dffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "repo": "lorem ipsum xx",
+   "tree": "00000127ffffffffffffffffffffffffffffffff",
+   "typecheck_ran": true,
+   "r": 0,
+   "why": "lorem ipsum x",
+   "uses": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "0000012dffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "land_verdict",
+   "context_omitted": 0,
+   "selection_ref": "0000012effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "0000012fffffffffffffffffffffffffffff",
+   "producer": "lorem ipsum xxxxx",
+   "seq": 1051,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "described",
+   "id": "00000130ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "cwd": "/redacted/path",
+   "script": "typecheck",
+   "exit_code": 1,
+   "ok": false,
+   "error_count": 0,
+   "error_lines": [],
+   "output_tail": "lorem ipsum x",
+   "shape": "lorem ipsum x",
+   "selection_ref": "00000131ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000132ffffffffffffffffffffffffffff",
+   "seq": 1052,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000133ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  {
+   "input_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "path": "/redacted/path",
+   "pattern": "lorem ipsum xxxx",
+   "total_lines": 422,
+   "line_count": 421,
+   "match_count": 16,
+   "matches": [
+    {
+     "line": 20,
+     "col": 61,
+     "capture": "context",
+     "line_text": "/redacted/path"
+    },
+    {
+     "line": 23,
+     "col": 26,
+     "capture": "context",
+     "line_text": "/redacted/path"
+    },
+    {
+     "line": 57,
+     "col": 57,
+     "capture": "context",
+     "line_text": "lorem ipsum xxxxxxx"
+    },
+    {
+     "line": 71,
+     "col": 106,
+     "capture": "earlier",
+     "line_text": "lorem ipsum xxxxx"
+    },
+    {
+     "line": 145,
+     "col": 22,
+     "capture": "earlier",
+     "line_text": "lorem ipsum xx"
+    },
+    {
+     "line": 146,
+     "col": 17,
+     "capture": "earlier",
+     "line_text": "lorem ipsum xx"
+    },
+    {
+     "line": 169,
+     "col": 98,
+     "capture": "context",
+     "line_text": "lorem ipsum "
+    },
+    {
+     "line": 172,
+     "col": 64,
+     "capture": "context",
+     "line_text": "lorem ipsum "
+    },
+    {
+     "line": 199,
+     "col": 34,
+     "capture": "context",
+     "line_text": "lorem ipsum "
+    },
+    {
+     "line": 221,
+     "col": 21,
+     "capture": "context",
+     "line_text": "lorem ipsum xxxxxxxx"
+    },
+    {
+     "line": 235,
+     "col": 49,
+     "capture": "context",
+     "line_text": "lorem ipsum x"
+    },
+    {
+     "line": 236,
+     "col": 24,
+     "capture": "context",
+     "line_text": "lorem ipsum xx"
+    },
+    {
+     "line": 249,
+     "col": 89,
+     "capture": "context",
+     "line_text": "lorem ipsum xxx"
+    },
+    {
+     "line": 254,
+     "col": 94,
+     "capture": "context",
+     "line_text": "lorem ipsum xxxxx"
+    },
+    {
+     "line": 266,
+     "col": 27,
+     "capture": "context",
+     "line_text": "lorem ipsum xxxxxxx"
+    },
+    {
+     "line": 341,
+     "col": 112,
+     "capture": "earlier",
+     "line_text": "lorem ipsum x"
+    }
+   ],
+   "shape": "lorem ipsum xxxxxxx",
+   "selection_ref": "00000134ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "call_id": "00000135ffffffffffffffffffffffffffff",
+   "seq": 1053,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000136ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ],
+ "3_record_read_refs_to_answer__outcomes": {
+  "counted": [
+   {
+    "input_refs": [
+     "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000daffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000dbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000dcffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000c8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ddffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000deffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000dfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000c9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000caffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000cbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ccffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000e9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000eaffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ebffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000cdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ecffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000edffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000eeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000efffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ceffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000cfffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f5ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f6ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f8ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000f9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000faffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000fbffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000058ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000fcffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d1ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000fdffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000feffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000100ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000101ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d2ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000102ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000103ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000104ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "000000d4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000008ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000055ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "event_ref": "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "r": 0,
+    "evidence_refs": [
+     "00000105ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "shape": "outcome",
+    "context_omitted": 454,
+    "oldest_shown_seq": 1042,
+    "selection_ref": "00000106ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "call_id": "00000107ffffffffffffffffffffffffffff",
+    "producer": "lorem ipsum xxxxx",
+    "seq": 1043,
+    "t": "2026-01-01T00:00:00.000Z",
+    "writer": "<redacted>",
+    "role": "described",
+    "id": "00000108ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "standing": {
+     "counted": true
+    }
+   }
+  ],
+  "not_counted": [],
+  "note_standing": "no `standing` field on outcome rows in installed records; counted = in fold standing()"
+ },
+ "4_record_read_selection_where_root": [
+  {
+   "input_refs": [],
+   "shape": "selection",
+   "arm": "treated",
+   "cands": [
+    {
+     "id": "produce/activity_template/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000138ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000138ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013affffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013affffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013bffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013bffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "call/git_commit",
+     "kind": "call",
+     "root": "0000013bffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/outcome/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/outcome/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/request/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/request/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/activity_template/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/request/gap/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/request/gap/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "run/0000013dffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "run",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "run/0000013effffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "run",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "run/0000013fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "run",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "run/00000140ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "run",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "run/00000141ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "run",
+     "root": "0000013cffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/answer/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/answer/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/due/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/due/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/change_wanted/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "produce/change_wanted/00000139ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+     "kind": "produce",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+     "id": "call/bounded_shell",
+     "kind": "call",
+     "root": "00000142ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+   ],
+   "posts": [
+    {
+     "alpha": 1.007823454027509,
+     "beta": 4.992176545972491,
+     "from": "move"
+    },
+    {
+     "alpha": 1.0189213145713194,
+     "beta": 4.98107868542868,
+     "from": "move"
+    },
+    {
+     "alpha": 1.007823454027509,
+     "beta": 4.992176545972491,
+     "from": "move"
+    },
+    {
+     "alpha": 1.0189213145713194,
+     "beta": 4.98107868542868,
+     "from": "move"
+    },
+    {
+     "alpha": 1.007823454027509,
+     "beta": 4.992176545972491,
+     "from": "move"
+    },
+    {
+     "alpha": 1.0189213145713194,
+     "beta": 4.98107868542868,
+     "from": "move"
+    },
+    {
+     "alpha": 2.419880497156523,
+     "beta": 3.580119502843477,
+     "from": "move"
+    },
+    {
+     "alpha": 2.971490658588781,
+     "beta": 29.540166903411226,
+     "from": "cell"
+    },
+    {
+     "alpha": 2.307987456001533,
+     "beta": 23.626274277998466,
+     "from": "cell"
+    },
+    {
+     "alpha": 7.887498558585519,
+     "beta": 57.65100544141439,
+     "from": "cell"
+    },
+    {
+     "alpha": 6.661293212806485,
+     "beta": 46.07441689219347,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.2633043091403624,
+     "beta": 12.476913700859637,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.0223765678182657,
+     "beta": 10.727623432181733,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 10,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 17,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 13,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 14,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 15,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 11,
+     "from": "cell"
+    },
+    {
+     "alpha": 1,
+     "beta": 12,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.3507779819591494,
+     "beta": 5.649222018040851,
+     "from": "cell"
+    },
+    {
+     "alpha": 2.5839051986231145,
+     "beta": 8.416094801376886,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.0546881819656528,
+     "beta": 10.945311818034348,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.032737355198091,
+     "beta": 5.9672626448019095,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.0993616954876095,
+     "beta": 5.90063830451239,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.5565085578895461,
+     "beta": 5.143491442110455,
+     "from": "cell"
+    },
+    {
+     "alpha": 1.2967121499999998,
+     "beta": 4.272610204779999,
+     "from": "asker"
+    }
+   ],
+   "posts_seq": 1054,
+   "seed": 3832220618,
+   "a": "produce/outcome/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "cell": "produce/outcome/00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff|ctx_a,ctx_b",
+   "context": [
+    "answer",
+    "due",
+    "world_changed",
+    "lorem ipsum xxx",
+    "lorem ipsum xxxxxx"
+   ],
+   "cell_scheme": "reads",
+   "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "pool_refs": [
+    "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "seen_key": "<redacted>",
+   "timing": {
+    "episodes_ms": 3554,
+    "episodes_reads": 1,
+    "choices_ms": 2430,
+    "posterior_ms": 794,
+    "posterior_reads": 1,
+    "draw_ms": 0,
+    "cands": 27,
+    "cells": 23
+   },
+   "seq": 1055,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000106ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ],
+ "5_failure_with_blames": [
+  {
+   "input_refs": [
+    "00000143ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "00000144ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "failure",
+   "kind": "skip",
+   "selection_ref": "00000143ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "unserved": [
+    "lorem ipsum xxxxxxx"
+   ],
+   "template_ref": "00000144ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "body": "lorem ipsum xxx",
+   "blames": "walk",
+   "seq": 1056,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "00000145ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ],
+ "6a_record_read_root_calls_all_output_false__first2": [
+  {
+   "call_id": "00000146ffffffffffffffffffffffffffff",
+   "type": "answer",
+   "selection_ref": "00000147ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "open": false,
+   "state": "ended",
+   "seq": 1057,
+   "t": "2026-01-01T00:00:00.000Z"
+  },
+  {
+   "call_id": "00000148ffffffffffffffffffffffffffff",
+   "type": "due",
+   "selection_ref": "00000149ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "open": false,
+   "state": "ended",
+   "seq": 1058,
+   "t": "2026-01-01T00:00:00.000Z"
+  }
+ ],
+ "6b_record_read_call_id": [
+  {
+   "call_id": "00000146ffffffffffffffffffffffffffff",
+   "type": "answer",
+   "selection_ref": "00000147ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "root": "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "open": false,
+   "state": "ended",
+   "seq": 1057,
+   "t": "2026-01-01T00:00:00.000Z",
+   "output": {
+    "input_refs": [
+     "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "text": "lorem ipsum xxxxx",
+    "uses": [
+     "00000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    ],
+    "shape": "answer",
+    "context_omitted": 0,
+    "selection_ref": "00000147ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "call_id": "00000146ffffffffffffffffffffffffffff",
+    "producer": "lorem ipsum xxxxx",
+    "seq": 1059,
+    "t": "2026-01-01T00:00:00.000Z",
+    "writer": "<redacted>",
+    "role": "described",
+    "id": "0000014affffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   }
+  }
+ ],
+ "7_record_read_episode_roots_all__cut": {
+  "shared": [
+   {
+    "input_refs": [],
+    "shape": "channel",
+    "calls": [
+     {
+      "pointer": {
+       "type": "llm_completion",
+       "model": "lorem ipsum xxxxx"
+      },
+      "input_field": "prompt",
+      "output_field": "content",
+      "producer_field": "model"
+     }
+    ],
+    "seq": 1060,
+    "t": "2026-01-01T00:00:00.000Z",
+    "writer": "<redacted>",
+    "role": "owner",
+    "id": "00000137ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   }
+  ],
+  "roots": [
+   {
+    "root": {
+     "input_refs": [],
+     "category": "authority_widening",
+     "source": "substrate_detected",
+     "status": "open",
+     "shape": "gap",
+     "gap_id": "0000014bffffffffffffffffffffffffffff",
+     "summary": "lorem ipsum xxxx",
+     "meta": {
+      "candidate_sha": "0000014cffffffffffffffffffffffffffffffff",
+      "accepted_sha": "0000014dffffffffffffffffffffffffffffffff"
+     },
+     "seq": 1061,
+     "t": "2026-01-01T00:00:00.000Z",
+     "writer": "<redacted>",
+     "role": "detector",
+     "id": "0000014effffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "rows": [
+     {
+      "input_refs": [],
+      "category": "authority_widening",
+      "source": "substrate_detected",
+      "status": "open",
+      "shape": "gap",
+      "gap_id": "0000014bffffffffffffffffffffffffffff",
+      "summary": "lorem ipsum xxxx",
+      "meta": {
+       "candidate_sha": "0000014cffffffffffffffffffffffffffffffff",
+       "accepted_sha": "0000014dffffffffffffffffffffffffffffffff"
+      },
+      "seq": 1061,
+      "t": "2026-01-01T00:00:00.000Z",
+      "writer": "<redacted>",
+      "role": "detector",
+      "id": "0000014effffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+     }
+    ],
+    "awaits": true
+   }
+  ]
+ },
+ "8_owner_arm_row": [
+  {
+   "input_refs": [],
+   "shape": "arm",
+   "vessel_id": "lorem ipsum xx",
+   "arm": "treated",
+   "as_of_seq": 1062,
+   "seq": 1063,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "owner",
+   "id": "0000014fffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ],
+ "9_refused_write_failure_row__as_the_walk_recorded_it": [
+  {
+   "input_refs": [
+    "00000150ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+   ],
+   "shape": "failure",
+   "call_id": "00000151ffffffffffffffffffffffffffff",
+   "selection_ref": "00000150ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "status": 422,
+   "body": "lorem ipsum xxxx",
+   "refused": "schema",
+   "blames": "request",
+   "seq": 1064,
+   "t": "2026-01-01T00:00:00.000Z",
+   "writer": "<redacted>",
+   "role": "walk",
+   "id": "000000d4ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+ ]
+}

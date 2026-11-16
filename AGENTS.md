@@ -43,8 +43,8 @@ version of these rules for that setup; read it if your harness does not load ski
    relayed approval as if it were theirs.
 8. **No secrets.** Never put a key, token or password in a finding, concept or goal; the outgoing guard refuses
    the call, and the fix is to remove or mask the value, never to disguise it.
-9. **Goals on the substrate** (`run_goal_async`, `goal_status`, `goal_reasoning`): read `reached`, not `status`;
-   never grade your own work.
+9. **Goals on the substrate** (`run_goal_async`, `goal_status`, `goal_reasoning`): an ask closes by a person's
+   grade or its deadline, never by your note; they wait on the cockpit's own operator sign-in.
 
 ## Developing this repository
 

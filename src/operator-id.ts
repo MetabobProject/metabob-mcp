@@ -1,7 +1,6 @@
 /**
- * The operator identity and session this process declares on what it sends: threaded
- * onto goal dispatches (run_goal / run_goal_async) as `operator:` and `session:` tags,
- * folded into feedback labels, and carried on every write as `client_claim`.
+ * The operator identity and session this process declares on what it sends: carried
+ * on every write as `client_claim`.
  * SPEC §client-claim
  *
  * These are CLAIMS the client makes, not attribution: a producer that stamps who wrote

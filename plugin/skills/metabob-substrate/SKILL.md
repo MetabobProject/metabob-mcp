@@ -21,22 +21,23 @@ reader are faster.
   the substrate may be landing it. A problem you notice and are not fixing goes into
   `record_finding`, not just your reply, where the next agent never sees it. After the
   edit, `mark_complete` for what you fixed.
-- **Never grade your own work.** Whether a goal was reached is goal-host's
-  judgment. Read `reached` and the `learning:` line; never treat a run you
-  dispatched as a success because it ended.
+- **Never grade your own work.** An ask is closed by a person's grade of its
+  answer on the human surface, or by its deadline lapsing. Never treat an ask as
+  done because an answer arrived.
 - **State goals in natural language.** Describe the outcome you want. Do not
   break a goal into shapes or steps for the system; mapping a goal onto its
   shapes is the substrate's job.
-- **Inspect before you trust.** Read `goal_reasoning` before relying on a reach:
-  a walk can end `reached` on hollow content.
-- **Your verdict is evidence, not authority.** `provide_feedback` records it as
-  an `automated` observation. A person's judgment reaches the substrate through
-  its human surface; do not represent the user's view as yours.
+- **Inspect before you trust.** Read the answer and `goal_reasoning` before
+  relying on it: an answer can be given without doing what was asked.
+- **Your note is evidence, not authority.** `provide_feedback` records an
+  operator's note: it closes nothing and moves no posterior. A person's judgment
+  reaches the substrate through its human surface; do not represent the user's
+  view as yours.
 - **Write into the system's memory.** Findings, decisions and rejected
   approaches go into the ledger and concept-db, where the next agent recalls
   them, rather than into notes only you keep.
-- **Poll gently.** A few quick reads, then 10–15 s apart; stop when a dispatch is
-  no longer running.
+- **Poll gently.** A few quick reads, then 10–15 s apart; stop when the ask has
+  an answer to read.
 
 ## Start of session
 
@@ -101,35 +102,35 @@ concurrent agents apart, and the brief outlives whoever wrote it.
 ## Role: operator — goals on the substrate
 
 Use it when the substrate can do the task: a goal that names a file in a
-repository the substrate mounts, or a question its services answer.
+repository the substrate mounts, or a question its services answer. The goal tools
+wait on the cockpit's own operator sign-in, issued by the USER on the human surface;
+until it exists each answers that it is waiting, and sends nothing. Do not look for
+another key.
 
-1. `run_goal_async { goal }` → a `dispatchId`.
-2. `goal_status { dispatch_id }` until it is no longer running. Read `reached`,
-   never `status`: `completed` with `reached: no` is common, and so is `failed` with
-   `reached: yes`.
-3. `goal_reasoning { dispatch_id }` — the walk's decision log: what it tried, why it
-   reached or fell short.
-   To look at what ran without a dispatch of your own, `execution_trace` with no id
-   lists your org's recent runs; pass one's id to read its trace.
+1. `run_goal_async { goal }` → a `dispatchId`: your ask, which the walk takes up.
+2. `goal_status { dispatch_id }` — open, or closed (reached by a person's grade of an
+   answer, or failed by its deadline lapsing), with its answers, their grades and the
+   deadline as stored.
+3. `goal_reasoning { dispatch_id }` — the walk's moves (what it chose, from which
+   candidates, with what posteriors), the failures on them, and its calls.
+   `execution_trace` with no id lists the walk's recent moves; pass a call's id to
+   read its output.
 4. Check the actual result (the landed diff, the answer, the tests) against what
-   you asked for. A change can pass the reach gate and still not do what was meant.
+   you asked for. An answer can arrive and still not do what was meant.
 
-What the substrate learns: goal-host's judge grades the walk, crediting or
-penalising the activities it used, recording the goal's path, and filing gaps it
-found. The `learning:` line of `goal_status` shows what goal-host reports it recorded.
-Posterior changes, filed gaps and labels are recorded results; goal-host sets the
-goal-path flag whether or not it wrote the path, so confirm a recorded path by
-reading it, not by the flag.
+What the substrate learns: the person who grades the answer on the human surface
+closes the ask, and the walk learns from that grade.
 
-## Role: verifier — your verdict on a goal
+## Role: verifier — your note on an answer
 
 After the operator loop, `provide_feedback { dispatch_id, verdict, rationale }` with
-`reached`, `not_reached` or `partial`. Make the rationale the evidence you checked:
-what you inspected and what you found.
+`reached`, `not_reached` or `partial` (and `answer_id` when the ask has several
+answers). Make the rationale the evidence you checked: what you inspected and what
+you found.
 
-What the substrate learns: nothing directly. Your verdict is stored as an `automated`
-label in its oracle corpus beside goal-host's own verdict: an audit observation, not a
-learning signal. It does not overwrite the reach verdict; only a person's `human` label does.
+What the substrate learns: nothing directly. Your note is kept as an operator's
+grade on the answer: it is not a verdict, it closes nothing and moves no posterior.
+Only a person's grade on the human surface does.
 
 ## Role: client of shared memory
 
@@ -183,8 +184,8 @@ The substrate develops itself on the same code, so share it the way a careful co
   yours: use it for reads and for input you were asked to add (such as a person's request
   as a `record_write`). Otherwise dispatch a goal, record a finding, or give your verdict
   with `provide_feedback`.
-- **Check before you dispatch.** An open gap or a recent dispatch may already cover the
-  goal. A 429 from goal-host is its spend-rate cap: information, not something to retry.
+- **Check before you dispatch.** An open gap or an open ask may already cover the
+  goal (`execution_trace` lists the walk's recent moves and the asks they worked).
 - **Don't restart or deploy nodes.** When maintenance is needed, it runs as a dispatched
   activity that takes the lease as its own steps, when your instructions ask for it.
 - **Share hosts gently.** Load tests run capped, in a window your instructions give,

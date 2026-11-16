@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
  * The MCP half of `lab.sh check`: starts the built server (dist/cli.js) over stdio with the config at
- * LAB_MCP_CONFIG, dispatches an LLM-free goal with `run_goal_async`, and polls `goal_status` until it
- * reads `reached: yes`, for at most LAB_CHECK_TIMEOUT_S seconds (default 300).
+ * LAB_MCP_CONFIG, asks an LLM-free goal with `run_goal_async`, and reads `goal_status` until the walk's
+ * answer cites the ask, for at most LAB_CHECK_TIMEOUT_S seconds (default 300).
  *
- * The goal asks for the registry's vessel count, which the substrate answers deterministically
- * (satisfier:shellResult), so it reaches without a provider quota. Prints a few verdict lines on stdout;
- * diagnostics go to stderr. Exit 0 when the goal reached, 1 otherwise.
+ * The goal asks for the registry's vessel count, which the substrate answers without a provider quota.
+ * Prints a few verdict lines on stdout; diagnostics go to stderr. Exit 0 when the ask was answered, 3 when
+ * the goal tools wait on the cockpit's own operator sign-in (the lab key is not an operator's), 1 otherwise.
  */
 import { McpServer, cleanupTempDirs, makeWorkspace } from '../tests/workflows/harness/mcp-client';
 
@@ -38,37 +38,34 @@ try {
     },
   });
 
-  // The server attaches in the background; a dispatch that fails is retried a few times, then reported.
+  // The server attaches in the background; an ask that fails is retried a few times, then reported.
   let dispatchId: string | null = null;
   let last = '';
   for (let attempt = 1; !dispatchId && attempt <= 5 && Date.now() < deadline; attempt++) {
     last = (await server.call('run_goal_async', { goal: LAB_CHECK_GOAL }, 60_000)).text;
     dispatchId = /dispatchId:\s*(\S+)/.exec(last)?.[1] ?? null;
-    // goal-host's spend-rate policy caps identical goals per hour (429). Retrying only adds
-    // refusals; report it as a throttle, distinct from a failed reach.
-    if (!dispatchId && /\b429\b/.test(last)) {
-      say('goal-host refused the check goal: spend-rate policy (identical goal dispatched too often in the last hour)');
+    // The goal tools write nothing under a key identity does not mark operator: not a failure of the lab.
+    if (!dispatchId && /waiting on the cockpit's own sign-in/.test(last)) {
+      say(last.split('\n')[0]!);
       process.exit(3);
     }
     if (!dispatchId) await Bun.sleep(3_000);
   }
-  if (!dispatchId) throw new Error(`run_goal_async did not dispatch: ${last.split('\n')[0]}`);
-  say(`dispatched ${dispatchId}: "${LAB_CHECK_GOAL}"`);
+  if (!dispatchId) throw new Error(`run_goal_async did not record the ask: ${last.split('\n')[0]}`);
+  say(`asked ${dispatchId}: "${LAB_CHECK_GOAL}"`);
 
-  let reach = '';
-  // Gentle polling: each goal_status read makes goal-host re-read the execution's labels.
+  // Gentle polling, until an answer cites the ask.
   for (let poll = 0; Date.now() < deadline; poll++) {
     last = (await server.call('goal_status', { dispatch_id: dispatchId }, 60_000)).text;
-    reach = /reached:\s+(.*)/.exec(last)?.[1]?.trim() ?? '';
-    if (reach === 'yes' || reach === 'no') break;
+    if (/^\s*answer \S+/m.test(last)) break;
     await Bun.sleep(Math.min(15_000, 5_000 * 2 ** Math.max(0, poll - 1)));
   }
-  const template = /(?:selectedTemplateId|template):\s*(\S+)/.exec(last)?.[1];
-  if (reach === 'yes') {
+  const answer = /^\s*(answer \S+.*)$/m.exec(last)?.[1];
+  if (answer) {
     ok = true;
-    say(`goal_status: reached: yes${template ? ` (${template})` : ''}`);
+    say(`goal_status: ${answer.slice(0, 160)}`);
   } else {
-    say(`goal_status: reached: ${reach || '(no verdict)'} after ${timeoutS}s limit`);
+    say(`goal_status: no answer after ${timeoutS}s limit`);
     console.error(last);
   }
 } catch (err) {

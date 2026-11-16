@@ -48,7 +48,7 @@ Ledger:
 - \`record_finding\` attributes an issue you noticed to code, so it outlives this session and other agents recall it.
 - \`mark_complete\` closes a finding: \`endorse\` when fixed, \`discard\` when it is a false positive.
 
-Goals on the substrate: \`run_goal_async\` → \`goal_status\` (read \`reached\`, not \`status\`) → \`goal_reasoning\` → \`provide_feedback\` with your verdict. \`execution_trace\` with no id lists your org's recent runs.
+Goals on the substrate: \`run_goal_async\` writes your ask for the walk → \`goal_status\` (open, or closed reached or failed, by a person's grade or a lapse) → \`goal_reasoning\` (its moves and calls) → \`provide_feedback\` (an operator's note, not a verdict). \`execution_trace\` with no id lists the walk's recent moves. They wait on the cockpit's own operator sign-in, issued by the USER on the human surface.
 
 Before editing a file other agents or the substrate may be working on, \`path_activity\` shows what is in flight on it.
 

@@ -1,42 +1,30 @@
 // Contract (input schema, behaviour): SPEC §goal_status
 /**
- * goal_status — poll a goal dispatched via run_goal_async, and (once it has an
- * executionId) hydrate the durable execution trace for status + state-space.
+ * goal_status — an ask's state as records gives it, by the dispatchId run_goal /
+ * run_goal_async returned (the ask row's id).
  *
- * Two-step view, each a shape resolved through discovery `POST /resolve`
- * (CONFORMANCE §c11-attachment-model):
- *   1. `goalWalkState` (src/tools/_goal-host.ts) — goal-host's in-memory dispatch
- *      record ({ status, executionId, selectedTemplateId, error, walkLog }). This
- *      is ephemeral (last ~100 dispatches, pruned) and authoritative for "is it
- *      still running".
- *   2. the `activityExecutionTrace` shape through discovery (src/tools/_traces.ts) —
- *      the durable trace. Best-effort hydration that surfaces the state-space
- *      signature (the `state_signature:<hash>` tag stamped at dispatch), the
- *      failure mode, produced output shapes, and Thompson α/β selection data.
- *
- * `status: "completed"` means the selected template executed — NOT that the
- * goal was reached. Goal-reach is the LLM verdict folded into the trace
- * (β-penalty + completion-shape tags); inspect the produced shapes / failure
- * mode below to judge reach.
- *
+ * Composed from records reads through the attachment (src/tools/_records.ts@root-status):
+ * the ask row (`{ ids }`), the rows citing it (`{ refs_to }`: answers and the deadline
+ * row), the outcomes on each with records' `standing`, and whether records lists it
+ * among the open roots (its calls' `open`, else the walker's `{ episode, roots: "all" }`).
+ * Reached and failed are named only from grades records counted; the deadline's `at`
+ * is shown as stored, with no lapse drawn from it here.
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { learningLines, principalLines, readWalkState } from './_goal-host.js';
-import { readExecutionTrace } from './_traces.js';
-import { isSatisfierExecution } from './_traces.js';
+import { operatorGate, rootStatus } from './_records.js';
 
 export const GoalStatusTool = {
   name: 'goal_status',
   description:
-    "Poll a goal dispatched with run_goal_async. Poll gently: a few quick reads, then at least 10–15 s apart, and stop once the dispatch is no longer running — every read makes goal-host re-read the execution's labels. Returns the live dispatch status (running | completed | failed), the executionId + selectedTemplateId, and — once the trace lands — a hydrated view: the state-space signature it ran under, produced output shapes, failure mode, and Thompson alpha/beta for the selected template. Note: status=completed means the template executed, not that the goal was reached; read the produced shapes / failure mode to judge reach.",
+    "Read the state of an ask made with run_goal or run_goal_async, as records gives it: open or closed, each answer the walk gave with the grades on it (and whether records counted them), and the deadline as stored. Closed reached means a person's counted r 1 on an answer; closed failed means a counted lapse of its deadline. Read gently: a few reads, then minutes apart, since an ask closes only by a person's grade or its deadline. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it reads nothing and says so.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       dispatch_id: {
         type: 'string',
-        description: 'The dispatchId returned by run_goal_async.',
+        description: 'The dispatchId returned by run_goal or run_goal_async (the ask row id).',
       },
     },
     required: ['dispatch_id'],
@@ -49,109 +37,15 @@ export const InputSchema = z.object({
 
 export type GoalStatusInput = z.infer<typeof InputSchema>;
 
-/** Render the honest reach verdict as the primary outcome line. */
-function reachLine(reached: boolean | null | undefined, status?: string): string {
-  if (status === 'running') return '  reached:            (running)';
-  if (reached === true) return '  reached:            yes';
-  if (reached === false) return '  reached:            no';
-  return '  reached:            (unknown — goal-host reported no reach verdict)';
-}
-
-/** Best-effort: pull the durable trace and summarise state-space + reach hints. */
-async function hydrateTrace(executionId: string): Promise<string[] | null> {
-  const read = await readExecutionTrace(executionId);
-  if (read.kind !== 'ok') return null;
-  const t = read.trace;
-
-  const tags: string[] = Array.isArray(t.tags) ? t.tags.map(String) : [];
-  const stateSig = tags.find((x) => x.startsWith('state_signature:'));
-  const completionTags = tags.filter(
-    (x) => x.startsWith('completion_shapes:') || x.startsWith('reached:'),
-  );
-
-  // Produced shapes: the trace's denormalised `output_impulse_shapes` is the
-  // authoritative roll-up; fall back to a union over per-task output shapes.
-  const outShapes = new Set<string>();
-  for (const x of (Array.isArray(t.output_impulse_shapes) ? t.output_impulse_shapes : [])) {
-    outShapes.add(String(x));
-  }
-  const tasks = Array.isArray(t.tasks) ? t.tasks : [];
-  for (const task of tasks) {
-    const s = task?.output_impulse_shapes ?? task?.output_shapes ?? task?.outputShapes;
-    if (Array.isArray(s)) s.forEach((x: unknown) => outShapes.add(String(x)));
-  }
-  if (Array.isArray(t.output_shapes)) t.output_shapes.forEach((x: unknown) => outShapes.add(String(x)));
-
-  const fm = t.failure_mode;
-  const sel = t.selection;
-  const alpha = sel?.alpha ?? t.alpha;
-  const beta = sel?.beta ?? t.beta;
-
-  const lines = ['', 'Hydrated trace:'];
-  lines.push(`  trace status:       ${t.status ?? '(unset)'}`);
-  if (stateSig) lines.push(`  state-space:        ${stateSig}`);
-  lines.push(
-    `  produced shapes:    ${outShapes.size ? [...outShapes].join(', ') : '(none recorded)'}`,
-  );
-  if (completionTags.length) lines.push(`  reach tags:         ${completionTags.join(', ')}`);
-  if (fm) {
-    const fmType = typeof fm === 'object' ? fm.type : fm;
-    const fmReason = typeof fm === 'object' ? fm.reason : undefined;
-    lines.push(`  failure mode:       ${fmType}${fmReason ? ` — ${fmReason}` : ''}`);
-  }
-  if (alpha != null || beta != null) {
-    lines.push(`  thompson α/β:       ${alpha ?? '?'} / ${beta ?? '?'}`);
-  }
-  return lines;
-}
-
-export async function handle(
-  input: GoalStatusInput,
-  _apiClient: AnalysisAPIClient,
-): Promise<string> {
-  const read = await readWalkState(input.dispatch_id);
-  if (read.kind === 'not_found') {
-    return `goal_status: dispatch ${input.dispatch_id} not found. The dispatch record is in-memory and capped (~100 dispatches); it may have been pruned. If you have the executionId, the durable trace is still readable with execution_trace.`;
-  }
-  if (read.kind === 'error') {
-    return `goal_status: ${read.message}`;
-  }
-  const record = read.record;
-
-  const lines = [
-    `Dispatch ${record.dispatchId ?? input.dispatch_id}`,
-    reachLine(record.reached, record.status),
-    '  (reached = the goal verdict; status below is only the template exit status)',
-    `  status:             ${record.status ?? '(unset)'}`,
-    `  executionId:        ${record.executionId ?? '(pending)'}`,
-    record.operator ? `  operator:           ${record.operator}${record.principal ? '' : ' (claimed; goal-host reports no principal)'}` : null,
-    ...principalLines(record),
-    record.selectedTemplateId ? `  selectedTemplateId: ${record.selectedTemplateId}` : null,
-    record.error ? `  error:              ${record.error}` : null,
-    ...(record.status === 'running' ? [] : learningLines(record.learning)),
-  ].filter(Boolean) as string[];
-
-  // Hydrate once an execution exists and the run is no longer in flight.
-  if (record.executionId && record.status !== 'running' && isSatisfierExecution(record.executionId, record.selectedTemplateId)) {
-    lines.push('', `  (a satisfier reach persists no task trace; goal_reasoning ${record.dispatchId ?? input.dispatch_id} shows the walk)`);
-  } else if (record.executionId && record.status !== 'running') {
-    const hydrated = await hydrateTrace(record.executionId);
-    if (hydrated) lines.push(...hydrated);
-    else lines.push('', '  (trace hydration unavailable — read it with execution_trace)');
-  } else if (record.status === 'running') {
-    // The dispatch record carries the live walk log while running — render it.
-    // A blank "poll again" over a walk that is visibly deciding things was the
-    // cockpit-blindness defect (gap-cockpit-blind-while-goal-runs): the server
-    // sent walkLog on every poll and this tool discarded it.
-    const wl = Array.isArray(record.walkLog) ? record.walkLog.filter((x) => typeof x === 'string') : [];
-    if (wl.length > 0) {
-      lines.push('', `  Live walk (${wl.length} step${wl.length === 1 ? '' : 's'} so far, last ${Math.min(wl.length, 6)}):`);
-      for (const step of wl.slice(-6)) lines.push(`    • ${step.slice(0, 200)}`);
-      lines.push('', '  Still running — poll again for newer steps / the hydrated trace.');
-    } else {
-      lines.push('', '  Still running (no walk steps recorded yet) — poll again.');
-    }
-  }
-
-  return lines.join('\n');
+export async function handle(input: GoalStatusInput, _apiClient: AnalysisAPIClient): Promise<string> {
+  const gate = await operatorGate('goal_status');
+  if (gate) return gate;
+  const status = await rootStatus(input.dispatch_id);
+  if (status.kind !== 'ok') return `goal_status: ${status.message}`;
+  return [
+    `Ask ${input.dispatch_id}`,
+    ...status.body.lines,
+    '',
+    `The walk's moves and calls: goal_reasoning { "dispatch_id": "${input.dispatch_id}" }`,
+  ].join('\n');
 }

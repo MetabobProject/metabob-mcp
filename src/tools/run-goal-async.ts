@@ -1,119 +1,70 @@
 // Contract (input schema, behaviour): SPEC §run_goal_async
 /**
- * run_goal_async — dispatch a goal to goal-host-vessel WITHOUT blocking.
+ * run_goal_async — ask the walk for something WITHOUT waiting.
  *
- * Resolves the `goalDispatchAsync` shape through the attachment (discovery
- * `POST /resolve`; src/tools/_goal-host.ts), which goal-host answers at once
- * with `202 { dispatchId, status }`. The goal then runs in the background; the
- * caller polls `goal_status` with the returned dispatchId. CONFORMANCE
- * §c11-attachment-model
- *
- * The dispatch carries `operator: <MB_OPERATOR_ID>`, which goal-host stamps
- * into the trace's `operator:` tag.
+ * Writes the ask as a records `world_changed` row (`record_write`, through the
+ * attachment; src/tools/_records.ts) under the cockpit's operator sign-in. records
+ * stamps the role from identity's mark: an operator's ask is a root the walk works.
+ * The stored row's id is the dispatch id; goal_status reads the root's state by it.
+ * Under any key identity does not mark `operator` nothing is written
+ * (src/tools/_records.ts@operator-gate). CONFORMANCE §c11-attachment-model
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
-import { describeResolveFailure } from '../attachment.js';
-import { operatorId, sessionId } from '../operator-id.js';
-import { dispatchFailure, dispatchGoal, requestedLearningModeLine } from './_goal-host.js';
+import { OPERATOR, operatorGate, recordWrite, type Row } from './_records.js';
 
 export const RunGoalAsyncTool = {
   name: 'run_goal_async',
   description:
-    "Dispatch a goal to goal-host-vessel asynchronously (shape goalDispatchAsync). Returns a dispatchId immediately without waiting for the goal to finish — the goal runs in the background and you poll it with goal_status. Prefer this over run_goal for long-running goals (composition walks, drafter fallback, recovery) that would outlast run_goal's polling deadline (~290s). Provide either goal (natural-language) or target_template_id (skip Thompson selection). Optional variables seed the execution pool; parent_execution_id + composition_chain thread cross-vessel provenance.",
+    "Ask the substrate's walk for something, without waiting: writes the goal as an operator's ask (a records world_changed row) and returns its row id as the dispatchId at once; read its state with goal_status. The walk takes the ask as a root and works it; a person's grade of an answer on the human surface closes it, or its deadline lapsing does. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so.",
   inputSchema: {
     type: 'object' as const,
     properties: {
       goal: {
         type: 'string',
         description:
-          "Natural-language goal description. The goal runs on the substrate, not in this workspace: a code-change goal names its file as repos/<vessel>/src/<path> in the substrate's repositories, which need not exist locally — dispatch it as given rather than looking for the file here. Either this or target_template_id is required.",
-      },
-      target_template_id: {
-        type: 'string',
-        description:
-          'Specific activity template id to execute, bypassing Thompson selection.',
-      },
-      variables: {
-        type: 'object',
-        description:
-          'Seed variables injected into the execution pool. Templates reference these as {{var}} placeholders.',
-        additionalProperties: true,
-      },
-      parent_execution_id: {
-        type: 'string',
-        description:
-          'Parent execution id for cross-vessel provenance (composition tracking).',
-      },
-      composition_chain: {
-        type: 'array',
-        items: { type: 'string' },
-        description:
-          'Ancestor execution ids, root-first. Threads through to the trace for credit propagation.',
-      },
-      learning_mode: {
-        type: 'string',
-        enum: ['observe', 'learn'],
-        description:
-          "goal-host's learning mode. `learn` is goal-host's default: the substrate learns from the walk. `observe` traces the walk tagged `learning_mode:observe` and asks goal-host not to learn from it; goal_status's `learning:` line says what goal-host recorded all the same (a goal path can be). Read the effective mode in goal_reasoning's walk log (`recordGoalPath PRECONDITIONS … learningMode=`).",
-      },
-      tags: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Tags carried onto the dispatch and its trace, beside the operator: and session: tags the server adds.',
+          "What you want done, in plain words. It runs on the substrate, not in this workspace: a code change names its file as repos/<vessel>/src/<path> in the substrate's repositories, which need not exist locally.",
       },
     },
+    required: ['goal'],
   },
 };
 
-export const InputSchema = z
-  .object({
-    goal: z.string().optional(),
-    target_template_id: z.string().optional(),
-    variables: z.record(z.unknown()).optional(),
-    parent_execution_id: z.string().optional(),
-    composition_chain: z.array(z.string()).optional(),
-    learning_mode: z.enum(['observe', 'learn']).optional(),
-    tags: z.array(z.string()).optional(),
-  })
-  .refine((v) => Boolean(v.goal || v.target_template_id), {
-    message: 'goal or target_template_id is required',
-  });
+export const InputSchema = z.object({
+  goal: z.string().min(1, 'goal is required'),
+});
 
 export type RunGoalAsyncInput = z.infer<typeof InputSchema>;
+
+/** Write the ask: the stored row, or the line the tool answers with. */
+export async function writeAsk(tool: string, goal: string): Promise<{ kind: 'ok'; row: Row } | { kind: 'error'; line: string }> {
+  const gate = await operatorGate(tool);
+  if (gate) return { kind: 'error', line: gate };
+  const w = await recordWrite({ shape: 'world_changed', what: goal });
+  if (w.kind !== 'ok') return { kind: 'error', line: `${tool}: ${w.message}` };
+  return { kind: 'ok', row: w.row };
+}
+
+/** The line saying the row is not an ask, when records stamped it as anything but an operator's. */
+export function roleWarning(row: Row): string | null {
+  return row.role === OPERATOR
+    ? null
+    : `  ⚠ records stamped this row ${row.role ?? '(no role)'}, not operator: it is stored, but the walk does not take it as an ask`;
+}
 
 export async function handle(
   input: RunGoalAsyncInput,
   _apiClient: AnalysisAPIClient,
 ): Promise<string> {
-  let answer;
-  try {
-    answer = await dispatchGoal({
-      goal: input.goal,
-      targetTemplateId: input.target_template_id,
-      variables: input.variables,
-      parent_execution_id: input.parent_execution_id,
-      composition_chain: input.composition_chain,
-      learning_mode: input.learning_mode,
-      // The session this dispatch came from, as a tag goal-host stamps into the trace (a claim). SPEC §client-claim
-      tags: [...(input.tags ?? []), `session:${sessionId()}`],
-      operator: operatorId(),
-    });
-  } catch (err) {
-    return `run_goal_async: ${describeResolveFailure(err)}`;
-  }
-
-  if ((answer.status !== 202 && answer.status !== 200) || !answer.dispatchId) {
-    return dispatchFailure('run_goal_async', answer);
-  }
-
+  const w = await writeAsk('run_goal_async', input.goal);
+  if (w.kind !== 'ok') return w.line;
   return [
-    'Goal dispatched asynchronously.',
-    `  dispatchId: ${answer.dispatchId}`,
-    `  status:     ${answer.dispatchStatus ?? 'running'}`,
-    ...(requestedLearningModeLine(input.learning_mode) ? [requestedLearningModeLine(input.learning_mode)!.replace(/^  learning_mode:      /, '  learning_mode: ')] : []),
+    'Ask recorded.',
+    `  dispatchId: ${w.row.id}`,
+    `  role:       ${w.row.role ?? '(not given)'}`,
+    roleWarning(w.row),
     '',
-    `Poll with: goal_status { "dispatch_id": "${answer.dispatchId}" }`,
-  ].join('\n');
+    `Read its state with: goal_status { "dispatch_id": "${w.row.id}" }`,
+  ].filter((l) => l !== null).join('\n');
 }

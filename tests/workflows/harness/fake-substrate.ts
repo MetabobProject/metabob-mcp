@@ -1,6 +1,6 @@
 /**
  * An in-process fake of the substrate the MCP server talks to: discovery,
- * identity, goal-host, activity-api and concept-db, each a Bun.serve on
+ * identity, goal-host, activity-api, records and concept-db, each a Bun.serve on
  * 127.0.0.1 with an OS-assigned port (or a chosen one, for scenarios whose
  * arithmetic depends on it).
  *
@@ -23,9 +23,9 @@
  * discovery forwarded is recorded on the producer with `forwarded: true`.
  */
 
-export type Service = 'discovery' | 'identity' | 'goalHost' | 'activity' | 'conceptDb' | 'devVessel';
+export type Service = 'discovery' | 'identity' | 'goalHost' | 'activity' | 'records' | 'conceptDb' | 'devVessel';
 
-const SERVICES: readonly Service[] = ['discovery', 'identity', 'goalHost', 'activity', 'conceptDb', 'devVessel'];
+const SERVICES: readonly Service[] = ['discovery', 'identity', 'goalHost', 'activity', 'records', 'conceptDb', 'devVessel'];
 
 export interface RecordedRequest {
   service: Service;
@@ -59,11 +59,8 @@ export interface OpResult {
   html?: string;
 }
 
-/** A scripted dispatch: each `goalWalkState` read returns the next frame; the last one repeats. */
-export interface ScriptedDispatch {
-  goal?: string;
-  frames: Array<Record<string, unknown>>;
-}
+/** A records row, as records stores it. */
+export type RecordRow = { id: string; shape: string; seq: number; t: string; writer: string; role: string; input_refs: string[]; [k: string]: unknown };
 
 export interface Concept {
   id: string;
@@ -79,14 +76,10 @@ export interface Concept {
 }
 
 export interface SubstrateState {
-  /** Dispatches by id, created by `goalDispatchAsync` from `nextDispatches`. */
-  dispatches: Map<string, { script: ScriptedDispatch; reads: number; body: any }>;
-  /** Scripts consumed in order by successive `goalDispatchAsync` calls. */
-  nextDispatches: ScriptedDispatch[];
-  /** Durable execution traces by execution id; absent → 404. */
-  traces: Map<string, Record<string, unknown>>;
-  /** Oracle-corpus labels written by `goalVerificationLabelWrite`. */
-  labels: Array<Record<string, unknown>>;
+  /** records' rows, in seq order: what `record_write` stored and `record_read` reads. */
+  rows: RecordRow[];
+  /** The ids of the roots records lists as open (its closing rules are records' own, so a scenario states them). */
+  openRoots: Set<string>;
   concepts: Concept[];
   usage: Array<{ conceptId: string; outcome: string; trace_id?: string }>;
   edges: Array<{ id: string; from: string; to: string; edge_type: string }>;
@@ -161,12 +154,18 @@ export const OPERATIONS: Record<string, Handler> = {
   identityHealth() {
     return { body: { status: 'ok', service: 'identity-vessel' } };
   },
-  /** The org check: the flat header form, as identity-vessel answers it. */
+  /**
+   * The org check, as identity-vessel answers it: the flat header form, or, for a key identity
+   * marks with a class (`fake.ownerKind`), the nested form, which carries it as `ownerKind`.
+   */
   authResolve(_s, req, fake) {
     const auth = req.headers.get('authorization') ?? '';
     const key = auth.startsWith('ApiKey ') ? auth.slice('ApiKey '.length) : '';
     if (!fake.validKeys.has(key)) {
       return { status: 401, body: { valid: false, error: 'Invalid API key' } };
+    }
+    if (fake.ownerKind) {
+      return { body: { success: true, data: { authenticated: true, orgId: fake.orgId, userId: 'user_fake', keyId: 'key_fake', ownerKind: fake.ownerKind } } };
     }
     return {
       body: { valid: true, org_id: fake.orgId, user_id: 'user_fake', key_id: 'key_fake', role: 'member' },
@@ -174,20 +173,6 @@ export const OPERATIONS: Record<string, Handler> = {
   },
 
   // ── goal-host ─────────────────────────────────────────────────────────────
-  goalDispatchAsync(s, req) {
-    const script = s.nextDispatches.shift();
-    if (!script) return { status: 503, body: { error: 'fake goal-host: no dispatch scripted' } };
-    const dispatchId = nextId('dispatch_');
-    s.dispatches.set(dispatchId, { script: { goal: req.body?.goal, ...script }, reads: 0, body: req.body });
-    return { status: 202, body: { dispatchId, status: 'running' } };
-  },
-  goalWalkState(s, req) {
-    const d = s.dispatches.get(req.params.id ?? '');
-    if (!d) return { status: 404, body: { error: 'dispatch not found' } };
-    const frame = d.script.frames[Math.min(d.reads, d.script.frames.length - 1)] ?? {};
-    d.reads++;
-    return { body: { dispatchId: req.params.id, goal: d.script.goal, operator: d.body?.operator, ...frame } };
-  },
   solicitationResponseWrite(s, req) {
     s.solicitationResponses.push(req.body);
     return { body: { resolved: true } };
@@ -197,14 +182,39 @@ export const OPERATIONS: Record<string, Handler> = {
   health() {
     return { body: { status: 'healthy' } };
   },
-  executionTrace(s, req) {
-    const trace = s.traces.get(req.params.id ?? '');
-    return trace ? { body: trace } : { status: 404, body: { error: 'trace not found' } };
+
+  // ── records ───────────────────────────────────────────────────────────────
+  // A row written under a key is stamped with the role identity's mark gives it (operator, person, else unmarked).
+  recordWrite(s, req, fake) {
+    const row = req.body?.row ?? {};
+    const role = fake.ownerKind === 'operator' || fake.ownerKind === 'person' ? fake.ownerKind : 'unmarked';
+    const stored: RecordRow = { input_refs: [], ...row, seq: s.rows.length + 1, t: new Date().toISOString(), writer: 'key_fake', role, id: nextId('row_') };
+    s.rows.push(stored);
+    fake.onRecordWrite?.(stored);
+    return { body: stored };
   },
-  goalVerificationLabelWrite(s, req) {
-    const id = nextId('label_');
-    s.labels.push({ id, ...req.body?.impulse?.pointer });
-    return { body: { success: true, content: JSON.stringify({ id }) } };
+  recordRead(s, req) {
+    const p = req.body ?? {};
+    if (p.head === true) return { body: { at_seq: s.rows.length } };
+    const calls = s.rows.filter((r) => r.shape === 'hop' && r.phase === 'started');
+    const callOf = (h: RecordRow) => {
+      const sel = s.rows.find((r) => r.id === h.selection_ref);
+      const ended = s.rows.find((r) => r.shape === 'hop' && r.phase === 'ended' && r.call_id === h.call_id);
+      const root = String(sel?.root ?? '');
+      return { call_id: h.call_id, type: h.pointer_type, selection_ref: h.selection_ref, root, open: s.openRoots.has(root), state: ended ? 'ended' : 'started', seq: h.seq, t: h.t, ...(ended && p.output !== false ? { output: ended.output } : {}) };
+    };
+    if (typeof p.root === 'string' && p.calls === 'all') return { body: calls.map(callOf).filter((c) => c.root === p.root) };
+    if (typeof p.call_id === 'string') return { body: calls.filter((h) => h.call_id === p.call_id).map(callOf) };
+    if (p.episode !== undefined) {
+      return { body: { shared: [], roots: s.rows.filter((r) => s.openRoots.has(r.id)).map((root) => ({ root, rows: [root], awaits: true })) } };
+    }
+    let out = s.rows;
+    if (p.shape !== undefined) out = out.filter((r) => r.shape === p.shape);
+    if (p.ids !== undefined) out = out.filter((r) => p.ids.includes(r.id));
+    if (p.after_seq !== undefined) out = out.filter((r) => r.seq > Number(p.after_seq));
+    if (p.refs_to !== undefined) out = out.filter((r) => r.input_refs.includes(p.refs_to));
+    for (const [k, v] of Object.entries(p.where ?? {})) out = out.filter((r) => String(r[k]) === String(v));
+    return { body: out };
   },
   // ── development-vessel ───────────────────────────────────────────────────
   // The gap store answers the newest `limit` rows by updated_at, with `total` counting the page.
@@ -287,6 +297,7 @@ const RESOLVE_PATHS: Record<Service, string> = {
   identity: '/v1/impulses/resolve',
   goalHost: '/resolve',
   activity: '/v2/impulses/resolve',
+  records: '/v2/impulses/resolve',
   conceptDb: '/v2/impulses/resolve',
   devVessel: '/v2/impulses/resolve',
 };
@@ -332,16 +343,6 @@ export const ROUTES: Route[] = [
 
   {
     service: 'goalHost', method: 'POST', path: '/resolve', operation: {
-      // goal-host reads the dispatch fields off the pointer, as POST /run-goal reads its body.
-      goalDispatchAsync: { operation: 'goalDispatchAsync', request: (p) => ({ body: p }) },
-      // goal-host wraps the dispatch record: { resolved, shape, body }, or 404 { resolved:false }.
-      goalWalkState: {
-        operation: 'goalWalkState',
-        request: (p) => ({ params: { id: String(p.dispatchId ?? '') }, body: p }),
-        response: (r) => (r.status ?? 200) === 200
-          ? { body: { resolved: true, shape: 'goalWalkState', body: r.body } }
-          : { status: r.status, body: { resolved: false, shape: 'goalWalkState', error: 'dispatch not found' } },
-      },
       solicitationResponse_write: { operation: 'solicitationResponseWrite' },
     },
   },
@@ -359,16 +360,10 @@ export const ROUTES: Route[] = [
 
   { service: 'activity', method: 'GET', path: '/health', operation: 'health' },
   {
-    service: 'activity', method: 'POST', path: '/v2/impulses/resolve', operation: {
-      goal_verification_label_write: { operation: 'goalVerificationLabelWrite' },
-      // activity-api's resolver answers { success, content: <the trace row as JSON> }, or 404.
-      activityExecutionTrace: {
-        operation: 'executionTrace',
-        request: (p) => ({ params: { id: String(p.executionId ?? '') }, body: p }),
-        response: (r, p) => (r.status ?? 200) === 200
-          ? { body: { success: true, content: JSON.stringify(r.body) } }
-          : { status: r.status, body: { success: false, error: `Execution trace not found: ${p.executionId}` } },
-      },
+    service: 'records', method: 'POST', path: '/v2/impulses/resolve', operation: {
+      // records reads the pointer itself and answers the row, or the rows, as they are.
+      record_write: { operation: 'recordWrite', request: (p) => ({ body: p }) },
+      record_read: { operation: 'recordRead', request: (p) => ({ body: p }) },
     },
   },
   { service: 'activity', method: 'POST', path: '/v2/mcp/analysis/run', operation: 'mcpAnalysisRun' },
@@ -451,10 +446,8 @@ function matchPath(pattern: string, path: string): Record<string, string> | null
 
 function emptyState(): SubstrateState {
   return {
-    dispatches: new Map(),
-    nextDispatches: [],
-    traces: new Map(),
-    labels: [],
+    rows: [],
+    openRoots: new Set(),
     concepts: [],
     usage: [],
     edges: [],
@@ -477,13 +470,15 @@ export class FakeSubstrate {
     concept_create_write: 'conceptDb',
     conceptLink_write: 'conceptDb',
     conceptUsage_write: 'conceptDb',
-    activityExecutionTrace: 'activity',
-    goal_verification_label_write: 'activity',
-    goalDispatchAsync: 'goalHost',
-    goalWalkState: 'goalHost',
+    record_write: 'records',
+    record_read: 'records',
     solicitationResponse_write: 'goalHost',
     substrateGap: 'devVessel',
   };
+  /** The class identity marks the accepted key with (`operator`, `person`, …); unset → the flat answer, with none. */
+  ownerKind: string | undefined;
+  /** Called after each `record_write` is stored: a scenario's walk answering an ask. */
+  onRecordWrite: ((row: RecordRow) => void) | undefined;
   /** Keys identity accepts; any other key is a foreign one (401). */
   readonly validKeys = new Set(['mb_test_workflow_key']);
   readonly orgId = 'org_fake_substrate';
@@ -526,7 +521,7 @@ export class FakeSubstrate {
     return this.requests.filter(r => r.operation === operation);
   }
 
-  /** Forget substrate state (dispatches, traces, concepts…); the request log is kept. */
+  /** Forget substrate state (rows, concepts…); the request log is kept. */
   resetState(): void {
     this.state = emptyState();
   }

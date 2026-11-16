@@ -36,7 +36,7 @@ export interface ShapeStub {
 
 export async function installShapeStub(
   handlers: Record<string, ShapeHandler>,
-  opts: { discovery?: string; scopes?: string[] } = {},
+  opts: { discovery?: string; scopes?: string[]; ownerKind?: string | (() => string | undefined); ownerRecheckMs?: number } = {},
 ): Promise<ShapeStub> {
   const discovery = opts.discovery ?? STUB_DISCOVERY;
   const pointers: Array<Record<string, any>> = [];
@@ -50,9 +50,10 @@ export async function installShapeStub(
     }
     if (url.origin === STUB_IDENTITY && url.pathname === '/health') return Response.json({ status: 'ok' });
     if (url.origin === STUB_IDENTITY && url.pathname === '/v1/auth/resolve') {
-      // With scopes, identity answers the nested form, which reports them; otherwise the flat form, which does not.
-      return opts.scopes
-        ? Response.json({ success: true, data: { orgId: 'org_stub', keyId: 'key_stub', scopes: opts.scopes } })
+      // With scopes or a key class, identity answers the nested form, which reports them; otherwise the flat form, which does not.
+      const ownerKind = typeof opts.ownerKind === 'function' ? opts.ownerKind() : opts.ownerKind;
+      return opts.scopes || opts.ownerKind !== undefined
+        ? Response.json({ success: true, data: { orgId: 'org_stub', keyId: 'key_stub', ...(opts.scopes ? { scopes: opts.scopes } : {}), ...(ownerKind ? { ownerKind } : {}) } })
         : Response.json({ valid: true, org_id: 'org_stub', key_id: 'key_stub' });
     }
     if (url.origin === discovery && url.pathname === '/resolve') {
@@ -72,6 +73,7 @@ export async function installShapeStub(
     discovery,
     key: STUB_KEY,
     heartbeatMs: 0,
+    ...(opts.ownerRecheckMs !== undefined ? { ownerRecheckMs: opts.ownerRecheckMs } : {}),
     log: () => {},
     fetchImpl,
     sleep: async () => {},
