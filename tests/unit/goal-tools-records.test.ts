@@ -144,12 +144,20 @@ describe('run_goal_async / run_goal', () => {
     expect(await runGoalAsync({ goal: 'x' }, apiClient)).toContain('records stamped this row unmarked, not operator');
   });
 
-  test("records' cross-node refusal of an operator's row says to attach to the walk's node", async () => {
-    await installShapeStub(records({
-      write: () => ({ status: 403, body: { failure: { status: 403, body: "a cross-node write needs a key identity marks as a person's or another node's" } } }),
-    }), { ownerKind: 'operator' });
-    expect(await runGoalAsync({ goal: 'x' }, apiClient)).toContain("this cockpit is attached to a node that doesn't hold the walk's records; attach to the walk's node");
-  });
+  // Both reasons records' crossNode gives; the status says it, whatever the wording.
+  for (const reason of [
+    "a cross-node write needs a key identity marks as a person's or another node's",
+    "another node writes its own rows, never a person's, an operator's or this node's owner rows",
+  ]) {
+    test(`records' cross-node refusal of an operator's row says to attach to the walk's node: ${reason}`, async () => {
+      await installShapeStub(records({
+        write: () => ({ status: 403, body: { failure: { status: 403, body: reason } } }),
+      }), { ownerKind: 'operator' });
+      const out = await runGoalAsync({ goal: 'x' }, apiClient);
+      expect(out).toContain("this cockpit is attached to a node that doesn't hold the walk's records; attach to the walk's node");
+      expect(out).toContain(`(records: ${reason})`);
+    });
+  }
 
   test('run_goal reads the rows citing the ask until an answer appears, then gives its state', async () => {
     let reads = 0;
@@ -216,6 +224,41 @@ describe('goal_status', () => {
     expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`state:    closed: failed (a counted lapse on its deadline ${DUE.id})`);
   });
 
+  test("a counted r 1 that is not a person's does not read as reached once records lists the ask closed", async () => {
+    await installShapeStub(records({
+      calls: CALLS,
+      outcomes: { [ANSWER.id]: [outcome(ANSWER.id, 1, 'described', { counted: true })] },
+    }), { ownerKind: 'operator' });
+    const out = await goalStatus({ dispatch_id: ASK_ID }, apiClient);
+    expect(out).not.toContain('reached');
+    expect(out).toContain('state:    closed (records lists it among no open roots)');
+  });
+
+  test('an r 0 on the deadline row that records refused does not read as failed', async () => {
+    await installShapeStub(records({
+      calls: CALLS,
+      outcomes: { [DUE.id]: [outcome(DUE.id, 0, 'described', { counted: false, why: 'person_wait' })] },
+    }), { ownerKind: 'operator' });
+    const out = await goalStatus({ dispatch_id: ASK_ID }, apiClient);
+    expect(out).not.toContain('failed');
+    expect(out).toContain('r 0 by described — not counted (person_wait)');
+    expect(out).toContain('state:    closed (records lists it among no open roots)');
+  });
+
+  test('closed by the lapse records derives on the deadline row, with no outcome row: failed', async () => {
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'counted' } };
+    await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
+    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`state:    closed: failed (a counted lapse on its deadline ${DUE.id})`);
+  });
+
+  test('a derived lapse records does not count does not read as failed', async () => {
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'person_wait' } };
+    await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
+    const out = await goalStatus({ dispatch_id: ASK_ID }, apiClient);
+    expect(out).not.toContain('failed');
+    expect(out).toContain(`lapsed {"at":${DUE.at},"standing":"person_wait"}`);
+  });
+
   test('a grade records gives no standing for is said so, never read as counted', async () => {
     await installShapeStub(records({
       calls: CALLS,
@@ -227,9 +270,9 @@ describe('goal_status', () => {
   });
 
   test("the deadline row's lapsed field is shown as records gives it", async () => {
-    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: { counted: true } } };
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'counted' } };
     await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
-    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`lapsed {"at":${DUE.at},"standing":{"counted":true}}`);
+    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`lapsed {"at":${DUE.at},"standing":"counted"}`);
   });
 
   test("with no calls yet, openness is read from the walker's episode: the walk row citing the ask names it", async () => {

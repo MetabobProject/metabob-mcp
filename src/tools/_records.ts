@@ -109,8 +109,9 @@ export async function recordWrite(row: Record<string, unknown>): Promise<Written
   const body = res.body as Row | { failure?: { body?: unknown } } | undefined;
   if (res.status === 200 && body && typeof (body as Row).id === 'string') return { kind: 'ok', row: body as Row };
   const said = String((body as { failure?: { body?: unknown } } | undefined)?.failure?.body ?? '');
-  // records refuses an operator's row forwarded from another node (crossNode): the ask belongs on the walk's own node.
-  if (res.status === 403 && /cross-node write|an operator's/.test(said)) {
+  // The cockpit writes only world_changed and outcome rows, under an operator's key: records refuses those with 403 only
+  // when they were forwarded from another node (crossNode), so the status says it; records' reason is quoted as given.
+  if (res.status === 403) {
     return {
       kind: 'error',
       message: `this cockpit is attached to a node that doesn't hold the walk's records; attach to the walk's node (records: ${said})`,
@@ -174,8 +175,9 @@ async function openness(id: string, citing: Row[]): Promise<Read<boolean | null>
  * A root's state as records gives it, in lines: the ask, open or closed (from records' list of open roots), each
  * answer with the grades on it and their standing, and the deadline row with its `at` as stored. A verdict is named
  * only from a grade records counted: reached by a person's counted r 1 on an answer, failed by a counted r 0 on the
- * deadline row (a lapse). The cockpit draws no lapse of its own from `at`: a `lapsed` field on the deadline row is
- * shown as records gives it. SPEC §goal_status
+ * deadline row, or by the lapse records derives on the deadline row itself (`lapsed: { at, standing: "counted" }`, with
+ * no outcome row). The cockpit draws no lapse of its own from `at`: the `lapsed` field is shown as records gives it.
+ * SPEC §goal_status
  */
 export async function rootStatus(id: string): Promise<Read<{ lines: string[]; answers: Row[]; open: boolean | null }>> {
   const asked = await readRows({ ids: [id] });
@@ -196,7 +198,8 @@ export async function rootStatus(id: string): Promise<Read<{ lines: string[]; an
   if (open.kind !== 'ok') return open;
 
   const reachedOn = answers.find((a) => (graded.get(a.id) ?? []).some((g) => g.role === 'person' && g.r === 1 && counted(g)));
-  const lapse = due ? (graded.get(due.id) ?? []).find((g) => g.r === 0 && counted(g)) : undefined;
+  const lapse = due !== undefined
+    && ((graded.get(due.id) ?? []).some((g) => g.r === 0 && counted(g)) || (due.lapsed as { standing?: unknown } | undefined)?.standing === 'counted');
   const state = open.body === null ? 'not known (no walker has worked it, and no walk is armed)'
     : open.body ? 'open'
     : reachedOn ? `closed: reached (a person's counted r 1 on answer ${reachedOn.id})`
