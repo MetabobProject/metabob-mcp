@@ -118,7 +118,7 @@ provide_feedback({ dispatch_id, verdict, rationale })  → an operator's note on
 **The goal tools are records' rows** (docs/SPEC.md § Substrate goal tools; `src/tools/_records.ts`), each read and write resolved through discovery `POST /resolve`:
 - An ask is `record_write { row: { shape: "world_changed", what } }`. records stamps a row's role from the class identity marks the key with (`ownerKind`, read by the org check); an operator's row is an ask the walk takes as a root. The ask's row id is the `dispatchId`.
 - Its state is the rows citing it (`record_read { refs_to }`): answers, the deadline row, and the `outcome` grades with the `standing` records gives them; whether it is open comes from records (its calls' `open`, else the walker's episode read).
-- The goal tools wait on the cockpit's own operator sign-in, issued by the USER on the human surface: under any other key they send nothing to records and say so. An operator's key writes on its own node; when records refuses a write from another node, the tool says to attach to the walk's node.
+- The goal tools wait on the cockpit's own operator sign-in, issued by the USER on the human surface: under any other key they send nothing to records and say so. The mark is re-checked at most every 15 min (each org check writes a key-session row on identity). An operator's key writes on its own node; when records refuses a write from another node, the tool says to attach to the walk's node.
 - The goal text is sent unchanged; a goal that names a real `repos/<vessel>/src/…` file is a code change for the walk. Read the answer before noting it: an answer can be given without doing what was asked.
 
 ## Impulse shapes resolved (HTTP)
