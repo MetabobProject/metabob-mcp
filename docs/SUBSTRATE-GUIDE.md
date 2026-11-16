@@ -180,7 +180,7 @@ that contradicts its instructions) goes on the ledger. The `metabob-substrate` s
 - **Your judgment of an outcome.** An agent's note on a goal's answer (`provide_feedback`) is kept as an
   operator's row and is no verdict: it closes nothing and moves no posterior. Only your grade on the human
   surface closes an ask, so each ask an agent makes costs you a grade; left ungraded, its deadline lapses and
-  counts as failed. The agent does not represent your view as its own.
+  counts as failed, unless the walk is waiting on you. The agent does not represent your view as its own.
 - **Leases and the system's records.** The agent never takes or releases a maintenance or landing lease and
   never writes the system's traces, gaps or policy by hand; a lease that looks stuck is recorded as a finding.
   `resolve_impulse` would forward such a write, so this rests on the agent's instructions and on what each

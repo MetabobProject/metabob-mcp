@@ -45,7 +45,7 @@ export function runGoalPollDelayMs(n: number, baseMs = runGoalPollMs(), maxMs = 
 export const RunGoalTool = {
   name: 'run_goal',
   description:
-    "Ask the substrate's walk for something and wait up to ~290s for its first answer: writes the goal as an operator's ask (a records world_changed row), then reads the rows that cite it until an answer appears, and returns the ask's state as goal_status gives it. An ask closes only when a person grades an answer on the human surface or its deadline lapses (which counts as failed), so each ask costs the USER a grade, and it usually comes back open with an answer to read; keep reading it with goal_status. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so. Prefer run_goal_async when you do not need to wait.",
+    "Ask the substrate's walk for something and wait up to ~290s for its first answer: writes the goal as an operator's ask (a records world_changed row), then reads the rows that cite it until an answer appears, and returns the ask's state as goal_status gives it. An ask closes only when a person grades an answer on the human surface or its deadline lapses (which counts as failed unless the walk is waiting on a person), so each ask costs the USER a grade, and it usually comes back open with an answer to read; keep reading it with goal_status. Needs the cockpit's own operator sign-in, issued by the USER on the human surface: until then it writes nothing and says so. Prefer run_goal_async when you do not need to wait.",
   inputSchema: {
     type: 'object' as const,
     properties: {

@@ -137,7 +137,7 @@ describe('run_goal_async / run_goal', () => {
     expect(out).toContain(`dispatchId: ${ASK_ID}`);
     expect(out).toContain('role:       operator');
     expect(out).not.toContain('⚠');
-    expect(out).toContain("each ask costs the USER a grade on the human surface; left ungraded, its deadline lapses and counts as failed");
+    expect(out).toContain("each ask costs the USER a grade on the human surface; left ungraded, its deadline lapses and counts as failed against the walk's moves on it, unless the walk is waiting on a person");
   });
 
   test('a row records stamped as anything but an operator\'s is said to be no ask', async () => {

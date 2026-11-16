@@ -1117,7 +1117,7 @@ Handler: `src/tools/run-goal-async.ts@handle`
 
 An ask, without waiting. Same parameter as `run_goal`.
 
-Writes `record_write { row: { shape: "world_changed", what: <goal> } }` once, under the operator gate above, and returns the stored row's id as the `dispatchId`, its role, a line saying what the ask costs the USER (`src/tools/run-goal-async.ts@ask-cost`: only a person's grade on the human surface closes it, and an ungraded deadline lapses and counts as failed against the walk's moves on it; `run_goal`'s reply carries it too) and a `goal_status` hint. A role other than `operator` gets a warning line: records keeps the row, but the walk does not take it as an ask. The goal text is sent unchanged (the outgoing guard checks it, § Outgoing text guard).
+Writes `record_write { row: { shape: "world_changed", what: <goal> } }` once, under the operator gate above, and returns the stored row's id as the `dispatchId`, its role, a line saying what the ask costs the USER (`src/tools/run-goal-async.ts@ask-cost`: only a person's grade on the human surface closes it, and an ungraded deadline lapses and counts as failed against the walk's moves on it, unless the walk is waiting on a person, when records holds the lapse and a later person's grade overtakes it; `run_goal`'s reply carries it too) and a `goal_status` hint. A role other than `operator` gets a warning line: records keeps the row, but the walk does not take it as an ask. The goal text is sent unchanged (the outgoing guard checks it, § Outgoing text guard).
 
 ### goal_status
 
