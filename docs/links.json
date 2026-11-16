@@ -217,8 +217,8 @@
         "why": "the --trust usage text and the skill's decision wording change nothing this doc states"
       },
       "README.md": {
-        "at": "22a4902",
-        "why": "the 0.4.2 bump changes only the version the bundles pin; README names no version"
+        "at": "0f9a454",
+        "why": "the substrate skill's goal-loop text changed; README names the goal tools only, with no behaviour that changed"
       },
       "docs/CONFORMANCE.md": {
         "at": "0dfd2b6",
