@@ -221,8 +221,8 @@
         "why": "the substrate skill's goal-loop text changed; README names the goal tools only, with no behaviour that changed"
       },
       "docs/CONFORMANCE.md": {
-        "at": "0dfd2b6",
-        "why": "index.ts's shutdown releases this session's claims before detaching; no participation requirement or its evidence changes"
+        "at": "256cc8e",
+        "why": "attachment.ts gained the 15-min owner re-check; CONFORMANCE states no re-check cadence"
       },
       "docs/DEPLOYING-AGENTS.md": {
         "at": "11a84fa",
