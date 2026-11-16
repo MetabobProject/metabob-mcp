@@ -112,7 +112,8 @@ jobs:
           if [ "$DRY_RUN" = true ]; then
             npm publish --dry-run --tag "$tag"
           else
-            npm publish --provenance --access public --tag "$tag"
+            # npm logs why the trusted-publishing token exchange failed only at verbose (its `oidc` lines).
+            npm publish --provenance --access public --tag "$tag" --loglevel verbose
           fi
 
       - name: next is never older than latest
