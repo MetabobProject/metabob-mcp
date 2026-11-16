@@ -135,7 +135,8 @@ export function standingText(r: Row): string {
   return `not counted${typeof s.why === 'string' && s.why ? ` (${s.why})` : ''}`;
 }
 
-const counted = (r: Row): boolean => (r.standing as { counted?: unknown } | undefined)?.counted === true;
+/** Whether records counted a grade or a lapse: its `standing` (`{ counted, why? }`) says so. */
+const counted = (r: Row | { standing?: unknown } | undefined): boolean => (r?.standing as { counted?: unknown } | undefined)?.counted === true;
 
 const iso = (ms: unknown): string => (typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toISOString() : String(ms));
 
@@ -175,8 +176,8 @@ async function openness(id: string, citing: Row[]): Promise<Read<boolean | null>
  * A root's state as records gives it, in lines: the ask, open or closed (from records' list of open roots), each
  * answer with the grades on it and their standing, and the deadline row with its `at` as stored. A verdict is named
  * only from a grade records counted: reached by a person's counted r 1 on an answer, failed by a counted r 0 on the
- * deadline row, or by the lapse records derives on the deadline row itself (`lapsed: { at, standing: "counted" }`, with
- * no outcome row). The cockpit draws no lapse of its own from `at`: the `lapsed` field is shown as records gives it.
+ * deadline row, or by the lapse records derives on the deadline row itself (`lapsed: { at, standing }`, standing in the
+ * outcome's form, with no outcome row). The cockpit draws no lapse of its own from `at`: the `lapsed` field is shown as records gives it.
  * SPEC §goal_status
  */
 export async function rootStatus(id: string): Promise<Read<{ lines: string[]; answers: Row[]; open: boolean | null }>> {
@@ -199,7 +200,7 @@ export async function rootStatus(id: string): Promise<Read<{ lines: string[]; an
 
   const reachedOn = answers.find((a) => (graded.get(a.id) ?? []).some((g) => g.role === 'person' && g.r === 1 && counted(g)));
   const lapse = due !== undefined
-    && ((graded.get(due.id) ?? []).some((g) => g.r === 0 && counted(g)) || (due.lapsed as { standing?: unknown } | undefined)?.standing === 'counted');
+    && ((graded.get(due.id) ?? []).some((g) => g.r === 0 && counted(g)) || counted(due.lapsed as { standing?: unknown } | undefined));
   const state = open.body === null ? 'not known (no walker has worked it, and no walk is armed)'
     : open.body ? 'open'
     : reachedOn ? `closed: reached (a person's counted r 1 on answer ${reachedOn.id})`

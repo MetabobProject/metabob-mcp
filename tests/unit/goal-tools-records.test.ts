@@ -246,17 +246,23 @@ describe('goal_status', () => {
   });
 
   test('closed by the lapse records derives on the deadline row, with no outcome row: failed', async () => {
-    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'counted' } };
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: { counted: true } } };
     await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
     expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`state:    closed: failed (a counted lapse on its deadline ${DUE.id})`);
   });
 
-  test('a derived lapse records does not count does not read as failed', async () => {
-    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'person_wait' } };
+  test('a derived lapse records refused does not read as failed, and is shown as given', async () => {
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: { counted: false, why: 'person_wait' } } };
     await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
     const out = await goalStatus({ dispatch_id: ASK_ID }, apiClient);
     expect(out).not.toContain('failed');
-    expect(out).toContain(`lapsed {"at":${DUE.at},"standing":"person_wait"}`);
+    expect(out).toContain(`lapsed {"at":${DUE.at},"standing":{"counted":false,"why":"person_wait"}}`);
+  });
+
+  test('a lapse whose standing is not in the outcome form (the string "counted") does not read as failed', async () => {
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'counted' } };
+    await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
+    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).not.toContain('failed');
   });
 
   test('a grade records gives no standing for is said so, never read as counted', async () => {
@@ -270,9 +276,9 @@ describe('goal_status', () => {
   });
 
   test("the deadline row's lapsed field is shown as records gives it", async () => {
-    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: 'counted' } };
+    const due = { ...clone(DUE), lapsed: { at: DUE.at, standing: { counted: true } } };
     await installShapeStub(records({ citing: [ANSWER, due, WALK_ROW], calls: CALLS }), { ownerKind: 'operator' });
-    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`lapsed {"at":${DUE.at},"standing":"counted"}`);
+    expect(await goalStatus({ dispatch_id: ASK_ID }, apiClient)).toContain(`lapsed {"at":${DUE.at},"standing":{"counted":true}}`);
   });
 
   test("with no calls yet, openness is read from the walker's episode: the walk row citing the ask names it", async () => {
