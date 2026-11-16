@@ -159,13 +159,14 @@ describe('run_goal_async / run_goal', () => {
     });
   }
 
+  // discovery's own 403, verbatim, when no local producer serves a write and the key's scopes lack write and admin.
   test("discovery's own 403 is quoted as discovery gave it, never read as records' cross-node refusal", async () => {
     await installShapeStub(records({
-      write: () => ({ status: 403, body: { error: 'caller_lacks_write_scope', shape: 'record_write', detail: 'the key may not write' } }),
+      write: () => ({ status: 403, body: { error: 'caller_lacks_write_scope', shape: 'record_write', detail: 'a state-changing shape with no local producer is forwarded only for a caller whose own scopes include write or admin' } }),
     }), { ownerKind: 'operator' });
     const out = await runGoalAsync({ goal: 'x' }, apiClient);
     expect(out).not.toContain("attach to the walk's node");
-    expect(out).toContain('record_write answered 403: caller_lacks_write_scope: the key may not write');
+    expect(out).toContain('record_write answered 403: caller_lacks_write_scope: a state-changing shape with no local producer is forwarded only for a caller whose own scopes include write or admin');
   });
 
   test('run_goal reads the rows citing the ask until an answer appears, then gives its state', async () => {
