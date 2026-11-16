@@ -612,7 +612,7 @@ export function attach(options: AttachOptions): Attachment {
 
   const run = async (): Promise<void> => {
     if (!key) {
-      state.auth = { status: 'not_configured', detail: 'no API key (METABOB_API_KEY, or metabob.apiKey in a config file)' };
+      state.auth = { status: 'not_configured', detail: 'no API key (METABOB_API_KEY, or metabob.apiKey or metabob.apiKeyFile in a config file)' };
       return settle('not_configured');
     }
     if (!discovery && !identityOverride) {

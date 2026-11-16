@@ -128,7 +128,8 @@ Resolver endpoint: `POST /v2/impulses/resolve` on `127.0.0.1` — `Authorization
 **The configuration is two values: `METABOB_API_KEY` and `METABOB_ENDPOINT`** (or `metabob.apiKey` and
 `metabob.endpoint` in a config file — the installer writes both into `~/.substrate/config.json`, which
 `~/.metabob/config.json` links to; the installer's env names `SUBSTRATE_API_KEY` / `SUBSTRATE_ENDPOINT`
-are accepted too). Neither has a default. Proxy and trust are never configuration: they come from the
+are accepted too; the key may instead be read from another JSON file, `metabob.apiKeyFile: { path, field }`,
+docs/SPEC.md § Config-file schema). Neither has a default. Proxy and trust are never configuration: they come from the
 environment (`HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`) and the OS trust store. When the server
 does not attach, run `metabob-mcp attach --check` first. With either missing the server starts with local
 tools only and logs one message naming the missing input and the config lookup order

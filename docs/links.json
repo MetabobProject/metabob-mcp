@@ -359,6 +359,7 @@
           "c4-anchoring"
         ],
         "SPEC": [
+          "config-file-schema",
           "configuration",
           "configuration-lookup",
           "endpoint-derivation",
@@ -1191,6 +1192,7 @@
         "src/cli-attach.ts@attachForCli",
         "src/cli.ts",
         "src/cli.ts@main",
+        "src/config.ts@api-key-file",
         "src/config.ts@apply-configuration",
         "src/config.ts@applyConfigDefaults",
         "src/config.ts@config-lookup",
@@ -1410,6 +1412,7 @@
       "src/call-log.ts@reportResult": "836e5ddf991e",
       "src/cli-attach.ts@attachForCli": "aa3ba80483db",
       "src/cli.ts@main": "7d5d3f63a3bd",
+      "src/config.ts@api-key-file": "8d64a30d9de1",
       "src/config.ts@apply-configuration": "8d64a30d9de1",
       "src/config.ts@applyConfigDefaults": "7d70445a1e6d",
       "src/config.ts@config-lookup": "8d64a30d9de1",

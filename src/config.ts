@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 
 const RawConfigSchema = z.object({
   metabob: z.object({
     apiKey: z.string().min(1).optional(),
+    apiKeyFile: z.object({ path: z.string().min(1), field: z.string().min(1) }).optional(),
     endpoint: z.string().min(1).optional(),
     vesselId: z.string().min(1).optional(),
     discoveryEndpoint: z.string().min(1).optional(),
@@ -224,6 +225,28 @@ export function dropUnsubstitutedPlaceholders(env: NodeJS.ProcessEnv): string[] 
   return dropped;
 }
 
+// @anchor api-key-file
+/**
+ * The key from the file `metabob.apiKeyFile` names: a JSON file of any layout, the key at `field` (a dotted path).
+ * `path` is absolute, `~/…`, or relative to the config file. Nothing read from that file is ever logged: a failure
+ * says only whether the file exists, whether it is JSON, and whether `field` holds a string. SPEC §config-file-schema
+ */
+export function readApiKeyFile(ref: { path: string; field: string }, configPath: string): { key: string } | { error: string } {
+  const path = ref.path.startsWith('~/') ? join(homedir(), ref.path.slice(2))
+    : isAbsolute(ref.path) ? ref.path : join(dirname(configPath), ref.path);
+  if (!existsSync(path)) return { error: 'the file it names does not exist' };
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return { error: 'the file it names exists but is not readable JSON' };
+  }
+  for (const part of ref.field.split('.')) {
+    value = value !== null && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined;
+  }
+  return typeof value === 'string' && value.trim() ? { key: value.trim() } : { error: `the file it names exists, but holds no string at "${ref.field}"` };
+}
+
 export function loadMetabobCLIConfig(configPath = resolveConfigPath()): MetabobCLIConfig | null {
   if (!existsSync(configPath)) {
     return null;
@@ -246,7 +269,15 @@ export function loadMetabobCLIConfig(configPath = resolveConfigPath()): MetabobC
     return null;
   }
 
-  const apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
+  let apiKey = result.data.metabob?.apiKey ?? result.data.instance?.apiKey;
+  const keyFile = result.data.metabob?.apiKeyFile;
+  if (keyFile && apiKey) {
+    console.error(`[metabob-mcp] ${configPath} sets both metabob.apiKey and metabob.apiKeyFile: metabob.apiKey is used; remove it to use the file`);
+  } else if (keyFile) {
+    const read = readApiKeyFile(keyFile, configPath);
+    if ('key' in read) apiKey = read.key;
+    else console.error(`[metabob-mcp] metabob.apiKeyFile in ${configPath}: ${read.error}; no key is taken from it`);
+  }
   const vesselId = result.data.metabob?.vesselId;
   // No endpoint means no endpoint: an apiKey-only config is not attached to
   // any substrate (see unattachedMessage).
@@ -362,7 +393,7 @@ export function unattachedMessage(env: NodeJS.ProcessEnv = process.env): string 
     return null;
   }
   const missing = [
-    hasKey ? null : 'an API key (METABOB_API_KEY or SUBSTRATE_API_KEY, or metabob.apiKey in a config file)',
+    hasKey ? null : 'an API key (METABOB_API_KEY or SUBSTRATE_API_KEY, or metabob.apiKey or metabob.apiKeyFile in a config file)',
     hasEndpoint ? null : 'a substrate endpoint (METABOB_ENDPOINT or SUBSTRATE_ENDPOINT, or metabob.endpoint in a config file)',
   ].filter(Boolean).join(' and ');
   // A file the lookup skipped is often why nothing was found: name it.

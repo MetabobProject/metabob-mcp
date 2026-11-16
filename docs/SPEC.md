@@ -194,6 +194,7 @@ All keys are optional.
 | Key | Purpose |
 |-----|---------|
 | `metabob.apiKey` | API key (also accepted at `instance.apiKey`) |
+| `metabob.apiKeyFile` | `{ path, field }`: the API key read at start from another JSON file, at `field` (a dotted path); `path` is absolute, `~/…`, or relative to the config file (`src/config.ts@api-key-file`). Used only when `metabob.apiKey` is unset (both set: `apiKey` is used, with a warning to remove it). Nothing read from that file is logged: a failure says only that the file does not exist, is not JSON, or holds no string at `field`, and leaves no key. The derived `VESSEL_ID` hashes the key, so a different key gives a different author id |
 | `metabob.endpoint` | Substrate endpoint — a local one derives discovery (above) |
 | `metabob.vesselId` | Pins `VESSEL_ID` (the author of findings and verdicts) |
 | `metabob.discoveryEndpoint` | The anchor, explicitly: discovery-vessel's URL. Preferred over deriving it from `endpoint` |
