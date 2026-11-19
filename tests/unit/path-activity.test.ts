@@ -220,6 +220,16 @@ describe("records' gap rows", () => {
     expect(out).toContain('  gap-rel  failing_test  names the file');
   });
 
+  test('a directory path returns a gap whose protected file lies under it, even when its summary does not name the directory', async () => {
+    await installShapeStub({ record_read: () => ({ body: [
+      row({ id: 'u1', seq: 1, gap_id: 'gap-under', category: 'failing_test', repo: 'goal-host-vessel', summary: 'Failing test(s), detected by pull-sync',
+        meta: { protected_files: ['repos/goal-host-vessel/test/x.test.ts'], filed_by: 'pull-sync failing-test generator' } }),
+    ] }) });
+    const out = await pathActivity({ paths: ['repos/goal-host-vessel/test'] }, apiClient);
+    expect(out).toContain('repos/goal-host-vessel/test — 1 open gap');
+    expect(out).toContain('  gap-under  failing_test  names the file');
+  });
+
   test('wording: open gaps naming the paths, never "in flight", and no promise of a landing now', async () => {
     const { PathActivityTool } = await import('../../src/tools/path-activity');
     expect(PathActivityTool.description).toContain('naming');
