@@ -50,7 +50,7 @@ Ledger:
 
 Goals on the substrate: \`run_goal_async\` writes your ask for the walk → \`goal_status\` (open, or closed reached or failed, by a person's grade or a lapse) → \`goal_reasoning\` (its moves and calls) → \`provide_feedback\` (an operator's note, not a verdict). \`execution_trace\` with no id lists the walk's recent moves. They wait on the cockpit's own operator sign-in, issued by the USER on the human surface.
 
-Before editing a file other agents or the substrate may be working on, \`path_activity\` shows what is in flight on it.
+Before editing a file other agents or the substrate may be working on, \`path_activity\` shows the open gaps naming it.
 
 Local tools work in any repository with no substrate: \`init_workspace\`, \`analyze_impact\`, \`predict_cochanges\`, \`search_codebase\`.
 

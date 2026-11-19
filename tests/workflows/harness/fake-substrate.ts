@@ -23,9 +23,9 @@
  * discovery forwarded is recorded on the producer with `forwarded: true`.
  */
 
-export type Service = 'discovery' | 'identity' | 'activity' | 'records' | 'conceptDb' | 'devVessel';
+export type Service = 'discovery' | 'identity' | 'activity' | 'records' | 'conceptDb';
 
-const SERVICES: readonly Service[] = ['discovery', 'identity', 'activity', 'records', 'conceptDb', 'devVessel'];
+const SERVICES: readonly Service[] = ['discovery', 'identity', 'activity', 'records', 'conceptDb'];
 
 export interface RecordedRequest {
   service: Service;
@@ -86,8 +86,6 @@ export interface SubstrateState {
   usage: Array<{ conceptId: string; outcome: string; trace_id?: string }>;
   edges: Array<{ id: string; from: string; to: string; edge_type: string }>;
   registrations: unknown[];
-  /** development-vessel's gap store, as `substrateGap` answers it. */
-  gaps: Array<Record<string, any>>;
 }
 
 type Handler = (state: SubstrateState, req: OpRequest, fake: FakeSubstrate) => OpResult | Promise<OpResult>;
@@ -209,17 +207,6 @@ export const OPERATIONS: Record<string, Handler> = {
     for (const [k, v] of Object.entries(p.where ?? {})) out = out.filter((r) => String(r[k]) === String(v));
     return { body: out };
   },
-  // ── development-vessel ───────────────────────────────────────────────────
-  // The gap store answers the newest `limit` rows by updated_at, with `total` counting the page.
-  substrateGapRead(s, req) {
-    const p = req.body ?? {};
-    const rows = s.gaps
-      .filter((g) => !p.status || g.status === p.status)
-      .filter((g) => p.include_held === true || p.status !== 'open' || g.classification_metadata?.operator_hold !== true)
-      .sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))
-      .slice(0, Number(p.limit ?? 50));
-    return { body: { gaps: rows, total: rows.length } };
-  },
   mcpAnalysisRun() {
     return { body: { status: 'accepted', results: [] } };
   },
@@ -291,7 +278,6 @@ const RESOLVE_PATHS: Record<Service, string> = {
   activity: '/v2/impulses/resolve',
   records: '/v2/impulses/resolve',
   conceptDb: '/v2/impulses/resolve',
-  devVessel: '/v2/impulses/resolve',
 };
 
 /** The shapes discovery answers itself instead of forwarding (discovery-vessel DISCOVERY_SHAPES). */
@@ -332,17 +318,6 @@ export const ROUTES: Route[] = [
 
   { service: 'identity', method: 'GET', path: '/health', operation: 'identityHealth' },
   { service: 'identity', method: 'POST', path: '/v1/auth/resolve', operation: 'authResolve' },
-
-  {
-    service: 'devVessel', method: 'POST', path: '/v2/impulses/resolve', operation: {
-      // development-vessel answers { shape, body: { gaps, total } }.
-      substrateGap: {
-        operation: 'substrateGapRead',
-        request: (p) => ({ body: p }),
-        response: (r) => ({ body: { shape: 'substrateGap', body: r.body } }),
-      },
-    },
-  },
 
   { service: 'activity', method: 'GET', path: '/health', operation: 'health' },
   {
@@ -439,7 +414,6 @@ function emptyState(): SubstrateState {
     usage: [],
     edges: [],
     registrations: [],
-    gaps: [],
   };
 }
 
@@ -457,7 +431,6 @@ export class FakeSubstrate {
     conceptUsage_write: 'conceptDb',
     record_write: 'records',
     record_read: 'records',
-    substrateGap: 'devVessel',
   };
   /** The class identity marks the accepted key with (`operator`, `person`, …); unset → the flat answer, with none. */
   ownerKind: string | undefined;

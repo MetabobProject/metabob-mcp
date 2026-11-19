@@ -29,7 +29,7 @@ Beyond the eleven tools of the default set, `METABOB_TOOLS=all` lists the tools 
 
 | Tools | What the agent uses them for | Section |
 |---|---|---|
-| `path_activity` | What the substrate has in flight on a file before an edit: gaps queued, held, or being landed | § 3 |
+| `path_activity` | The open gaps naming a file before an edit: queued or held | § 3 |
 | `analyze_impact`, `predict_cochanges`, `search_codebase`, `assign_git_changes` | The local code tools: blast radius, files that change together, code search, which components a change touches | § 4 |
 | `get_metrics`, `annotate_component` | The local store's open findings by severity and category; notes on a local finding | § 4 |
 | `run_goal_async`, `run_goal`, `goal_status`, `goal_reasoning`, `provide_feedback` | Handing a goal to the substrate, following it, reading why it reached or fell short, and leaving an operator's note | § 7 |
@@ -274,7 +274,7 @@ The rows that apply to every tool set are in USER-GUIDE.md, § Troubleshooting. 
 | No tools appear with `METABOB_TOOLS=all` | The server is before 0.4.0: name `@metabob/mcp@0.4.1`, or update the plugin (§ 2) |
 | Only eleven tools appear | `METABOB_TOOLS=all` did not reach the server's environment: check where it is set (§ 2) and reconnect |
 | `path_activity` says the repository may not be one the substrate mounts | Nothing is in flight there; check `get_problems` and edit |
-| `path_activity` says the substrate keeps no gap store | Nothing is in flight to check; edit |
+| `path_activity` says the gap rows could not be read | Nothing was checked: the cause follows on the line; `get_problems` still shows the findings |
 | A goal tool says it is waiting on the cockpit's own sign-in | The server's key is not an operator's: the USER issues the cockpit's operator sign-in on the human surface |
 | `run_goal_async` says to attach to the walk's node | An operator's key writes on its own node: attach the server to the node that holds the walk's records |
 | `goal_status` shows the ask open with an answer | It stays open until a person grades the answer on the human surface, or its deadline lapses |

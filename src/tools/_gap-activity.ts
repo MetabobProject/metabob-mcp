@@ -1,17 +1,17 @@
 // Contract (behaviour): SPEC §path_activity
 /**
- * What the system has in flight on files: the open gaps that name them, read from the
- * gap store through the `substrateGap` shape, with each gap's landing lease or hold.
- * Shared by path_activity and the one-line summaries in analyze_impact and
- * assign_git_changes.
+ * The open gaps that name files, with each gap's hold, and a landing lease only where a gap
+ * row still carries one. Shared by path_activity and the one-line summaries in
+ * analyze_impact and assign_git_changes.
  *
- * The store has no path filter and answers the newest `limit` rows by `updated_at`, with
- * `total` counting the page. A file's gaps are mostly old rows, which a recency page drops,
- * so the read is the whole open store (about 13 MB on a busy node). It is cached per
- * attachment: fresh for READ_TTL_MS, then served stale while one background read refreshes
- * it, up to MAX_STALE_MS; concurrent callers share one read. analyze_impact and
- * assign_git_changes only use a warm cache and never start a read themselves. The store's
- * holder runs hot, and many agents checking on every edit must not each pull the store.
+ * Gaps live in records as the detector's rows of shape `gap` (`gap_id`, `status`,
+ * `summary`, `meta`, …); a gap's state is its newest row by seq. The read is records' gap
+ * rows as stored, and only those: one constant pointer, every row of another shape or
+ * another role dropped, then folded as pull-sync's gap_resolve folds them. It has no path
+ * filter, so it is cached per attachment: fresh for READ_TTL_MS, then served stale while
+ * one background read refreshes it, up to MAX_STALE_MS; concurrent callers share one read.
+ * analyze_impact and assign_git_changes only use a warm cache and never start a read
+ * themselves, so many agents checking on every edit do not each pull the rows.
  */
 
 import { posix } from 'node:path';
@@ -21,8 +21,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { describeResolveFailure, getAttachment, resolveShape, substrateRefusal } from '../attachment.js';
 import { normalizeRemoteUrl } from '../repo-identity.js';
 
-/** The full-read limit: larger than any store, so the answer is the whole store. */
-export const FULL_READ_LIMIT = 1_000_000;
 /** How long a read is fresh. */
 export const READ_TTL_MS = 5 * 60_000;
 /** How long a stale read is still served while a background read refreshes it. */
@@ -35,13 +33,16 @@ export interface GapRow {
   status?: string;
   summary?: string;
   route?: string;
+  /** The vessel repository the gap belongs to, as the detector records it (a top-level field of its row). */
+  repo?: string;
   updated_at?: string;
   remedy?: { goal?: string; vessel?: string };
   classification_metadata?: Record<string, unknown>;
 }
 
 export type GapRead =
-  | { ok: true; rows: GapRow[]; truncated: boolean; readAt: number }
+  /** `otherShapes`: rows of a shape other than gap that the answer carried, dropped unread. */
+  | { ok: true; rows: GapRow[]; truncated: boolean; readAt: number; otherShapes: number }
   | { ok: false; message: string };
 
 type CachedRead = GapRead & { ok: true };
@@ -95,31 +96,58 @@ export function peekGaps(status: 'open' | 'closed', now = Date.now()): CachedRea
   return read && now - read.readAt < MAX_STALE_MS ? read : null;
 }
 
+// @anchor gap-rows-pointer
+/**
+ * The one pointer the gap read sends: records' rows of shape gap, as stored. A constant, never built from caller input:
+ * the shared sign-in may read the detector's gap rows and no other row kind, so nothing may widen or steer it.
+ */
+const GAP_ROWS_POINTER = Object.freeze({ type: 'record_read', shape: 'gap', stored: true });
+
+const seqOf = (r: Record<string, unknown>): number | null => (typeof r['seq'] === 'number' && Number.isFinite(r['seq']) ? r['seq'] : null);
+
+// @anchor fold-gap-rows
+/**
+ * Records' gap rows folded to gaps, as pull-sync's gap_resolve does: rows of another shape are dropped and counted,
+ * rows not written by the detector dropped; per `gap_id` the row with the greatest numeric seq wins (a row with no
+ * numeric seq never wins over one with one); it maps to a gap with `id = gap_id` and `classification_metadata = meta`
+ * (a meta stored cut, `{cut, bytes, start}`, stays as it is), its other top-level fields kept.
+ */
+export function foldGapRows(list: unknown[]): { rows: GapRow[]; otherShapes: number } {
+  let otherShapes = 0;
+  const newest = new Map<string, Record<string, unknown>>();
+  for (const item of list) {
+    const r = item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
+    if (!r || r['shape'] !== 'gap') { otherShapes++; continue; }
+    if (r['role'] !== 'detector') continue;
+    const gapId = r['gap_id'];
+    if (typeof gapId !== 'string' || !gapId) continue;
+    const prev = newest.get(gapId);
+    const s = seqOf(r);
+    if (!prev || (s !== null && (seqOf(prev) === null || s > seqOf(prev)!))) newest.set(gapId, r);
+  }
+  const rows = [...newest.values()].map((r) => {
+    const { shape: _s, id: _i, seq: _q, t: _t, writer: _w, role: _r, input_refs: _in, gap_id, meta, ...rest } = r;
+    const m = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
+    return { ...rest, id: gap_id as string, classification_metadata: m } as GapRow;
+  });
+  return { rows, otherShapes };
+}
+
 async function fetchGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
   let res;
   try {
-    res = await resolveShape(
-      { type: 'substrateGap', status, limit: FULL_READ_LIMIT, ...(status === 'open' ? { include_held: true } : {}) },
-      { timeoutMs: READ_TIMEOUT_MS, read: true },
-    );
+    res = await resolveShape({ ...GAP_ROWS_POINTER }, { timeoutMs: READ_TIMEOUT_MS, read: true });
   } catch (err) {
     return { ok: false, message: describeResolveFailure(err) };
   }
-  if (res.status !== 200) return { ok: false, message: `substrateGap answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}` };
-  // development-vessel answers `{ shape, body: { gaps } }`; a forward may wrap it as `content`
-  // (an object, or a JSON string).
-  let body: any = res.body;
-  for (let depth = 0; depth < 3 && body && !Array.isArray(body.gaps); depth++) {
-    const inner = body.body ?? body.content;
-    if (typeof inner === 'string') {
-      try { body = JSON.parse(inner); } catch { break; }
-    } else {
-      body = inner;
-    }
-  }
-  const rows = Array.isArray(body?.gaps) ? (body.gaps as GapRow[]) : null;
-  if (!rows) return { ok: false, message: 'substrateGap returned no gap list' };
-  return { ok: true as const, rows, truncated: rows.length >= FULL_READ_LIMIT, readAt: now };
+  if (res.status !== 200) return { ok: false, message: `record_read answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}` };
+  // Only a list of rows, bare or under `content`, is an answer: anything else is a failed read, never an empty store.
+  const body: any = res.body;
+  const list = Array.isArray(body) ? body : Array.isArray(body?.content) ? body.content : null;
+  if (!list) return { ok: false, message: `record_read answered no list of rows: ${JSON.stringify(body).slice(0, 200)}` };
+  const { rows, otherShapes } = foldGapRows(list);
+  // The status filter reads each gap's newest row, after the fold.
+  return { ok: true as const, rows: rows.filter((g) => g.status === status), truncated: false, readAt: now, otherShapes };
 }
 
 function git(cwd: string, args: string[]): string | null {
@@ -188,7 +216,27 @@ export function pathMapper(workspace: string): PathMapper {
   return { kind: 'none', root, toStorePath: given };
 }
 
-export type MatchKind = 'edit site' | 'lease writes' | 'in directory' | 'mentioned';
+export type MatchKind = 'edit site' | 'names the file' | 'lease writes' | 'in directory' | 'mentioned';
+
+// @anchor protected-files
+/**
+ * The files a gap names in `meta.protected_files`, in the store's `repos/<vessel>/…` form: pull-sync's failing-test
+ * generator writes them so; an entry not in that form is placed under the gap's `repo`, else its `meta.vessel`, and
+ * dropped with neither. (`meta.quarantine_path` is a runtime path, not a repository file, and is not read.)
+ */
+export function protectedFiles(g: GapRow): string[] {
+  const m = g.classification_metadata ?? {};
+  const list = Array.isArray(m['protected_files']) ? (m['protected_files'] as unknown[]) : [];
+  const vessel = typeof g.repo === 'string' && g.repo.trim() ? g.repo.trim() : typeof m['vessel'] === 'string' ? (m['vessel'] as string).trim() : '';
+  const out: string[] = [];
+  for (const f of list) {
+    if (typeof f !== 'string' || !f.trim()) continue;
+    const p = f.trim().replace(/^\.\//, '');
+    if (p.startsWith('repos/')) out.push(p);
+    else if (vessel) out.push(`repos/${vessel.replace(/^repos\//, '')}/${p.replace(/^\/+/, '')}`);
+  }
+  return out;
+}
 
 const PARKING = new Set(['needs_information', 'needs_info', 'awaiting_operator_review']);
 
@@ -302,12 +350,13 @@ function when(iso: string | undefined, now = Date.now()): string {
 /** The gaps naming `storePath`, strongest match first, then most recently updated. */
 export function gapsForPath(rows: GapRow[], storePath: string): Array<{ gap: GapRow; match: MatchKind }> {
   const dir = storePath.replace(/\/+$/, '');
-  const order: Record<MatchKind, number> = { 'edit site': 0, 'lease writes': 1, 'in directory': 2, mentioned: 3 };
+  const order: Record<MatchKind, number> = { 'edit site': 0, 'names the file': 1, 'lease writes': 2, 'in directory': 3, mentioned: 4 };
   const out: Array<{ gap: GapRow; match: MatchKind }> = [];
   for (const g of rows) {
     const site = typeof g.classification_metadata?.['edit_site'] === 'string' ? (g.classification_metadata['edit_site'] as string).trim() : '';
     let match: MatchKind | null = null;
     if (site && site === dir) match = 'edit site';
+    else if (protectedFiles(g).some((f) => f === dir || f.startsWith(`${dir}/`))) match = 'names the file';
     else if (landingLeaseOn(g, dir) && leaseWrites(g, landingLeaseOf(g)!)) match = 'lease writes';
     else if (site && site.startsWith(`${dir}/`)) match = 'in directory';
     else if ((g.remedy?.goal ?? '').includes(dir) || (g.summary ?? '').includes(dir)) match = 'mentioned';
@@ -346,13 +395,13 @@ export function renderGap(g: GapRow, match: MatchKind, storePath?: string): stri
 /**
  * Whether the store names any gap under `prefix` (`repos/<vessel>`): a vessel the substrate
  * mounts has gaps; a repository it does not mount has none, and "no open gaps" there would
- * falsely read as "nothing in flight".
+ * falsely read as "no open gap names this file".
  */
 export function storeNamesPrefix(rows: GapRow[], prefix: string): boolean {
   const p = `${prefix}/`;
   return rows.some((g) => {
     const site = g.classification_metadata?.['edit_site'];
-    return (typeof site === 'string' && site.startsWith(p)) || (g.remedy?.goal ?? '').includes(p) || (g.summary ?? '').includes(p);
+    return (typeof site === 'string' && site.startsWith(p)) || protectedFiles(g).some((f) => f.startsWith(p)) || (g.remedy?.goal ?? '').includes(p) || (g.summary ?? '').includes(p);
   });
 }
 
@@ -379,7 +428,7 @@ export async function gapSummaryLines(files: string[], workspace: string): Promi
     const held = hits.filter((h) => holdOf(h.gap));
     lines.push(`  ${f}: ${read.truncated ? 'open gaps (the read may be truncated)' : `${hits.length} open gap(s)`}${leased.length ? `, ${leased.length} being landed by the system now` : ''}${held.length ? `, ${held.length} held` : ''}`);
   }
-  return lines.length ? ['', 'In flight on the substrate (path_activity for detail):', ...lines] : [];
+  return lines.length ? ['', 'Open gaps naming these files (path_activity for detail):', ...lines] : [];
 }
 
 /**

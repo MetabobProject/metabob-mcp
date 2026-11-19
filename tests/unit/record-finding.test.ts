@@ -148,7 +148,7 @@ test('record_finding: names the open gaps whose edit site is the file, from a wa
   const site = 'repos/kappa/src/db/client.ts';
   await installShapeStub({
     concept_create_write: () => written({ id: 'concept:cf_gap' }),
-    substrateGap: () => ({ body: { gaps: [{ id: 'gap-sqli', summary: 'query built by string concatenation', classification_metadata: { edit_site: site } }] } }),
+    record_read: () => ({ body: [{ id: 'row_1', shape: 'gap', seq: 1, role: 'detector', writer: 'pull-sync', input_refs: [], gap_id: 'gap-sqli', status: 'open', summary: 'query built by string concatenation', meta: { edit_site: site } }] }),
   });
   await readGaps('open');
   const input = RecordFinding.InputSchema.parse({ files: [site], summary: 'SQL injection', severity: 'HIGH', category: 'security' });

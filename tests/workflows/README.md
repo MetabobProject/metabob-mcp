@@ -32,7 +32,7 @@ machine. The suite needs no network and no containers.
 
 ## The fake substrate
 
-`harness/fake-substrate.ts` serves discovery, identity, goal-host, activity-api, concept-db and development-vessel's gap store (`substrateGap`), each on
+`harness/fake-substrate.ts` serves discovery, identity, goal-host, activity-api, records (whose `gap` rows path_activity reads) and concept-db, each on
 `127.0.0.1` at an OS-assigned port, or at a pinned one for a scenario whose port arithmetic matters. Its
 `/bootstrap` advertises the fake identity (or `bootstrapIdentity`, or an HTML page with `bootstrapHtml`),
 and identity accepts only the keys in `validKeys`. It is split in two:

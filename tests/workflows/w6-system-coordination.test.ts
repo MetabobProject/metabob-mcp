@@ -1,7 +1,7 @@
 /**
  * W6 — working alongside the system (skills/metabob-substrate/SKILL.md, "Working alongside the
  * system"), through a real server process against the fake substrate:
- *   path_activity reads the whole gap store once and serves later calls from its cache;
+ *   path_activity reads the detector's gap rows from records once and serves later calls from its cache;
  *   analyze_impact adds the in-flight line only from that cache, never starting the read;
  *   resolve_impulse forwards any shape through discovery, once, and leaves the decision to its producer;
  *   a detached server's local tools make no substrate request at all.
@@ -27,15 +27,20 @@ let detachedWs: string;
 
 beforeAll(async () => {
   fake = await FakeSubstrate.start();
-  fake.state.gaps = [
-    { id: 'gap-landing', status: 'open', category: 'systematic_failure', route: 'composable', updated_at: '2026-09-01T00:00:00Z',
-      classification_metadata: { edit_site: FILE, landing_lease: { holder: 'node2', attempt: 'a-1', until: '2099-01-01T00:00:00Z' } } },
-    { id: 'gap-held', status: 'open', category: 'verification', updated_at: '2026-09-02T00:00:00Z',
-      classification_metadata: { edit_site: FILE, operator_hold: true, operator_hold_reason: 'operator-reviewed fix only' } },
-    { id: 'gap-queued', status: 'open', category: 'edit_intent_route', updated_at: '2026-10-19T00:00:00Z', remedy: { goal: `edit ${FILE}: x` } },
-    { id: 'gap-elsewhere', status: 'open', category: 'other', updated_at: '2026-10-20T00:00:00Z',
-      classification_metadata: { edit_site: 'repos/activity-api/src/x.ts' } },
-  ];
+  // The detector's gap rows in records, as pull-sync writes them: gap_id, status, summary, meta; a gap's state is its newest row.
+  const gap = (seq: number, gap_id: string, fields: Record<string, unknown>) =>
+    ({ id: `row_gap_${seq}`, shape: 'gap', seq, t: '2026-11-19T00:00:00Z', writer: 'pull-sync', role: 'detector', input_refs: [], gap_id, status: 'open', ...fields });
+  fake.state.rows.push(
+    gap(1, 'gap-landing', { category: 'systematic_failure', route: 'composable', updated_at: '2026-09-01T00:00:00Z',
+      meta: { edit_site: FILE, landing_lease: { holder: 'node2', attempt: 'a-1', until: '2099-01-01T00:00:00Z' } } }),
+    gap(2, 'gap-held', { category: 'verification', updated_at: '2026-09-02T00:00:00Z',
+      meta: { edit_site: FILE, operator_hold: true, operator_hold_reason: 'operator-reviewed fix only' } }),
+    gap(3, 'gap-queued', { category: 'edit_intent_route', updated_at: '2026-10-19T00:00:00Z', remedy: { goal: `edit ${FILE}: x` } }),
+    gap(4, 'gap-elsewhere', { category: 'other', updated_at: '2026-10-20T00:00:00Z', meta: { edit_site: 'repos/activity-api/src/x.ts' } }),
+    // An older row of a gap closed since: its newest row says closed, so it is not open.
+    gap(5, 'gap-closed', { category: 'other', meta: { edit_site: FILE } }),
+    gap(6, 'gap-closed', { category: 'other', status: 'closed', meta: { edit_site: FILE } }),
+  );
   // A super-repo layout: repos/<vessel>/… at the workspace root.
   const files = { [FILE]: 'export function main() { return 1; }\n' };
   attachedWs = makeWorkspace('w6-super', files);
@@ -52,7 +57,7 @@ afterAll(async () => {
   cleanupTempDirs();
 }, BOOT_TIMEOUT_MS);
 
-const gapReads = () => fake.requestsFor('substrateGapRead');
+const gapReads = () => fake.requestsFor('recordRead');
 
 describe('W6 working alongside the system', () => {
   test('analyze_impact with a cold cache points at path_activity and starts no read', async () => {
@@ -62,7 +67,7 @@ describe('W6 working alongside the system', () => {
     expect(gapReads()).toHaveLength(0);
   });
 
-  test('path_activity reads the whole store once, through discovery, and shows each state', async () => {
+  test('path_activity reads the detector\'s gap rows once, through discovery, and shows each state', async () => {
     const out = await server.text('path_activity', { paths: [FILE] });
     expect(out).toContain(`${FILE} — 3 open gaps: 1 being landed by the system now, 1 held, 1 queued`);
     expect(out).toContain('landing lease: held by node2 (the holder\'s own claim)');
@@ -71,9 +76,9 @@ describe('W6 working alongside the system', () => {
     expect(out).not.toContain('gap-elsewhere');
     const reads = gapReads();
     expect(reads).toHaveLength(1);
-    // The full read: the store has no path filter. A filtered read is a deliberate change to this pointer and
-    // to this test, never a return to the full read.
-    expect(reads[0]!.body).toMatchObject({ type: 'substrateGap', status: 'open', limit: 1_000_000, include_held: true });
+    expect(out).not.toContain('gap-closed');
+    // Exactly records' gap rows as stored: no other field reaches the pointer, so the read can never widen.
+    expect(reads[0]!.body).toEqual({ type: 'record_read', shape: 'gap', stored: true });
     expect(reads[0]!.forwarded).toBe(true);
   });
 
@@ -94,7 +99,7 @@ describe('W6 working alongside the system', () => {
     const before = fake.requests.length;
     expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { type: 'shell' } })).toStartWith('resolve_impulse: no_producer(shell)');
     expect(fake.requests.slice(before).some(r => r.rawBody.includes('"shell"'))).toBe(true);
-    expect(await server.text('resolve_impulse', { shape: 'substrateGap', pointer: { status: 'open', limit: 1 } })).toStartWith('resolve_impulse substrateGap → discovery /resolve [200]');
+    expect(await server.text('resolve_impulse', { shape: 'record_read', pointer: { shape: 'gap' } })).toStartWith('resolve_impulse record_read → discovery /resolve [200]');
   });
 
   test('a detached server\'s local tools make no substrate request', async () => {

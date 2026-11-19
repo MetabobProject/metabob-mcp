@@ -1,21 +1,20 @@
 // Contract (input schema, behaviour): SPEC §path_activity
 /**
- * path_activity — before editing shared files, what the system has in flight on them:
- * the open gaps that name each file, and for each whether the system is landing it now
- * (a held landing lease), it is queued for the system, or it is held by an operator
- * ruling. Read-only: one full read of the gap store, cached across calls
- * (src/tools/_gap-activity.ts).
+ * path_activity — before editing shared files, the open gaps naming them: for each file,
+ * the gaps whose newest detector row names it, each held by an operator ruling or queued
+ * for the system, with a landing lease shown only if a gap row still carries one.
+ * Read-only: one read of records' gap rows, cached across calls (src/tools/_gap-activity.ts).
  */
 
 import { z } from 'zod';
 import type { AnalysisAPIClient } from '../api-client.js';
 import { activeWorkspacePath } from '../local-index.js';
-import { gapsForPath, holdOf, landingLeaseOn, pathMapper, readGaps, renderGap, storeNamesPrefix, type GapRow } from './_gap-activity.js';
+import { gapsForPath, holdOf, landingLeaseOn, pathMapper, protectedFiles, readGaps, renderGap, storeNamesPrefix, type GapRow } from './_gap-activity.js';
 
 export const PathActivityTool = {
   name: 'path_activity',
   description:
-    "Before editing shared files: what the substrate has in flight on them. For each path, the open gaps that name it (as their edit site, in a directory, or in their goal), and for each gap whether the system is landing it right now (a live landing lease: an edit before it ends is lost or conflicts when the change lands), it is queued for the system (prefer letting it land, or dispatch it), or it is held by an operator ruling (with its review date). Paths are workspace-relative or in the gap store's `repos/<vessel>/…` form. Read-only.",
+    "Before editing shared files: the open gaps naming them, from the detector's gap rows in records. For each path, the open gaps that name it (as their edit site, as a file they name, in a directory, or in their summary or goal), and for each gap whether it is held by an operator ruling (with its review date) or queued for the system (prefer letting it land, or dispatch it). A landing lease is shown only if a gap row still carries one. Paths are workspace-relative or in the gap store's `repos/<vessel>/…` form. Read-only.",
   inputSchema: {
     type: 'object' as const,
     properties: {
@@ -53,13 +52,13 @@ const NEXT = {
   landing: 'Being landed: an edit before the lease ends is lost or conflicts when the change lands. Tell your user before editing this file.',
   queued: 'Queued: prefer letting the system land it, or dispatch it as a goal.',
   held: 'Held: the ruling says what lifts it; it is not open work.',
-  none: 'Nothing in flight: make the change, and record it.',
+  none: 'No open gap names these paths: make the change, and record it.',
   unplaced: 'No gap names these paths, but gaps without an edit site are not ruled out: make the change, and record it.',
 };
 
 // @anchor unplaced-gaps
 /**
- * Open gaps that carry no edit site, by category, scoped to the vessels of the paths no gap named: path_activity can
+ * Open gaps that carry no edit site and name no file (`protected_files`), by category, scoped to the vessels of the paths no gap named: path_activity can
  * place such a gap on a path only where its text names it. A `repos/<v>/…` path counts the gaps whose remedy names
  * vessel <v> or no vessel; a super-repo path outside `repos/` counts those that name no vessel.
  */
@@ -67,7 +66,7 @@ function unplacedGaps(rows: GapRow[], scopes: Set<string | null>): { count: numb
   const counts = new Map<string, number>();
   for (const g of rows) {
     const site = g.classification_metadata?.['edit_site'];
-    if (typeof site === 'string' && site.trim()) continue;
+    if ((typeof site === 'string' && site.trim()) || protectedFiles(g).length) continue;
     const vessel = g.remedy?.vessel?.trim() || null;
     if (vessel && !scopes.has(vessel)) continue;
     counts.set(g.category ?? 'uncategorised', (counts.get(g.category ?? 'uncategorised') ?? 0) + 1);
@@ -90,17 +89,16 @@ export async function handle(input: PathActivityInput, _apiClient: AnalysisAPICl
 export async function pathActivityReport(input: PathActivityInput, workspace: string): Promise<string> {
   const mapper = pathMapper(workspace);
   const open = await readGaps('open');
-  if (!open.ok) {
-    // A substrate that serves no gap store has nothing in flight to check: not an error to stop on before an edit.
-    if (/^no_producer\(substrateGap\)/.test(open.message)) {
-      return 'path_activity: this substrate keeps no gap store (no substrateGap producer answered), so there is nothing in flight to check on these paths. Go ahead with the edit; record_finding for anything you notice, mark_complete for what you fix.';
-    }
-    return `path_activity: ${open.message}`;
-  }
+  // A read that fails is said as such: never an empty answer, which would read as no gap naming the paths.
+  if (!open.ok) return `path_activity: the gap rows could not be read: ${open.message}`;
   const closed = input.include_closed ? await readGaps('closed') : null;
-  if (closed && !closed.ok) return `path_activity: ${closed.message}`;
+  if (closed && !closed.ok) return `path_activity: the gap rows could not be read: ${closed.message}`;
 
-  const lines: string[] = [];
+  const lines: string[] = ["Open gaps naming these paths, from the detector's gap rows in records:", ''];
+  const otherShapes = open.otherShapes + (closed?.ok ? closed.otherShapes : 0);
+  if (otherShapes) {
+    lines.push(`records answered ${otherShapes} row${otherShapes === 1 ? '' : 's'} of another shape to the gap read; they were dropped and are not shown.`, '');
+  }
   const seen = new Set<keyof typeof NEXT>();
   // The vessels (null: outside repos/) of the paths no gap named, for the count of gaps that name no path.
   const unmatched = new Set<string | null>();
@@ -108,7 +106,7 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
     lines.push('This repository is not one the gap store names (neither the super-repo nor a vessel checkout); only paths given as repos/<vessel>/… are checked.', '');
   }
   // The origin-basename rule maps any repository; one the substrate does not mount has no gaps,
-  // and its "no open gaps" must not read as "nothing in flight".
+  // and its "no open gaps" must not read as "no open gap names this file".
   const unmounted = mapper.kind === 'vessel' && mapper.prefix && !storeNamesPrefix(open.rows, mapper.prefix) ? mapper.prefix : null;
   // @anchor unmounted-repo
   // The plugin's edit check (scripts/claude-plugin/edit-check.mjs) matches this sentence to stop asking for
