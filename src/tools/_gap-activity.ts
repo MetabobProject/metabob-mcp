@@ -41,8 +41,11 @@ export interface GapRow {
 }
 
 export type GapRead =
-  /** `otherShapes`: rows of a shape other than gap that the answer carried, dropped unread. */
-  | { ok: true; rows: GapRow[]; truncated: boolean; readAt: number; otherShapes: number }
+  /**
+   * `otherShapes`: rows of a shape other than gap that the answer carried, dropped unread; `otherRoles`: gap rows not
+   * written by the detector that the answer carried although the read was narrowed to the detector, dropped unread.
+   */
+  | { ok: true; rows: GapRow[]; truncated: boolean; readAt: number; otherShapes: number; otherRoles: number }
   | { ok: false; message: string };
 
 type CachedRead = GapRead & { ok: true };
@@ -98,27 +101,43 @@ export function peekGaps(status: 'open' | 'closed', now = Date.now()): CachedRea
 
 // @anchor gap-rows-pointer
 /**
- * The one pointer the gap read sends: records' rows of shape gap, as stored. A constant, never built from caller input:
- * the shared sign-in may read the detector's gap rows and no other row kind, so nothing may widen or steer it.
+ * The one pointer the gap read sends: records' rows of shape gap written by the detector, as stored, narrowed by records
+ * itself (`where`), so no other row kind is read under the shared sign-in. A constant, never built from caller input,
+ * and each read sends its own frozen copy, `where` included, so nothing shares or changes it.
  */
-const GAP_ROWS_POINTER = Object.freeze({ type: 'record_read', shape: 'gap', stored: true });
+const GAP_ROWS_POINTER = Object.freeze({ type: 'record_read', shape: 'gap', where: Object.freeze({ role: 'detector' }), stored: true });
+
+function gapRowsPointer(): Readonly<Record<string, unknown>> {
+  return Object.freeze({ ...GAP_ROWS_POINTER, where: Object.freeze({ ...GAP_ROWS_POINTER.where }) });
+}
+
+/** What an answer that is not rows looked like, without its values: its type and, for an object, its top-level keys. */
+function bodyForm(body: unknown): string {
+  if (body === null) return 'null';
+  if (Array.isArray(body)) return `a list of ${body.length}`;
+  if (typeof body !== 'object') return typeof body;
+  const keys = Object.keys(body as Record<string, unknown>);
+  return `an object with keys ${keys.slice(0, 10).map((k) => JSON.stringify(k.slice(0, 40))).join(', ') || '(none)'}${keys.length > 10 ? `, … (${keys.length} in all)` : ''}`;
+}
 
 const seqOf = (r: Record<string, unknown>): number | null => (typeof r['seq'] === 'number' && Number.isFinite(r['seq']) ? r['seq'] : null);
 
 // @anchor fold-gap-rows
 /**
  * Records' gap rows folded to gaps, as pull-sync's gap_resolve does: rows of another shape are dropped and counted,
- * rows not written by the detector dropped; per `gap_id` the row with the greatest numeric seq wins (a row with no
+ * rows not written by the detector dropped and counted (records narrows the read to the detector, so this is a second
+ * guard); per `gap_id` the row with the greatest numeric seq wins (a row with no
  * numeric seq never wins over one with one); it maps to a gap with `id = gap_id` and `classification_metadata = meta`
  * (a meta stored cut, `{cut, bytes, start}`, stays as it is), its other top-level fields kept.
  */
-export function foldGapRows(list: unknown[]): { rows: GapRow[]; otherShapes: number } {
+export function foldGapRows(list: unknown[]): { rows: GapRow[]; otherShapes: number; otherRoles: number } {
   let otherShapes = 0;
+  let otherRoles = 0;
   const newest = new Map<string, Record<string, unknown>>();
   for (const item of list) {
     const r = item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null;
     if (!r || r['shape'] !== 'gap') { otherShapes++; continue; }
-    if (r['role'] !== 'detector') continue;
+    if (r['role'] !== 'detector') { otherRoles++; continue; }
     const gapId = r['gap_id'];
     if (typeof gapId !== 'string' || !gapId) continue;
     const prev = newest.get(gapId);
@@ -130,24 +149,24 @@ export function foldGapRows(list: unknown[]): { rows: GapRow[]; otherShapes: num
     const m = meta && typeof meta === 'object' && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {};
     return { ...rest, id: gap_id as string, classification_metadata: m } as GapRow;
   });
-  return { rows, otherShapes };
+  return { rows, otherShapes, otherRoles };
 }
 
 async function fetchGaps(status: 'open' | 'closed', now = Date.now()): Promise<GapRead> {
   let res;
   try {
-    res = await resolveShape({ ...GAP_ROWS_POINTER }, { timeoutMs: READ_TIMEOUT_MS, read: true });
+    res = await resolveShape(gapRowsPointer(), { timeoutMs: READ_TIMEOUT_MS, read: true });
   } catch (err) {
     return { ok: false, message: describeResolveFailure(err) };
   }
-  if (res.status !== 200) return { ok: false, message: `record_read answered ${res.status}: ${JSON.stringify(res.body).slice(0, 200)}` };
+  if (res.status !== 200) return { ok: false, message: `record_read answered ${res.status} (${bodyForm(res.body)})` };
   // Only a list of rows, bare or under `content`, is an answer: anything else is a failed read, never an empty store.
   const body: any = res.body;
   const list = Array.isArray(body) ? body : Array.isArray(body?.content) ? body.content : null;
-  if (!list) return { ok: false, message: `record_read answered no list of rows: ${JSON.stringify(body).slice(0, 200)}` };
-  const { rows, otherShapes } = foldGapRows(list);
+  if (!list) return { ok: false, message: `record_read answered no list of rows (${bodyForm(body)})` };
+  const { rows, otherShapes, otherRoles } = foldGapRows(list);
   // The status filter reads each gap's newest row, after the fold.
-  return { ok: true as const, rows: rows.filter((g) => g.status === status), truncated: false, readAt: now, otherShapes };
+  return { ok: true as const, rows: rows.filter((g) => g.status === status), truncated: false, readAt: now, otherShapes, otherRoles };
 }
 
 function git(cwd: string, args: string[]): string | null {

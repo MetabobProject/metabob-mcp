@@ -40,6 +40,8 @@ beforeAll(async () => {
     // An older row of a gap closed since: its newest row says closed, so it is not open.
     gap(5, 'gap-closed', { category: 'other', meta: { edit_site: FILE } }),
     gap(6, 'gap-closed', { category: 'other', status: 'closed', meta: { edit_site: FILE } }),
+    // A person's gap row on the same file: records narrows the read to the detector, so it is never served.
+    { ...gap(7, 'gap-by-person', { category: 'person', summary: `PERSON-ROW-TEXT about ${FILE}`, meta: { edit_site: FILE } }), role: 'person' },
   );
   // A super-repo layout: repos/<vessel>/… at the workspace root.
   const files = { [FILE]: 'export function main() { return 1; }\n' };
@@ -77,8 +79,11 @@ describe('W6 working alongside the system', () => {
     const reads = gapReads();
     expect(reads).toHaveLength(1);
     expect(out).not.toContain('gap-closed');
+    expect(out).not.toContain('PERSON-ROW-TEXT');
+    expect(out).not.toContain('gap-by-person');
+    expect(out).not.toContain('not written by the detector');
     // Exactly records' gap rows as stored: no other field reaches the pointer, so the read can never widen.
-    expect(reads[0]!.body).toEqual({ type: 'record_read', shape: 'gap', stored: true });
+    expect(reads[0]!.body).toEqual({ type: 'record_read', shape: 'gap', where: { role: 'detector' }, stored: true });
     expect(reads[0]!.forwarded).toBe(true);
   });
 

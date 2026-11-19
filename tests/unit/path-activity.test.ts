@@ -42,7 +42,7 @@ function gapRows(gaps: Array<Record<string, any>>): Array<Record<string, any>> {
 /** A substrate whose records answers these gaps as detector gap rows. */
 const serveGaps = (gaps: Array<Record<string, any>>) => installShapeStub({ record_read: () => ({ body: gapRows(gaps) }) });
 /** The one pointer the gap read may send. */
-const GAP_POINTER = { type: 'record_read', shape: 'gap', stored: true };
+const GAP_POINTER = { type: 'record_read', shape: 'gap', where: { role: 'detector' }, stored: true };
 
 function git(cwd: string, ...args: string[]) {
   execFileSync('git', args, { cwd, stdio: 'ignore' });
@@ -156,6 +156,29 @@ describe("records' gap rows", () => {
     expect(out).toContain('  gap-d  bydetector  edit site');
     expect(out).not.toContain('gap-person');
     expect(out).not.toContain('personclosed');
+    // This records ignored the read's `where`: the client guard drops the rows and says only how many.
+    expect(out).toContain('records answered 2 gap rows not written by the detector to a read narrowed to the detector; they were dropped and are not shown.');
+  });
+
+  // A records that honours `where` as records does: each key compared as a string, on the server.
+  const honouringWhere = (rows: Array<Record<string, any>>) => (p: Record<string, any>) => ({
+    body: rows.filter((r) => (p.shape === undefined || r.shape === p.shape)
+      && Object.entries(p.where ?? {}).every(([k, v]) => String(r[k]) === String(v))),
+  });
+  const PERSON_ROW = row({ id: 'pp', seq: 7, gap_id: 'gap-by-person', role: 'person', category: 'person', summary: `PERSON-ROW-TEXT about ${FILE}`, meta: { edit_site: FILE } });
+
+  test('MUST-FAIL: the read is narrowed to the detector on the server: a person\'s gap row is never served, so never shown or counted', async () => {
+    const stub = await installShapeStub({ record_read: honouringWhere([
+      row({ id: 'd1', seq: 1, gap_id: 'gap-det', category: 'verification', meta: { edit_site: FILE } }), PERSON_ROW,
+    ]) });
+    const out = await pathActivity({ paths: [FILE] }, apiClient);
+    expect(stub.calls('record_read')).toEqual([GAP_POINTER]);
+    expect(stub.calls('record_read')[0]!.where).toEqual({ role: 'detector' });
+    expect(out).toContain(`${FILE} — 1 open gap`);
+    expect(out).toContain('  gap-det  verification  edit site');
+    expect(out).not.toContain('PERSON-ROW-TEXT');
+    expect(out).not.toContain('gap-by-person');
+    expect(out).not.toContain('not written by the detector');
   });
 
   test('MUST-FAIL: a returned row of another shape is dropped, counted, and never surfaces', async () => {
@@ -177,6 +200,7 @@ describe("records' gap rows", () => {
     const answers = [
       { body: { rows: [] } }, { body: { content: JSON.stringify([]) } }, { body: { gaps: [] } }, { body: 'nope' },
       { status: 500, body: { error: 'boom' } }, { status: 403, body: { error: 'caller_lacks_scope' } },
+      { body: { content: { summary: 'SECRET-ROW-TEXT' } } }, { status: 502, body: [{ summary: 'SECRET-ROW-TEXT' }] },
     ];
     for (const a of answers) {
       clearGapReadCache();
@@ -184,6 +208,9 @@ describe("records' gap rows", () => {
       const out = await pathActivity({ paths: [FILE] }, apiClient);
       expect(out).toStartWith('path_activity: the gap rows could not be read');
       expect(out).not.toContain('no open gaps');
+      // A failure names the answer's form, never its values: no row text reaches the output.
+      expect(out).not.toContain('SECRET-ROW-TEXT');
+      expect(out).not.toContain('caller_lacks_scope');
     }
     clearGapReadCache();
     await installShapeStub({});

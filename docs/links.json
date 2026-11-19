@@ -218,8 +218,8 @@
         "why": "apiKeyFile is a second source for the one key; C1-C11 (one anchor {discovery,key}, client-only, no registration) are unchanged, and the retirement is already stated under C11"
       },
       "docs/DEPLOYING-AGENTS.md": {
-        "at": "8fb8fe4",
-        "why": "its agent configs write each agent's own key inline; apiKeyFile changes none of its examples or steps"
+        "at": "0045706",
+        "why": "path_activity's instruction line now says open gaps naming a file; this guide names the tool only by tool set and edit check, no change needed"
       },
       "docs/DOCLINKS.md": {
         "at": "8e8a277",

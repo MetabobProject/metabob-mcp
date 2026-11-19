@@ -99,6 +99,10 @@ export async function pathActivityReport(input: PathActivityInput, workspace: st
   if (otherShapes) {
     lines.push(`records answered ${otherShapes} row${otherShapes === 1 ? '' : 's'} of another shape to the gap read; they were dropped and are not shown.`, '');
   }
+  const otherRoles = open.otherRoles + (closed?.ok ? closed.otherRoles : 0);
+  if (otherRoles) {
+    lines.push(`records answered ${otherRoles} gap row${otherRoles === 1 ? '' : 's'} not written by the detector to a read narrowed to the detector; they were dropped and are not shown.`, '');
+  }
   const seen = new Set<keyof typeof NEXT>();
   // The vessels (null: outside repos/) of the paths no gap named, for the count of gaps that name no path.
   const unmatched = new Set<string | null>();
