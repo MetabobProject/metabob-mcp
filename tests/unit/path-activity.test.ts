@@ -422,6 +422,19 @@ describe('path_activity', () => {
   });
 });
 
+describe('a vessel checkout whose only gap names a file through protected_files', () => {
+  test('the repository counts as mounted and the gap is shown on the workspace-relative path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'vessel-protected-'));
+    git(root, 'init', '-q');
+    git(root, 'remote', 'add', 'origin', 'git@github.com:org/goal-host-vessel.git');
+    await serveGaps([{ id: 'gap-pf', category: 'failing_test', repo: 'goal-host-vessel', summary: 'Failing test(s), detected by pull-sync', classification_metadata: { protected_files: ['repos/goal-host-vessel/test/judge.test.ts'], filed_by: 'pull-sync failing-test generator' } }]);
+    const out = await pathActivityReport({ paths: ['test/judge.test.ts'] }, root);
+    expect(out).toContain('repos/goal-host-vessel/test/judge.test.ts — 1 open gap');
+    expect(out).toContain('  gap-pf  failing_test  names the file');
+    expect(out).not.toContain('may not be a repository this substrate mounts');
+  });
+});
+
 describe('gaps without an edit site', () => {
   function superRepo() {
     const root = mkdtempSync(join(tmpdir(), 'super-unplaced-'));
@@ -450,6 +463,15 @@ describe('gaps without an edit site', () => {
     clearGapReadCache();
     const own = await pathActivityReport({ paths: ['repos/goal-host-vessel/src/none.ts'] }, superRepo());
     expect(own).toContain('3 open gaps carry no edit site (docs-drift 3)');
+  });
+
+  test('a gap placed by protected_files is not counted as carrying no edit site', async () => {
+    await serveGaps([{ id: 'gap-pf', category: 'failing_test', repo: 'goal-host-vessel', summary: 'Failing test(s), detected by pull-sync', classification_metadata: { protected_files: ['repos/goal-host-vessel/test/judge.test.ts'], filed_by: 'pull-sync failing-test generator' } }]);
+    const out = await pathActivityReport({ paths: ['repos/goal-host-vessel/src/none.ts'] }, superRepo());
+    expect(out).toContain('repos/goal-host-vessel/src/none.ts — no open gaps');
+    expect(out).not.toContain('no edit site');
+    expect(out).not.toContain('gaps without an edit site are not ruled out');
+    expect(out).toContain('No open gap names these paths: make the change, and record it.');
   });
 
   test('with every open gap placed on a path, "no open gaps" is nothing in flight', async () => {
