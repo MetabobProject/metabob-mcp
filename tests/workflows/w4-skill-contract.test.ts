@@ -17,7 +17,7 @@ import { McpServer, cleanupTempDirs, makeWorkspace } from './harness/mcp-client'
 setDefaultTimeout(30_000);
 const BOOT_TIMEOUT_MS = 30_000;
 
-const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob-substrate', 'SKILL.md'), 'utf8');
+const SKILL = readFileSync(resolve(import.meta.dir, '..', '..', 'skills', 'metabob-substrate', 'SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
 
 /** Identifiers the skill writes in backticks that are values, not tools or parameters. */
 const NOT_TOOLS = new Set(['repo_anchor', 'code_finding', 'finding_verdict', 'human_input', 'not_reached', 'workspace_undetermined', 'record_write']);
